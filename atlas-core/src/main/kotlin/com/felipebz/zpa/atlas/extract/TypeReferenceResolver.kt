@@ -10,7 +10,7 @@ import com.felipebz.zpa.atlas.model.Status
 data class TypeOutcome(val status: Status, val entityKey: String?, val reason: String?, val candidateKeys: List<String> = emptyList())
 
 /**
- * Resolves the names of datatypes (F1.1): `%TYPE`/`%ROWTYPE` anchors to the first object they name, never to the type
+ * Resolves the names of datatypes: `%TYPE`/`%ROWTYPE` anchors to the first object they name, never to the type
  * they end at, and named types to their declaration. Lexical capture (locals) is the caller's legacy-symbol check.
  * Package values and types use the spellings and the enclosing-package rule of [CallResolver].
  *

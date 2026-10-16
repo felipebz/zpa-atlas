@@ -77,7 +77,7 @@ data class ComparisonResult(
 )
 
 /**
- * Compares the object-level edges of an index with the database's `ALL_DEPENDENCIES` (F0.4 §2). It reads the index
+ * Compares the object-level edges of an index with the database's `ALL_DEPENDENCIES`. It reads the index
  * file and, for the text classes, the sources; it needs neither zpa-core nor a database connection.
  */
 class DependencyComparison(
@@ -115,7 +115,7 @@ class DependencyComparison(
         val (runSchema, recordedRoot) = connection.query("SELECT compilation_schema, sources_root FROM run") { it.getString(1) to it.getString(2) }.single()
         val root = sourcesRoot ?: Path.of(recordedRoot).takeIf { Files.isDirectory(it) }
 
-        // ---- units to objects (§2.1)
+        // ---- units to objects
         val missingOwner = ArrayList<String>()
         val units = connection.query(
             """SELECT u.id, u.kind, u.name, f.path, f.compilation_schema, u.start_line, u.start_col, u.end_line, u.end_col, f.encoding
@@ -137,7 +137,7 @@ class DependencyComparison(
         }
         val unitsById = units.associateBy { it.id }
 
-        // ---- entity projection (§2.2)
+        // ---- entity projection
         val entities = connection.query("SELECT id, key, kind, schema_name, name, parent_id FROM entity") { rs ->
             rs.getLong(1) to EntityRow(rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), (rs.getObject(6) as Number?)?.toLong())
         }.toMap()
@@ -252,7 +252,7 @@ class DependencyComparison(
             .distinctBy { listOf(it.owner, it.name, it.type, it.referencedOwner, it.referencedName, it.referencedLink) }
             .sortedWith(DatabaseDependencies.DEPENDENCY_ORDER)
 
-        // ---- sources (§2.4)
+        // ---- sources
         val stored = database.sources.groupBy { DbObjectId(it.owner, it.name, it.type) }
             .mapValues { (_, lines) -> lines.sortedBy { it.line }.joinToString("") { it.text } }
         val unitTexts = HashMap<DbObjectId, String>()
@@ -276,7 +276,7 @@ class DependencyComparison(
         }
         val names = unitTexts.mapValues { PlSqlText.names(it.value) }
 
-        // ---- matching and classification (§2.3)
+        // ---- matching and classification
         val matched = ArrayList<MatchedEdge>()
         val databaseOnly = ArrayList<DatabaseOnlyEdge>()
         val matchedIndex = HashSet<Pair<DbObjectId, Target>>()
@@ -389,7 +389,7 @@ class DependencyComparison(
         createStatement().use { s -> s.executeQuery(sql).use { rs -> while (rs.next()) action(rs) } }
 
     companion object {
-        /** Built-in packages that every unit depends on (from `USER_DEPENDENCIES` on Oracle 26ai, see the F0.4 report). */
+        /** Built-in packages that every unit depends on (from `USER_DEPENDENCIES` on Oracle 26ai). */
         val DEFAULT_BUILTINS = setOf("STANDARD", "DBMS_STANDARD", "PLITBLM", "SYS_STUB_FOR_PURITY_ANALYSIS", "DUAL")
 
         val BUILTIN_OWNERS = setOf("SYS", "PUBLIC")

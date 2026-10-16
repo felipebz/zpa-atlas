@@ -149,7 +149,7 @@ class CallResolver(
         return null
     }
 
-    /** A constructor depends on its type (F1.1 §4); null keeps the skip when no type is identified. */
+    /** A constructor depends on its type; null keeps the skip when no type is identified. */
     private fun constructor(resolution: ProjectNamedTypeResolution): CallOutcome.Call? = when (resolution.status) {
         ProjectNamedTypeResolution.Status.RESOLVED -> CallOutcome.Call(Status.RESOLVED, catalog.keyOf(resolution.declaration.get().id), null)
         ProjectNamedTypeResolution.Status.AMBIGUOUS ->
@@ -158,7 +158,7 @@ class CallResolver(
         else -> null
     }
 
-    /** §4.3: the public result of [resolution], combined with the private body declarations of the inventory. */
+    /** The public result of [resolution], combined with the private body declarations of the inventory. */
     private fun packageMember(
         inventory: List<ProjectPackageSubprogramView>,
         resolution: ProjectCallResolution,
@@ -198,7 +198,7 @@ class CallResolver(
     private fun applicable(resolution: ProjectCallResolution): List<String> =
         resolution.candidates.filter { it.applicability == ProjectCallCandidate.Applicability.APPLICABLE }.map { catalog.keyOf(it.declaration.id) }
 
-    /** §4.4, for every status but a name the project does not know ([notInProject]). */
+    /** The outcome for every status but a name the project does not know ([notInProject]). */
     private fun map(resolution: ProjectCallResolution): CallOutcome.Call {
         val status = resolution.status
         return when (status) {
@@ -226,7 +226,7 @@ class CallResolver(
      * A name no spelling finds. A missing member of a declared owner (or a declared full key) is `UNKNOWN_MEMBER`
      * without entity; otherwise multi-segment names get an external entity. When `A` is a schema of the run:
      * `db:A.B` without parent, `db:A.B.C` under package `db:A.B`. Otherwise: `db:~.A.B` under package `db:~.A`
-     * (a package, a synonym or a schema: unknown until F1), and `db:~.A.B.C` without parent.
+     * (a package, a synonym or a schema: not known), and `db:~.A.B.C` without parent.
      */
     private fun notInProject(names: List<String>, kind: ProjectCallKind, unitSchema: String?): CallOutcome.Call {
         val notFound = CallOutcome.Call(Status.UNRESOLVED, null, "NOT_IN_PROJECT")

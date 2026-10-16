@@ -249,7 +249,7 @@ class FileExtractor(
                 return
             }
             DmlGrammar.EXPLAIN_PLAN -> return
-            // The SQL text is not parsed (F2); calls that build it are still PL/SQL calls, found below.
+            // The SQL text is not parsed; calls that build it are still PL/SQL calls, found below.
             PlSqlGrammar.EXECUTE_IMMEDIATE_STATEMENT -> dynamic(node, after(node, PlSqlKeyword.IMMEDIATE), context)
             PlSqlGrammar.OPEN_FOR_STATEMENT -> if (!node.hasDirectChildren(DmlGrammar.SELECT_EXPRESSION)) {
                 dynamic(node, after(node, PlSqlKeyword.FOR), context)
@@ -325,7 +325,7 @@ class FileExtractor(
     /**
      * One `CALL` occurrence for a `METHOD_CALL` or a `CALL_STATEMENT` without arguments ([node] is then the name).
      * Names the legacy symbol table binds to a local value or type are not calls; a nested subprogram is
-     * `LOCAL_SUBPROGRAM` (local entities are F3).
+     * `LOCAL_SUBPROGRAM` (local subprograms are not entities).
      */
     private fun callSite(node: AstNode, context: Context, statementId: Int?) {
         val isMethodCall = node.type == PlSqlGrammar.METHOD_CALL

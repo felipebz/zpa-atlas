@@ -30,7 +30,7 @@ object Precedence {
 }
 
 /**
- * Resolves relation and column names against the dictionary (§5.1 of the F0.1 rules). Every entity a result refers
+ * Resolves relation and column names against the dictionary. Every entity a result refers
  * to is added to [entities]; nothing here is shared between files.
  */
 class RelationResolver(private val dictionary: AtlasDictionary, private val entities: MutableList<EntityFact>, private val relations: MutableList<RelationFact>) {

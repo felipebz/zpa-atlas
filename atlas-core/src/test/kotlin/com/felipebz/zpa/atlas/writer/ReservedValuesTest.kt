@@ -8,7 +8,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
 
-/** Values reserved for later phases must be accepted by the F0.1 DDL, so that no phase needs a migration. */
+/** Values reserved for later phases must be accepted by the DDL, so that no phase needs a migration. */
 class ReservedValuesTest {
     private fun database(): Connection = DriverManager.getConnection("jdbc:sqlite::memory:").also { AtlasWriter.createSchema(it) }
 

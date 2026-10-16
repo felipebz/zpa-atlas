@@ -15,7 +15,7 @@ data class DeclarationOccurrence(
 )
 
 /**
- * Entities, relations and declaration occurrences derived once per run from [ProjectSnapshot.declarations] (§4.1).
+ * Entities, relations and declaration occurrences derived once per run from [ProjectSnapshot.declarations].
  * Subprogram keys carry the written signature; spec and body declarations are distinct entities, the body one
  * suffixed with `@BODY` and linked by `IMPLEMENTS` when the snapshot correlates it with exactly one specification.
  */
@@ -75,7 +75,7 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
 
     fun subprogramAt(fileId: String, line: Int, column: Int): String? = subprogramsByStart[Triple(fileId, line, column)]
 
-    /** The key of a package (or other schema object) named [segments] as written, with the schema rule of §4.2. */
+    /** The key of a package (or other schema object) named [segments] as written, with the schema rule of [nameSpellings]. */
     fun objectKey(fileId: String, segments: List<String>): String {
         val (schema, rest) = schemaAndName(fileId, segments)
         return dbKey(schema, *rest.toTypedArray())
