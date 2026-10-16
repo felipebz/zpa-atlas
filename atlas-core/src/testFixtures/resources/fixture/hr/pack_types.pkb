@@ -12,7 +12,7 @@ create or replace package body pack_types is
     v_payload hr.send_queue.payload%type;
     v_active pack_types.c_active%rowtype;
     v_view v_company%rowtype;
-    v_missing company.no_such_column%type;
+    v_missing company.no_such_column%type; v_aq sys.dbms_aq.enqueue_options_t; v_props dbms_aq.message_properties_t; v_rec hr.pack_missing.t_rec; v_gone hr.no_such_table.col%type;
     v_rc t_rc;
   begin
     v_point := ty_point(1);

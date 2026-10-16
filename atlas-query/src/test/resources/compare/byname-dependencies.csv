@@ -1,0 +1,4 @@
+kind,owner,name,type,c1,c2,c3,c4
+META,source_readable,false,,,,,
+OBJ,HR,PROC_BYNAME,PROCEDURE,VALID,,,
+DEP,HR,PROC_BYNAME,PROCEDURE,PUBLIC,ZZ_EXT,SYNONYM,

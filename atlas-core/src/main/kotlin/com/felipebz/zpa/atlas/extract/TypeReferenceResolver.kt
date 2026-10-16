@@ -3,6 +3,7 @@ package com.felipebz.zpa.atlas.extract
 import com.felipebz.zpa.api.project.*
 import com.felipebz.zpa.atlas.model.EntityFact
 import com.felipebz.zpa.atlas.model.EntityKind
+import com.felipebz.zpa.atlas.model.RelationFact
 import com.felipebz.zpa.atlas.model.Status
 
 /** How one datatype name resolves: the target of its `TYPE_USE` occurrence. */
@@ -20,6 +21,7 @@ class TypeReferenceResolver(
     private val catalog: DeclarationCatalog,
     private val relationResolver: RelationResolver,
     private val entities: MutableList<EntityFact>,
+    private val relations: MutableList<RelationFact>,
     private val runSchemas: Set<String>
 ) {
     /**
@@ -74,7 +76,7 @@ class TypeReferenceResolver(
         }
         if (isBuiltIn(written, packageName)) return null
         if (isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
-        return unknownType(written.map { normalizeIdentifier(it) })
+        return unknownType(written.map { normalizeIdentifier(it) }, unitSchema)
     }
 
     /** A built-in of zpa-core's classifier, or a type of `SYS.STANDARD` it does not list (written in one segment). */
@@ -114,16 +116,20 @@ class TypeReferenceResolver(
     }
 
     /**
-     * An external `TYPE` entity: `db:S.X…` when the first segment `S` is a schema of the run, else `db:~.X…` (one
-     * segment is typically a public synonym such as `XMLTYPE`). A declared key is a missing member, without entity.
+     * An external `TYPE` entity, with the key and parent rules of unknown calls ([ExternalNames]): a type of a package
+     * belongs to that package. One segment (typically a public synonym such as `XMLTYPE`) is `db:~.X`, without parent.
      */
-    private fun unknownType(names: List<String>): TypeOutcome {
-        val schemaQualified = names.size >= 2 && names[0] in runSchemas
-        val key = if (schemaQualified) dbKey(names[0], *names.drop(1).toTypedArray()) else dbKey(UNKNOWN_SCHEMA, *names.toTypedArray())
-        if (catalog.isDeclared(key)) return UNKNOWN_MEMBER
-        entities += EntityFact(key, EntityKind.TYPE, if (schemaQualified) names[0] else null, names.last(), null, key.removePrefix("db:"),
-            external = true, precedence = Precedence.MENTIONED)
-        return NOT_IN_PROJECT.copy(entityKey = key)
+    private fun unknownType(names: List<String>, unitSchema: String?): TypeOutcome {
+        if (names.size == 1) {
+            val key = dbKey(UNKNOWN_SCHEMA, names[0])
+            if (catalog.isDeclared(key)) return UNKNOWN_MEMBER
+            entities += EntityFact(key, EntityKind.TYPE, null, names[0], null, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
+            return NOT_IN_PROJECT.copy(entityKey = key)
+        }
+        return when (val result = ExternalNames.external(names, EntityKind.TYPE, unitSchema, runSchemas, catalog, entities, relations)) {
+            ExternalNames.Result.UnknownMember -> UNKNOWN_MEMBER
+            is ExternalNames.Result.External -> NOT_IN_PROJECT.copy(entityKey = result.key)
+        }
     }
 
     private companion object {

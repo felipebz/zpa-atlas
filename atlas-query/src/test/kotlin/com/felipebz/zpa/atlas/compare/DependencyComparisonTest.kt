@@ -19,6 +19,8 @@ class DependencyComparisonTest {
     private val temp: Path = Files.createTempDirectory("atlas-compare")
     private lateinit var result: ComparisonResult
     private lateinit var external: ComparisonResult
+    private lateinit var types: ComparisonResult
+    private lateinit var byName: ComparisonResult
 
     private val golden = Path.of("src/test/resources/compare/golden")
     private val update = System.getProperty("atlas.updateGolden") == "true"
@@ -35,6 +37,20 @@ class DependencyComparisonTest {
         Indexer().index(IndexOptions(corpus, small, compilationSchema = "HR", dictionary = AtlasDictionary.NONE, threads = 1))
         val smallFacts = Files.newBufferedReader(Path.of("src/test/resources/compare/ext-dependencies.csv")).use { DatabaseDependencies.read(it) }
         external = DependencyComparison(small, smallFacts, corpus).compare()
+
+        // Types of packages outside the project, and an anchor on a relation HR (complete in the fixture dictionary) lacks.
+        val typesCorpus = Path.of("src/test/resources/compare/types-corpus")
+        val typesIndex = temp.resolve("types.db")
+        Indexer().index(IndexOptions(typesCorpus, typesIndex, compilationSchema = "HR", dictionary = Fixture.dictionary, threads = 1))
+        val typesFacts = Files.newBufferedReader(Path.of("src/test/resources/compare/types-dependencies.csv")).use { DatabaseDependencies.read(it) }
+        types = DependencyComparison(typesIndex, typesFacts, typesCorpus).compare()
+
+        // `zz_ext.g_var.run` projects to a typeless ~.ZZ_EXT, `zz_ext.go` to ~.ZZ_EXT PACKAGE: one edge for one row.
+        val byNameCorpus = Path.of("src/test/resources/compare/byname-corpus")
+        val byNameIndex = temp.resolve("byname.db")
+        Indexer().index(IndexOptions(byNameCorpus, byNameIndex, compilationSchema = "HR", dictionary = AtlasDictionary.NONE, threads = 1))
+        val byNameFacts = Files.newBufferedReader(Path.of("src/test/resources/compare/byname-dependencies.csv")).use { DatabaseDependencies.read(it) }
+        byName = DependencyComparison(byNameIndex, byNameFacts, byNameCorpus).compare()
     }
 
     @AfterAll
@@ -88,6 +104,23 @@ class DependencyComparisonTest {
                 "NOT_EXTRACTED PROC_EXT HR.COMPANY"
             )
         assertThat(ComparisonReport.summary(external)).contains("overall: 77.8% (7/9)")
+    }
+
+    @Test
+    fun `a type of an external package projects to the package, and a column of a missing relation is no edge`() {
+        assertThat(types.matched.map { "${if (it.byName) "BY_NAME" else "EXACT"} ${it.reference.referencedOwner}.${it.reference.referencedName}" })
+            .containsExactly("EXACT SYS.DBMS_AQ")
+        assertThat(types.indexOnly).isEmpty()
+        assertThat(types.databaseOnly.map { "${it.dbClass} ${it.reference.referencedName}" }).containsExactly("BUILTIN STANDARD")
+    }
+
+    @Test
+    fun `by-name targets that differ only in type are matched together`() {
+        val match = byName.matched.single()
+        assertThat(match.byName).isTrue()
+        assertThat(match.locations.map { it.toString() }).containsExactly("hr/proc_byname.prc:3", "hr/proc_byname.prc:4")
+        assertThat(byName.indexOnly).isEmpty()
+        assertThat(byName.databaseOnly).isEmpty()
     }
 
     @Test

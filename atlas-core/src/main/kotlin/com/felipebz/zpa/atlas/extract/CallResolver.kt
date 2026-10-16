@@ -231,25 +231,10 @@ class CallResolver(
     private fun notInProject(names: List<String>, kind: ProjectCallKind, unitSchema: String?): CallOutcome.Call {
         val notFound = CallOutcome.Call(Status.UNRESOLVED, null, "NOT_IN_PROJECT")
         if (names.size < 2) return notFound
-        val owner = if (names.size == 2) dbKey(unitSchema ?: UNKNOWN_SCHEMA, names[0]) else dbKey(names[0], *names.subList(1, names.size - 1).toTypedArray())
-        val schemaQualified = names[0] in runSchemas
-        val key = if (schemaQualified) dbKey(names[0], *names.drop(1).toTypedArray()) else dbKey(UNKNOWN_SCHEMA, *names.toTypedArray())
-        if (catalog.isDeclared(owner) || catalog.isDeclared(key)) return CallOutcome.Call(Status.UNRESOLVED, null, "UNKNOWN_MEMBER")
-
         val entityKind = if (kind == ProjectCallKind.FUNCTION) EntityKind.FUNCTION else EntityKind.PROCEDURE
-        val schema = if (schemaQualified) names[0] else null
-        // `S.A.B`: package `S.A`. `A.B` outside a known schema: package `~.A` (a package, a synonym or a schema).
-        // `A.B.C` outside a known schema: no parent, `A.B` may be a package variable or a package of an unknown schema.
-        val parent = when {
-            schemaQualified -> if (names.size > 2) key.substringBeforeLast('.') else null
-            names.size == 2 -> key.substringBeforeLast('.')
-            else -> null
+        return when (val result = ExternalNames.external(names, entityKind, unitSchema, runSchemas, catalog, entities, relations)) {
+            ExternalNames.Result.UnknownMember -> CallOutcome.Call(Status.UNRESOLVED, null, "UNKNOWN_MEMBER")
+            is ExternalNames.Result.External -> notFound.copy(entityKey = result.key)
         }
-        if (parent != null) {
-            entities += EntityFact(parent, EntityKind.PACKAGE, schema, names[names.size - 2], null, parent.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
-            relations += RelationFact(parent, RelationKind.CONTAINS, key)
-        }
-        entities += EntityFact(key, entityKind, schema, names.last(), parent, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
-        return notFound.copy(entityKey = key)
     }
 }

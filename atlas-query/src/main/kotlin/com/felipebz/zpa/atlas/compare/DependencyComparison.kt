@@ -284,16 +284,26 @@ class DependencyComparison(
             val obj = DbObjectId(dep.owner, dep.name, dep.type)
             val unitEdges = edges[obj].orEmpty()
             val exact = unitEdges.values.firstOrNull { it.target.owner == dep.referencedOwner && it.target.name == dep.referencedName && it.target.link == dep.referencedLink }
-            val byName = exact ?: unitEdges.values.filter {
+            val byNameEdges = if (exact != null) emptyList() else unitEdges.values.filter {
                 it.target.byName && it.target.link == dep.referencedLink &&
                     (it.target.name == dep.referencedName || (dep.referencedOwner to dep.referencedName) in it.readings)
-            }.minByOrNull { it.target }
+            }
+            val byName = byNameEdges.minByOrNull { it.target }
             // A dependency on an object that does not exist is never an index edge (Oracle records it to invalidate the
             // unit when such an object appears, typically next to a synonym of the same name).
             val hit = if (dep.referencedType == "NON-EXISTENT") null else exact ?: byName
             if (hit != null) {
                 matchedIndex += obj to hit.target
-                matched += MatchedEdge(obj, dep, exact == null, hit.fromCollapsedOnly, hit.locations.toList())
+                if (exact != null) {
+                    matched += MatchedEdge(obj, dep, false, hit.fromCollapsedOnly, hit.locations.toList())
+                } else {
+                    // By-name targets that differ only in type (`~.X` typeless and `~.X` PACKAGE) are one edge: every one
+                    // with this name and link is matched, and their locations are merged.
+                    val same = byNameEdges.filter { it.target.name == hit.target.name && it.target.link == hit.target.link }
+                    same.forEach { matchedIndex += obj to it.target }
+                    matched += MatchedEdge(obj, dep, true, same.all { it.fromCollapsedOnly },
+                        same.flatMap { it.locations }.toSortedSet().toList())
+                }
                 continue
             }
             val unitEvidence = evidence[obj].orEmpty().filter { dep.referencedName in it.segments && fits(dep.referencedType, it.roles) }

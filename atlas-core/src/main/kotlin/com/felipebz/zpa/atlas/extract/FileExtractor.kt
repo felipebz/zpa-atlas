@@ -56,7 +56,7 @@ class FileExtractor(
         catalog = catalogOf(snapshot)
         val runSchemas = catalog.schemas + dictionary.schemas + listOfNotNull(defaultSchema) + setOf("SYS", "SYSTEM")
         calls = CallResolver(snapshot, catalog, entities, relations, runSchemas)
-        types = TypeReferenceResolver(snapshot, catalog, resolver, entities, runSchemas)
+        types = TypeReferenceResolver(snapshot, catalog, resolver, entities, relations, runSchemas)
     }
 
     override fun visitFile(node: AstNode) {

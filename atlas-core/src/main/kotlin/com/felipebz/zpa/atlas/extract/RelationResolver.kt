@@ -73,7 +73,8 @@ class RelationResolver(private val dictionary: AtlasDictionary, private val enti
             mentioned(key, EntityKind.COLUMN, relation.schema, column, relation.entityKey)
             return when (relation.status) {
                 Status.EXTERNAL -> ResolvedColumn(key, Status.EXTERNAL, relation.reason)
-                Status.UNRESOLVED -> ResolvedColumn(key, Status.UNVERIFIED, "RELATION_UNRESOLVED")
+                // A column of a relation the dictionary lacks is as unresolved as the relation (not an edge).
+                Status.UNRESOLVED -> ResolvedColumn(key, Status.UNRESOLVED, "RELATION_UNRESOLVED")
                 else -> ResolvedColumn(key, Status.UNVERIFIED, relation.reason)
             }
         }

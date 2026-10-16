@@ -95,5 +95,8 @@ class FixtureGoldenTest {
         assertThat(typeUse(db, "company.no_such_column")).containsExactly("db:HR.COMPANY.NO_SUCH_COLUMN UNRESOLVED NOT_IN_DICTIONARY")
         val bare = Fixture.index(temp.resolve("bare-types.db"), dictionary = AtlasDictionary.NONE)
         assertThat(typeUse(bare, "company.no_such_column")).containsExactly("db:HR.COMPANY.NO_SUCH_COLUMN UNVERIFIED -")
+        // A column of a relation the complete schema lacks is as unresolved as the relation; without dictionary, unverified.
+        assertThat(typeUse(db, "hr.no_such_table.col")).containsExactly("db:HR.NO_SUCH_TABLE.COL UNRESOLVED RELATION_UNRESOLVED")
+        assertThat(typeUse(bare, "hr.no_such_table.col")).containsExactly("db:HR.NO_SUCH_TABLE.COL UNVERIFIED -")
     }
 }

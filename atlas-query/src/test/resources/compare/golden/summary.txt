@@ -3,7 +3,7 @@ compare-deps summary
 Units
   mapped to database objects: 31
   scripts and anonymous blocks (not compared): 27, with 37 edge occurrence(s)
-  units without ALL_OBJECTS row (not compared): 24, with 16 index edge(s)
+  units without ALL_OBJECTS row (not compared): 24, with 19 index edge(s)
   database objects without unit in the index: 1
 
 Source
