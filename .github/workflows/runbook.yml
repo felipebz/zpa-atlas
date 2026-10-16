@@ -1,0 +1,148 @@
+name: Runbook
+
+# The atlas-devtools runbook (atlas-devtools/README.md) on a real corpus: utPLSQL, deployed to a throwaway Oracle
+# service container, indexed with metadata, measured and compared with ALL_DEPENDENCIES. A measurement, not a gate:
+# it fails only when a step fails, never on a match rate.
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      utplsql_ref:
+        description: 'utPLSQL tag or branch, deployed and indexed'
+        required: true
+        default: 'v.3.2.3'
+
+permissions:
+  contents: read
+
+jobs:
+  runbook:
+    name: Runbook on utPLSQL (${{ matrix.oracle.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # One entry per database version: the image of the service and the service name of its pluggable database.
+        oracle:
+          - name: Oracle Free 26ai
+            image: gvenzl/oracle-free:23.26.3-slim-faststart
+            service: FREEPDB1
+
+    services:
+      oracle:
+        image: ${{ matrix.oracle.image }}
+        env:
+          ORACLE_PASSWORD: oracle
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd healthcheck.sh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      UTPLSQL_REF: ${{ inputs.utplsql_ref || 'v.3.2.3' }}
+      ORACLE_URL: jdbc:oracle:thin:@//localhost:1521/${{ matrix.oracle.service }}
+      # The password of the UT3 schema of this job's throwaway database: not a secret.
+      ZPA_ORACLE_PASSWORD: ut3
+      JAVA_OPTS: -Xmx4g
+      OJDBC_VERSION: 23.26.3.0.0
+      OJDBC_SHA256: 17ad1c2d5242432cc4db9e2a7f67762bc8a4086cbcb3cd81f6ffaa2a510c41d8
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check out utPLSQL
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: utPLSQL/utPLSQL
+          ref: ${{ env.UTPLSQL_REF }}
+          path: utplsql
+          persist-credentials: false
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
+
+      - name: Build the distributions
+        run: ./gradlew :atlas-cli:installDist :atlas-devtools:installDist --refresh-dependencies
+
+      - name: Install the Oracle JDBC driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          jar="ojdbc17-${OJDBC_VERSION}.jar"
+          curl -fsSL -o "${RUNNER_TEMP}/${jar}" "https://repo1.maven.org/maven2/com/oracle/database/jdbc/ojdbc17/${OJDBC_VERSION}/${jar}"
+          echo "${OJDBC_SHA256}  ${RUNNER_TEMP}/${jar}" | sha256sum --check -
+          for dist in atlas-cli/build/install/zpa-atlas atlas-devtools/build/install/atlas-devtools; do
+            mkdir -p "${dist}/drivers"
+            cp "${RUNNER_TEMP}/${jar}" "${dist}/drivers/"
+            echo "${GITHUB_WORKSPACE}/${dist}/bin" >> "${GITHUB_PATH}"
+          done
+
+      # SQL*Plus comes from a second container of the database image, as in utPLSQL's own pipeline. install.sql spools
+      # install.log next to the scripts, and the client runs as the image's oracle user.
+      - name: Install utPLSQL as UT3
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod -R a+w utplsql/source
+          docker run --rm --network host -v "${GITHUB_WORKSPACE}/utplsql/source:/source" -w /source \
+            --entrypoint sqlplus "${{ matrix.oracle.image }}" -L -S \
+            "sys/oracle@//127.0.0.1:1521/${{ matrix.oracle.service }} as sysdba" \
+            @install_headless.sql UT3 "${ZPA_ORACLE_PASSWORD}" users
+
+      - name: Index with metadata
+        run: |
+          mkdir -p runbook
+          zpa-atlas index --sources utplsql/source --out runbook/atlas.db --compilation-schema UT3 \
+            --oracle-url "${ORACLE_URL}" --oracle-user ut3 --oracle-schemas UT3
+
+      - name: Measure
+        run: |
+          zpa-atlas stats runbook/atlas.db > runbook/stats.txt
+          atlas-devtools timings runbook/atlas.db > runbook/timings.txt
+
+      - name: Compare with ALL_DEPENDENCIES
+        run: |
+          atlas-devtools compare-deps --db runbook/atlas.db --out runbook/compare \
+            --oracle-url "${ORACLE_URL}" --oracle-user ut3 --oracle-schemas UT3 \
+            --save-dependencies runbook/deps.csv > runbook/compare.txt
+
+      - name: Write the job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### utPLSQL ${UTPLSQL_REF} on ${{ matrix.oracle.name }}"
+            for report in compare stats timings; do
+              [[ -f "runbook/${report}.txt" ]] || continue
+              printf '\n<details%s><summary>%s.txt</summary>\n\n```\n' "$([[ ${report} == compare ]] && echo ' open')" "${report}"
+              cat "runbook/${report}.txt"
+              printf '```\n\n</details>\n'
+            done
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # The index and deps.csv allow offline re-runs (compare-deps --dependencies runbook/deps.csv).
+      - name: Upload the runbook outputs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: runbook-utplsql-${{ strategy.job-index }}
+          path: |
+            runbook/
+            utplsql/source/install.log
+          retention-days: 14
+          if-no-files-found: warn
