@@ -144,7 +144,7 @@ class DependencyComparison(
         val projections = HashMap<Long, Target>()
         fun project(id: Long): Target = projections.getOrPut(id) {
             var row = entities.getValue(id)
-            while (row.parent != null) row = entities.getValue(row.parent!!)
+            while (row.parent != null) row = entities.getValue(row.parent)
             val byName = row.key.startsWith("db:~.")
             val (name, link) = row.name.split('@', limit = 2).let { it[0] to it.getOrNull(1) }
             Target(if (byName || link != null) null else row.schema, name, ENTITY_TYPES[row.kind], link)
