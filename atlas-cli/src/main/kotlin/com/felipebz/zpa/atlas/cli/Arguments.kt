@@ -15,10 +15,10 @@ class OracleOptions {
     @Parameter(names = ["--oracle-password-env"], description = "Name of the environment variable holding the database password")
     var oraclePasswordEnv: String = "ZPA_ORACLE_PASSWORD"
 
-    @Parameter(names = ["--oracle-schemas"], description = "Comma-separated schemas to read completely (exact dictionary names, e.g. HR)")
+    @Parameter(names = ["--oracle-schemas"], description = "Comma-separated schemas to read completely (case-insensitive, e.g. hr; \"Name\" for an exact case)")
     var oracleSchemas: String = ""
 
-    @Parameter(names = ["--oracle-relations"], description = "Comma-separated SCHEMA.RELATION names to read individually (exact dictionary names)")
+    @Parameter(names = ["--oracle-relations"], description = "Comma-separated SCHEMA.RELATION names to read individually (case-insensitive; \"Name\" for an exact case)")
     var oracleRelations: String = ""
 }
 
@@ -47,7 +47,7 @@ class IndexArguments {
     @ParametersDelegate
     val oracle = OracleOptions()
 
-    @Parameter(names = ["--compilation-schema"], description = "Schema in which analyzed units without an explicit schema compile (exact dictionary name)")
+    @Parameter(names = ["--compilation-schema"], description = "Schema in which analyzed units without an explicit schema compile (case-insensitive; \"Name\" for an exact case)")
     var compilationSchema: String = ""
 }
 

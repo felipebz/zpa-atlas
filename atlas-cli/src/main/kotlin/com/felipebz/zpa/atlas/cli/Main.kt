@@ -28,7 +28,7 @@ private fun index(args: IndexArguments, environment: (String) -> String?): Int {
     val compilationSchema = OracleSettings.compilationSchema(args)
     val dictionary = settings?.let {
         val schemas = it.schemas.toSet() + it.relations.map { relation -> relation.first }
-        AtlasDictionary.lookupOnly(OracleMetadataLoader.load(it, applicationHome().resolve("drivers")).metadata, schemas)
+        AtlasDictionary.lookupOnly(OracleMetadataLoader.load(it, compilationSchema, applicationHome().resolve("drivers")).metadata, schemas)
     }
         ?: AtlasDictionary.NONE
     val summary = Indexer().index(

@@ -3,10 +3,12 @@ package com.felipebz.zpa.atlas.cli.oracle
 import com.felipebz.zpa.atlas.cli.CliValidationException
 import com.felipebz.zpa.atlas.cli.IndexArguments
 import com.felipebz.zpa.atlas.cli.OracleOptions
+import com.felipebz.zpa.atlas.extract.normalizeIdentifier
 import com.felipebz.zpa.oracle.metadata.OracleMetadataRequest
 
 /**
- * Validated database settings, with the same options and rules as zpa-cli. [url] and the password are
+ * Validated database settings, with the options of zpa-cli. Schema and relation names follow Oracle identifier rules:
+ * unquoted names are case-insensitive (upper-cased), `"Name"` keeps its exact case. [url] and the password are
  * secrets-bearing values: they are never included in messages or logs.
  */
 class OracleSettings(
@@ -40,14 +42,14 @@ class OracleSettings(
             if (CREDENTIALS_IN_URL.containsMatchIn(args.oracleUrl)) {
                 throw CliValidationException("--oracle-url must not contain credentials; use --oracle-user and the password environment variable")
             }
-            val schemas = names(args.oracleSchemas, "--oracle-schemas")
-            val relations = names(args.oracleRelations, "--oracle-relations").map { relation ->
-                val parts = relation.split('.')
+            val schemas = entries(args.oracleSchemas).map { name(it, "--oracle-schemas") }.distinct()
+            val relations = entries(args.oracleRelations).map { relation ->
+                val parts = relation.split('.').map { it.trim() }
                 if (parts.size != 2 || parts.any { it.isEmpty() }) {
                     throw CliValidationException("Invalid --oracle-relations entry '$relation': expected SCHEMA.RELATION")
                 }
-                parts[0] to parts[1]
-            }
+                name(parts[0], "--oracle-relations") to name(parts[1], "--oracle-relations")
+            }.distinct()
             if (schemas.isEmpty() && relations.isEmpty()) {
                 throw CliValidationException("--oracle-url requires --oracle-schemas or --oracle-relations")
             }
@@ -60,19 +62,23 @@ class OracleSettings(
             return OracleSettings(args.oracleUrl, args.oracleUser, password, schemas, relations)
         }
 
-        /** The `--compilation-schema` value as an exact dictionary name, or null. */
+        /** The `--compilation-schema` value as a dictionary name, or null. */
         fun compilationSchema(args: IndexArguments): String? {
-            val name = args.compilationSchema.trim()
-            if (name.isEmpty()) return null
-            if (name.contains('"')) throw CliValidationException("--compilation-schema must be an exact dictionary name, without quotes")
-            return name
+            val spelling = args.compilationSchema.trim()
+            if (spelling.isEmpty()) return null
+            return name(spelling, "--compilation-schema")
         }
 
-        private fun names(value: String, option: String): List<String> {
-            if (value.isBlank()) return emptyList()
-            return value.split(',').map { it.trim() }.onEach {
-                if (it.isEmpty() || it.contains('"')) throw CliValidationException("Invalid $option entry '$it': use exact dictionary names, comma-separated")
-            }.distinct()
+        private fun entries(value: String): List<String> =
+            if (value.isBlank()) emptyList() else value.split(',').map { it.trim() }
+
+        /** The dictionary name of an Oracle identifier: unquoted is upper-cased, `"Name"` is taken exactly. */
+        private fun name(spelling: String, option: String): String {
+            val name = normalizeIdentifier(spelling)
+            if (name.isEmpty() || name.contains('"')) {
+                throw CliValidationException("Invalid $option name '$spelling': use NAME (case-insensitive) or \"Name\" (exact case)")
+            }
+            return name
         }
     }
 }
