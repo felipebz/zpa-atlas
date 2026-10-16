@@ -97,6 +97,20 @@ class RelationResolver(private val dictionary: AtlasDictionary, private val enti
         }
     }
 
+    /**
+     * Whether the dictionary relation of [relation] has [column]: true or false when the dictionary can tell (a
+     * relation with complete columns), null otherwise (no dictionary relation, partial columns, a hidden `SYS_`
+     * name). Adds no entity.
+     */
+    fun hasColumn(relation: ResolvedRelation, column: String): Boolean? {
+        val dictionaryRelation = relation.relation ?: return null
+        return when (dictionary.metadata.findColumn(dictionaryRelation.schema, dictionaryRelation.name, identifier(column)).status) {
+            ProjectExternalLookup.Status.FOUND -> true
+            ProjectExternalLookup.Status.COLUMN_NOT_FOUND -> false
+            else -> null
+        }
+    }
+
     /** Records a dictionary relation the file refers to; its entities are emitted once per run. */
     fun addDictionaryRelation(relation: ProjectExternalRelation) {
         found.putIfAbsent(dictionaryKey(relation), relation)

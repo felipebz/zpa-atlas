@@ -39,6 +39,11 @@ object Stats {
                     WHERE e.kind IN ('TABLE', 'VIEW', 'OBJECT_TABLE', 'UNKNOWN_RELATION')
                       AND (o.roles LIKE '%SQL_INSERT%' OR o.roles LIKE '%SQL_UPDATE%' OR o.roles LIKE '%SQL_DELETE%' OR o.roles LIKE '%SQL_MERGE%')
                     GROUP BY e.key ORDER BY writers DESC, e.key LIMIT 20""")
+                section(connection, "Column reads by status and reason", """
+                    SELECT o.status || ' ' || coalesce(o.reason, '-'), count(*) FROM occurrence o LEFT JOIN entity e ON e.id = o.entity_id
+                    WHERE $COLUMN_READ GROUP BY o.status, o.reason ORDER BY o.status, o.reason""")
+                section(connection, "Names in static SQL not excluded as columns, by roles", """
+                    SELECT roles, count(*) FROM occurrence WHERE reason = 'COLUMN_NOT_EXCLUDED' GROUP BY roles ORDER BY roles""")
                 section(connection, "Calls by status",
                     "SELECT status, count(*) FROM occurrence WHERE $CALL GROUP BY status ORDER BY status")
                 section(connection, "Calls by reason",
@@ -72,6 +77,10 @@ object Stats {
     }
 
     private const val CALL = "(',' || roles || ',') LIKE '%,CALL,%'"
+
+    /** A read of a column in static SQL: named, by `*`, ambiguous, or of a relation whose columns are unknown. */
+    private const val COLUMN_READ = "o.statement_id IS NOT NULL AND o.roles IN ('READ', 'IMPLICIT,READ') AND " +
+        "(e.kind = 'COLUMN' OR o.reason IN ('AMBIGUOUS_COLUMN', 'COLUMNS_UNKNOWN'))"
 
     private fun StringBuilder.section(connection: Connection, title: String, sql: String) {
         append(title).append('\n')

@@ -58,7 +58,7 @@ class FixtureGoldenTest {
     @Test
     fun `names defined by WITH, collection expressions and DUAL are not relations`() {
         val load = occurrences().filter { it.startsWith("scripts/load.sql\t4:") || it.startsWith("scripts/load.sql\t5:") }
-        assertThat(load.filter { it.split('\t')[4] != "CALL" }.map { it.split('\t')[3] }).containsExactly("db:HR.COMPANY", "db:HR.V_COMPANY")
+        assertThat(load.filter { it.split('\t')[4].contains("SQL_") }.map { it.split('\t')[3] }).containsExactly("db:HR.COMPANY", "db:HR.V_COMPANY")
         assertThat(Fixture.query(db, "SELECT key FROM entity WHERE kind IN ('TABLE', 'VIEW', 'OBJECT_TABLE', 'UNKNOWN_RELATION', 'COLUMN') AND (key LIKE '%.W' OR key LIKE '%DUAL%' OR key LIKE '%ODCINUMBERLIST%')")).isEmpty()
     }
 
@@ -73,6 +73,16 @@ class FixtureGoldenTest {
         assertThat(Fixture.query(bare, "SELECT kind, external FROM entity WHERE key = 'db:HR.COMPANY.ST_ACTIVE'")).containsExactly("COLUMN\t1")
     }
 
+    /** A name PL/SQL binds (a parameter, a variable, a record, `SYSDATE`) is never read as a column of an unknown relation. */
+    @Test
+    fun `without a dictionary names bound by PL-SQL in static SQL are not columns`() {
+        val bare = Fixture.index(temp.resolve("bare-names.db"), dictionary = AtlasDictionary.NONE)
+        assertThat(Fixture.query(bare, "SELECT key FROM entity WHERE kind = 'COLUMN' AND (key IN ('db:HR.COMPANY.MSG', 'db:HR.SEND_QUEUE.P_STATUS') OR name IN ('P_A', 'P_ID', 'V', 'R', 'SYSDATE')) ORDER BY key"))
+            .isEmpty()
+        assertThat(Fixture.query(bare, "SELECT key FROM entity WHERE key LIKE 'db:HR.MISSING_TABLE.%' ORDER BY key"))
+            .containsExactly("db:HR.MISSING_TABLE.A", "db:HR.MISSING_TABLE.B", "db:HR.MISSING_TABLE.C", "db:HR.MISSING_TABLE.X", "db:HR.MISSING_TABLE.Y")
+    }
+
     @Test
     fun `without any schema relation keys use the placeholder and declarations get a coverage note`() {
         val noSchema = Fixture.index(temp.resolve("noschema.db"), dictionary = AtlasDictionary.NONE, compilationSchema = null)
@@ -81,7 +91,7 @@ class FixtureGoldenTest {
         assertThat(Fixture.query(noSchema, "SELECT f.path FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE c.kind = 'SCHEMA_UNKNOWN' ORDER BY 1"))
             .containsExactly("hr/fn_company_name.fun", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/pack_calls.pkb", "hr/pack_calls.pks",
                 "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_inline.sql", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
-                "hr/pack_process.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_standalone.prc", "hr/trg_company_bu.trg",
+                "hr/pack_process.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_columns.prc", "hr/proc_standalone.prc", "hr/trg_company_bu.trg",
                 "hr/ty_point.typ", "scripts/broken.sql", "scripts/broken_call.sql")
     }
 
