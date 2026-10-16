@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title data-i18n="page.search.title"></title><link rel="stylesheet" href="app.css"></head>
+<body>
+<header class="top"><a href="./">zpa-atlas</a><span class="run" data-i18n="banner.loading"></span></header>
+<div id="warn" class="warn" hidden></div>
+<main>
+  <form id="search">
+    <input type="text" id="q" data-i18n-placeholder="search.placeholder" autofocus>
+    <select id="kind"><option value="" data-i18n="search.allKinds"></option></select>
+    <label><input type="checkbox" id="external" checked> <span data-i18n="search.includeExternal"></span></label>
+    <button data-i18n="search.submit"></button>
+  </form>
+  <section id="results"></section>
+</main>
+<script src="common.js"></script>
+<script src="search.js"></script>
+</body>
+</html>

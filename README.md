@@ -17,8 +17,10 @@ javm exec ./gradlew :atlas-cli:installDist
 zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--threads N] \
   [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]
 zpa-atlas stats <file.db>
+zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080]
 ```
 
 Oracle options and exit codes are those of zpa-cli (0 success, 2 invalid usage, 3 execution failure). The JDBC driver
-JAR goes in the `drivers` directory of the distribution. The output is a new SQLite file per run, written to a
+JAR goes in the `drivers` directory of the distribution. `serve` has no authentication: binding to anything but 127.0.0.1 exposes the index and the sources to the
+network. It opens the index for each request only, so `index` can replace the file while the server runs. The output is a new SQLite file per run, written to a
 temporary file and renamed at the end; a schema change means re-indexing.

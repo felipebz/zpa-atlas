@@ -190,7 +190,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 2
+        const val SCHEMA_VERSION = 3
 
         private val OCCURRENCE_ORDER = compareBy<OccurrenceFact>(
             { it.span }, { it.entityKey ?: "" }, { it.roles.encode() }, { it.status }, { it.reason ?: "" }, { it.written }
@@ -209,11 +209,33 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                     createSchema(connection)
                     body(AtlasWriter(connection))
                 }
-                Files.move(temporary, absolute, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+                replace(temporary, absolute)
             } finally {
                 Files.deleteIfExists(temporary)
             }
         }
+
+        /**
+         * Moves [temporary] over [target]. On Windows the move fails while another process (the server between two
+         * requests is the usual one) has the target open, so it is retried for about [REPLACE_WAIT_MILLIS].
+         */
+        private fun replace(temporary: Path, target: Path) {
+            val deadline = System.nanoTime() + REPLACE_WAIT_MILLIS * 1_000_000
+            while (true) {
+                try {
+                    Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+                    return
+                } catch (e: java.nio.file.FileSystemException) {
+                    // AccessDeniedException is a FileSystemException.
+                    if (System.nanoTime() > deadline) {
+                        throw IllegalStateException("Cannot replace $target: the index is open in another process (${e.javaClass.simpleName})", e)
+                    }
+                    Thread.sleep(100)
+                }
+            }
+        }
+
+        private const val REPLACE_WAIT_MILLIS = 5_000L
 
         fun createSchema(connection: Connection) {
             connection.createStatement().use { statement ->
@@ -339,6 +361,9 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             "CREATE INDEX occurrence_entity_roles ON occurrence(entity_id, roles)",
             "CREATE INDEX occurrence_file_line ON occurrence(file_id, start_line)",
             "CREATE INDEX occurrence_container ON occurrence(container_entity_id)",
+            "CREATE INDEX occurrence_candidate_entity ON occurrence_candidate(entity_id)",
+            // Case-insensitive name prefix search (`name LIKE 'abc%'`, LIKE folds ASCII case like NOCASE).
+            "CREATE INDEX entity_name_nocase ON entity(name COLLATE NOCASE)",
             "CREATE INDEX relation_from ON relation(from_id)",
             "CREATE INDEX call_argument_parameter ON call_argument(parameter_entity_id)",
             "CREATE INDEX relation_to ON relation(to_id)"

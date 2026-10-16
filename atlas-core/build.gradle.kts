@@ -3,6 +3,7 @@ val zpaVersion = providers.gradleProperty("zpaVersion").get()
 plugins {
     kotlin("jvm")
     `java-library`
+    `java-test-fixtures`
 }
 
 java {

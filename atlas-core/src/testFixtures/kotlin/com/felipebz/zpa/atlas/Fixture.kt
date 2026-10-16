@@ -15,7 +15,8 @@ import java.time.Instant
 
 /** The fixture corpus and a hand-built dictionary: schema HR complete, nothing else. */
 object Fixture {
-    val sources: Path = Path.of(Fixture::class.java.getResource("/fixture")!!.toURI())
+    /** A folder on disk (the indexer walks it), set by the build for every test task. */
+    val sources: Path = Path.of(System.getProperty("atlas.fixture") ?: error("System property atlas.fixture is not set"))
 
     private fun relation(name: String, vararg columns: String, kind: DictionaryRelationKind = DictionaryRelationKind.TABLE) =
         DictionaryRelation(

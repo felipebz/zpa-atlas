@@ -18,6 +18,7 @@ kotlin {
 
 dependencies {
     implementation(project(":atlas-core"))
+    implementation(project(":atlas-server"))
     implementation("org.jcommander:jcommander:3.0")
     implementation("org.slf4j:slf4j-jdk14:2.0.20")
     testImplementation(platform("org.junit:junit-bom:5.13.4"))

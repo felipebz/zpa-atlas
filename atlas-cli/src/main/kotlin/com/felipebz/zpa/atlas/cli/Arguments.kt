@@ -46,3 +46,22 @@ class StatsArguments {
     @Parameter(description = "<file.db>", required = true)
     var database: List<String> = ArrayList()
 }
+
+@Parameters(
+    commandNames = ["serve"],
+    commandDescription = "Serve the web UI and the JSON API of an index (no authentication: binding to an address other " +
+        "than 127.0.0.1 exposes the index and the source files to the network)"
+)
+class ServeArguments {
+    @Parameter(names = ["--db"], description = "Index database to serve", required = true)
+    var db: String = ""
+
+    @Parameter(names = ["--sources"], description = "Folder of the indexed sources (default: the folder recorded in the index, when it exists)")
+    var sources: String = ""
+
+    @Parameter(names = ["--host"], description = "Address to bind; anything but 127.0.0.1 exposes the index to the network")
+    var host: String = "127.0.0.1"
+
+    @Parameter(names = ["--port"], description = "Port to listen on")
+    var port: Int = 8080
+}

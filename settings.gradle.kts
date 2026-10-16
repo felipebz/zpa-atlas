@@ -1,6 +1,8 @@
 rootProject.name = "zpa-atlas"
 
 include(":atlas-core")
+include(":atlas-query")
+include(":atlas-server")
 include(":atlas-cli")
 
 // Opt-in local development against checkouts of zpa (and flr): -PzpaLocalPath=../zpa [-PflrLocalPath=../flr].

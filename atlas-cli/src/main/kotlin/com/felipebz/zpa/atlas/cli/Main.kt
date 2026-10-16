@@ -7,6 +7,7 @@ import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.stats.Stats
 import java.nio.file.Files
 import java.nio.file.Path
@@ -39,6 +40,20 @@ private fun index(args: IndexArguments, environment: (String) -> String?): Int {
     return 0
 }
 
+private fun serve(args: ServeArguments): Int {
+    val database = Path.of(args.db)
+    if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: ${args.db}")
+    if (args.port !in 1..65535) throw CliValidationException("--port must be between 1 and 65535")
+    val sources = if (args.sources.isNotBlank()) {
+        Path.of(args.sources).also { if (!Files.isDirectory(it)) throw CliValidationException("Sources folder does not exist: ${args.sources}") }
+    } else {
+        Path.of(AtlasIndex(database, null).run().result.sourcesRoot).takeIf { Files.isDirectory(it) }
+    }
+    System.err.println("Serving ${args.db} on http://${args.host}:${args.port}/ (sources: ${sources ?: "not available"})")
+    com.felipebz.zpa.atlas.server.serve(AtlasIndex(database, sources), args.host, args.port)
+    return 0
+}
+
 private fun applicationHome(): Path {
     val codePath = Path.of(Indexer::class.java.protectionDomain.codeSource.location.toURI())
     return if (codePath.extension == "jar" && codePath.parent.name == "lib") codePath.parent.parent.toAbsolutePath() else Path.of(".")
@@ -48,10 +63,12 @@ fun execute(args: Array<String>, environment: (String) -> String? = System::gete
     val main = MainArguments()
     val indexArguments = IndexArguments()
     val statsArguments = StatsArguments()
+    val serveArguments = ServeArguments()
     val commander = JCommander.newBuilder()
         .addObject(main)
         .addCommand(indexArguments)
         .addCommand(statsArguments)
+        .addCommand(serveArguments)
         .programName("zpa-atlas")
         .build()
     return try {
@@ -64,6 +81,7 @@ fun execute(args: Array<String>, environment: (String) -> String? = System::gete
         }
         when (commander.parsedCommand) {
             "index" -> index(indexArguments, environment)
+            "serve" -> serve(serveArguments)
             else -> {
                 if (statsArguments.database.size != 1) throw CliValidationException("stats takes exactly one index file")
                 val database = Path.of(statsArguments.database.single())
@@ -77,6 +95,9 @@ fun execute(args: Array<String>, environment: (String) -> String? = System::gete
         val usage = StringBuilder()
         commander.usage(usage)
         System.err.println(usage)
+        2
+    } catch (exception: com.felipebz.zpa.atlas.query.SchemaMismatchException) {
+        System.err.println(exception.message)
         2
     } catch (exception: CliValidationException) {
         System.err.println(exception.message)
