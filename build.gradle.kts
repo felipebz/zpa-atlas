@@ -16,6 +16,8 @@ allprojects {
     }
 
     tasks.withType<Test>().configureEach {
+        // -Datlas.updateGolden=true rewrites the golden files instead of comparing with them.
+        systemProperty("atlas.updateGolden", System.getProperty("atlas.updateGolden") ?: "false")
         systemProperty("atlas.fixture", rootDir.resolve("atlas-core/src/testFixtures/resources/fixture").absolutePath)
     }
 }

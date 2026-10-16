@@ -2,6 +2,25 @@ package com.felipebz.zpa.atlas.cli
 
 import com.beust.jcommander.Parameter
 import com.beust.jcommander.Parameters
+import com.beust.jcommander.ParametersDelegate
+
+/** The Oracle connection options, shared by every command that reads the database (same names and rules as zpa-cli). */
+class OracleOptions {
+    @Parameter(names = ["--oracle-url"], description = "JDBC URL of an Oracle database to read schema metadata from (enables Oracle metadata acquisition)")
+    var oracleUrl: String = ""
+
+    @Parameter(names = ["--oracle-user"], description = "Database user for --oracle-url")
+    var oracleUser: String = ""
+
+    @Parameter(names = ["--oracle-password-env"], description = "Name of the environment variable holding the database password")
+    var oraclePasswordEnv: String = "ZPA_ORACLE_PASSWORD"
+
+    @Parameter(names = ["--oracle-schemas"], description = "Comma-separated schemas to read completely (exact dictionary names, e.g. HR)")
+    var oracleSchemas: String = ""
+
+    @Parameter(names = ["--oracle-relations"], description = "Comma-separated SCHEMA.RELATION names to read individually (exact dictionary names)")
+    var oracleRelations: String = ""
+}
 
 class MainArguments {
     @Parameter(names = ["--help", "-h"], help = true, description = "Display help information")
@@ -22,20 +41,8 @@ class IndexArguments {
     @Parameter(names = ["--threads"], description = "Number of files parsed concurrently")
     var threads: Int = Runtime.getRuntime().availableProcessors()
 
-    @Parameter(names = ["--oracle-url"], description = "JDBC URL of an Oracle database to read schema metadata from (enables Oracle metadata acquisition)")
-    var oracleUrl: String = ""
-
-    @Parameter(names = ["--oracle-user"], description = "Database user for --oracle-url")
-    var oracleUser: String = ""
-
-    @Parameter(names = ["--oracle-password-env"], description = "Name of the environment variable holding the database password")
-    var oraclePasswordEnv: String = "ZPA_ORACLE_PASSWORD"
-
-    @Parameter(names = ["--oracle-schemas"], description = "Comma-separated schemas to read completely (exact dictionary names, e.g. HR)")
-    var oracleSchemas: String = ""
-
-    @Parameter(names = ["--oracle-relations"], description = "Comma-separated SCHEMA.RELATION names to read individually (exact dictionary names)")
-    var oracleRelations: String = ""
+    @ParametersDelegate
+    val oracle = OracleOptions()
 
     @Parameter(names = ["--compilation-schema"], description = "Schema in which analyzed units without an explicit schema compile (exact dictionary name)")
     var compilationSchema: String = ""

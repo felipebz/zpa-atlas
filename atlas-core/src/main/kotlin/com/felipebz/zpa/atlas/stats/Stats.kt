@@ -44,6 +44,22 @@ object Stats {
                     SELECT e.key, count(DISTINCT coalesce(o.container_entity_id, -o.unit_id)) AS callers
                     FROM occurrence o JOIN entity e ON e.id = o.entity_id WHERE $CALL
                     GROUP BY e.key ORDER BY callers DESC, e.key LIMIT 20""")
+                section(connection, "Cross-schema calls without a schema prefix", """
+                    SELECT 'calls', count(*) FROM occurrence o
+                    JOIN entity e ON e.id = o.entity_id JOIN unit u ON u.id = o.unit_id JOIN source_file f ON f.id = o.file_id
+                    WHERE $CALL AND o.status = 'RESOLVED' AND e.schema_name IS NOT NULL
+                      AND e.schema_name <> coalesce(CASE WHEN instr(u.name, '.') > 0 THEN substr(u.name, 1, instr(u.name, '.') - 1) END, f.compilation_schema, '')
+                      AND upper(o.written) NOT LIKE e.schema_name || '.%'""")
+                section(connection, "Packages declaring a name as both procedure and function", """
+                    SELECT 'packages', count(*) FROM (
+                      SELECT parent_id FROM entity WHERE kind IN ('PROCEDURE', 'FUNCTION') AND parent_id IS NOT NULL
+                      GROUP BY parent_id, name HAVING count(DISTINCT kind) = 2)
+                    UNION ALL
+                    SELECT * FROM (
+                      SELECT p.display || '.' || e.name, count(*) FROM entity e JOIN entity p ON p.id = e.parent_id
+                      WHERE e.kind IN ('PROCEDURE', 'FUNCTION')
+                      GROUP BY e.parent_id, e.name HAVING count(DISTINCT e.kind) = 2
+                      ORDER BY 1 LIMIT 20)""")
                 section(connection, "Top 20 unresolved one-segment call names", """
                     SELECT upper(written) AS name, count(*) AS calls FROM occurrence
                     WHERE $CALL AND status = 'UNRESOLVED' AND reason = 'NOT_IN_PROJECT' AND instr(written, '.') = 0

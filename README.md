@@ -4,11 +4,11 @@ Code-intelligence index for Oracle PL/SQL built on [ZPA](https://github.com/feli
 
 ## Build
 
-JDK 21 (`.java-version`). Run Gradle through javm:
+JDK 21 (`.java-version`).
 
 ```sh
-javm exec ./gradlew build
-javm exec ./gradlew :atlas-cli:installDist
+./gradlew build
+./gradlew :atlas-cli:installDist
 ```
 
 ## Usage
@@ -24,3 +24,9 @@ Oracle options and exit codes are those of zpa-cli (0 success, 2 invalid usage, 
 JAR goes in the `drivers` directory of the distribution. `serve` has no authentication: binding to anything but 127.0.0.1 exposes the index and the sources to the
 network. It opens the index for each request only, so `index` can replace the file while the server runs. The output is a new SQLite file per run, written to a
 temporary file and renamed at the end; a schema change means re-indexing.
+
+## Validation tools
+
+`atlas-devtools` is a separate distribution with the tools that measure the atlas itself (`compare-deps` against
+`ALL_DEPENDENCIES`, `timings`), the runbook for the real corpus and the Oracle integration test: see
+[atlas-devtools/README.md](atlas-devtools/README.md).

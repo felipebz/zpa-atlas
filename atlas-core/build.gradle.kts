@@ -38,6 +38,5 @@ tasks.processResources {
 }
 
 tasks.test {
-    systemProperty("atlas.updateGolden", System.getProperty("atlas.updateGolden") ?: "false")
     useJUnitPlatform()
 }

@@ -18,7 +18,7 @@ private fun index(args: IndexArguments, environment: (String) -> String?): Int {
     val sources = Path.of(args.sources)
     if (!Files.isDirectory(sources)) throw CliValidationException("Sources folder does not exist or is not a directory: ${args.sources}")
     if (args.threads < 1) throw CliValidationException("--threads must be at least 1")
-    val settings = OracleSettings.from(args, environment)
+    val settings = OracleSettings.from(args.oracle, environment)
     val compilationSchema = OracleSettings.compilationSchema(args)
     val dictionary = settings?.let {
         val schemas = it.schemas.toSet() + it.relations.map { relation -> relation.first }
@@ -54,7 +54,15 @@ private fun serve(args: ServeArguments): Int {
     return 0
 }
 
-private fun applicationHome(): Path {
+private fun stats(args: StatsArguments): Int {
+    if (args.database.size != 1) throw CliValidationException("stats takes exactly one index file")
+    val database = Path.of(args.database.single())
+    if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: $database")
+    print(Stats.report(database))
+    return 0
+}
+
+fun applicationHome(): Path {
     val codePath = Path.of(Indexer::class.java.protectionDomain.codeSource.location.toURI())
     return if (codePath.extension == "jar" && codePath.parent.name == "lib") codePath.parent.parent.toAbsolutePath() else Path.of(".")
 }
@@ -82,13 +90,7 @@ fun execute(args: Array<String>, environment: (String) -> String? = System::gete
         when (commander.parsedCommand) {
             "index" -> index(indexArguments, environment)
             "serve" -> serve(serveArguments)
-            else -> {
-                if (statsArguments.database.size != 1) throw CliValidationException("stats takes exactly one index file")
-                val database = Path.of(statsArguments.database.single())
-                if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: $database")
-                print(Stats.report(database))
-                0
-            }
+            else -> stats(statsArguments)
         }
     } catch (exception: ParameterException) {
         System.err.println(exception.message)

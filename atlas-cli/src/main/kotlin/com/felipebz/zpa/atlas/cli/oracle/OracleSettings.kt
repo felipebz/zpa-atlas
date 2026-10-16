@@ -2,6 +2,7 @@ package com.felipebz.zpa.atlas.cli.oracle
 
 import com.felipebz.zpa.atlas.cli.CliValidationException
 import com.felipebz.zpa.atlas.cli.IndexArguments
+import com.felipebz.zpa.atlas.cli.OracleOptions
 import com.felipebz.zpa.oracle.metadata.OracleMetadataRequest
 
 /**
@@ -28,7 +29,7 @@ class OracleSettings(
         private val CREDENTIALS_IN_URL = Regex("^jdbc:oracle:[a-z0-9]+:[^@]*/[^@]*@|password\\s*=", RegexOption.IGNORE_CASE)
 
         /** The settings when Oracle metadata is requested (`--oracle-url`), null otherwise. */
-        fun from(args: IndexArguments, environment: (String) -> String?): OracleSettings? {
+        fun from(args: OracleOptions, environment: (String) -> String?): OracleSettings? {
             val anyOption = args.oracleUrl.isNotBlank() || args.oracleUser.isNotBlank() || args.oracleSchemas.isNotBlank() ||
                 args.oracleRelations.isNotBlank()
             if (!anyOption) return null

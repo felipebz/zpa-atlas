@@ -14,7 +14,7 @@ import java.sql.ResultSet
  *
  * @param sourcesRoot the folder the indexed paths are relative to, or null when sources are not available
  */
-class AtlasIndex(private val database: Path, val sourcesRoot: Path?) {
+class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     fun run(): Answer<RunSummary> = read { connection, _ ->
         val (version, root, started) = connection.query("SELECT schema_version, sources_root, started_at FROM run") {

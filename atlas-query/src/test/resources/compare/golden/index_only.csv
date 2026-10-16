@@ -1,0 +1,7 @@
+class,owner,name,type,target_owner,target_name,target_type,target_link,locations
+BY_NAME_ONLY,HR,PACK_PROCESS,PACKAGE BODY,~,DBMS_SQL,PACKAGE,,hr/pack_process.pkb:30
+INDEX_ONLY,HR,PACK_PROCESS,PACKAGE BODY,HR,EVENT_LOG,TABLE,,hr/pack_process.pkb:4
+INDEX_ONLY,HR,PACK_PROCESS,PACKAGE BODY,HR,SEND_QUEUE,TABLE,,hr/pack_process.pkb:16 hr/pack_process.pkb:25 hr/pack_process.pkb:26 hr/pack_process.pkb:27
+SOURCE_DIFFERS,HR,TRG_COMPANY_BU,TRIGGER,HR,COMPANY,TABLE,,hr/trg_company_bu.trg:1
+SOURCE_DIFFERS,HR,TRG_COMPANY_BU,TRIGGER,HR,EVENT_LOG,TABLE,,hr/trg_company_bu.trg:6
+UNIT_INVALID,HR,PROC_STANDALONE,PROCEDURE,HR,COMPANY,TABLE,,hr/proc_standalone.prc:3
