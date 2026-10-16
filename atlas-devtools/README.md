@@ -10,6 +10,7 @@ atlas-devtools compare-deps --db <file.db> --out <dir> \
   (--oracle-url URL --oracle-user USER --oracle-schemas A,B [--oracle-password-env VAR] | --dependencies deps.csv) \
   [--save-dependencies deps.csv] [--sources <dir>] [--default-owner X] [--builtins file]
 atlas-devtools timings <file.db>
+atlas-devtools same-rows <first.db> <second.db>
 ```
 
 ## compare-deps
@@ -33,6 +34,11 @@ never matched, they record an object that does not exist.
 
 `timings` times the query API (first page with `SELF`, with `IMPLEMENTATIONS,CHILDREN`, and `entity`) for the 5
 entities with the most non-definition occurrences.
+
+`same-rows` checks that two indexes have the same rows in every table: every column, rows ordered by primary key
+(`rowid` without one), only the run timestamps skipped. It prints one line per table and exits with 3 when anything
+differs. Use it to show that a change to the indexer or the writer leaves an index unchanged: index the same corpus
+with the old and the new distribution, then compare.
 
 ## Runbook: the real corpus
 

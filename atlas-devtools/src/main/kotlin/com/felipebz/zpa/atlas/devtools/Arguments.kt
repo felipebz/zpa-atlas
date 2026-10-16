@@ -42,3 +42,9 @@ class TimingsArguments {
     @Parameter(description = "<file.db>", required = true)
     var database: List<String> = ArrayList()
 }
+
+@Parameters(commandNames = ["same-rows"], commandDescription = "Check that two indexes have the same rows in every table")
+class SameRowsArguments {
+    @Parameter(description = "<first.db> <second.db>", required = true)
+    var databases: List<String> = ArrayList()
+}

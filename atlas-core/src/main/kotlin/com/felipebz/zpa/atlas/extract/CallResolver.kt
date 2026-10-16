@@ -175,7 +175,7 @@ class CallResolver(
             val key = catalog.keyOf(body.id)
             val bound = bindByLabelOrPosition(body, arguments)
             return CallOutcome.Call(Status.RESOLVED, key, "PRIVATE_SINGLE",
-                bindings = bound.mapValues { key + "." + normalizeIdentifier(it.value.name.originalSpelling) }, modes = bound.mapValues { it.value.mode })
+                bindings = bound.mapValues { catalog.parameterKey(key, it.value) }, modes = bound.mapValues { it.value.mode })
         }
         val publicCandidates = if (hasPublic) applicable(resolution) else emptyList()
         return CallOutcome.Call(Status.AMBIGUOUS, null, "PRIVATE_OVERLOADS", (publicCandidates + privates.map { catalog.keyOf(it.id) }).distinct())
@@ -211,7 +211,7 @@ class CallResolver(
                 val selected = resolution.selected.get()
                 val key = catalog.keyOf(selected.declaration.id)
                 CallOutcome.Call(Status.RESOLVED, key, null, bindings = selected.bindings.associate {
-                    it.argumentOrdinal to key + "." + normalizeIdentifier(it.parameter.name.originalSpelling)
+                    it.argumentOrdinal to catalog.parameterKey(key, it.parameter)
                 }, modes = selected.bindings.associate { it.argumentOrdinal to it.parameter.mode })
             }
             ProjectCallResolution.Status.AMBIGUOUS -> CallOutcome.Call(Status.AMBIGUOUS, null, status.name, applicable(resolution))

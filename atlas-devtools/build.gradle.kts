@@ -16,6 +16,16 @@ dependencies {
     implementation("org.jcommander:jcommander:3.0")
     implementation("org.xerial:sqlite-jdbc:3.53.4.0")
     implementation("org.slf4j:slf4j-jdk14:2.0.20")
+
+    testImplementation(testFixtures(project(":atlas-core")))
+    testImplementation(platform("org.junit:junit-bom:6.1.3"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("org.assertj:assertj-core:3.27.7")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 application {

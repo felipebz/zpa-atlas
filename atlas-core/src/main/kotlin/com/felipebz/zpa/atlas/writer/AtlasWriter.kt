@@ -30,8 +30,8 @@ data class RunInfo(
  */
 class AtlasWriter private constructor(private val connection: Connection) : AutoCloseable {
 
+    /** Writes every row; the caller ([writeAtomically]) owns the transaction, the indexes and the commit. */
     fun write(run: RunInfo, files: List<FileFacts>, globalEntities: List<EntityFact>, globalRelations: List<RelationFact>, globalCoverage: List<CoverageFact>) {
-        connection.autoCommit = false
         insertRun(run)
         val sortedFiles = files.sortedBy { it.path }
         val fileIds = HashMap<String, Long>()
@@ -45,6 +45,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         val candidateInsert = prepare("INSERT INTO occurrence_candidate(occurrence_id, entity_id) VALUES (?,?)")
         val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col) VALUES (?,?,?,?,?,?,?,?)")
         val coverageInsert = prepare("INSERT INTO coverage_note(id, file_id, kind, message) VALUES (?,?,?,?)")
+        val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, coverageInsert)
 
         var unitId = 0L
         var statementId = 0L
@@ -62,7 +63,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             fileInsert.setString(7, file.parseStatus.name)
             fileInsert.setInt(8, file.recoveredRegions)
             fileInsert.setString(9, file.encoding)
-            fileInsert.addBatch()
+            batches.add(fileInsert)
 
             val unitIds = LongArray(file.units.size)
             for ((u, unit) in file.units.withIndex()) {
@@ -73,7 +74,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 unitInsert.setString(4, unit.kind.name)
                 unitInsert.setString(5, unit.name)
                 unitInsert.setSpan(6, unit.span)
-                unitInsert.addBatch()
+                batches.add(unitInsert)
             }
 
             val statementIds = HashMap<Int, Long>()
@@ -86,7 +87,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 statementInsert.setString(5, statement.kind.name)
                 statementInsert.setSpan(6, statement.span)
                 statementInsert.setString(10, statement.normalizedHash)
-                statementInsert.addBatch()
+                batches.add(statementInsert)
             }
 
             for (occurrence in file.occurrences.sortedWith(OCCURRENCE_ORDER)) {
@@ -102,11 +103,11 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 occurrenceInsert.setString(13, occurrence.status.name)
                 occurrenceInsert.setString(14, occurrence.origin.name)
                 occurrenceInsert.setNullableString(15, occurrence.reason)
-                occurrenceInsert.addBatch()
+                batches.add(occurrenceInsert)
                 for (candidate in occurrence.candidateKeys.map { entityIds.getValue(it) }.distinct().sorted()) {
                     candidateInsert.setLong(1, occurrenceId)
                     candidateInsert.setLong(2, candidate)
-                    candidateInsert.addBatch()
+                    batches.add(candidateInsert)
                 }
                 for (argument in occurrence.arguments) {
                     argumentInsert.setLong(1, occurrenceId)
@@ -114,9 +115,11 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                     argumentInsert.setNullableString(3, argument.label)
                     argumentInsert.setNullableLong(4, argument.parameterKey?.let { entityIds.getValue(it) })
                     argumentInsert.setSpan(5, argument.span)
-                    argumentInsert.addBatch()
+                    batches.add(argumentInsert)
                 }
             }
+            // At a file boundary, so that the rows of one file go out together.
+            batches.flushIfFull()
         }
         val notes = globalCoverage.distinct().sortedWith(compareBy({ it.kind }, { it.message })).map { null to it } +
             sortedFiles.flatMap { file -> file.coverage.distinct().sortedWith(compareBy({ it.kind }, { it.message })).map { file.path to it } }
@@ -125,13 +128,10 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             coverageInsert.setNullableLong(2, path?.let { fileIds.getValue(it) })
             coverageInsert.setString(3, note.kind)
             coverageInsert.setString(4, note.message)
-            coverageInsert.addBatch()
+            batches.add(coverageInsert)
         }
-        for (statement in listOf(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, coverageInsert)) {
-            statement.executeBatch()
-            statement.close()
-        }
-        connection.commit()
+        batches.flush()
+        batches.close()
     }
 
     private fun insertRun(run: RunInfo) {
@@ -158,6 +158,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         val ids = HashMap<String, Long>(keys.size * 2)
         keys.forEachIndexed { index, key -> ids[key] = index + 1L }
         prepare("INSERT INTO entity(id, key, kind, schema_name, name, parent_id, display, external) VALUES (?,?,?,?,?,?,?,?)").use { insert ->
+            val batches = Batches(insert)
             for (key in keys) {
                 val entity = chosen.getValue(key)
                 insert.setLong(1, ids.getValue(key))
@@ -168,9 +169,10 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 insert.setNullableLong(6, entity.parentKey?.let { ids.getValue(it) })
                 insert.setString(7, entity.display)
                 insert.setInt(8, if (entity.external) 1 else 0)
-                insert.addBatch()
+                batches.add(insert)
+                batches.flushIfFull()
             }
-            insert.executeBatch()
+            batches.flush()
         }
         return ids
     }
@@ -179,22 +181,54 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         val rows = facts.map { Triple(ids.getValue(it.fromKey), it.kind, ids.getValue(it.toKey)) }.distinct()
             .sortedWith(compareBy({ it.first }, { it.second }, { it.third }))
         prepare("INSERT INTO relation(from_id, kind, to_id) VALUES (?,?,?)").use { insert ->
+            val batches = Batches(insert)
             for ((from, kind, to) in rows) {
                 insert.setLong(1, from)
                 insert.setString(2, kind.name)
                 insert.setLong(3, to)
-                insert.addBatch()
+                batches.add(insert)
+                batches.flushIfFull()
             }
-            insert.executeBatch()
+            batches.flush()
         }
     }
 
     private fun prepare(sql: String): PreparedStatement = connection.prepareStatement(sql)
 
+    /**
+     * Pending batches of some statements, executed once [FLUSH_ROWS] rows are pending: the driver keeps every bound
+     * parameter of a pending row as an object, so batching a whole corpus duplicates the index in the heap. Each
+     * statement keeps its own insertion order, so the rows and their order do not depend on when a batch runs.
+     */
+    private class Batches(private vararg val statements: PreparedStatement) : AutoCloseable {
+        private var pending = 0
+
+        fun add(statement: PreparedStatement) {
+            statement.addBatch()
+            pending++
+        }
+
+        fun flushIfFull() {
+            if (pending >= FLUSH_ROWS) flush()
+        }
+
+        fun flush() {
+            for (statement in statements) statement.executeBatch()
+            pending = 0
+        }
+
+        override fun close() {
+            for (statement in statements) statement.close()
+        }
+    }
+
     override fun close() = connection.close()
 
     companion object {
         const val SCHEMA_VERSION = 4
+
+        /** Pending rows (all statements together) after which the batches are executed. */
+        private const val FLUSH_ROWS = 20_000
 
         private val OCCURRENCE_ORDER = compareBy<OccurrenceFact>(
             { it.span }, { it.entityKey ?: "" }, { it.roles.encode() }, { it.status }, { it.reason ?: "" }, { it.written }
@@ -210,8 +244,12 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             try {
                 Files.delete(temporary)
                 DriverManager.getConnection("jdbc:sqlite:${temporary}").use { connection ->
-                    createSchema(connection)
+                    // One transaction: the tables, the rows, then the secondary indexes (cheaper on loaded tables).
+                    connection.autoCommit = false
+                    execute(connection, tableDdl())
                     body(AtlasWriter(connection))
+                    execute(connection, indexDdl())
+                    connection.commit()
                 }
                 replace(temporary, absolute)
             } finally {
@@ -241,14 +279,24 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
 
         private const val REPLACE_WAIT_MILLIS = 5_000L
 
+        /** Creates the empty schema: the tables, then the secondary indexes. */
         fun createSchema(connection: Connection) {
+            execute(connection, tableDdl())
+            execute(connection, indexDdl())
+        }
+
+        private fun execute(connection: Connection, ddl: List<String>) {
             connection.createStatement().use { statement ->
-                for (ddl in ddl()) statement.execute(ddl)
+                for (sql in ddl) statement.execute(sql)
             }
         }
 
+        /**
+         * An IN list in a CHECK made each batched insert several times slower when measured; a chain of equalities
+         * accepts the same values without that cost.
+         */
         private inline fun <reified E> check(column: String): String where E : Enum<E>, E : StoredEnum =
-            "CHECK ($column IN (${enumValues<E>().joinToString(",") { "'${it.name}'" }}))"
+            "CHECK (${enumValues<E>().joinToString(" OR ") { "$column = '${it.name}'" }})"
 
         /** A comma-separated set of roles (empty for dynamic SQL): removing every role name and comma must leave nothing. */
         private fun rolesCheck(): String {
@@ -257,8 +305,8 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             return "CHECK (replace($stripped,',','') = '')"
         }
 
-        /** The complete DDL, in creation order. */
-        fun ddl(): List<String> = listOf(
+        /** The tables, with their inline constraints (`PRIMARY KEY`, `UNIQUE`), in creation order. */
+        fun tableDdl(): List<String> = listOf(
             """CREATE TABLE run (
                 id INTEGER PRIMARY KEY,
                 schema_version INTEGER NOT NULL,
@@ -361,7 +409,11 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 file_id INTEGER NULL REFERENCES source_file(id),
                 kind TEXT NOT NULL,
                 message TEXT NOT NULL
-            )""",
+            )"""
+        ).map { it.trimIndent() }
+
+        /** The secondary indexes, created after the rows are loaded. Readers do not depend on their creation order. */
+        fun indexDdl(): List<String> = listOf(
             "CREATE UNIQUE INDEX entity_key ON entity(key)",
             "CREATE INDEX entity_parent ON entity(parent_id)",
             "CREATE INDEX occurrence_entity_roles ON occurrence(entity_id, roles)",
@@ -373,7 +425,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             "CREATE INDEX relation_from ON relation(from_id)",
             "CREATE INDEX call_argument_parameter ON call_argument(parameter_entity_id)",
             "CREATE INDEX relation_to ON relation(to_id)"
-        ).map { it.trimIndent() }
+        )
     }
 }
 

@@ -64,15 +64,27 @@ private fun timings(args: TimingsArguments): Int {
     return 0
 }
 
+private fun sameRows(args: SameRowsArguments): Int {
+    if (args.databases.size != 2) throw CliValidationException("same-rows takes exactly two index files")
+    val (first, second) = args.databases.map { Path.of(it) }
+    for (file in listOf(first, second)) if (!Files.isRegularFile(file)) throw CliValidationException("Index file does not exist: $file")
+    val result = SameRows.compare(first, second)
+    result.lines.forEach(::println)
+    if (!result.identical) throw CliExecutionException("The indexes differ")
+    return 0
+}
+
 /** Validation tools of the atlas itself (not part of the published `zpa-atlas` CLI). Exit codes as zpa-atlas. */
 fun execute(args: Array<String>, environment: (String) -> String? = System::getenv): Int {
     val main = MainArguments()
     val compareArguments = CompareArguments()
     val timingsArguments = TimingsArguments()
+    val sameRowsArguments = SameRowsArguments()
     val commander = JCommander.newBuilder()
         .addObject(main)
         .addCommand(compareArguments)
         .addCommand(timingsArguments)
+        .addCommand(sameRowsArguments)
         .programName("atlas-devtools")
         .build()
     return try {
@@ -85,6 +97,7 @@ fun execute(args: Array<String>, environment: (String) -> String? = System::gete
         }
         when (commander.parsedCommand) {
             "compare-deps" -> compareDeps(compareArguments, environment)
+            "same-rows" -> sameRows(sameRowsArguments)
             else -> timings(timingsArguments)
         }
     } catch (exception: ParameterException) {

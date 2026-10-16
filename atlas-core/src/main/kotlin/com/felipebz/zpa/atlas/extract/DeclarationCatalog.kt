@@ -31,6 +31,9 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
 
     private val keysById = HashMap<ProjectDeclarationId, String>()
 
+    /** Parameter entity keys by owner key (subprogram or cursor) and normalized name: one shared instance per key. */
+    private val parameterKeys = HashMap<String, HashMap<String, String>>()
+
     /** Package-body subprograms that [ProjectSnapshot.correlateSpecification] does not pair with one specification. */
     private val privateBodies = HashSet<ProjectDeclarationId>()
 
@@ -60,6 +63,15 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
     fun keyOf(id: ProjectDeclarationId): String = keysById[id] ?: error("No entity for declaration $id")
 
     fun isPrivate(id: ProjectDeclarationId): Boolean = id in privateBodies
+
+    /**
+     * The entity key of [parameter] of the subprogram or cursor whose key is [ownerKey]: the instance registered with
+     * the entity, so that every binding shares it instead of holding a copy of the long signature.
+     */
+    fun parameterKey(ownerKey: String, parameter: ProjectParameterView): String {
+        val name = normalizeIdentifier(parameter.name.originalSpelling)
+        return parameterKeys[ownerKey]?.get(name) ?: error("No parameter entity $name of $ownerKey")
+    }
 
     private val declaredKeys: Set<String> by lazy { entities.mapTo(HashSet()) { it.key } }
 
@@ -135,6 +147,7 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
                     for (parameter in declaration.parameters) {
                         val parameterName = normalizeIdentifier(parameter.name.originalSpelling)
                         val parameterKey = "$key.$parameterName"
+                        parameterKeys.getOrPut(key) { HashMap() }.putIfAbsent(parameterName, parameterKey)
                         entity(parameterKey, EntityKind.PARAMETER, schema, parameterName, key)
                         occurrence(fileId, parameter.sourceRange.toSpan(), parameter.name.originalSpelling, parameterKey, role, key)
                     }
@@ -165,6 +178,7 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
                 for (parameter in subprogram.parameters) {
                     val parameterName = normalizeIdentifier(parameter.name.originalSpelling)
                     val parameterKey = "$key.$parameterName"
+                    parameterKeys.getOrPut(key) { HashMap() }.putIfAbsent(parameterName, parameterKey)
                     entity(parameterKey, EntityKind.PARAMETER, schema, parameterName, key)
                     occurrence(fileId, parameter.sourceRange.toSpan(), parameter.name.originalSpelling, parameterKey, role, key)
                 }
