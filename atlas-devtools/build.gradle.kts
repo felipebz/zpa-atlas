@@ -30,7 +30,7 @@ val integrationTest by sourceSets.creating {
 }
 
 dependencies {
-    "integrationTestImplementation"(platform("org.junit:junit-bom:5.13.4"))
+    "integrationTestImplementation"(platform("org.junit:junit-bom:5.14.4"))
     "integrationTestImplementation"("org.junit.jupiter:junit-jupiter")
     "integrationTestImplementation"("org.assertj:assertj-core:3.27.7")
     "integrationTestRuntimeOnly"("org.junit.platform:junit-platform-launcher")
