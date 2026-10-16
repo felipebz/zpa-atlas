@@ -28,20 +28,22 @@ object ComparisonReport {
         for (u in differing.take(20)) line("    ${u.unit}: first difference at stored line ${u.firstDifferentLine}")
         line()
         val db = r.matched.size + r.databaseOnly.size
-        val builtin = r.databaseOnly.count { it.dbClass == "BUILTIN" }
+        val expected = r.databaseOnly.count { it.dbClass in EXPECTED_CLASSES }
         line("Edges")
         line("  database: $db")
         line("  index: ${r.units.filter { it.databaseStatus != null }.sumOf { it.indexEdges }}")
         line("  matched: ${r.matched.size} (exact ${r.matched.count { !it.byName }}, by name ${r.matched.count { it.byName }})")
         line("  matched only through collapsed AMBIGUOUS calls: ${r.matched.count { it.collapsedOnly }} (collapsed occurrences: ${r.collapsedOccurrences})")
         line()
-        line("Match rate (matched / (database - BUILTIN))")
-        line("  overall: ${rate(r.matched.size, db - builtin)}")
-        val types = (r.matched.map { it.reference.referencedType } + r.databaseOnly.map { it.reference.referencedType }).toSortedSet()
+        line("Match rate (matched / (database - BUILTIN - NON_EXISTENT))")
+        line("  overall: ${rate(r.matched.size, db - expected)}")
+        // Types whose rows are all expected (BUILTIN, NON_EXISTENT) have no rate.
+        val types = (r.matched.map { it.reference.referencedType } +
+            r.databaseOnly.filter { it.dbClass !in EXPECTED_CLASSES }.map { it.reference.referencedType }).toSortedSet()
         for (type in types) {
             val m = r.matched.count { it.reference.referencedType == type }
             val d = m + r.databaseOnly.count { it.reference.referencedType == type }
-            val b = r.databaseOnly.count { it.reference.referencedType == type && it.dbClass == "BUILTIN" }
+            val b = r.databaseOnly.count { it.reference.referencedType == type && it.dbClass in EXPECTED_CLASSES }
             line("  $type: ${rate(m, d - b)}")
         }
         line()
@@ -74,6 +76,9 @@ object ComparisonReport {
         "BUILTIN", "REMOTE", "NON_EXISTENT", "SOURCE_DIFFERS", "NAME_NOT_IN_TEXT", "UNRESOLVED_IN_INDEX", "RESOLVED_ELSEWHERE",
         "GUESSED_ELSEWHERE", "NOT_EXTRACTED"
     )
+    /** Database-only classes left out of the match-rate denominator. */
+    val EXPECTED_CLASSES = setOf("BUILTIN", "NON_EXISTENT")
+
     val INDEX_CLASSES = listOf("SOURCE_DIFFERS", "UNIT_INVALID", "BY_NAME_ONLY", "INDEX_ONLY")
 
     private fun unit(u: DbObjectId) = listOf(u.owner, u.name, u.type)

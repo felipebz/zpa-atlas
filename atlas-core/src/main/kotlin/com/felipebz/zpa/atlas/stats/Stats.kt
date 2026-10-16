@@ -15,9 +15,12 @@ object Stats {
                     SELECT 'schema_version', schema_version FROM run
                     UNION ALL SELECT 'zpa_version', zpa_version FROM run
                     UNION ALL SELECT 'metadata', coalesce(metadata_origin, '(none)') FROM run
-                    UNION ALL SELECT 'compilation_schema', coalesce(compilation_schema, '(none)') FROM run""")
+                    UNION ALL SELECT 'compilation_schema', coalesce(compilation_schema, '(none)') FROM run
+                    UNION ALL SELECT 'source_encoding', source_encoding FROM run""")
                 section(connection, "Files by parse status",
                     "SELECT parse_status, count(*) FROM source_file GROUP BY parse_status ORDER BY parse_status")
+                section(connection, "Files by encoding",
+                    "SELECT encoding, count(*) FROM source_file GROUP BY encoding ORDER BY encoding")
                 section(connection, "Entities by kind",
                     "SELECT kind, count(*) FROM entity WHERE external = 0 GROUP BY kind ORDER BY kind")
                 section(connection, "External entities by kind",

@@ -7,6 +7,7 @@ import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.index.SourceDecoding
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.stats.Stats
 import java.nio.file.Files
@@ -18,6 +19,11 @@ private fun index(args: IndexArguments, environment: (String) -> String?): Int {
     val sources = Path.of(args.sources)
     if (!Files.isDirectory(sources)) throw CliValidationException("Sources folder does not exist or is not a directory: ${args.sources}")
     if (args.threads < 1) throw CliValidationException("--threads must be at least 1")
+    val encoding = try {
+        SourceDecoding.validate(args.encoding.trim())
+    } catch (e: IllegalArgumentException) {
+        throw CliValidationException(e.message ?: "Unknown encoding")
+    }
     val settings = OracleSettings.from(args.oracle, environment)
     val compilationSchema = OracleSettings.compilationSchema(args)
     val dictionary = settings?.let {
@@ -32,7 +38,8 @@ private fun index(args: IndexArguments, environment: (String) -> String?): Int {
             extensions = args.extensions.split(',').map { it.trim() },
             compilationSchema = compilationSchema,
             dictionary = dictionary,
-            threads = args.threads
+            threads = args.threads,
+            encoding = encoding
         )
     )
     System.err.println("Indexed ${summary.files} files into ${args.out}: scan ${summary.parseMillis} ms, write ${summary.writeMillis} ms, total ${summary.totalMillis} ms")
@@ -58,6 +65,7 @@ private fun stats(args: StatsArguments): Int {
     if (args.database.size != 1) throw CliValidationException("stats takes exactly one index file")
     val database = Path.of(args.database.single())
     if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: $database")
+    AtlasIndex(database, null).run() // refuses an index of another schema version
     print(Stats.report(database))
     return 0
 }

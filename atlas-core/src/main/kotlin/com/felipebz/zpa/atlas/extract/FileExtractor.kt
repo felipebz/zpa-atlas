@@ -25,6 +25,8 @@ class FileExtractor(
     private val path: String,
     private val sha256: String,
     private val sizeBytes: Long,
+    /** The charset the file was decoded with, recorded in the index. */
+    private val encoding: String,
     private val lineCount: Int,
     private val dictionary: AtlasDictionary,
     private val defaultSchema: String?,
@@ -104,7 +106,7 @@ class FileExtractor(
             addDeclarationOccurrences()
             coverage += catalog.coverageFor(path)
         }
-        return FileFacts(path, sha256, sizeBytes, status, recoveredRegions, defaultSchema, units, statements, occurrences, entities, relations, coverage)
+        return FileFacts(path, sha256, sizeBytes, encoding, status, recoveredRegions, defaultSchema, units, statements, occurrences, entities, relations, coverage)
     }
 
     // ---- units --------------------------------------------------------------------------------------------------
@@ -334,7 +336,7 @@ class FileExtractor(
         }
         val outcome = when {
             symbol != null && symbol.kind in NOT_CALLABLE -> return
-            symbol != null && (symbol.kind == Symbol.Kind.PROCEDURE || symbol.kind == Symbol.Kind.FUNCTION) && !symbol.isGlobal ->
+            symbol != null && (symbol.kind == Symbol.Kind.PROCEDURE || symbol.kind == Symbol.Kind.FUNCTION) && isLocalSubprogram(symbol) ->
                 CallOutcome.Call(Status.UNRESOLVED, null, "LOCAL_SUBPROGRAM")
             else -> calls.resolve(segments, kind, arguments.map { WrittenArgument(it.first) }, context.schema, context.enclosingPackage)
         }
@@ -540,6 +542,18 @@ class FileExtractor(
             occurrences += OccurrenceFact(unitIndex, declaration.containerKey ?: unit.entityKey, null, declaration.span, declaration.written,
                 declaration.entityKey, setOf(declaration.role), status(Status.RESOLVED, partialUnits[unitIndex]), Origin.STATIC, null)
         }
+    }
+
+    /**
+     * A subprogram the legacy table declares outside a package scope and below the file scope: nested in a standalone
+     * unit, a subprogram or a block. `Symbol.isGlobal` is not used: it is true for subprograms nested in standalone
+     * units, because their scope's outer scope is the file scope. The unit itself (recursion) is declared in the file
+     * scope and package members in the package spec or body scope; those are not local.
+     */
+    private fun isLocalSubprogram(symbol: Symbol): Boolean {
+        val scope = symbol.scope
+        if (scope.outer == null) return false
+        return scope.type != PlSqlGrammar.CREATE_PACKAGE && scope.type != PlSqlGrammar.CREATE_PACKAGE_BODY
     }
 
     private companion object {

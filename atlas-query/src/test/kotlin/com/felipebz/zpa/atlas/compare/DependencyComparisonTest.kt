@@ -67,14 +67,27 @@ class DependencyComparisonTest {
 
     @Test
     fun `unknown-schema names match by their first segment or as schema-qualified objects`() {
-        assertThat(external.matched.map { it.byName to "${it.reference.referencedOwner}.${it.reference.referencedName}" }).containsExactly(
-            true to "OTHER_S.EXT", true to "OTHER_S.PROC", true to "PUBLIC.PKG_EXT"
+        assertThat(external.matched.map { "${if (it.byName) "BY_NAME" else "EXACT"} ${it.unit.name} ${it.reference.referencedOwner}.${it.reference.referencedName}" }).containsExactly(
+            "EXACT PK_DOC HR.PK_DOC", "EXACT PROC_EXT HR.PK_DOC",
+            "BY_NAME PROC_EXT OTHER_S.EXT", "BY_NAME PROC_EXT OTHER_S.PROC", "BY_NAME PROC_EXT PUBLIC.PKG_EXT"
         )
         // Both other_s calls are one index edge (to ~.OTHER_S); only the guessed table is index-only.
         assertThat(external.indexOnly.map { "${it.indexClass} ${it.target}" }).containsExactly("INDEX_ONLY HR.EMP")
-        val guessed = external.databaseOnly.single()
-        assertThat(guessed.dbClass).isEqualTo("GUESSED_ELSEWHERE")
-        assertThat(guessed.detail).isEqualTo("hr/proc_ext.prc:9->HR.EMP(UNVERIFIED)")
+    }
+
+    @Test
+    fun `declarations are not evidence, evidence roles fit the type, NON-EXISTENT and DUAL are expected`() {
+        assertThat(external.databaseOnly.map { "${it.dbClass} ${it.unit.name} ${it.reference.referencedOwner}.${it.reference.referencedName} ${it.detail}".trim() })
+            .containsExactly(
+                "BUILTIN PROC_EXT PUBLIC.DUAL",
+                "GUESSED_ELSEWHERE PROC_EXT PUBLIC.EMP hr/proc_ext.prc:9->HR.EMP(UNVERIFIED)",
+                "NON_EXISTENT PROC_EXT HR.PKG_EXT",
+                // A parameter named like the table: its DECLARATION is not evidence, so not RESOLVED_ELSEWHERE.
+                "NOT_EXTRACTED PK_DOC HR.COMENTARIO",
+                // A call to a member named like the table: CALL evidence does not fit a TABLE.
+                "NOT_EXTRACTED PROC_EXT HR.COMPANY"
+            )
+        assertThat(ComparisonReport.summary(external)).contains("overall: 62.5% (5/8)")
     }
 
     @Test

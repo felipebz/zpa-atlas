@@ -42,7 +42,9 @@ data class IndexOptions(
     /** Exact dictionary name of the schema unqualified units compile in, or null. */
     val compilationSchema: String? = null,
     val dictionary: AtlasDictionary = AtlasDictionary.NONE,
-    val threads: Int = Runtime.getRuntime().availableProcessors()
+    val threads: Int = Runtime.getRuntime().availableProcessors(),
+    /** `auto` (per file: strict UTF-8, else windows-1252) or a charset name forced for every file. */
+    val encoding: String = SourceDecoding.AUTO
 ) {
     companion object {
         /** The default of zpa-cli `--extensions`. */
@@ -67,8 +69,15 @@ class Indexer internal constructor(
 ) {
     constructor(clock: () -> Instant = Instant::now) : this(clock, { _, extractor -> listOf(extractor) })
 
-    private class Source(val relativePath: String, val absolute: Path, val bytes: ByteArray) : PlSqlFile {
-        val text = String(bytes, StandardCharsets.UTF_8)
+    /**
+     * A source decoded with its own charset ([SourceDecoding]). ZPA gets the decoded text, never the bytes: the charset
+     * of `PlSqlConfiguration`/`AstScanner` is only used by the lexer to read files and URLs, so one value for the run is
+     * enough.
+     */
+    private class Source(val relativePath: String, val absolute: Path, val bytes: ByteArray, encoding: String) : PlSqlFile {
+        private val decoded = SourceDecoding.decode(bytes, encoding)
+        val text = decoded.text
+        val charset = decoded.charset
         override fun contents(): String = text
         override fun fileName(): String = absolute.fileName.toString()
         override fun type(): PlSqlFile.Type = PlSqlFile.Type.MAIN
@@ -80,7 +89,7 @@ class Indexer internal constructor(
         val startedAt = clock()
         val started = System.nanoTime()
         val root = options.sources.toAbsolutePath().normalize()
-        val sources = discover(root, options.extensions)
+        val sources = discover(root, options.extensions, options.encoding)
 
         val prepared = ProjectAnalysisContext.prepared(
             ProjectIndexPreparation(ProjectDeclarationExtractor(PlSqlConfiguration(StandardCharsets.UTF_8, true)))
@@ -94,7 +103,7 @@ class Indexer internal constructor(
         val catalogHolder = CatalogHolder(options.compilationSchema)
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
         fun extractor(source: Source) = FileExtractor(
-            source.relativePath, sha256(source.bytes), source.bytes.size.toLong(), source.text.lines().size,
+            source.relativePath, sha256(source.bytes), source.bytes.size.toLong(), source.charset.name(), source.text.lines().size,
             options.dictionary, options.compilationSchema, catalogHolder::get
         )
         val walked: List<Result<FileFacts>> = try {
@@ -149,6 +158,7 @@ class Indexer internal constructor(
                     atlasVersion = VERSIONS.getProperty("atlas", "unknown"),
                     zpaVersion = VERSIONS.getProperty("zpa", "unknown"),
                     sourcesRoot = root.invariantSeparatorsPathString,
+                    sourceEncoding = SourceDecoding.validate(options.encoding),
                     metadataOrigin = dictionary.metadata.origin.orElse(null),
                     compilationSchema = options.compilationSchema,
                     startedAt = startedAt.toString(),
@@ -180,12 +190,12 @@ class Indexer internal constructor(
         }
     }
 
-    private fun discover(root: Path, extensions: List<String>): List<Source> {
+    private fun discover(root: Path, extensions: List<String>, encoding: String): List<Source> {
         require(Files.isDirectory(root)) { "Sources folder does not exist or is not a directory: $root" }
         val accepted = extensions.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotEmpty() }.toSet()
         return Files.walk(root).use { paths ->
             paths.filter { it.isRegularFile() && it.extension.lowercase(Locale.ROOT) in accepted }.toList()
-        }.map { Source(root.relativize(it).invariantSeparatorsPathString, it, Files.readAllBytes(it)) }
+        }.map { Source(root.relativize(it).invariantSeparatorsPathString, it, Files.readAllBytes(it), encoding) }
             .sortedBy { it.relativePath }
     }
 

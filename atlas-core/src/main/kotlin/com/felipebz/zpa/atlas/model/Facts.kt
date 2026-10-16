@@ -73,6 +73,8 @@ class FileFacts(
     val path: String,
     val sha256: String,
     val sizeBytes: Long,
+    /** The charset the file was decoded with (`UTF-8`, `windows-1252`, or the forced one). */
+    val encoding: String,
     val parseStatus: ParseStatus,
     val recoveredRegions: Int,
     val compilationSchema: String?,

@@ -14,6 +14,8 @@ data class RunInfo(
     val atlasVersion: String,
     val zpaVersion: String,
     val sourcesRoot: String,
+    /** The `--encoding` option: `auto` or the forced charset name. */
+    val sourceEncoding: String,
     val metadataOrigin: String?,
     val compilationSchema: String?,
     val startedAt: String,
@@ -36,7 +38,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         val entityIds = insertEntities(globalEntities + sortedFiles.flatMap { it.entities })
         insertRelations((globalRelations + sortedFiles.flatMap { it.relations }), entityIds)
 
-        val fileInsert = prepare("INSERT INTO source_file(id, path, kind, sha256, size_bytes, compilation_schema, parse_status, recovered_regions) VALUES (?,?,?,?,?,?,?,?)")
+        val fileInsert = prepare("INSERT INTO source_file(id, path, kind, sha256, size_bytes, compilation_schema, parse_status, recovered_regions, encoding) VALUES (?,?,?,?,?,?,?,?,?)")
         val unitInsert = prepare("INSERT INTO unit(id, file_id, entity_id, kind, name, start_line, start_col, end_line, end_col, origin_path, origin_line_offset) VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL)")
         val statementInsert = prepare("INSERT INTO sql_statement(id, file_id, unit_id, container_entity_id, kind, start_line, start_col, end_line, end_col, normalized_hash) VALUES (?,?,?,?,?,?,?,?,?,?)")
         val occurrenceInsert = prepare("INSERT INTO occurrence(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line, end_col, written, entity_id, roles, status, origin, reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
@@ -59,6 +61,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             fileInsert.setNullableString(6, file.compilationSchema)
             fileInsert.setString(7, file.parseStatus.name)
             fileInsert.setInt(8, file.recoveredRegions)
+            fileInsert.setString(9, file.encoding)
             fileInsert.addBatch()
 
             val unitIds = LongArray(file.units.size)
@@ -132,15 +135,16 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     }
 
     private fun insertRun(run: RunInfo) {
-        prepare("INSERT INTO run(id, schema_version, atlas_version, zpa_version, sources_root, metadata_origin, compilation_schema, started_at, finished_at) VALUES (1,?,?,?,?,?,?,?,?)").use {
+        prepare("INSERT INTO run(id, schema_version, atlas_version, zpa_version, sources_root, source_encoding, metadata_origin, compilation_schema, started_at, finished_at) VALUES (1,?,?,?,?,?,?,?,?,?)").use {
             it.setInt(1, SCHEMA_VERSION)
             it.setString(2, run.atlasVersion)
             it.setString(3, run.zpaVersion)
             it.setString(4, run.sourcesRoot)
-            it.setNullableString(5, run.metadataOrigin)
-            it.setNullableString(6, run.compilationSchema)
-            it.setString(7, run.startedAt)
-            it.setString(8, run.finishedAt)
+            it.setString(5, run.sourceEncoding)
+            it.setNullableString(6, run.metadataOrigin)
+            it.setNullableString(7, run.compilationSchema)
+            it.setString(8, run.startedAt)
+            it.setString(9, run.finishedAt)
             it.executeUpdate()
         }
     }
@@ -190,7 +194,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 3
+        const val SCHEMA_VERSION = 4
 
         private val OCCURRENCE_ORDER = compareBy<OccurrenceFact>(
             { it.span }, { it.entityKey ?: "" }, { it.roles.encode() }, { it.status }, { it.reason ?: "" }, { it.written }
@@ -261,6 +265,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 atlas_version TEXT NOT NULL,
                 zpa_version TEXT NOT NULL,
                 sources_root TEXT NOT NULL,
+                source_encoding TEXT NOT NULL,
                 metadata_origin TEXT NULL,
                 compilation_schema TEXT NULL,
                 started_at TEXT NOT NULL,
@@ -274,7 +279,8 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 size_bytes INTEGER NOT NULL,
                 compilation_schema TEXT NULL,
                 parse_status TEXT NOT NULL ${check<ParseStatus>("parse_status")},
-                recovered_regions INTEGER NOT NULL
+                recovered_regions INTEGER NOT NULL,
+                encoding TEXT NOT NULL
             )""",
             """CREATE TABLE entity (
                 id INTEGER PRIMARY KEY,

@@ -16,7 +16,8 @@ atlas-devtools timings <file.db>
 
 Compares the index, projected to object level, with `ALL_DEPENDENCIES` and classifies every difference. It prints a
 summary (counts and top-20 name lists only, safe to share) and writes `units.csv`, `matched.csv`, `db_only.csv` and
-`index_only.csv` to `--out`.
+`index_only.csv` to `--out`. The match rate is `matched / (database - BUILTIN - NON_EXISTENT)`: `NON-EXISTENT` rows are
+never matched, they record an object that does not exist.
 
 - With `--oracle-*` it reads `ALL_DEPENDENCIES`, `ALL_OBJECTS` and `ALL_SOURCE` of the `--oracle-schemas` owners
   (`--oracle-relations` is rejected). Only the seven `ALL_DEPENDENCIES` columns that exist on 10.2 are read.
@@ -26,7 +27,8 @@ summary (counts and top-20 name lists only, safe to share) and writes `units.csv
   `DEP,owner,name,type,referenced_owner,referenced_name,referenced_type,referenced_link` (empty means null) and
   `SRC,owner,name,type,line,text`.
 - `--builtins file` replaces the built-in list (one name per line, `#` comments). The default is `STANDARD`,
-  `DBMS_STANDARD`, `PLITBLM` and `SYS_STUB_FOR_PURITY_ANALYSIS`, the rows Oracle 26ai adds to units; check it on
+  `DBMS_STANDARD`, `PLITBLM` and `SYS_STUB_FOR_PURITY_ANALYSIS` (the rows Oracle 26ai adds to units) and `DUAL` (which
+  the indexer drops on purpose); check it on
   10.2/11.2 with the most frequent `SYS`/`PUBLIC` rows of `db_only.csv`.
 
 `timings` times the query API (first page with `SELF`, with `IMPLEMENTATIONS,CHILDREN`, and `entity`) for the 5

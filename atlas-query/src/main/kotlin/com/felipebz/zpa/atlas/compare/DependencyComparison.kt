@@ -87,9 +87,9 @@ class DependencyComparison(
     private val defaultOwner: String? = null,
     private val builtins: Set<String> = DEFAULT_BUILTINS
 ) {
-    private class Unit(val id: Long, val kind: String, val name: String, val path: String, val span: IntArray, val obj: DbObjectId?)
+    private class Unit(val id: Long, val kind: String, val name: String, val path: String, val encoding: String, val span: IntArray, val obj: DbObjectId?)
 
-    private class Evidence(val segments: List<String>, val status: String, val target: Target?, val location: Location)
+    private class Evidence(val segments: List<String>, val status: String, val target: Target?, val location: Location, val roles: Set<String>)
 
     private class IndexEdge(val target: Target) {
         val locations = sortedSetOf<Location>()
@@ -118,7 +118,7 @@ class DependencyComparison(
         // ---- units to objects (§2.1)
         val missingOwner = ArrayList<String>()
         val units = connection.query(
-            """SELECT u.id, u.kind, u.name, f.path, f.compilation_schema, u.start_line, u.start_col, u.end_line, u.end_col
+            """SELECT u.id, u.kind, u.name, f.path, f.compilation_schema, u.start_line, u.start_col, u.end_line, u.end_col, f.encoding
                FROM unit u JOIN source_file f ON f.id = u.file_id ORDER BY u.id"""
         ) { rs ->
             val kind = rs.getString(2)
@@ -129,7 +129,7 @@ class DependencyComparison(
                 val owner = if (segments.size >= 2) segments.first() else rs.getString(5) ?: runSchema ?: defaultOwner
                 if (owner == null) { missingOwner += "${rs.getString(4)}: $kind $name"; null } else DbObjectId(owner, segments.last(), type)
             }
-            Unit(rs.getLong(1), kind, name, rs.getString(4), intArrayOf(rs.getInt(6), rs.getInt(7), rs.getInt(8), rs.getInt(9)), obj)
+            Unit(rs.getLong(1), kind, name, rs.getString(4), rs.getString(10), intArrayOf(rs.getInt(6), rs.getInt(7), rs.getInt(8), rs.getInt(9)), obj)
         }
         if (missingOwner.isNotEmpty()) {
             throw IllegalArgumentException("Units without owner (no written owner, no compilation schema, no --default-owner):\n" +
@@ -186,24 +186,28 @@ class DependencyComparison(
         val candidates = connection.query("SELECT occurrence_id, entity_id FROM occurrence_candidate") { it.getLong(1) to it.getLong(2) }
             .groupBy({ it.first }, { it.second })
         connection.forEach(
-            """SELECT o.id, o.unit_id, o.entity_id, o.status, o.written, f.path, o.start_line, o.reason
+            """SELECT o.id, o.unit_id, o.entity_id, o.status, o.written, f.path, o.start_line, o.reason, o.roles
                FROM occurrence o JOIN source_file f ON f.id = o.file_id ORDER BY o.id"""
         ) { rs ->
             val unit = unitsById.getValue(rs.getLong(2))
             val entityId = (rs.getObject(3) as Number?)?.toLong()
             val status = rs.getString(4)
             val location = Location(rs.getString(6), rs.getInt(7))
+            val roles = rs.getString(9).split(',').filter { it.isNotEmpty() }.toSet()
             val obj = unit.obj
             // A call the project does not know still names an (external) entity: `db:~.DBMS_OUTPUT.PUT_LINE`, `db:SYS.X`.
             val edgeStatus = status in EDGE_STATUSES || (status == "UNRESOLVED" && rs.getString(8) == "NOT_IN_PROJECT")
             if (obj == null) {
-                if (edgeStatus && entityId != null) scriptEdges++
+                if (edgeStatus && entityId != null && !declaringOnly(roles)) scriptEdges++
                 return@forEach
             }
             when (status) {
                 "DYNAMIC" -> dynamicCount.merge(obj, 1, Int::plus)
                 "PARTIAL_SOURCE" -> partialCount.merge(obj, 1, Int::plus)
             }
+            // A definition or declaration names the unit's own entity (a parameter may be named like a table): it is
+            // neither an edge (the body -> spec edge comes from IMPLEMENTS) nor evidence about another object.
+            if (declaringOnly(roles)) return@forEach
             var target: Target? = null
             var effectiveStatus = status
             if (edgeStatus && entityId != null) {
@@ -219,7 +223,7 @@ class DependencyComparison(
                     addEdge(obj, target, location, true)
                 }
             }
-            evidence.getOrPut(obj) { ArrayList() } += Evidence(segments(rs.getString(5)), effectiveStatus, target, location)
+            evidence.getOrPut(obj) { ArrayList() } += Evidence(segments(rs.getString(5)), effectiveStatus, target, location, roles)
         }
 
         // Relations: IMPLEMENTS (body -> spec) and TRIGGER_ON (trigger -> table), from the unit defining the source entity.
@@ -255,7 +259,9 @@ class DependencyComparison(
         for (unit in units) {
             val obj = unit.obj ?: continue
             val file = root?.resolve(unit.path)?.takeIf { Files.isRegularFile(it) } ?: continue
-            unitTexts.merge(obj, slice(Files.readString(file), unit.span)) { a, b -> a + "\n" + b }
+            // The charset the indexer used for this file, so that the spans cut at the same characters.
+            val text = AtlasIndex.decode(Files.readAllBytes(file), unit.encoding)
+            unitTexts.merge(obj, slice(text, unit.span)) { a, b -> a + "\n" + b }
         }
         val sourceStatus = HashMap<DbObjectId, Pair<SourceStatus, Int?>>()
         for (obj in mapped) {
@@ -282,13 +288,15 @@ class DependencyComparison(
                 it.target.byName && it.target.link == dep.referencedLink &&
                     (it.target.name == dep.referencedName || (dep.referencedOwner to dep.referencedName) in it.readings)
             }.minByOrNull { it.target }
-            val hit = exact ?: byName
+            // A dependency on an object that does not exist is never an index edge (Oracle records it to invalidate the
+            // unit when such an object appears, typically next to a synonym of the same name).
+            val hit = if (dep.referencedType == "NON-EXISTENT") null else exact ?: byName
             if (hit != null) {
                 matchedIndex += obj to hit.target
                 matched += MatchedEdge(obj, dep, exact == null, hit.fromCollapsedOnly, hit.locations.toList())
                 continue
             }
-            val unitEvidence = evidence[obj].orEmpty().filter { dep.referencedName in it.segments }
+            val unitEvidence = evidence[obj].orEmpty().filter { dep.referencedName in it.segments && fits(dep.referencedType, it.roles) }
             val unresolved = unitEvidence.filter { it.status in UNRESOLVED_STATUSES }
             val elsewhere = unitEvidence.filter { it.target != null && !(it.target.owner == dep.referencedOwner && it.target.name == dep.referencedName) &&
                 !(it.target.byName && it.target.name == dep.referencedName) }
@@ -372,7 +380,7 @@ class DependencyComparison(
 
     companion object {
         /** Built-in packages that every unit depends on (from `USER_DEPENDENCIES` on Oracle 26ai, see the F0.4 report). */
-        val DEFAULT_BUILTINS = setOf("STANDARD", "DBMS_STANDARD", "PLITBLM", "SYS_STUB_FOR_PURITY_ANALYSIS")
+        val DEFAULT_BUILTINS = setOf("STANDARD", "DBMS_STANDARD", "PLITBLM", "SYS_STUB_FOR_PURITY_ANALYSIS", "DUAL")
 
         val BUILTIN_OWNERS = setOf("SYS", "PUBLIC")
 
@@ -388,6 +396,19 @@ class DependencyComparison(
         )
 
         private val EDGE_STATUSES = setOf("RESOLVED", "UNVERIFIED", "EXTERNAL")
+        private val DECLARING_ROLES = setOf("DEFINITION", "DECLARATION")
+
+        /** A definition or declaration only (an empty role set, dynamic SQL, is not). */
+        private fun declaringOnly(roles: Set<String>) = roles.isNotEmpty() && roles.all { it in DECLARING_ROLES }
+        private val RELATION_TYPES = setOf("TABLE", "VIEW", "MATERIALIZED VIEW")
+        private val CALLABLE_TYPES = setOf("PACKAGE", "PROCEDURE", "FUNCTION", "TYPE", "OPERATOR")
+
+        /** Whether evidence with [roles] can be about an object of [referencedType]: SQL roles for relations, CALL for callables. */
+        private fun fits(referencedType: String, roles: Set<String>): Boolean = when (referencedType) {
+            in RELATION_TYPES -> roles.any { it.startsWith("SQL_") }
+            in CALLABLE_TYPES -> "CALL" in roles
+            else -> true
+        }
         private val UNRESOLVED_STATUSES = setOf("UNRESOLVED", "AMBIGUOUS", "PARTIAL_SOURCE")
 
         /** Reads a built-in list: one name per line, `#` starts a comment. */

@@ -113,4 +113,4 @@ class InvalidQueryException(message: String) : RuntimeException(message)
 
 /** The file was written by an indexer with another schema version. */
 class SchemaMismatchException(val found: Int, val expected: Int) :
-    RuntimeException("The index has schema version $found; this server reads version $expected. Re-index or use the matching zpa-atlas version.")
+    RuntimeException("The index has schema version $found; this server reads version $expected. Re-run `zpa-atlas index` to rebuild it, or use the matching zpa-atlas version.")

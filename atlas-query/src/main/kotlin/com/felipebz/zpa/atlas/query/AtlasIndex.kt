@@ -157,14 +157,16 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         if (line < 1) throw InvalidQueryException("line must be at least 1")
         if (context !in 0..50) throw InvalidQueryException("context must be between 0 and 50")
         return read { connection, _ ->
-            val sha = connection.query("SELECT sha256 FROM source_file WHERE path = ?", listOf(path)) { it.getString(1) }.singleOrNull()
-                ?: throw InvalidQueryException("Not a file of the index: $path")
+            val (sha, encoding) = connection.query("SELECT sha256, encoding FROM source_file WHERE path = ?", listOf(path)) {
+                it.getString(1) to it.getString(2)
+            }.singleOrNull() ?: throw InvalidQueryException("Not a file of the index: $path")
             val root = sourcesRoot?.toAbsolutePath()?.normalize() ?: return@read null
             val file = root.resolve(path).normalize()
             if (!file.startsWith(root)) throw InvalidQueryException("Path leaves the sources root: $path")
             if (!Files.isRegularFile(file)) return@read null
             val bytes = Files.readAllBytes(file)
-            val lines = String(bytes, Charsets.UTF_8).lines()
+            // The charset the indexer decoded this file with, so lines and columns match the stored spans.
+            val lines = decode(bytes, encoding).lines()
             val first = (line - context).coerceAtLeast(1)
             val last = (line + context).coerceAtMost(lines.size)
             SourceSnippet(path, (first..last).map { SourceLine(it, lines[it - 1]) }, sha256(bytes) != sha)
@@ -269,7 +271,11 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     companion object {
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 3
+        const val SCHEMA_VERSION = 4
+
+        /** Decodes an indexed file with the charset recorded for it (`source_file.encoding`); a leading BOM is dropped. */
+        fun decode(bytes: ByteArray, encoding: String): String =
+            String(bytes, java.nio.charset.Charset.forName(encoding)).let { if (it.startsWith('\uFEFF')) it.substring(1) else it }
 
         val ROLES = listOf(
             "DEFINITION", "DECLARATION", "READ", "WRITE", "CALL", "SQL_SELECT", "SQL_INSERT", "SQL_UPDATE", "SQL_DELETE",

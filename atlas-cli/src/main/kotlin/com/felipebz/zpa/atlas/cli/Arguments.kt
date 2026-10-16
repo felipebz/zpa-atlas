@@ -38,6 +38,9 @@ class IndexArguments {
     @Parameter(names = ["--extensions"], description = "Extensions to analyze")
     var extensions: String = "sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps"
 
+    @Parameter(names = ["--encoding"], description = "Source encoding: auto (per file, strict UTF-8 else windows-1252) or a charset name forced for every file")
+    var encoding: String = "auto"
+
     @Parameter(names = ["--threads"], description = "Number of files parsed concurrently")
     var threads: Int = Runtime.getRuntime().availableProcessors()
 

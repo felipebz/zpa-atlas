@@ -7,5 +7,7 @@ begin
     null;
   end if;
   select count(*) into n from emp;
+  n := pk_doc.company(1);
+  select 1 into n from dual;
 end;
 /

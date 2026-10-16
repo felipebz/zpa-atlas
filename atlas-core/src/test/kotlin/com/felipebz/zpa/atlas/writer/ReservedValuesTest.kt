@@ -33,9 +33,9 @@ class ReservedValuesTest {
         database().use { connection ->
             connection.createStatement().use { statement ->
                 FileKind.entries.forEachIndexed { i, kind ->
-                    statement.execute("INSERT INTO source_file VALUES ($i + 1, 'f$i', '${kind.name}', 'h', 0, NULL, '${ParseStatus.entries[i % ParseStatus.entries.size].name}', 0)")
+                    statement.execute("INSERT INTO source_file VALUES ($i + 1, 'f$i', '${kind.name}', 'h', 0, NULL, '${ParseStatus.entries[i % ParseStatus.entries.size].name}', 0, 'UTF-8')")
                 }
-                ParseStatus.entries.forEach { statement.execute("INSERT INTO source_file VALUES (NULL, 'p${it.name}', 'DB_SOURCE', 'h', 0, NULL, '${it.name}', 0)") }
+                ParseStatus.entries.forEach { statement.execute("INSERT INTO source_file VALUES (NULL, 'p${it.name}', 'DB_SOURCE', 'h', 0, NULL, '${it.name}', 0, 'UTF-8')") }
                 EntityKind.entries.forEachIndexed { i, kind ->
                     statement.execute("INSERT INTO entity VALUES ($i + 1, 'forms:k$i', '${kind.name}', NULL, 'n', NULL, 'd', 0)")
                 }
@@ -66,7 +66,7 @@ class ReservedValuesTest {
             connection.createStatement().use { statement ->
                 assertThatThrownBy { statement.execute("INSERT INTO entity VALUES (1, 'k', 'NOT_A_KIND', NULL, 'n', NULL, 'd', 0)") }
                     .isInstanceOf(SQLException::class.java)
-                statement.execute("INSERT INTO source_file VALUES (1, 'f', 'DB_SOURCE', 'h', 0, NULL, 'OK', 0)")
+                statement.execute("INSERT INTO source_file VALUES (1, 'f', 'DB_SOURCE', 'h', 0, NULL, 'OK', 0, 'UTF-8')")
                 statement.execute("INSERT INTO unit VALUES (1, 1, NULL, 'PACKAGE', 'u', 1, 0, 1, 1, NULL, NULL)")
                 assertThatThrownBy {
                     statement.execute("INSERT INTO occurrence VALUES (1, 1, 1, NULL, NULL, 1, 0, 1, 1, 'w', NULL, 'WRITE,BOGUS', 'RESOLVED', 'STATIC', NULL)")
