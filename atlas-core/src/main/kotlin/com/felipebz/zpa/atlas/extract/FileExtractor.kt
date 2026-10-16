@@ -9,7 +9,10 @@ import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.TclGrammar
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalLookup
+import com.felipebz.zpa.api.project.ProjectCallKind
 import com.felipebz.zpa.api.project.ProjectSnapshot
+import com.felipebz.zpa.api.squid.SemanticAstNode
+import com.felipebz.zpa.api.symbols.Symbol
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.model.*
 
@@ -29,6 +32,7 @@ class FileExtractor(
 ) : PlSqlCheck() {
 
     private lateinit var catalog: DeclarationCatalog
+    private lateinit var calls: CallResolver
     private var result: FileFacts? = null
 
     private val units = ArrayList<UnitFact>()
@@ -42,7 +46,10 @@ class FileExtractor(
     private var recoveredRegions = 0
 
     override fun init() {
-        catalog = catalogOf(projectAnalysis().snapshot)
+        val snapshot = projectAnalysis().snapshot
+        catalog = catalogOf(snapshot)
+        val runSchemas = catalog.schemas + dictionary.schemas + listOfNotNull(defaultSchema) + setOf("SYS", "SYSTEM")
+        calls = CallResolver(snapshot, catalog, entities, relations, runSchemas)
     }
 
     override fun visitFile(node: AstNode) {
@@ -108,9 +115,11 @@ class FileExtractor(
         val schema: String?,
         val container: String?,
         val newNames: Set<String>?,
-        val triggerKey: String?
+        val triggerKey: String?,
+        /** The package spec or body around the code, as written in its CREATE; null elsewhere. */
+        val enclosingPackage: List<String>? = null
     ) {
-        fun inside(container: String) = Context(unitIndex, partial, schema, container, newNames, triggerKey)
+        fun inside(container: String) = Context(unitIndex, partial, schema, container, newNames, triggerKey, enclosingPackage)
     }
 
     private fun addUnit(unit: UnitFact, partial: Boolean): Int {
@@ -166,7 +175,12 @@ class FileExtractor(
             occurrences += OccurrenceFact(index, entityKey, null, span, writtenText(unitName ?: node), entityKey,
                 setOf(Role.DEFINITION), status(Status.RESOLVED, partial), Origin.STATIC, null)
         }
-        walk(node, Context(index, partial, schema, entityKey, newNames, triggerKey))
+        val enclosingPackage = if (kind == UnitKind.PACKAGE || kind == UnitKind.PACKAGE_BODY) {
+            unitName?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.map { it.tokenOriginalValue }?.takeIf { it.isNotEmpty() }
+        } else {
+            null
+        }
+        walk(node, Context(index, partial, schema, entityKey, newNames, triggerKey, enclosingPackage))
     }
 
     private fun subprogramAt(node: AstNode): String? = catalog.subprogramAt(path, node.token.line, node.token.column)
@@ -225,15 +239,18 @@ class FileExtractor(
                 return
             }
             DmlGrammar.EXPLAIN_PLAN -> return
-            PlSqlGrammar.EXECUTE_IMMEDIATE_STATEMENT -> {
-                dynamic(node, after(node, PlSqlKeyword.IMMEDIATE), context)
-                return
-            }
+            // The SQL text is not parsed (F2); calls that build it are still PL/SQL calls, found below.
+            PlSqlGrammar.EXECUTE_IMMEDIATE_STATEMENT -> dynamic(node, after(node, PlSqlKeyword.IMMEDIATE), context)
             PlSqlGrammar.OPEN_FOR_STATEMENT -> if (!node.hasDirectChildren(DmlGrammar.SELECT_EXPRESSION)) {
                 dynamic(node, after(node, PlSqlKeyword.FOR), context)
-                return
             }
-            PlSqlGrammar.METHOD_CALL -> dbmsSqlParse(node)?.let { dynamic(node, it, context) }
+            PlSqlGrammar.METHOD_CALL -> {
+                dbmsSqlParse(node)?.let { dynamic(node, it, context) }
+                callSite(node, context, null)
+            }
+            PlSqlGrammar.CALL_STATEMENT -> node.children.firstOrNull { it.type != PlSqlGrammar.LABELS && it.type != PlSqlPunctuator.SEMICOLON }
+                ?.takeIf { it.type != PlSqlGrammar.METHOD_CALL }
+                ?.let { callSite(it, context, null) }
             PlSqlGrammar.ASSIGNMENT_STATEMENT -> newColumnAssignment(node, context)
         }
         for (child in node.children) walk(child, current)
@@ -279,6 +296,55 @@ class FileExtractor(
         }
         occurrences += OccurrenceFact(context.unitIndex, context.container, id, spanOf(sql ?: node), written, null, emptySet(),
             status(Status.DYNAMIC, context.partial), Origin.STATIC, if (literal) "LITERAL" else "EXPRESSION")
+    }
+
+    // ---- calls --------------------------------------------------------------------------------------------------
+
+    /** The segments of a plain dotted name as written, or null for anything else (a host variable, `f(x).g`, `c%rowcount`). */
+    private fun nameSegments(callee: AstNode): List<String>? {
+        val parts = when (callee.type) {
+            PlSqlGrammar.VARIABLE_NAME -> listOf(callee)
+            PlSqlGrammar.MEMBER_EXPRESSION -> callee.children.filter { it.type != PlSqlPunctuator.DOT }
+            else -> return null
+        }
+        if (parts.any { it.type is PlSqlPunctuator || tokensOf(it).size != 1 }) return null
+        return parts.map { it.tokenOriginalValue }
+    }
+
+    /**
+     * One `CALL` occurrence for a `METHOD_CALL` or a `CALL_STATEMENT` without arguments ([node] is then the name).
+     * Names the legacy symbol table binds to a local value or type are not calls; a nested subprogram is
+     * `LOCAL_SUBPROGRAM` (local entities are F3).
+     */
+    private fun callSite(node: AstNode, context: Context, statementId: Int?) {
+        val isMethodCall = node.type == PlSqlGrammar.METHOD_CALL
+        val callee = if (isMethodCall) node.firstChild else node
+        val kind = if (!isMethodCall || node.parent.type == PlSqlGrammar.CALL_STATEMENT) ProjectCallKind.PROCEDURE else ProjectCallKind.FUNCTION
+        val actuals = if (isMethodCall) node.getFirstChildOrNull(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT).orEmpty() else emptyList()
+        val segments = nameSegments(callee) ?: run {
+            coverage += CoverageFact("CALL_NOT_A_NAME", "Call at line ${callee.tokenLine} has a callee that is not a plain name")
+            return
+        }
+        val first = if (callee.type == PlSqlGrammar.VARIABLE_NAME) callee else callee.firstChild
+        val symbol = (first as? SemanticAstNode)?.symbol
+        val arguments = actuals.map { argument ->
+            val children = argument.children
+            val named = children.size >= 3 && children[1].tokenValue == "=>"
+            Triple(if (named) children[0].tokenOriginalValue else null, if (named) children.last() else argument, argument)
+        }
+        val outcome = when {
+            symbol != null && symbol.kind in NOT_CALLABLE -> return
+            symbol != null && (symbol.kind == Symbol.Kind.PROCEDURE || symbol.kind == Symbol.Kind.FUNCTION) && !symbol.isGlobal ->
+                CallOutcome.Call(Status.UNRESOLVED, null, "LOCAL_SUBPROGRAM")
+            else -> calls.resolve(segments, kind, arguments.map { WrittenArgument(it.first) }, context.schema, context.enclosingPackage)
+        }
+        if (outcome !is CallOutcome.Call) return
+        val argumentFacts = arguments.mapIndexed { index, (label, expression, _) ->
+            CallArgumentFact(index + 1, label?.let { normalizeIdentifier(it) },
+                if (outcome.status == Status.RESOLVED) outcome.bindings[index + 1] else null, spanOf(expression))
+        }
+        occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), outcome.entityKey,
+            setOf(Role.CALL), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys, argumentFacts)
     }
 
     // ---- SQL statements -----------------------------------------------------------------------------------------
@@ -376,6 +442,8 @@ class FileExtractor(
             val reference = clause.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE) ?: continue
             target(statement, reference, setOf(Role.SQL_SELECT), null)
         }
+        // The PL/SQL compiler resolves the function names of static SQL, so they follow the PL/SQL rules.
+        root.getDescendants(PlSqlGrammar.METHOD_CALL).forEach { callSite(it, context, id) }
     }
 
     private fun isPunctuation(node: AstNode) = node.type is PlSqlPunctuator
@@ -472,5 +540,10 @@ class FileExtractor(
             occurrences += OccurrenceFact(unitIndex, declaration.containerKey ?: unit.entityKey, null, declaration.span, declaration.written,
                 declaration.entityKey, setOf(declaration.role), status(Status.RESOLVED, partialUnits[unitIndex]), Origin.STATIC, null)
         }
+    }
+
+    private companion object {
+        /** Legacy symbol kinds whose names are indexed or called like subprograms but are values or types. */
+        val NOT_CALLABLE = setOf(Symbol.Kind.VARIABLE, Symbol.Kind.PARAMETER, Symbol.Kind.CURSOR, Symbol.Kind.TYPE)
     }
 }

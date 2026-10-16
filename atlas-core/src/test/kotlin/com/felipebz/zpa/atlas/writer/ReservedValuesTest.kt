@@ -21,8 +21,8 @@ class ReservedValuesTest {
         assertThat(RelationKind.entries.filter { it.reserved }.map { it.name }).containsExactly(
             "OVERLOAD_OF", "SYNONYM_FOR", "VIEW_BASE", "FORMS_BLOCK_TABLE", "FORMS_ITEM_COLUMN", "FORMS_ATTACHED_LIBRARY"
         )
-        assertThat(Role.entries.filter { it.reserved }.map { it.name }).containsExactly("READ", "CALL", "TYPE_USE", "RAISE", "HANDLE")
-        assertThat(Status.entries.filter { it.reserved }.map { it.name }).containsExactly("AMBIGUOUS")
+        assertThat(Role.entries.filter { it.reserved }.map { it.name }).containsExactly("READ", "TYPE_USE", "RAISE", "HANDLE")
+        assertThat(Status.entries.filter { it.reserved }).isEmpty()
         assertThat(Origin.entries.filter { it.reserved }.map { it.name }).containsExactly("DYNAMIC_LITERAL", "FORMS_IMPLICIT", "HEURISTIC")
         assertThat(UnitKind.entries.filter { it.reserved }.map { it.name }).containsExactly("FORMS_TRIGGER", "FORMS_PROGRAM_UNIT")
         assertThat(FileKind.entries.filter { it.reserved }.map { it.name }).containsExactly("FORMS_MODULE")

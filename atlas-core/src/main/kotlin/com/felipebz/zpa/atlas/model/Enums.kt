@@ -85,7 +85,7 @@ enum class Role(val reserved: Boolean = false) : StoredEnum {
     DECLARATION,
     READ(reserved = true),
     WRITE,
-    CALL(reserved = true),
+    CALL,
     SQL_SELECT,
     SQL_INSERT,
     SQL_UPDATE,
@@ -101,7 +101,7 @@ enum class Role(val reserved: Boolean = false) : StoredEnum {
 enum class Status(val reserved: Boolean = false) : StoredEnum {
     RESOLVED,
     UNVERIFIED,
-    AMBIGUOUS(reserved = true),
+    AMBIGUOUS,
     UNRESOLVED,
     EXTERNAL,
     DYNAMIC,

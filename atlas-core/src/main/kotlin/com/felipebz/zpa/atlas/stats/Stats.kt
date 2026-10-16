@@ -36,9 +36,23 @@ object Stats {
                     WHERE e.kind IN ('TABLE', 'VIEW', 'OBJECT_TABLE', 'UNKNOWN_RELATION')
                       AND (o.roles LIKE '%SQL_INSERT%' OR o.roles LIKE '%SQL_UPDATE%' OR o.roles LIKE '%SQL_DELETE%' OR o.roles LIKE '%SQL_MERGE%')
                     GROUP BY e.key ORDER BY writers DESC, e.key LIMIT 20""")
+                section(connection, "Calls by status",
+                    "SELECT status, count(*) FROM occurrence WHERE $CALL GROUP BY status ORDER BY status")
+                section(connection, "Calls by reason",
+                    "SELECT coalesce(reason, '(none)'), count(*) FROM occurrence WHERE $CALL GROUP BY reason ORDER BY reason")
+                section(connection, "Top 20 called entities by callers", """
+                    SELECT e.key, count(DISTINCT coalesce(o.container_entity_id, -o.unit_id)) AS callers
+                    FROM occurrence o JOIN entity e ON e.id = o.entity_id WHERE $CALL
+                    GROUP BY e.key ORDER BY callers DESC, e.key LIMIT 20""")
+                section(connection, "Top 20 unresolved one-segment call names", """
+                    SELECT upper(written) AS name, count(*) AS calls FROM occurrence
+                    WHERE $CALL AND status = 'UNRESOLVED' AND reason = 'NOT_IN_PROJECT' AND instr(written, '.') = 0
+                    GROUP BY upper(written) ORDER BY calls DESC, name LIMIT 20""")
             }
         }
     }
+
+    private const val CALL = "(',' || roles || ',') LIKE '%,CALL,%'"
 
     private fun StringBuilder.section(connection: Connection, title: String, sql: String) {
         append(title).append('\n')

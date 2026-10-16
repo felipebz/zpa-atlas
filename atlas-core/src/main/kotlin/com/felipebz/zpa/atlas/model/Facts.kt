@@ -56,8 +56,15 @@ data class OccurrenceFact(
     val roles: Set<Role>,
     val status: Status,
     val origin: Origin,
-    val reason: String?
+    val reason: String?,
+    /** For `AMBIGUOUS`: every candidate entity. */
+    val candidateKeys: List<String> = emptyList(),
+    /** For `CALL`: one per written actual, in written order. */
+    val arguments: List<CallArgumentFact> = emptyList()
 )
+
+/** One written actual of a call: its 1-based [ordinal], its label when named, and the formal it binds to when proven. */
+data class CallArgumentFact(val ordinal: Int, val label: String?, val parameterKey: String?, val span: SourceSpan)
 
 data class CoverageFact(val kind: String, val message: String)
 

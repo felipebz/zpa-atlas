@@ -133,6 +133,8 @@ class Indexer internal constructor(
         catalogHolder.snapshot?.failures?.forEach {
             globalCoverage += CoverageFact("PREPARATION_FAILED", "Project index preparation failed for ${it.fileId}")
         }
+        globalCoverage += CoverageFact("CALL_SCOPE_LEGACY",
+            "Calls named like a local value, type or nested subprogram are recognized through the legacy symbol table, a heuristic rather than proof of lexical scope")
         val dictionary = options.dictionary
         if (dictionary.enumerable) {
             dictionary.relations.forEach { RelationResolver.addDictionaryRelation(dictionary, it.relation, globalEntities, globalRelations) }

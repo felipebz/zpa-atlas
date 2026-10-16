@@ -25,7 +25,9 @@ data class DictionaryRelation(val relation: ProjectExternalRelation, val kind: D
 class AtlasDictionary(
     val metadata: ProjectExternalMetadata,
     val relations: List<DictionaryRelation>,
-    val enumerable: Boolean
+    val enumerable: Boolean,
+    /** Exact names of the schemas the dictionary was requested for. */
+    val schemas: Set<String> = emptySet()
 ) {
     private val kinds = relations.associate { (it.relation.schema to it.relation.name) to it.kind }
 
@@ -43,10 +45,12 @@ class AtlasDictionary(
             val builder = ProjectExternalMetadata.builder(origin)
             completeSchemas.forEach { builder.completeSchema(it) }
             relations.forEach { builder.relation(it.relation) }
-            return AtlasDictionary(builder.build(), relations, enumerable = true)
+            val schemas = completeSchemas.toSet() + relations.map { it.relation.schema.originalSpelling.removeSurrounding("\"") }
+            return AtlasDictionary(builder.build(), relations, enumerable = true, schemas = schemas)
         }
 
-        /** An acquired dictionary: lookups only, no enumeration. */
-        fun lookupOnly(metadata: ProjectExternalMetadata): AtlasDictionary = AtlasDictionary(metadata, emptyList(), enumerable = false)
+        /** An acquired dictionary for the requested [schemas]: lookups only, no enumeration. */
+        fun lookupOnly(metadata: ProjectExternalMetadata, schemas: Set<String>): AtlasDictionary =
+            AtlasDictionary(metadata, emptyList(), enumerable = false, schemas = schemas)
     }
 }

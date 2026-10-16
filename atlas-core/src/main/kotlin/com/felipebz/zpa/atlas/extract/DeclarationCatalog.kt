@@ -29,9 +29,13 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
     /** Subprogram entity by the start of its declaration (file id, line, column): the AST anchor for containers. */
     private val subprogramsByStart = HashMap<Triple<String, Int, Int>, String>()
 
+    private val keysById = HashMap<ProjectDeclarationId, String>()
+
+    /** Package-body subprograms that [ProjectSnapshot.correlateSpecification] does not pair with one specification. */
+    private val privateBodies = HashSet<ProjectDeclarationId>()
+
     init {
         val declarations = snapshot.declarations
-        val keysById = HashMap<ProjectDeclarationId, String>()
         val usedKeys = HashMap<String, Int>()
         for (declaration in declarations) {
             val key = register(declaration, usedKeys) ?: continue
@@ -43,9 +47,27 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
             val correlation = snapshot.correlateSpecification(declaration.id)
             if (correlation.status == ProjectSpecificationCorrelation.Status.RESOLVED) {
                 keysById[correlation.specification.get().id]?.let { relations += RelationFact(bodyKey, RelationKind.IMPLEMENTS, it) }
+            } else {
+                privateBodies += declaration.id
             }
         }
     }
+
+    /**
+     * The entity key of a declaration of this catalog's snapshot. Every subprogram, type, value, package and sequence
+     * has one, so a missing id is a bug (an id of another snapshot), not a coverage gap.
+     */
+    fun keyOf(id: ProjectDeclarationId): String = keysById[id] ?: error("No entity for declaration $id")
+
+    fun isPrivate(id: ProjectDeclarationId): Boolean = id in privateBodies
+
+    private val declaredKeys: Set<String> by lazy { entities.mapTo(HashSet()) { it.key } }
+
+    /** Whether [key] is an entity declared in the sources (never an external one). */
+    fun isDeclared(key: String): Boolean = key in declaredKeys
+
+    /** The schemas of the declared entities, without the placeholder. */
+    val schemas: Set<String> by lazy { entities.mapNotNull { it.schemaName }.filter { it != UNKNOWN_SCHEMA }.toSet() }
 
     fun occurrencesFor(fileId: String): List<DeclarationOccurrence> = occurrences[fileId].orEmpty()
 

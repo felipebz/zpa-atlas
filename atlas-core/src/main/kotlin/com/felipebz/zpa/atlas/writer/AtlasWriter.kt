@@ -40,6 +40,8 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         val unitInsert = prepare("INSERT INTO unit(id, file_id, entity_id, kind, name, start_line, start_col, end_line, end_col, origin_path, origin_line_offset) VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL)")
         val statementInsert = prepare("INSERT INTO sql_statement(id, file_id, unit_id, container_entity_id, kind, start_line, start_col, end_line, end_col, normalized_hash) VALUES (?,?,?,?,?,?,?,?,?,?)")
         val occurrenceInsert = prepare("INSERT INTO occurrence(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line, end_col, written, entity_id, roles, status, origin, reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        val candidateInsert = prepare("INSERT INTO occurrence_candidate(occurrence_id, entity_id) VALUES (?,?)")
+        val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col) VALUES (?,?,?,?,?,?,?,?)")
         val coverageInsert = prepare("INSERT INTO coverage_note(id, file_id, kind, message) VALUES (?,?,?,?)")
 
         var unitId = 0L
@@ -98,6 +100,19 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 occurrenceInsert.setString(14, occurrence.origin.name)
                 occurrenceInsert.setNullableString(15, occurrence.reason)
                 occurrenceInsert.addBatch()
+                for (candidate in occurrence.candidateKeys.map { entityIds.getValue(it) }.distinct().sorted()) {
+                    candidateInsert.setLong(1, occurrenceId)
+                    candidateInsert.setLong(2, candidate)
+                    candidateInsert.addBatch()
+                }
+                for (argument in occurrence.arguments) {
+                    argumentInsert.setLong(1, occurrenceId)
+                    argumentInsert.setInt(2, argument.ordinal)
+                    argumentInsert.setNullableString(3, argument.label)
+                    argumentInsert.setNullableLong(4, argument.parameterKey?.let { entityIds.getValue(it) })
+                    argumentInsert.setSpan(5, argument.span)
+                    argumentInsert.addBatch()
+                }
             }
         }
         val notes = globalCoverage.distinct().sortedWith(compareBy({ it.kind }, { it.message })).map { null to it } +
@@ -109,7 +124,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             coverageInsert.setString(4, note.message)
             coverageInsert.addBatch()
         }
-        for (statement in listOf(fileInsert, unitInsert, statementInsert, occurrenceInsert, coverageInsert)) {
+        for (statement in listOf(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, coverageInsert)) {
             statement.executeBatch()
             statement.close()
         }
@@ -175,7 +190,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2
 
         private val OCCURRENCE_ORDER = compareBy<OccurrenceFact>(
             { it.span }, { it.entityKey ?: "" }, { it.roles.encode() }, { it.status }, { it.reason ?: "" }, { it.written }
@@ -302,6 +317,17 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 entity_id INTEGER NOT NULL REFERENCES entity(id),
                 PRIMARY KEY (occurrence_id, entity_id)
             )""",
+            """CREATE TABLE call_argument (
+                occurrence_id INTEGER NOT NULL REFERENCES occurrence(id),
+                ordinal INTEGER NOT NULL,
+                label TEXT NULL,
+                parameter_entity_id INTEGER NULL REFERENCES entity(id),
+                start_line INTEGER NOT NULL,
+                start_col INTEGER NOT NULL,
+                end_line INTEGER NOT NULL,
+                end_col INTEGER NOT NULL,
+                PRIMARY KEY (occurrence_id, ordinal)
+            )""",
             """CREATE TABLE coverage_note (
                 id INTEGER PRIMARY KEY,
                 file_id INTEGER NULL REFERENCES source_file(id),
@@ -314,6 +340,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             "CREATE INDEX occurrence_file_line ON occurrence(file_id, start_line)",
             "CREATE INDEX occurrence_container ON occurrence(container_entity_id)",
             "CREATE INDEX relation_from ON relation(from_id)",
+            "CREATE INDEX call_argument_parameter ON call_argument(parameter_entity_id)",
             "CREATE INDEX relation_to ON relation(to_id)"
         ).map { it.trimIndent() }
     }

@@ -1,0 +1,228 @@
+package com.felipebz.zpa.atlas.extract
+
+import com.felipebz.zpa.api.project.*
+import com.felipebz.zpa.atlas.model.EntityFact
+import com.felipebz.zpa.atlas.model.EntityKind
+import com.felipebz.zpa.atlas.model.RelationFact
+import com.felipebz.zpa.atlas.model.RelationKind
+import com.felipebz.zpa.atlas.model.Status
+
+/** A written actual: its label as written (named notation) or null (positional). */
+data class WrittenArgument(val label: String?)
+
+/** How one call site resolves; [NotACall] means the name is a value or a type, not a subprogram. */
+sealed class CallOutcome {
+    data object NotACall : CallOutcome()
+
+    data class Call(
+        val status: Status,
+        val entityKey: String?,
+        val reason: String?,
+        val candidateKeys: List<String> = emptyList(),
+        /** Parameter entity key by 1-based actual ordinal, only for resolved calls. */
+        val bindings: Map<Int, String> = emptyMap()
+    ) : CallOutcome()
+}
+
+/**
+ * Resolves call sites through [ProjectSnapshot.resolveCall] (F0.2, §4): spelling variants for the unit schema,
+ * package scope before schema scope inside a package, and the body-only subprograms the API never sees. Lexical scope
+ * is the caller's legacy-symbol check; nothing here binds arguments against package-body declarations.
+ *
+ * The project index keys each declaration by the name written in its CREATE, owner included, and never applies a
+ * compilation schema. So `S.x` and an unowned `x` are different targets, and every lookup by name tries both spellings
+ * ([spellings]); the first that the project knows wins.
+ *
+ * @param runSchemas the schemas known to the run (unit owners, compilation schema, requested dictionary schemas,
+ *   `SYS`, `SYSTEM`), used to read `A.B` as `schema.object` when the project does not know it
+ */
+class CallResolver(
+    private val snapshot: ProjectSnapshot,
+    private val catalog: DeclarationCatalog,
+    private val entities: MutableList<EntityFact>,
+    private val relations: MutableList<RelationFact>,
+    private val runSchemas: Set<String>
+) {
+    /**
+     * @param written the callee segments as written
+     * @param unitSchema the schema of the unit (written owner, else the compilation schema), or null
+     * @param enclosingPackage the package spec or body containing the call, as written in its CREATE, or null
+     */
+    fun resolve(
+        written: List<String>,
+        kind: ProjectCallKind,
+        arguments: List<WrittenArgument>,
+        unitSchema: String?,
+        enclosingPackage: List<String>?
+    ): CallOutcome {
+        val variants = spellings(written, unitSchema)
+        val packageName = enclosingPackage?.let { ProjectQualifiedName.of(*it.toTypedArray()) }
+        if (isValue(written, unitSchema, packageName) || isType(variants, packageName)) return CallOutcome.NotACall
+
+        val callArguments = ProjectCallArguments.of(arguments.map { argument ->
+            argument.label?.let { ProjectCallArgument.named(ProjectIdentifier.fromSource(it)) } ?: ProjectCallArgument.positional()
+        })
+        if (packageName != null) {
+            for (names in variants) {
+                if (names.size != 1 && !(names.size == 2 && normalizeIdentifier(names[0]) == normalizeIdentifier(enclosingPackage.last()))) continue
+                val member = ProjectIdentifier.fromSource(names.last())
+                val inventory = snapshot.findPackageSubprograms(packageName, member).declarations
+                if (inventory.isNotEmpty()) {
+                    val resolution = snapshot.resolveCall(ProjectCallTarget.packageMember(packageName, member), kind, callArguments)
+                    return packageMember(inventory, resolution, arguments)
+                }
+            }
+        }
+        for (names in variants) {
+            val resolution = snapshot.resolveCall(ProjectCallTarget.written(qualified(names)), kind, callArguments)
+            if (resolution.status != ProjectCallResolution.Status.NOT_FOUND_IN_PROJECT &&
+                resolution.status != ProjectCallResolution.Status.UNKNOWN_PACKAGE) {
+                return map(resolution)
+            }
+        }
+        return notInProject(written.map { normalizeIdentifier(it) }, kind, unitSchema)
+    }
+
+    /**
+     * The spellings a name is looked up with, in order: with the unit schema [schema] as first segment, as written then
+     * without it; else, for one or two segments with a known schema, as written then prefixed with it; else as written.
+     */
+    private fun spellings(written: List<String>, schema: String?): List<List<String>> = when {
+        schema == null -> listOf(written)
+        written.size >= 2 && normalizeIdentifier(written[0]) == schema -> listOf(written, written.drop(1))
+        written.size <= 2 -> listOf(written, listOf("\"" + schema + "\"") + written)
+        else -> listOf(written)
+    }
+
+    private fun qualified(names: List<String>) = ProjectQualifiedName.of(*names.toTypedArray())
+
+    /**
+     * A value, not a call: for some spelling, the full name or one of its prefixes of two or more segments is a package
+     * value (`pkg.g_tab(i)`, `pkg.g_tab.exists(i)`, `hr.pkg.g_tab.delete`). A one-segment name inside a package uses
+     * the enclosing package as owner.
+     */
+    private fun isValue(written: List<String>, unitSchema: String?, packageName: ProjectQualifiedName?): Boolean {
+        fun value(segments: List<String>, owner: ProjectQualifiedName?): Boolean {
+            val status = snapshot.resolvePackageValue(qualified(segments), owner).status
+            return status == ProjectValueResolution.Status.RESOLVED || status == ProjectValueResolution.Status.AMBIGUOUS
+        }
+        if (written.size == 1) return spellings(written, unitSchema).any { value(it, if (it.size == 1) packageName else null) }
+        // `g_tab.exists(1)` inside the package body: the first segment is a value of the enclosing package.
+        if (packageName != null && value(written.take(1), packageName)) return true
+        return (written.size downTo 2).any { length -> spellings(written.take(length), unitSchema).any { value(it, null) } }
+    }
+
+    /**
+     * A constructor: the first spelling with declarations has only types (the name as written, or a one-segment name
+     * as a member of the enclosing package).
+     */
+    private fun isType(variants: List<List<String>>, packageName: ProjectQualifiedName?): Boolean {
+        for (names in variants) {
+            val name = qualified(names)
+            val declarations = snapshot.findDeclarations(name).declarations.ifEmpty {
+                if (names.size == 1 && packageName != null) {
+                    snapshot.findDeclarations(ProjectQualifiedName.ofIdentifiers(packageName.segments + name.last)).declarations
+                } else {
+                    emptyList()
+                }
+            }
+            if (declarations.isNotEmpty()) return declarations.all { it is ProjectTypeDeclarationView }
+        }
+        return false
+    }
+
+    /** §4.3: the public result of [resolution], combined with the private body declarations of the inventory. */
+    private fun packageMember(
+        inventory: List<ProjectPackageSubprogramView>,
+        resolution: ProjectCallResolution,
+        arguments: List<WrittenArgument>
+    ): CallOutcome.Call {
+        val privates = inventory.filter { it.role == ProjectDeclarationRole.BODY && catalog.isPrivate(it.id) }
+        if (privates.isEmpty()) return map(resolution)
+        val hasPublic = inventory.any { it.role == ProjectDeclarationRole.SPECIFICATION }
+        if (!hasPublic && privates.size == 1) {
+            val body = privates.single()
+            val key = catalog.keyOf(body.id)
+            return CallOutcome.Call(Status.RESOLVED, key, "PRIVATE_SINGLE", bindings = bindByLabelOrPosition(key, body, arguments))
+        }
+        val publicCandidates = if (hasPublic) applicable(resolution) else emptyList()
+        return CallOutcome.Call(Status.AMBIGUOUS, null, "PRIVATE_OVERLOADS", (publicCandidates + privates.map { catalog.keyOf(it.id) }).distinct())
+    }
+
+    /** Exact bindings only: a label naming a formal, or a position while every earlier actual is positional. */
+    private fun bindByLabelOrPosition(key: String, body: ProjectSubprogramView, arguments: List<WrittenArgument>): Map<Int, String> {
+        val bindings = HashMap<Int, String>()
+        var positional = true
+        arguments.forEachIndexed { index, argument ->
+            val parameter = if (argument.label != null) {
+                positional = false
+                val label = normalizeIdentifier(argument.label)
+                body.parameters.firstOrNull { normalizeIdentifier(it.name.originalSpelling) == label }
+            } else if (positional) {
+                body.parameters.getOrNull(index)
+            } else {
+                null
+            }
+            if (parameter != null) bindings[index + 1] = key + "." + normalizeIdentifier(parameter.name.originalSpelling)
+        }
+        return bindings
+    }
+
+    private fun applicable(resolution: ProjectCallResolution): List<String> =
+        resolution.candidates.filter { it.applicability == ProjectCallCandidate.Applicability.APPLICABLE }.map { catalog.keyOf(it.declaration.id) }
+
+    /** §4.4, for every status but a name the project does not know ([notInProject]). */
+    private fun map(resolution: ProjectCallResolution): CallOutcome.Call {
+        val status = resolution.status
+        return when (status) {
+            ProjectCallResolution.Status.RESOLVED -> {
+                val selected = resolution.selected.get()
+                val key = catalog.keyOf(selected.declaration.id)
+                CallOutcome.Call(Status.RESOLVED, key, null, bindings = selected.bindings.associate {
+                    it.argumentOrdinal to key + "." + normalizeIdentifier(it.parameter.name.originalSpelling)
+                })
+            }
+            ProjectCallResolution.Status.AMBIGUOUS -> CallOutcome.Call(Status.AMBIGUOUS, null, status.name, applicable(resolution))
+            ProjectCallResolution.Status.AMBIGUOUS_TARGET ->
+                CallOutcome.Call(Status.AMBIGUOUS, null, status.name, resolution.candidates.map { catalog.keyOf(it.declaration.id) }.distinct())
+            ProjectCallResolution.Status.NO_APPLICABLE_CANDIDATE, ProjectCallResolution.Status.WRONG_KIND,
+            ProjectCallResolution.Status.INVALID_NOTATION -> CallOutcome.Call(Status.UNRESOLVED, null, status.name)
+            ProjectCallResolution.Status.NOT_FOUND_IN_PROJECT, ProjectCallResolution.Status.UNKNOWN_PACKAGE ->
+                CallOutcome.Call(Status.UNRESOLVED, null, "NOT_IN_PROJECT")
+            ProjectCallResolution.Status.PARTIAL_DECLARATIONS, ProjectCallResolution.Status.INCOMPLETE_INDEX ->
+                CallOutcome.Call(Status.UNVERIFIED, resolution.selected.map { catalog.keyOf(it.declaration.id) }.orElse(null), status.name)
+            ProjectCallResolution.Status.NOT_PREPARED -> error("Call resolution is NOT_PREPARED in a prepared run")
+        }
+    }
+
+    /**
+     * A name no spelling finds. A missing member of a declared owner (or a declared full key) is `UNKNOWN_MEMBER`
+     * without entity; otherwise multi-segment names get an external entity. When `A` is a schema of the run:
+     * `db:A.B` without parent, `db:A.B.C` under package `db:A.B`. Otherwise: `db:~.A.B` under package `db:~.A`
+     * (a package, a synonym or a schema: unknown until F1), and `db:~.A.B.C` without parent.
+     */
+    private fun notInProject(names: List<String>, kind: ProjectCallKind, unitSchema: String?): CallOutcome.Call {
+        val notFound = CallOutcome.Call(Status.UNRESOLVED, null, "NOT_IN_PROJECT")
+        if (names.size < 2) return notFound
+        val owner = if (names.size == 2) dbKey(unitSchema ?: UNKNOWN_SCHEMA, names[0]) else dbKey(names[0], *names.subList(1, names.size - 1).toTypedArray())
+        val schemaQualified = names[0] in runSchemas
+        val key = if (schemaQualified) dbKey(names[0], *names.drop(1).toTypedArray()) else dbKey(UNKNOWN_SCHEMA, *names.toTypedArray())
+        if (catalog.isDeclared(owner) || catalog.isDeclared(key)) return CallOutcome.Call(Status.UNRESOLVED, null, "UNKNOWN_MEMBER")
+
+        val entityKind = if (kind == ProjectCallKind.FUNCTION) EntityKind.FUNCTION else EntityKind.PROCEDURE
+        val schema = if (schemaQualified) names[0] else null
+        // `S.A.B`: package `S.A`. `A.B` outside a known schema: package `~.A` (a package, a synonym or a schema).
+        // `A.B.C` outside a known schema: no parent, `A.B` may be a package variable or a package of an unknown schema.
+        val parent = when {
+            schemaQualified -> if (names.size > 2) key.substringBeforeLast('.') else null
+            names.size == 2 -> key.substringBeforeLast('.')
+            else -> null
+        }
+        if (parent != null) {
+            entities += EntityFact(parent, EntityKind.PACKAGE, schema, names[names.size - 2], null, parent.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
+            relations += RelationFact(parent, RelationKind.CONTAINS, key)
+        }
+        entities += EntityFact(key, entityKind, schema, names.last(), parent, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
+        return notFound.copy(entityKey = key)
+    }
+}
