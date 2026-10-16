@@ -22,7 +22,7 @@ kotlin {
 dependencies {
     api("com.felipebz.zpa:zpa-core:$zpaVersion")
     api("com.felipebz.zpa:zpa-oracle-metadata:$zpaVersion")
-    implementation("org.xerial:sqlite-jdbc:3.50.3.0")
+    implementation("org.xerial:sqlite-jdbc:3.53.4.0")
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.assertj:assertj-core:3.27.7")
