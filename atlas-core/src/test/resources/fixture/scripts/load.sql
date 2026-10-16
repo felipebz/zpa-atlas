@@ -1,0 +1,11 @@
+insert into hr.company values (1, 'S', 'x', sysdate);
+insert all into event_log (id, msg) values (1, 'a') into send_queue (id, record_type) values (2, 'J') select * from dual;
+insert first when 1 = 1 then into event_log values (3, 'b') select 1 from dual;
+with w as (select id from company) select * from w join v_company v on v.id = w.id;
+select * from table(sys.odcinumberlist(1)) t;
+update company@remote set st_active = 'S';
+delete from other.table_x where 1 = 1;
+delete from missing_table;
+lock table company in exclusive mode;
+insert into unknown_tab values (1);
+update company set (st_active) = (select 'S' from dual);

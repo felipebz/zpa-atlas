@@ -1,0 +1,78 @@
+package com.felipebz.zpa.atlas.model
+
+/** One-based lines, zero-based columns, exclusive end column (the ZPA token convention). */
+data class SourceSpan(val startLine: Int, val startCol: Int, val endLine: Int, val endCol: Int) : Comparable<SourceSpan> {
+    fun contains(line: Int, col: Int): Boolean =
+        (line > startLine || (line == startLine && col >= startCol)) && (line < endLine || (line == endLine && col < endCol))
+
+    override fun compareTo(other: SourceSpan): Int = ORDER.compare(this, other)
+
+    companion object {
+        private val ORDER = compareBy<SourceSpan>({ it.startLine }, { it.startCol }, { it.endLine }, { it.endCol })
+    }
+}
+
+/** Entities are referenced by [key] until the writer assigns ids. */
+data class EntityFact(
+    val key: String,
+    val kind: EntityKind,
+    val schemaName: String?,
+    val name: String,
+    val parentKey: String?,
+    val display: String,
+    val external: Boolean,
+    /** Lower wins when several files produce the same key (a declaration beats a name only mentioned). */
+    val precedence: Int
+)
+
+data class RelationFact(val fromKey: String, val kind: RelationKind, val toKey: String)
+
+data class UnitFact(
+    val kind: UnitKind,
+    val name: String,
+    val entityKey: String?,
+    val span: SourceSpan,
+    /** The schema the unit compiles in, or null when neither written nor configured. */
+    val compilationSchema: String?
+)
+
+data class StatementFact(
+    /** Index in the file's statement list; resolved to a database id by the writer. */
+    val localId: Int,
+    val unitIndex: Int,
+    val containerKey: String?,
+    val kind: StatementKind,
+    val span: SourceSpan,
+    val normalizedHash: String
+)
+
+data class OccurrenceFact(
+    val unitIndex: Int,
+    val containerKey: String?,
+    val statementLocalId: Int?,
+    val span: SourceSpan,
+    val written: String,
+    val entityKey: String?,
+    val roles: Set<Role>,
+    val status: Status,
+    val origin: Origin,
+    val reason: String?
+)
+
+data class CoverageFact(val kind: String, val message: String)
+
+/** Everything one file contributes, produced off the writer thread. */
+class FileFacts(
+    val path: String,
+    val sha256: String,
+    val sizeBytes: Long,
+    val parseStatus: ParseStatus,
+    val recoveredRegions: Int,
+    val compilationSchema: String?,
+    val units: List<UnitFact>,
+    val statements: List<StatementFact>,
+    val occurrences: List<OccurrenceFact>,
+    val entities: List<EntityFact>,
+    val relations: List<RelationFact>,
+    val coverage: List<CoverageFact>
+)
