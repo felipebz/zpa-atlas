@@ -54,8 +54,8 @@ enum class EntityKind(val reserved: Boolean = false) : StoredEnum {
     RECORD_FIELD,
     PACKAGE_VARIABLE,
     PACKAGE_CONSTANT,
-    EXCEPTION(reserved = true),
-    CURSOR(reserved = true),
+    EXCEPTION,
+    CURSOR,
     LOCAL_VARIABLE(reserved = true),
     LOCAL_CONSTANT(reserved = true),
     LABEL(reserved = true),
@@ -93,8 +93,8 @@ enum class Role(val reserved: Boolean = false) : StoredEnum {
     SQL_MERGE,
     SQL_LOCK,
     TYPE_USE,
-    RAISE(reserved = true),
-    HANDLE(reserved = true),
+    RAISE,
+    HANDLE,
     IMPLICIT
 }
 

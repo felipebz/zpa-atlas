@@ -5,7 +5,7 @@ create or replace package body pack_process is g_private number;
   end;
   function f_private return number is begin return 1; end;
   procedure run_job(p_a in number, p_b in varchar2, p_c in number, p_d in date) is
-    r company%rowtype; g_rec company%rowtype;
+    r company%rowtype; g_rec company%rowtype; v_pending c_pending%rowtype;
   begin
     update company set st_active = 'S' where id = p_a;
     update company e set e.st_active = 'N' where e.id = p_a;
@@ -16,7 +16,7 @@ create or replace package body pack_process is g_private number;
     merge into company d using (select id from send_queue) s on (d.id = s.id)
       when matched then update set d.st_active = 'S' delete where d.company_name is null
       when not matched then insert (id, st_active) values (s.id, 'N');
-    write_log('x'); g_rec.id := 1;
+    write_log('x'); g_rec.id := 1; open c_pending; fetch c_pending into v_pending; if c_pending%isopen then close c_pending; end if; for r in c_by_status('J') loop null; end loop; open pack_process.c_by_status(p_status => 'N'); close pack_process.c_by_status; raise e_failed;
   end;
   function f_next return number is begin return seq_event.nextval; end; procedure get_event(p_id in number, p_out out number, p_io in out number) is begin p_out := p_id; end;
   procedure run_job(p_a in number, p_b in varchar2, p_c in number, p_d in date, p_e in number default 0) is

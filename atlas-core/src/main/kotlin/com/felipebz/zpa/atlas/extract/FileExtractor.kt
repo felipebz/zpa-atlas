@@ -369,22 +369,22 @@ class FileExtractor(
             Triple(if (named) children[0].tokenOriginalValue else null, if (named) children.last() else argument, argument)
         }
         val outcome = when {
-            // A type of the package specification is a constructor; local values and types are not calls, a
-            // variable of the package specification (in its own file) is a value.
-            symbol != null && symbol.kind in NOT_CALLABLE && (isLocalDeclaration(symbol) || symbol.kind == Symbol.Kind.PARAMETER || symbol.kind == Symbol.Kind.CURSOR) -> return
+            // A type of the package specification is a constructor; local values, cursors and types are not calls, a
+            // variable or cursor of the package specification (in its own file) is a member.
+            symbol != null && symbol.kind in NOT_CALLABLE && (isLocalDeclaration(symbol) || symbol.kind == Symbol.Kind.PARAMETER) -> return
             symbol != null && (symbol.kind == Symbol.Kind.PROCEDURE || symbol.kind == Symbol.Kind.FUNCTION) && isLocalSubprogram(symbol) ->
                 CallOutcome.Call(Status.UNRESOLVED, null, "LOCAL_SUBPROGRAM")
             else -> calls.resolve(segments, kind, arguments.map { WrittenArgument(it.first) }, context.schema, context.enclosingPackage)
         }
         if (outcome is CallOutcome.Value) {
-            // `pkg.g_tab(i)`, `pkg.g_tab.exists(i)`, `pkg.g_tab.delete`: a package value; in SQL, not when the first
-            // segment is a qualifier of the statement.
+            // `pkg.g_tab(i)`, `pkg.g_tab.exists(i)`, `pkg.g_tab.delete`, `pkg.c_pending(1)`: a package member; in SQL,
+            // not when the first segment is a qualifier of the statement.
             if (statementId != null && isSqlQualified(callee, segments)) return
-            valueOccurrence(callee, context, statementId, outcome.status, outcome.entityKey, outcome.reason, outcome.candidateKeys,
-                valueRoles(callee, segments))
+            valueOccurrence(spanOf(callee), writtenText(callee), context, statementId, outcome.status, outcome.entityKey, outcome.reason,
+                outcome.candidateKeys, memberRoles(callee, segments, outcome.kind))
             return
         }
-        if (outcome !is CallOutcome.Call || symbol?.kind == Symbol.Kind.VARIABLE) return
+        if (outcome !is CallOutcome.Call || symbol?.kind == Symbol.Kind.VARIABLE || symbol?.kind == Symbol.Kind.CURSOR) return
         if (outcome.status == Status.RESOLVED) {
             arguments.forEachIndexed { index, (_, expression, _) -> outcome.modes[index + 1]?.let { argumentModes[expression] = it } }
         }
@@ -411,12 +411,17 @@ class FileExtractor(
 
     /**
      * A value reference: a sequence pseudocolumn; else, unless the legacy table captures the first segment
-     * lexically, a package value, a project function called without parentheses, or a missing member of a project
-     * package. In SQL ([sql]) only qualified names whose first segment is not an SQL qualifier are read.
+     * lexically, a package value, exception or cursor, a project function called without parentheses, or a missing
+     * member of a project package. A cursor attribute (`pkg.c%isopen`) is a reference to the name before `%`. In SQL
+     * ([sql]) only qualified names whose first segment is not an SQL qualifier are read.
      */
     private fun valueReference(name: AstNode, context: Context, statementId: Int?, sql: Boolean) {
-        val segments = nameSegments(name) ?: return
-        if (name.type == PlSqlGrammar.MEMBER_EXPRESSION && segments.size in 2..3 && normalizeIdentifier(segments.last()) in PSEUDOCOLUMNS) {
+        val attribute = name.type == PlSqlGrammar.MEMBER_EXPRESSION && name.hasDirectChildren(PlSqlPunctuator.MOD)
+        val parts = if (attribute) name.children.takeWhile { it.type != PlSqlPunctuator.MOD } else listOf(name)
+        val segments = (if (attribute) attributeName(name, parts) else nameSegments(name)) ?: return
+        val span = spanOf(parts.first(), parts.last())
+        val text = parts.joinToString("") { writtenText(it) }
+        if (!attribute && name.type == PlSqlGrammar.MEMBER_EXPRESSION && segments.size in 2..3 && normalizeIdentifier(segments.last()) in PSEUDOCOLUMNS) {
             sequenceReference(name, segments, context, statementId)
             return
         }
@@ -437,8 +442,9 @@ class FileExtractor(
         val packageName = context.enclosingPackage?.let { qualifiedName(it) }
         val valueReadable = segments.size >= 2 || (packageName != null && (symbol == null || symbol.scope.type == PlSqlGrammar.CREATE_PACKAGE))
         if (valueReadable) {
-            values.packageValue(segments, context.schema, packageName)?.let {
-                valueOccurrence(name, context, statementId, it.status, it.entityKey, it.reason, it.candidateKeys, valueRoles(name, segments))
+            values.packageMember(segments, context.schema, packageName)?.let {
+                valueOccurrence(span, text, context, statementId, it.status, it.entityKey, it.reason, it.candidateKeys,
+                    if (attribute) setOf(Role.READ) else memberRoles(name, segments, it.kind))
                 return
             }
         }
@@ -446,11 +452,13 @@ class FileExtractor(
         if (callable) {
             when (val outcome = calls.resolve(segments, ProjectCallKind.FUNCTION, emptyList(), context.schema, context.enclosingPackage, withoutParentheses = true)) {
                 is CallOutcome.Value -> {
-                    valueOccurrence(name, context, statementId, outcome.status, outcome.entityKey, outcome.reason, outcome.candidateKeys, valueRoles(name, segments))
+                    valueOccurrence(span, text, context, statementId, outcome.status, outcome.entityKey, outcome.reason, outcome.candidateKeys,
+                        if (attribute) setOf(Role.READ) else memberRoles(name, segments, outcome.kind))
                     return
                 }
-                // Only a name the project knows is a call: anything else may be a value outside the project.
-                is CallOutcome.Call -> if (outcome.reason != "NOT_IN_PROJECT" && !(outcome.reason in INCONCLUSIVE && outcome.entityKey == null)) {
+                // Only a name the project knows is a call: anything else may be a value outside the project. A name
+                // before `%` is never a call.
+                is CallOutcome.Call -> if (!attribute && outcome.reason != "NOT_IN_PROJECT" && !(outcome.reason in INCONCLUSIVE && outcome.entityKey == null)) {
                     callOccurrence(name, context, statementId, outcome)
                     return
                 }
@@ -458,8 +466,17 @@ class FileExtractor(
             }
         }
         if (segments.size >= 2 && values.isPackageMember(segments, context.schema)) {
-            valueOccurrence(name, context, statementId, Status.UNRESOLVED, null, "UNKNOWN_MEMBER", emptyList(), setOf(Role.READ))
+            valueOccurrence(span, text, context, statementId, Status.UNRESOLVED, null, "UNKNOWN_MEMBER", emptyList(), setOf(Role.READ))
         }
+    }
+
+    /** The segments of the name before `%` of a cursor attribute (`c%isopen`, `pkg.c%rowcount`), or null. */
+    private fun attributeName(name: AstNode, parts: List<AstNode>): List<String>? {
+        val attribute = name.children.lastOrNull()?.takeIf { name.children.indexOf(it) == parts.size + 1 } ?: return null
+        if (normalizeIdentifier(attribute.tokenOriginalValue) !in CURSOR_ATTRIBUTES) return null
+        val segments = parts.filter { it.type != PlSqlPunctuator.DOT }
+        if (segments.isEmpty() || segments.any { it.type is PlSqlPunctuator || tokensOf(it).size != 1 }) return null
+        return segments.map { it.tokenOriginalValue }
     }
 
     /** `pkg.v` or `s.pkg.v` inside the body of `pkg`, where `v` is declared in the body: captured lexically. */
@@ -476,9 +493,9 @@ class FileExtractor(
         return names[member] in context.bodyNames
     }
 
-    private fun valueOccurrence(name: AstNode, context: Context, statementId: Int?, status: Status, entityKey: String?, reason: String?,
-                                candidates: List<String>, roles: Set<Role>) {
-        occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), entityKey,
+    private fun valueOccurrence(span: SourceSpan, written: String, context: Context, statementId: Int?, status: Status, entityKey: String?,
+                                reason: String?, candidates: List<String>, roles: Set<Role>) {
+        occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, span, written, entityKey,
             roles, status(status, context.partial), Origin.STATIC, reason, candidates)
     }
 
@@ -486,6 +503,21 @@ class FileExtractor(
     private fun callOccurrence(name: AstNode, context: Context, statementId: Int?, outcome: CallOutcome.Call) {
         occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
             setOf(Role.CALL), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
+    }
+
+    /**
+     * The roles of a package member: for an exception `RAISE` as the exception of a `RAISE` statement and `HANDLE`
+     * as a name of an exception handler (the direct parent only), else `READ`; for a cursor `READ`; for a value
+     * [valueRoles].
+     */
+    private fun memberRoles(name: AstNode, segments: List<String>, kind: MemberKind): Set<Role> = when (kind) {
+        MemberKind.EXCEPTION -> when (name.parentOrNull?.type) {
+            PlSqlGrammar.RAISE_STATEMENT -> setOf(Role.RAISE)
+            PlSqlGrammar.EXCEPTION_HANDLER -> setOf(Role.HANDLE)
+            else -> setOf(Role.READ)
+        }
+        MemberKind.CURSOR -> setOf(Role.READ)
+        MemberKind.VALUE -> valueRoles(name, segments)
     }
 
     /**
@@ -863,6 +895,8 @@ class FileExtractor(
         val NOT_CALLABLE = setOf(Symbol.Kind.VARIABLE, Symbol.Kind.PARAMETER, Symbol.Kind.CURSOR, Symbol.Kind.TYPE)
 
         val PSEUDOCOLUMNS = setOf("NEXTVAL", "CURRVAL")
+
+        val CURSOR_ATTRIBUTES = setOf("ISOPEN", "FOUND", "NOTFOUND", "ROWCOUNT", "BULK_ROWCOUNT", "BULK_EXCEPTIONS")
 
         /** Collection methods that change the collection. */
         val MODIFYING_METHODS = setOf("DELETE", "EXTEND", "TRIM")

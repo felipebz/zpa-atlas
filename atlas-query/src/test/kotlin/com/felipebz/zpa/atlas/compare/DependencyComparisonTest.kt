@@ -53,7 +53,8 @@ class DependencyComparisonTest {
         val byNameFacts = Files.newBufferedReader(Path.of("src/test/resources/compare/byname-dependencies.csv")).use { DatabaseDependencies.read(it) }
         byName = DependencyComparison(byNameIndex, byNameFacts, byNameCorpus).compare()
 
-        // A package value read and a sequence the project does not declare.
+        // A package value read, a handled package exception, a package cursor loop and a sequence the project does
+        // not declare.
         val valuesCorpus = Path.of("src/test/resources/compare/values-corpus")
         val valuesIndex = temp.resolve("values.db")
         Indexer().index(IndexOptions(valuesCorpus, valuesIndex, compilationSchema = "HR", dictionary = AtlasDictionary.NONE, threads = 1))
@@ -132,9 +133,11 @@ class DependencyComparisonTest {
     }
 
     @Test
-    fun `a package value read is evidence for the package, a sequence matches by name`() {
+    fun `package value reads, exception handlers and cursor loops are evidence for the package, a sequence matches by name`() {
         assertThat(values.matched.map { "${if (it.byName) "BY_NAME" else "EXACT"} ${it.unit.name} ${it.reference.referencedOwner}.${it.reference.referencedName}" })
-            .containsExactlyInAnyOrder("EXACT PROC_VAL HR.PK_VAL", "BY_NAME PROC_VAL HR.SEQ_EXT")
+            .containsExactlyInAnyOrder(
+                "EXACT PROC_VAL HR.PK_VAL", "BY_NAME PROC_VAL HR.SEQ_EXT", "EXACT PROC_HANDLE HR.PK_VAL", "EXACT PROC_LOOP HR.PK_VAL"
+            )
         assertThat(values.indexOnly).isEmpty()
         assertThat(values.databaseOnly).isEmpty()
     }

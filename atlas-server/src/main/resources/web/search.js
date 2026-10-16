@@ -1,11 +1,10 @@
 "use strict";
 
-// Entity kind codes are data, shown as they are.
+// The entity kinds the index produces: the stored codes, shown through the catalog.
 const KINDS = ["TABLE", "VIEW", "OBJECT_TABLE", "COLUMN", "SEQUENCE", "TRIGGER", "PACKAGE", "PROCEDURE", "FUNCTION", "PARAMETER",
-  "TYPE", "RECORD_FIELD", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "UNKNOWN_RELATION"];
+  "TYPE", "RECORD_FIELD", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "EXCEPTION", "CURSOR", "UNKNOWN_RELATION"];
 
 const kindSelect = document.getElementById("kind");
-for (const kind of KINDS) kindSelect.insertAdjacentHTML("beforeend", `<option>${kind}</option>`);
 
 async function search() {
   const q = document.getElementById("q").value.trim();
@@ -21,7 +20,7 @@ async function search() {
     const hits = answer.result;
     results.innerHTML = hits.length === 0 ? `<p class="muted">${esc(t("search.empty"))}</p>` :
       `<table><tr><th>${esc(t("search.column.entity"))}</th><th>${esc(t("search.column.kind"))}</th><th>${esc(t("search.column.usages"))}</th></tr>${hits.map(h =>
-        `<tr><td>${entityLink(h)}</td><td>${esc(h.kind)}</td><td>${esc(formatNumber(h.usages))}</td></tr>`).join("")}</table>`;
+        `<tr><td>${entityLink(h)}</td><td>${esc(kindLabel(h.kind))}</td><td>${esc(formatNumber(h.usages))}</td></tr>`).join("")}</table>`;
   } catch (e) {
     results.innerHTML = `<p class="muted">${esc(t("error.message", { error: e.message }))}</p>`;
   }
@@ -31,6 +30,7 @@ document.getElementById("search").addEventListener("submit", e => { e.preventDef
 
 (async () => {
   await initI18n();
+  for (const kind of KINDS) kindSelect.insertAdjacentHTML("beforeend", `<option value="${esc(kind)}">${esc(kindLabel(kind))}</option>`);
   showBanner();
   const initial = new URLSearchParams(location.search);
   if (initial.get("q")) {

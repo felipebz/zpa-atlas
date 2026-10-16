@@ -104,12 +104,18 @@ function statusBadge(status, reason) {
   return `<span class="badge st-${esc(status)}">${esc(status)}${reason && reason !== status ? " · " + esc(reason) : ""}</span>`;
 }
 
-/** A role as shown: its label when the catalog has one (`role.<NAME>`), else the stored name. */
-function roleLabel(role) {
-  const key = "role." + role;
+/** A catalog label (`<prefix>.<NAME>`) when the catalog has one, else the stored name. */
+function storedLabel(prefix, name) {
+  const key = prefix + "." + name;
   const label = t(key);
-  return label === key ? role : label;
+  return label === key ? name : label;
 }
+
+/** A role as shown. */
+const roleLabel = role => storedLabel("role", role);
+
+/** An entity kind as shown. */
+const kindLabel = kind => storedLabel("kind", kind);
 
 async function showBanner() {
   const header = document.querySelector("header.top .run");

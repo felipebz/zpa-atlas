@@ -42,14 +42,15 @@ internal fun valueLookups(written: List<String>, unitSchema: String?, packageNam
 data class WrittenArgument(val label: String?)
 
 /**
- * How one call site resolves: [Value] for a package value (`pkg.g_tab(i)`, `pkg.g_tab.exists(i)`), [NotACall] for a
+ * How one call site resolves: [Value] for a package value, exception or cursor
+ * (`pkg.g_tab(i)`, `pkg.g_tab.exists(i)`, `pkg.c_pending(1)`), [NotACall] for a
  * type the project does not identify.
  */
 sealed class CallOutcome {
     data object NotACall : CallOutcome()
 
-    /** The name is a package value: the entity is the value, the first hop of the name. */
-    data class Value(val status: Status, val entityKey: String?, val reason: String?, val candidateKeys: List<String> = emptyList()) : CallOutcome()
+    /** The name is a package value, exception or cursor ([kind]): the entity is it, the first hop of the name. */
+    data class Value(val kind: MemberKind, val status: Status, val entityKey: String?, val reason: String?, val candidateKeys: List<String> = emptyList()) : CallOutcome()
 
     data class Call(
         val status: Status,
@@ -100,7 +101,7 @@ class CallResolver(
     ): CallOutcome {
         val variants = nameSpellings(written, unitSchema)
         val packageName = enclosingPackage?.let { ProjectQualifiedName.of(*it.toTypedArray()) }
-        values.packageValue(written, unitSchema, packageName)?.let { return CallOutcome.Value(it.status, it.entityKey, it.reason, it.candidateKeys) }
+        values.packageMember(written, unitSchema, packageName)?.let { return CallOutcome.Value(it.kind, it.status, it.entityKey, it.reason, it.candidateKeys) }
         if (!withoutParentheses) constructorType(variants, packageName)?.let { return constructor(it) ?: CallOutcome.NotACall }
 
         val callArguments = ProjectCallArguments.of(arguments.map { argument ->

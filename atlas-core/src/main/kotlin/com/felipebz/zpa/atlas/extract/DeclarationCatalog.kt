@@ -54,8 +54,8 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
     }
 
     /**
-     * The entity key of a declaration of this catalog's snapshot. Every subprogram, type, value, package and sequence
-     * has one, so a missing id is a bug (an id of another snapshot), not a coverage gap.
+     * The entity key of a declaration of this catalog's snapshot. Every subprogram, type, value, exception, cursor,
+     * package and sequence has one, so a missing id is a bug (an id of another snapshot), not a coverage gap.
      */
     fun keyOf(id: ProjectDeclarationId): String = keysById[id] ?: error("No entity for declaration $id")
 
@@ -108,13 +108,16 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
                 key
             }
             ProjectDeclarationKind.PACKAGE_TYPE, ProjectDeclarationKind.PACKAGE_SUBTYPE,
-            ProjectDeclarationKind.PACKAGE_VARIABLE, ProjectDeclarationKind.PACKAGE_CONSTANT -> {
+            ProjectDeclarationKind.PACKAGE_VARIABLE, ProjectDeclarationKind.PACKAGE_CONSTANT,
+            ProjectDeclarationKind.PACKAGE_EXCEPTION, ProjectDeclarationKind.PACKAGE_CURSOR -> {
                 val (schema, rest) = memberName(fileId, names)
                 val packageKey = dbKey(schema, *rest.dropLast(1).toTypedArray())
                 val key = dbKey(schema, *rest.toTypedArray())
                 val kind = when (declaration.kind) {
                     ProjectDeclarationKind.PACKAGE_VARIABLE -> EntityKind.PACKAGE_VARIABLE
                     ProjectDeclarationKind.PACKAGE_CONSTANT -> EntityKind.PACKAGE_CONSTANT
+                    ProjectDeclarationKind.PACKAGE_EXCEPTION -> EntityKind.EXCEPTION
+                    ProjectDeclarationKind.PACKAGE_CURSOR -> EntityKind.CURSOR
                     else -> EntityKind.TYPE
                 }
                 ensurePackage(packageKey, schema, rest.dropLast(1).last())
@@ -126,6 +129,14 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
                         val fieldKey = "$key.$fieldName"
                         entity(fieldKey, EntityKind.RECORD_FIELD, schema, fieldName, key)
                         occurrence(fileId, field.sourceRange.toSpan(), field.name.originalSpelling, fieldKey, role, null)
+                    }
+                }
+                if (declaration is ProjectPackageCursorView) {
+                    for (parameter in declaration.parameters) {
+                        val parameterName = normalizeIdentifier(parameter.name.originalSpelling)
+                        val parameterKey = "$key.$parameterName"
+                        entity(parameterKey, EntityKind.PARAMETER, schema, parameterName, key)
+                        occurrence(fileId, parameter.sourceRange.toSpan(), parameter.name.originalSpelling, parameterKey, role, key)
                     }
                 }
                 key

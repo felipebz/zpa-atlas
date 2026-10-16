@@ -20,7 +20,7 @@ function renderEntity(entity) {
   document.title = t("page.entity.titleWith", { name: entity.display });
   document.getElementById("header").innerHTML =
     `<h1>${esc(entity.display)} ${entity.external ? `<span class="badge external">${esc(t("entity.external"))}</span>` : ""}</h1>
-     <p><span class="badge">${esc(entity.kind)}</span> ${esc(t("entity.schema", { schema: entity.schema ?? t("entity.schemaUnknown") }))}
+     <p><span class="badge">${esc(kindLabel(entity.kind))}</span> ${esc(t("entity.schema", { schema: entity.schema ?? t("entity.schemaUnknown") }))}
      ${entity.parent ? " · " + esc(t("entity.parent")) + " " + entityLink(entity.parent) : ""}</p>`;
   document.getElementById("definitions").innerHTML = entity.definitions.length === 0 ? "" :
     `<h2>${esc(t("entity.definitions"))}</h2><table>${entity.definitions.map(d =>
@@ -36,7 +36,7 @@ function renderEntity(entity) {
   for (const child of entity.children) (byKind[child.kind] ??= []).push(child);
   document.getElementById("children").innerHTML = entity.children.length === 0 ? "" :
     `<h2>${esc(t("entity.children"))}</h2>${Object.entries(byKind).map(([kind, list]) =>
-      `<details ${list.length <= 30 ? "open" : ""}><summary>${esc(kind)} (${esc(formatNumber(list.length))})</summary><ul>${list.map(c =>
+      `<details ${list.length <= 30 ? "open" : ""}><summary>${esc(kindLabel(kind))} (${esc(formatNumber(list.length))})</summary><ul>${list.map(c =>
         `<li>${entityLink(c)}</li>`).join("")}</ul></details>`).join("")}`;
   const u = entity.usage;
   document.getElementById("total").textContent = t("usage.summary", {

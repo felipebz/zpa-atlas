@@ -26,15 +26,15 @@ class TypeReferenceResolver(
     private val runSchemas: Set<String>
 ) {
     /**
-     * An anchor `written%TYPE` or `written%ROWTYPE`: a package value (a longer name is a value plus a record field
-     * path), else a member of a project package that is not a value, else a relation or a column.
+     * An anchor `written%TYPE` or `written%ROWTYPE`: a package value or cursor (a longer name is a value plus a record
+     * field path), else a member of a project package that is not one of these, else a relation or a column.
      *
      * @param enclosingMember the first segment is bound to a declaration of the enclosing package specification that
      *   is not a package value (a cursor, a type): it is never read as a relation
      */
     fun anchored(written: List<String>, rowtype: Boolean, unitSchema: String?, enclosingPackage: List<String>?, enclosingMember: Boolean): TypeOutcome {
         val packageName = enclosingPackage?.let { qualifiedName(it) }
-        values.packageValue(written, unitSchema, packageName)?.let { return it }
+        values.packageMember(written, unitSchema, packageName)?.takeIf { it.kind != MemberKind.EXCEPTION }?.let { return it.toTypeOutcome() }
         if (enclosingMember || values.isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
         val names = written.map { normalizeIdentifier(it) }
         if (rowtype) {

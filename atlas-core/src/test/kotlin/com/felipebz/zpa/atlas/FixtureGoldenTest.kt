@@ -80,7 +80,7 @@ class FixtureGoldenTest {
             .containsExactly("db:HR.COMPANY", "db:~.COMPANY", "db:~.PACK_PROCESS")
         assertThat(Fixture.query(noSchema, "SELECT f.path FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE c.kind = 'SCHEMA_UNKNOWN' ORDER BY 1"))
             .containsExactly("hr/fn_company_name.fun", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/pack_calls.pkb", "hr/pack_calls.pks",
-                "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
+                "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_inline.sql", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
                 "hr/pack_process.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_standalone.prc", "hr/trg_company_bu.trg",
                 "hr/ty_point.typ", "scripts/broken.sql", "scripts/broken_call.sql")
     }
