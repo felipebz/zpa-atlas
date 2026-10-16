@@ -3,6 +3,7 @@ package com.felipebz.zpa.atlas.index
 import com.felipebz.zpa.api.PlSqlFile
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalContext
+import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectIdentifier
 import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
@@ -30,6 +31,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.Locale
 import java.util.Properties
+import java.util.TreeMap
 import java.util.concurrent.Executors
 import kotlin.io.path.extension
 import kotlin.io.path.invariantSeparatorsPathString
@@ -145,9 +147,17 @@ class Indexer internal constructor(
         globalCoverage += CoverageFact("CALL_SCOPE_LEGACY",
             "Calls named like a local value, type or nested subprogram are recognized through the legacy symbol table, a heuristic rather than proof of lexical scope")
         val dictionary = options.dictionary
+        // The dictionary relations the files resolved, once each, in key order (an enumerable dictionary has them all).
+        val resolved = TreeMap<String, ProjectExternalRelation>()
+        for (file in facts) for (relation in file.dictionaryRelations) resolved.putIfAbsent(RelationResolver.dictionaryKey(relation), relation)
         if (dictionary.enumerable) {
-            dictionary.relations.forEach { RelationResolver.addDictionaryRelation(dictionary, it.relation, globalEntities, globalRelations) }
-        } else if (dictionary.isAvailable) {
+            dictionary.relations.forEach {
+                resolved.remove(RelationResolver.dictionaryKey(it.relation))
+                RelationResolver.addDictionaryRelation(dictionary, it.relation, globalEntities, globalRelations)
+            }
+        }
+        resolved.values.forEach { RelationResolver.addDictionaryRelation(dictionary, it, globalEntities, globalRelations) }
+        if (!dictionary.enumerable && dictionary.isAvailable) {
             globalCoverage += CoverageFact("DICTIONARY_NOT_ENUMERABLE",
                 "The acquired metadata cannot list its relations: only relations named by code are entities, and views are recorded as TABLE")
         }

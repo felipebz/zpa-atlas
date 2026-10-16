@@ -30,10 +30,15 @@ object Precedence {
 }
 
 /**
- * Resolves relation and column names against the dictionary. Every entity a result refers
- * to is added to [entities]; nothing here is shared between files.
+ * Resolves relation and column names against the dictionary; nothing here is shared between files. An entity a result
+ * refers to is added to [entities], except for dictionary relations: those are only recorded in
+ * [dictionaryRelations], and the run adds their entities (the relation and its columns) once, after the scan.
  */
 class RelationResolver(private val dictionary: AtlasDictionary, private val entities: MutableList<EntityFact>, private val relations: MutableList<RelationFact>) {
+    private val found = LinkedHashMap<String, ProjectExternalRelation>()
+
+    /** The distinct dictionary relations this file resolved, by entity key, in first-resolution order. */
+    val dictionaryRelations: Collection<ProjectExternalRelation> get() = found.values
 
     fun resolve(written: WrittenRelation, unitSchema: String?): ResolvedRelation {
         if (written.link != null) {
@@ -92,8 +97,9 @@ class RelationResolver(private val dictionary: AtlasDictionary, private val enti
         }
     }
 
+    /** Records a dictionary relation the file refers to; its entities are emitted once per run. */
     fun addDictionaryRelation(relation: ProjectExternalRelation) {
-        addDictionaryRelation(dictionary, relation, entities, relations)
+        found.putIfAbsent(dictionaryKey(relation), relation)
     }
 
     private fun mentioned(key: String, kind: EntityKind, schema: String?, name: String, parentKey: String?) {

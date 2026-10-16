@@ -36,7 +36,7 @@ never matched, they record an object that does not exist.
 entities with the most non-definition occurrences.
 
 `same-rows` checks that two indexes have the same rows in every table: every column, rows ordered by primary key
-(`rowid` without one), only the run timestamps skipped. It prints one line per table and exits with 3 when anything
+(`rowid` without one); the run timestamps and the acquisition time in `run.metadata_origin` are ignored. It prints one line per table and exits with 3 when anything
 differs. Use it to show that a change to the indexer or the writer leaves an index unchanged: index the same corpus
 with the old and the new distribution, then compare.
 

@@ -1,5 +1,7 @@
 package com.felipebz.zpa.atlas.model
 
+import com.felipebz.zpa.api.project.ProjectExternalRelation
+
 /** One-based lines, zero-based columns, exclusive end column (the ZPA token convention). */
 data class SourceSpan(val startLine: Int, val startCol: Int, val endLine: Int, val endCol: Int) : Comparable<SourceSpan> {
     fun contains(line: Int, col: Int): Boolean =
@@ -83,5 +85,7 @@ class FileFacts(
     val occurrences: List<OccurrenceFact>,
     val entities: List<EntityFact>,
     val relations: List<RelationFact>,
-    val coverage: List<CoverageFact>
+    val coverage: List<CoverageFact>,
+    /** The dictionary relations the file resolved: their entities and columns are added once per run. */
+    val dictionaryRelations: List<ProjectExternalRelation> = emptyList()
 )

@@ -7,10 +7,12 @@ import java.sql.ResultSet
 
 /**
  * `same-rows`: whether two indexes have the same rows in every table, every column compared, rows ordered by primary
- * key. The run timestamps (`run.started_at`, `run.finished_at`) are skipped: they differ between any two runs.
+ * key. The run timestamps (`run.started_at`, `run.finished_at`) are skipped and the acquisition time at the end of
+ * `run.metadata_origin` (`… at <instant>`) is ignored: they differ between any two runs.
  */
 object SameRows {
     private val SKIPPED = mapOf("run" to setOf("started_at", "finished_at"))
+    private val ACQUIRED_AT = Regex(" at \\d{4}-\\d{2}-\\d{2}T[^ ]*$")
 
     /** One line per table (`same` or the first difference); [identical] tells whether every table matched. */
     class Result(val lines: List<String>, val identical: Boolean)
@@ -38,14 +40,15 @@ object SameRows {
         val selected = columnsA.map { it.first }.filter { it !in SKIPPED[table].orEmpty() }
         val order = columnsA.filter { it.second > 0 }.sortedBy { it.second }.map { it.first }.ifEmpty { listOf("rowid") }
         val sql = "SELECT ${selected.joinToString(", ") { "\"$it\"" }} FROM \"$table\" ORDER BY ${order.joinToString(", ") { "\"$it\"" }}"
+        val normalized = if (table == "run") setOf("metadata_origin") else emptySet()
         return a.createStatement().use { sa ->
             b.createStatement().use { sb ->
-                sa.executeQuery(sql).use { ra -> sb.executeQuery(sql).use { rb -> compareRows(ra, rb, selected) } }
+                sa.executeQuery(sql).use { ra -> sb.executeQuery(sql).use { rb -> compareRows(ra, rb, selected, normalized) } }
             }
         }
     }
 
-    private fun compareRows(a: ResultSet, b: ResultSet, columns: List<String>): String {
+    private fun compareRows(a: ResultSet, b: ResultSet, columns: List<String>, normalized: Set<String>): String {
         var rows = 0L
         while (true) {
             val hasA = a.next()
@@ -55,8 +58,8 @@ object SameRows {
             }
             rows++
             for ((index, column) in columns.withIndex()) {
-                val va = a.getObject(index + 1)
-                val vb = b.getObject(index + 1)
+                val va = a.getObject(index + 1).let { if (column in normalized && it is String) it.replace(ACQUIRED_AT, "") else it }
+                val vb = b.getObject(index + 1).let { if (column in normalized && it is String) it.replace(ACQUIRED_AT, "") else it }
                 val equal = if (va is ByteArray && vb is ByteArray) va.contentEquals(vb) else va == vb
                 if (!equal) return "row $rows differs in $column: $va vs $vb"
             }

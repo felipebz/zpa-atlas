@@ -126,7 +126,9 @@ class FileExtractor(
         if (localTypeReferences > 0) {
             coverage += CoverageFact("LOCAL_ANCHOR", "$localTypeReferences datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed")
         }
-        return FileFacts(path, sha256, sizeBytes, encoding, status, recoveredRegions, defaultSchema, units, statements, occurrences, entities, relations, coverage)
+        // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
+        return FileFacts(path, sha256, sizeBytes, encoding, status, recoveredRegions, defaultSchema, units, statements, occurrences,
+            LinkedHashSet(entities).toList(), LinkedHashSet(relations).toList(), coverage, resolver.dictionaryRelations.toList())
     }
 
     // ---- units --------------------------------------------------------------------------------------------------
