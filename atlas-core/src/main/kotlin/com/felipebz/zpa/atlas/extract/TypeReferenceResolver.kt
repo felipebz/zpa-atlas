@@ -19,6 +19,7 @@ data class TypeOutcome(val status: Status, val entityKey: String?, val reason: S
 class TypeReferenceResolver(
     private val snapshot: ProjectSnapshot,
     private val catalog: DeclarationCatalog,
+    private val values: PackageValues,
     private val relationResolver: RelationResolver,
     private val entities: MutableList<EntityFact>,
     private val relations: MutableList<RelationFact>,
@@ -33,8 +34,8 @@ class TypeReferenceResolver(
      */
     fun anchored(written: List<String>, rowtype: Boolean, unitSchema: String?, enclosingPackage: List<String>?, enclosingMember: Boolean): TypeOutcome {
         val packageName = enclosingPackage?.let { qualifiedName(it) }
-        packageValue(written, unitSchema, packageName)?.let { return it }
-        if (enclosingMember || isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
+        values.packageValue(written, unitSchema, packageName)?.let { return it }
+        if (enclosingMember || values.isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
         val names = written.map { normalizeIdentifier(it) }
         if (rowtype) {
             return when (names.size) {
@@ -75,7 +76,7 @@ class TypeReferenceResolver(
             }
         }
         if (isBuiltIn(written, packageName)) return null
-        if (isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
+        if (values.isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
         return unknownType(written.map { normalizeIdentifier(it) }, unitSchema)
     }
 
@@ -83,32 +84,6 @@ class TypeReferenceResolver(
     private fun isBuiltIn(written: List<String>, packageName: ProjectQualifiedName?): Boolean =
         (written.size == 1 && normalizeIdentifier(written[0]) in STANDARD_TYPES) ||
             snapshot.describeType(qualifiedName(written), packageName).status == ProjectTypeDescription.Status.BUILT_IN
-
-    /** The first package value lookup that identifies a value (or several): [CallResolver]'s spellings and owners. */
-    private fun packageValue(written: List<String>, unitSchema: String?, packageName: ProjectQualifiedName?): TypeOutcome? {
-        for ((segments, owner) in valueLookups(written, unitSchema, packageName)) {
-            val resolution = snapshot.resolvePackageValue(qualifiedName(segments), owner)
-            when (resolution.status) {
-                ProjectValueResolution.Status.RESOLVED -> return TypeOutcome(Status.RESOLVED, catalog.keyOf(resolution.value.get().id), null)
-                ProjectValueResolution.Status.AMBIGUOUS ->
-                    return TypeOutcome(Status.AMBIGUOUS, null, resolution.status.name, resolution.candidates.map { catalog.keyOf(it.id) }.distinct())
-                ProjectValueResolution.Status.INCOMPLETE_INDEX ->
-                    if (resolution.candidates.any { it is ProjectPackageValueView }) return INCOMPLETE_INDEX
-                else -> Unit
-            }
-        }
-        return null
-    }
-
-    /** Whether a proper prefix of [written], under some spelling, is a package of the project. */
-    private fun isPackageMember(written: List<String>, unitSchema: String?): Boolean =
-        (1 until written.size).any { length ->
-            nameSpellings(written.take(length), unitSchema).any { names ->
-                snapshot.findDeclarations(qualifiedName(names)).declarations.any {
-                    it.kind == ProjectDeclarationKind.PACKAGE || it.kind == ProjectDeclarationKind.PACKAGE_BODY
-                }
-            }
-        }
 
     private fun relation(schema: String?, name: String, unitSchema: String?): TypeOutcome {
         val resolved = relationResolver.resolve(WrittenRelation(schema, name, null), unitSchema)

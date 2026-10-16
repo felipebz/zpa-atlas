@@ -10,11 +10,14 @@ import com.felipebz.zpa.api.TclGrammar
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectCallKind
+import com.felipebz.zpa.api.project.ProjectParameterMode
+import com.felipebz.zpa.api.project.SequenceReferenceResolution
 import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.api.squid.SemanticAstNode
 import com.felipebz.zpa.api.symbols.Symbol
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.model.*
+import java.util.IdentityHashMap
 
 /**
  * Extracts the facts of one file during its AST walk. A new instance is used for every file; it must be a
@@ -36,6 +39,8 @@ class FileExtractor(
     private lateinit var catalog: DeclarationCatalog
     private lateinit var calls: CallResolver
     private lateinit var types: TypeReferenceResolver
+    private lateinit var values: PackageValues
+    private lateinit var runSchemas: Set<String>
     private var result: FileFacts? = null
 
     private val units = ArrayList<UnitFact>()
@@ -48,15 +53,22 @@ class FileExtractor(
     private val resolver = RelationResolver(dictionary, entities, relations)
     private var recoveredRegions = 0
 
-    /** Datatype names captured by a local declaration: counted, not indexed (locals are entities in F3). */
+    /** Datatype names captured by a local declaration: counted, not indexed (locals are not entities). */
     private var localTypeReferences = 0
+
+    /** Modes of the formals that resolved calls bind their actual expressions to, for the roles of the values passed. */
+    private val argumentModes = IdentityHashMap<AstNode, ProjectParameterMode>()
+
+    /** SQL qualifiers (aliases, relation names, WITH names) owned by each SQL scope node. */
+    private val scopeQualifiers = IdentityHashMap<AstNode, Set<String>>()
 
     override fun init() {
         val snapshot = projectAnalysis().snapshot
         catalog = catalogOf(snapshot)
-        val runSchemas = catalog.schemas + dictionary.schemas + listOfNotNull(defaultSchema) + setOf("SYS", "SYSTEM")
-        calls = CallResolver(snapshot, catalog, entities, relations, runSchemas)
-        types = TypeReferenceResolver(snapshot, catalog, resolver, entities, relations, runSchemas)
+        runSchemas = catalog.schemas + dictionary.schemas + listOfNotNull(defaultSchema) + setOf("SYS", "SYSTEM")
+        values = PackageValues(snapshot, catalog)
+        calls = CallResolver(snapshot, catalog, values, entities, relations, runSchemas)
+        types = TypeReferenceResolver(snapshot, catalog, values, resolver, entities, relations, runSchemas)
     }
 
     override fun visitFile(node: AstNode) {
@@ -112,7 +124,7 @@ class FileExtractor(
             coverage += catalog.coverageFor(path)
         }
         if (localTypeReferences > 0) {
-            coverage += CoverageFact("LOCAL_ANCHOR", "$localTypeReferences datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed until F3")
+            coverage += CoverageFact("LOCAL_ANCHOR", "$localTypeReferences datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed")
         }
         return FileFacts(path, sha256, sizeBytes, encoding, status, recoveredRegions, defaultSchema, units, statements, occurrences, entities, relations, coverage)
     }
@@ -127,9 +139,11 @@ class FileExtractor(
         val newNames: Set<String>?,
         val triggerKey: String?,
         /** The package spec or body around the code, as written in its CREATE; null elsewhere. */
-        val enclosingPackage: List<String>? = null
+        val enclosingPackage: List<String>? = null,
+        /** Variables, cursors and types declared at the level of the package body around the code. */
+        val bodyNames: Set<String> = emptySet()
     ) {
-        fun inside(container: String) = Context(unitIndex, partial, schema, container, newNames, triggerKey, enclosingPackage)
+        fun inside(container: String) = Context(unitIndex, partial, schema, container, newNames, triggerKey, enclosingPackage, bodyNames)
     }
 
     private fun addUnit(unit: UnitFact, partial: Boolean): Int {
@@ -190,7 +204,14 @@ class FileExtractor(
         } else {
             null
         }
-        walk(node, Context(index, partial, schema, entityKey, newNames, triggerKey, enclosingPackage))
+        val bodyNames = if (kind == UnitKind.PACKAGE_BODY) {
+            context.symbolTable.getScopeFor(node)?.symbols.orEmpty()
+                .filter { it.kind == Symbol.Kind.VARIABLE || it.kind == Symbol.Kind.CURSOR || it.kind == Symbol.Kind.TYPE }
+                .mapNotNull { symbol -> symbol.node?.let { normalizeIdentifier(it.tokenOriginalValue) } }.toSet()
+        } else {
+            emptySet()
+        }
+        walk(node, Context(index, partial, schema, entityKey, newNames, triggerKey, enclosingPackage, bodyNames))
     }
 
     private fun subprogramAt(node: AstNode): String? = catalog.subprogramAt(path, node.token.line, node.token.column)
@@ -262,7 +283,11 @@ class FileExtractor(
                 ?.takeIf { it.type != PlSqlGrammar.METHOD_CALL }
                 ?.let { callSite(it, context, null) }
             PlSqlGrammar.ASSIGNMENT_STATEMENT -> newColumnAssignment(node, context)
-            PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE -> typeUse(node, context, null)
+            PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE -> {
+                typeUse(node, context, null)
+                return
+            }
+            PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION -> if (isValueName(node)) valueReference(node, context, null, sql = false)
         }
         for (child in node.children) walk(child, current)
     }
@@ -290,7 +315,7 @@ class FileExtractor(
         val names = context.newNames ?: return
         val tokens = tokensOf(node.firstChild)
         if (tokens.size >= 2 && tokens[0].value == ":" && normalizeIdentifier(tokens[1].originalValue) in names) {
-            coverage += CoverageFact("TRIGGER_NEW_COLUMN_WRITE", "${context.triggerKey} assigns :NEW columns (column writes through :NEW are not indexed in F0.1)")
+            coverage += CoverageFact("TRIGGER_NEW_COLUMN_WRITE", "${context.triggerKey} assigns :NEW columns (column writes through :NEW are not indexed)")
         }
     }
 
@@ -344,19 +369,214 @@ class FileExtractor(
             Triple(if (named) children[0].tokenOriginalValue else null, if (named) children.last() else argument, argument)
         }
         val outcome = when {
-            // A type of the package specification is a constructor (F1.1 §4); local values and types are not calls.
-            symbol != null && symbol.kind in NOT_CALLABLE && (symbol.kind != Symbol.Kind.TYPE || isLocalDeclaration(symbol)) -> return
+            // A type of the package specification is a constructor; local values and types are not calls, a
+            // variable of the package specification (in its own file) is a value.
+            symbol != null && symbol.kind in NOT_CALLABLE && (isLocalDeclaration(symbol) || symbol.kind == Symbol.Kind.PARAMETER || symbol.kind == Symbol.Kind.CURSOR) -> return
             symbol != null && (symbol.kind == Symbol.Kind.PROCEDURE || symbol.kind == Symbol.Kind.FUNCTION) && isLocalSubprogram(symbol) ->
                 CallOutcome.Call(Status.UNRESOLVED, null, "LOCAL_SUBPROGRAM")
             else -> calls.resolve(segments, kind, arguments.map { WrittenArgument(it.first) }, context.schema, context.enclosingPackage)
         }
-        if (outcome !is CallOutcome.Call) return
+        if (outcome is CallOutcome.Value) {
+            // `pkg.g_tab(i)`, `pkg.g_tab.exists(i)`, `pkg.g_tab.delete`: a package value; in SQL, not when the first
+            // segment is a qualifier of the statement.
+            if (statementId != null && isSqlQualified(callee, segments)) return
+            valueOccurrence(callee, context, statementId, outcome.status, outcome.entityKey, outcome.reason, outcome.candidateKeys,
+                valueRoles(callee, segments))
+            return
+        }
+        if (outcome !is CallOutcome.Call || symbol?.kind == Symbol.Kind.VARIABLE) return
+        if (outcome.status == Status.RESOLVED) {
+            arguments.forEachIndexed { index, (_, expression, _) -> outcome.modes[index + 1]?.let { argumentModes[expression] = it } }
+        }
         val argumentFacts = arguments.mapIndexed { index, (label, expression, _) ->
             CallArgumentFact(index + 1, label?.let { normalizeIdentifier(it) },
                 if (outcome.status == Status.RESOLVED) outcome.bindings[index + 1] else null, spanOf(expression))
         }
         occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), outcome.entityKey,
             setOf(Role.CALL), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys, argumentFacts)
+    }
+
+    // ---- value references ----------------------------------------------------------------------------------------
+
+    /**
+     * Whether [node] is the outermost plain name of an expression: not a segment of a longer name, not the callee of a
+     * call (handled by [callSite]), not the member after a call (`pkg.g_tab(i).f`).
+     */
+    private fun isValueName(node: AstNode): Boolean {
+        val parent = node.parentOrNull ?: return false
+        if (parent.type == PlSqlGrammar.MEMBER_EXPRESSION || parent.type == PlSqlGrammar.CALL_STATEMENT) return false
+        if (parent.type == PlSqlGrammar.METHOD_CALL && parent.firstChild === node) return false
+        return node.previousSiblingOrNull?.type != PlSqlPunctuator.DOT
+    }
+
+    /**
+     * A value reference: a sequence pseudocolumn; else, unless the legacy table captures the first segment
+     * lexically, a package value, a project function called without parentheses, or a missing member of a project
+     * package. In SQL ([sql]) only qualified names whose first segment is not an SQL qualifier are read.
+     */
+    private fun valueReference(name: AstNode, context: Context, statementId: Int?, sql: Boolean) {
+        val segments = nameSegments(name) ?: return
+        if (name.type == PlSqlGrammar.MEMBER_EXPRESSION && segments.size in 2..3 && normalizeIdentifier(segments.last()) in PSEUDOCOLUMNS) {
+            sequenceReference(name, segments, context, statementId)
+            return
+        }
+        if (sql && (segments.size == 1 || isSqlQualified(name, segments))) return
+        val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild
+        val symbol = (first as? SemanticAstNode)?.symbol
+        if (symbol != null) {
+            when (symbol.kind) {
+                Symbol.Kind.PROCEDURE, Symbol.Kind.FUNCTION -> if (isLocalSubprogram(symbol)) {
+                    if (segments.size == 1) callOccurrence(name, context, statementId, CallOutcome.Call(Status.UNRESOLVED, null, "LOCAL_SUBPROGRAM"))
+                    return
+                }
+                Symbol.Kind.PACKAGE, Symbol.Kind.TRIGGER -> Unit
+                else -> if (isLocalDeclaration(symbol)) return
+            }
+        }
+        if (isOwnBodyMember(segments, context)) return
+        val packageName = context.enclosingPackage?.let { qualifiedName(it) }
+        val valueReadable = segments.size >= 2 || (packageName != null && (symbol == null || symbol.scope.type == PlSqlGrammar.CREATE_PACKAGE))
+        if (valueReadable) {
+            values.packageValue(segments, context.schema, packageName)?.let {
+                valueOccurrence(name, context, statementId, it.status, it.entityKey, it.reason, it.candidateKeys, valueRoles(name, segments))
+                return
+            }
+        }
+        val callable = segments.size >= 2 || symbol == null || symbol.kind == Symbol.Kind.FUNCTION || symbol.kind == Symbol.Kind.PROCEDURE
+        if (callable) {
+            when (val outcome = calls.resolve(segments, ProjectCallKind.FUNCTION, emptyList(), context.schema, context.enclosingPackage, withoutParentheses = true)) {
+                is CallOutcome.Value -> {
+                    valueOccurrence(name, context, statementId, outcome.status, outcome.entityKey, outcome.reason, outcome.candidateKeys, valueRoles(name, segments))
+                    return
+                }
+                // Only a name the project knows is a call: anything else may be a value outside the project.
+                is CallOutcome.Call -> if (outcome.reason != "NOT_IN_PROJECT" && !(outcome.reason in INCONCLUSIVE && outcome.entityKey == null)) {
+                    callOccurrence(name, context, statementId, outcome)
+                    return
+                }
+                CallOutcome.NotACall -> Unit
+            }
+        }
+        if (segments.size >= 2 && values.isPackageMember(segments, context.schema)) {
+            valueOccurrence(name, context, statementId, Status.UNRESOLVED, null, "UNKNOWN_MEMBER", emptyList(), setOf(Role.READ))
+        }
+    }
+
+    /** `pkg.v` or `s.pkg.v` inside the body of `pkg`, where `v` is declared in the body: captured lexically. */
+    private fun isOwnBodyMember(segments: List<String>, context: Context): Boolean {
+        val enclosing = context.enclosingPackage ?: return false
+        if (context.bodyNames.isEmpty() || segments.size < 2) return false
+        val names = segments.map { normalizeIdentifier(it) }
+        val name = normalizeIdentifier(enclosing.last())
+        val member = when {
+            names[0] == name -> 1
+            names.size >= 3 && names[1] == name && names[0] == context.schema -> 2
+            else -> return false
+        }
+        return names[member] in context.bodyNames
+    }
+
+    private fun valueOccurrence(name: AstNode, context: Context, statementId: Int?, status: Status, entityKey: String?, reason: String?,
+                                candidates: List<String>, roles: Set<Role>) {
+        occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), entityKey,
+            roles, status(status, context.partial), Origin.STATIC, reason, candidates)
+    }
+
+    /** A function called without parentheses: a `CALL` occurrence without actuals. */
+    private fun callOccurrence(name: AstNode, context: Context, statementId: Int?, outcome: CallOutcome.Call) {
+        occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
+            setOf(Role.CALL), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
+    }
+
+    /**
+     * The roles of a value: `WRITE` for an assignment target, an `INTO` target, an actual bound to an `OUT`
+     * formal of a resolved call or a modifying collection method; `READ` and `WRITE` for an `IN OUT` formal; else `READ`.
+     */
+    private fun valueRoles(name: AstNode, segments: List<String>): Set<Role> {
+        var expression = name
+        name.parentOrNull?.takeIf { it.type == PlSqlGrammar.METHOD_CALL && it.firstChild === name }?.let { expression = it }
+        while (true) {
+            val parent = expression.parentOrNull ?: break
+            if (parent.type != PlSqlGrammar.OBJECT_REFERENCE || parent.firstChild !== expression) break
+            expression = parent
+        }
+        val parent = expression.parentOrNull
+        if (parent != null) {
+            if (parent.type == PlSqlGrammar.ASSIGNMENT_STATEMENT) {
+                val assignment = parent.children.indexOfFirst { it.type == PlSqlPunctuator.ASSIGNMENT }
+                if (parent.children.indexOf(expression) < assignment) return setOf(Role.WRITE)
+            }
+            if (parent.type == DmlGrammar.INTO_CLAUSE) return setOf(Role.WRITE)
+            val mode = argumentModes[expression] ?: if (parent.type == PlSqlGrammar.ARGUMENT) argumentModes[parent] else null
+            when (mode) {
+                ProjectParameterMode.OUT -> return setOf(Role.WRITE)
+                ProjectParameterMode.IN_OUT -> return setOf(Role.READ, Role.WRITE)
+                else -> Unit
+            }
+        }
+        if (segments.size >= 2 && normalizeIdentifier(segments.last()) in MODIFYING_METHODS) return setOf(Role.WRITE)
+        return setOf(Role.READ)
+    }
+
+    /**
+     * `seq.nextval`, `s.seq.currval`: a project sequence, else an external `SEQUENCE` entity, `db:S.SEQ` when
+     * `S` is a schema of the run and `db:~.…` otherwise (the dictionary does not know sequences). Not a sequence when the
+     * first segment is captured lexically, is an SQL qualifier, or the legacy table binds the whole name.
+     */
+    private fun sequenceReference(name: AstNode, segments: List<String>, context: Context, statementId: Int?) {
+        val symbol = (name.firstChild as? SemanticAstNode)?.symbol
+        if (symbol != null && symbol.kind != Symbol.Kind.PACKAGE && isLocalDeclaration(symbol)) return
+        if (statementId != null && isSqlQualified(name, segments)) return
+        if (projectAnalysis().resolveSequenceReference(name) == SequenceReferenceResolution.RESOLVED_NON_SEQUENCE) return
+        val written = segments.dropLast(1)
+        val children = name.children
+        val lastDot = children.indexOfLast { it.type == PlSqlPunctuator.DOT }
+        val nameParts = children.subList(0, lastDot)
+        val text = nameParts.joinToString("") { writtenText(it) }
+        val span = spanOf(nameParts.first(), nameParts.last())
+        val declared = values.sequence(written, context.schema)
+        val (key, status) = if (declared != null) {
+            declared to Status.RESOLVED
+        } else {
+            val names = written.map { normalizeIdentifier(it) }
+            val schemaQualified = names.size == 2 && names[0] in runSchemas
+            val key = if (schemaQualified) dbKey(names[0], names[1]) else dbKey(UNKNOWN_SCHEMA, *names.toTypedArray())
+            entities += EntityFact(key, EntityKind.SEQUENCE, if (schemaQualified) names[0] else null, names.last(), null, key.removePrefix("db:"),
+                external = true, precedence = Precedence.MENTIONED)
+            key to Status.UNVERIFIED
+        }
+        occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, span, text, key,
+            setOf(Role.READ), status(status, context.partial), Origin.STATIC, null)
+    }
+
+    /** Whether the first segment of a name in SQL is an alias, relation name or WITH name of an enclosing SQL scope. */
+    private fun isSqlQualified(name: AstNode, segments: List<String>): Boolean {
+        if (segments.size < 2) return false
+        val first = normalizeIdentifier(segments[0])
+        var scope = sqlScope(name)
+        while (scope != null) {
+            if (first in qualifiersOf(scope)) return true
+            scope = sqlScope(scope)
+        }
+        return false
+    }
+
+    private fun sqlScope(node: AstNode): AstNode? = node.getFirstAncestorOrNull(*SQL_SCOPES)
+
+    /** The qualifiers [scope] owns directly (as zpa-core's `sqlScopeQualifiers`): not those of its nested scopes. */
+    private fun qualifiersOf(scope: AstNode): Set<String> = scopeQualifiers.getOrPut(scope) {
+        val result = HashSet<String>()
+        for (node in scope.getDescendants(DmlGrammar.ALIAS, DmlGrammar.TABLE_REFERENCE, DmlGrammar.SUBQUERY_FACTORING_CLAUSE, DmlGrammar.INSERT_INTO_CLAUSE)) {
+            if (sqlScope(node) !== scope) continue
+            when (node.type) {
+                DmlGrammar.ALIAS -> result += normalizeIdentifier(node.tokenOriginalValue)
+                DmlGrammar.TABLE_REFERENCE -> result += written(node).name
+                DmlGrammar.SUBQUERY_FACTORING_CLAUSE -> result += normalizeIdentifier(node.firstChild.tokenOriginalValue)
+                else -> node.getChildren(PlSqlGrammar.IDENTIFIER_NAME).forEach { result += normalizeIdentifier(it.tokenOriginalValue) }
+            }
+        }
+        if (scope.type == DmlGrammar.MERGE_EXPRESSION) scope.getChildren(PlSqlGrammar.IDENTIFIER_NAME).forEach { result += normalizeIdentifier(it.tokenOriginalValue) }
+        result
     }
 
     // ---- type references ----------------------------------------------------------------------------------------
@@ -514,12 +734,16 @@ class FileExtractor(
         root.getDescendants(PlSqlGrammar.METHOD_CALL).forEach { callSite(it, context, id) }
         // `CAST(… AS t)` and the other datatypes of the statement.
         root.getDescendants(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE).forEach { typeUse(it, context, id) }
+        // Values: qualified names that are not SQL qualifiers; INTO targets are PL/SQL values.
+        root.getDescendants(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION)
+            .filter { isValueName(it) && it.getFirstAncestorOrNull(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE) == null }
+            .forEach { valueReference(it, context, id, sql = it.getFirstAncestorOrNull(DmlGrammar.INTO_CLAUSE) == null) }
     }
 
     private fun isPunctuation(node: AstNode) = node.type is PlSqlPunctuator
 
     private fun subqueryTarget(node: AstNode) {
-        coverage += CoverageFact("DML_SUBQUERY_TARGET", "DML on an inline view or collection at line ${node.tokenLine}: its base relation is not a write target in F0.1")
+        coverage += CoverageFact("DML_SUBQUERY_TARGET", "DML on an inline view or collection at line ${node.tokenLine}: its base relation is not a write target")
     }
 
     private fun written(reference: AstNode): WrittenRelation {
@@ -637,5 +861,18 @@ class FileExtractor(
     private companion object {
         /** Legacy symbol kinds whose names are indexed or called like subprograms but are values or types. */
         val NOT_CALLABLE = setOf(Symbol.Kind.VARIABLE, Symbol.Kind.PARAMETER, Symbol.Kind.CURSOR, Symbol.Kind.TYPE)
+
+        val PSEUDOCOLUMNS = setOf("NEXTVAL", "CURRVAL")
+
+        /** Collection methods that change the collection. */
+        val MODIFYING_METHODS = setOf("DELETE", "EXTEND", "TRIM")
+
+        /** Call statuses that say nothing about a name when no declaration was selected. */
+        val INCONCLUSIVE = setOf("INCOMPLETE_INDEX", "PARTIAL_DECLARATIONS")
+
+        val SQL_SCOPES = arrayOf(
+            DmlGrammar.QUERY_BLOCK, DmlGrammar.SELECT_EXPRESSION, DmlGrammar.UPDATE_EXPRESSION,
+            DmlGrammar.DELETE_EXPRESSION, DmlGrammar.INSERT_EXPRESSION, DmlGrammar.MERGE_EXPRESSION
+        )
     }
 }

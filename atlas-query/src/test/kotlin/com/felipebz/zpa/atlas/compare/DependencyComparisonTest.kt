@@ -21,6 +21,7 @@ class DependencyComparisonTest {
     private lateinit var external: ComparisonResult
     private lateinit var types: ComparisonResult
     private lateinit var byName: ComparisonResult
+    private lateinit var values: ComparisonResult
 
     private val golden = Path.of("src/test/resources/compare/golden")
     private val update = System.getProperty("atlas.updateGolden") == "true"
@@ -51,6 +52,13 @@ class DependencyComparisonTest {
         Indexer().index(IndexOptions(byNameCorpus, byNameIndex, compilationSchema = "HR", dictionary = AtlasDictionary.NONE, threads = 1))
         val byNameFacts = Files.newBufferedReader(Path.of("src/test/resources/compare/byname-dependencies.csv")).use { DatabaseDependencies.read(it) }
         byName = DependencyComparison(byNameIndex, byNameFacts, byNameCorpus).compare()
+
+        // A package value read and a sequence the project does not declare.
+        val valuesCorpus = Path.of("src/test/resources/compare/values-corpus")
+        val valuesIndex = temp.resolve("values.db")
+        Indexer().index(IndexOptions(valuesCorpus, valuesIndex, compilationSchema = "HR", dictionary = AtlasDictionary.NONE, threads = 1))
+        val valuesFacts = Files.newBufferedReader(Path.of("src/test/resources/compare/values-dependencies.csv")).use { DatabaseDependencies.read(it) }
+        values = DependencyComparison(valuesIndex, valuesFacts, valuesCorpus).compare()
     }
 
     @AfterAll
@@ -124,6 +132,14 @@ class DependencyComparisonTest {
     }
 
     @Test
+    fun `a package value read is evidence for the package, a sequence matches by name`() {
+        assertThat(values.matched.map { "${if (it.byName) "BY_NAME" else "EXACT"} ${it.unit.name} ${it.reference.referencedOwner}.${it.reference.referencedName}" })
+            .containsExactlyInAnyOrder("EXACT PROC_VAL HR.PK_VAL", "BY_NAME PROC_VAL HR.SEQ_EXT")
+        assertThat(values.indexOnly).isEmpty()
+        assertThat(values.databaseOnly).isEmpty()
+    }
+
+    @Test
     fun `the dependencies file round-trips`() {
         val original = Files.readString(Path.of("src/test/resources/compare/fixture-dependencies.csv"))
         val facts = DatabaseDependencies.read(StringReader(original))
@@ -134,7 +150,7 @@ class DependencyComparisonTest {
 
     @Test
     fun `stored source and file text compare after their headers`() {
-        // Oracle keeps the object keyword, replaces `owner.` with blanks and keeps a quoted name as written (F0.4 report).
+        // Oracle keeps the object keyword, replaces `owner.` with blanks and keeps a quoted name as written.
         val file = "create or replace package hr.p_owned is\n  procedure x;\nend;\n/\n"
         assertThat(PlSqlText.firstDifference(file, "package    p_owned is\n  procedure x;\nend;")).isNull()
         assertThat(PlSqlText.firstDifference("create package \"HR\".\"P_QUOTED\" is procedure x; end;", "package       \"P_QUOTED\" is procedure x; end;")).isNull()

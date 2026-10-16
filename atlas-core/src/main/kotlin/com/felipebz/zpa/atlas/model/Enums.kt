@@ -83,7 +83,7 @@ enum class RelationKind(val reserved: Boolean = false) : StoredEnum {
 enum class Role(val reserved: Boolean = false) : StoredEnum {
     DEFINITION,
     DECLARATION,
-    READ(reserved = true),
+    READ,
     WRITE,
     CALL,
     SQL_SELECT,

@@ -57,8 +57,22 @@ registerMessages("en", {
   "usage.more": "load more",
   "filters.clear": "Clear filters",
 
-  // Roles without a label are shown by their stored name.
+  // A role without a label is shown by its stored name.
+  "role.DEFINITION": "definition",
+  "role.DECLARATION": "declaration",
+  "role.READ": "read",
+  "role.WRITE": "write",
+  "role.CALL": "call",
+  "role.SQL_SELECT": "SQL select",
+  "role.SQL_INSERT": "SQL insert",
+  "role.SQL_UPDATE": "SQL update",
+  "role.SQL_DELETE": "SQL delete",
+  "role.SQL_MERGE": "SQL merge",
+  "role.SQL_LOCK": "SQL lock",
   "role.TYPE_USE": "type use",
+  "role.RAISE": "raise",
+  "role.HANDLE": "handle",
+  "role.IMPLICIT": "implicit",
 
   "source.show": "show line",
   "source.stale": "The file changed since it was indexed.",

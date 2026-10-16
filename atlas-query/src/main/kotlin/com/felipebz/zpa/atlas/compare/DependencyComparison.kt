@@ -414,11 +414,13 @@ class DependencyComparison(
 
         /**
          * Whether evidence with [roles] can be about an object of [referencedType]: SQL roles or a type use for relations,
-         * a call or a type use for packages and types, a call for other callables, anything but a declaration otherwise.
+         * a call, a type use or a value read or write for packages, a call or a type use for types, a call for other
+         * callables, anything but a declaration otherwise (a sequence: a read).
          */
         private fun fits(referencedType: String, roles: Set<String>): Boolean = when (referencedType) {
             in RELATION_TYPES -> roles.any { it.startsWith("SQL_") } || "TYPE_USE" in roles
-            "PACKAGE", "TYPE" -> "CALL" in roles || "TYPE_USE" in roles
+            "PACKAGE" -> "CALL" in roles || "TYPE_USE" in roles || "READ" in roles || "WRITE" in roles
+            "TYPE" -> "CALL" in roles || "TYPE_USE" in roles
             "PROCEDURE", "FUNCTION", "OPERATOR" -> "CALL" in roles
             else -> !declaringOnly(roles)
         }

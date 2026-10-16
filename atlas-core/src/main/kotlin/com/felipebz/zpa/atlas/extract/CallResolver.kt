@@ -41,9 +41,15 @@ internal fun valueLookups(written: List<String>, unitSchema: String?, packageNam
 /** A written actual: its label as written (named notation) or null (positional). */
 data class WrittenArgument(val label: String?)
 
-/** How one call site resolves; [NotACall] means the name is a value (or a type that is not identified), not a subprogram. */
+/**
+ * How one call site resolves: [Value] for a package value (`pkg.g_tab(i)`, `pkg.g_tab.exists(i)`), [NotACall] for a
+ * type the project does not identify.
+ */
 sealed class CallOutcome {
     data object NotACall : CallOutcome()
+
+    /** The name is a package value: the entity is the value, the first hop of the name. */
+    data class Value(val status: Status, val entityKey: String?, val reason: String?, val candidateKeys: List<String> = emptyList()) : CallOutcome()
 
     data class Call(
         val status: Status,
@@ -51,12 +57,14 @@ sealed class CallOutcome {
         val reason: String?,
         val candidateKeys: List<String> = emptyList(),
         /** Parameter entity key by 1-based actual ordinal, only for resolved calls. */
-        val bindings: Map<Int, String> = emptyMap()
+        val bindings: Map<Int, String> = emptyMap(),
+        /** Mode of the bound parameter by 1-based actual ordinal, only for resolved calls. */
+        val modes: Map<Int, ProjectParameterMode> = emptyMap()
     ) : CallOutcome()
 }
 
 /**
- * Resolves call sites through [ProjectSnapshot.resolveCall] (F0.2, §4): spelling variants for the unit schema,
+ * Resolves call sites through [ProjectSnapshot.resolveCall]: spelling variants for the unit schema,
  * package scope before schema scope inside a package, and the body-only subprograms the API never sees. Lexical scope
  * is the caller's legacy-symbol check; nothing here binds arguments against package-body declarations.
  *
@@ -70,6 +78,7 @@ sealed class CallOutcome {
 class CallResolver(
     private val snapshot: ProjectSnapshot,
     private val catalog: DeclarationCatalog,
+    private val values: PackageValues,
     private val entities: MutableList<EntityFact>,
     private val relations: MutableList<RelationFact>,
     private val runSchemas: Set<String>
@@ -78,18 +87,21 @@ class CallResolver(
      * @param written the callee segments as written
      * @param unitSchema the schema of the unit (written owner, else the compilation schema), or null
      * @param enclosingPackage the package spec or body containing the call, as written in its CREATE, or null
+     * @param withoutParentheses a name read as a function call without parentheses: constructors do not apply,
+     *   and a name the project does not know is `NOT_IN_PROJECT` without external entity (it may be anything)
      */
     fun resolve(
         written: List<String>,
         kind: ProjectCallKind,
         arguments: List<WrittenArgument>,
         unitSchema: String?,
-        enclosingPackage: List<String>?
+        enclosingPackage: List<String>?,
+        withoutParentheses: Boolean = false
     ): CallOutcome {
         val variants = nameSpellings(written, unitSchema)
         val packageName = enclosingPackage?.let { ProjectQualifiedName.of(*it.toTypedArray()) }
-        if (isValue(written, unitSchema, packageName)) return CallOutcome.NotACall
-        constructorType(variants, packageName)?.let { return constructor(it) ?: CallOutcome.NotACall }
+        values.packageValue(written, unitSchema, packageName)?.let { return CallOutcome.Value(it.status, it.entityKey, it.reason, it.candidateKeys) }
+        if (!withoutParentheses) constructorType(variants, packageName)?.let { return constructor(it) ?: CallOutcome.NotACall }
 
         val callArguments = ProjectCallArguments.of(arguments.map { argument ->
             argument.label?.let { ProjectCallArgument.named(ProjectIdentifier.fromSource(it)) } ?: ProjectCallArgument.positional()
@@ -112,19 +124,9 @@ class CallResolver(
                 return map(resolution)
             }
         }
+        if (withoutParentheses) return CallOutcome.Call(Status.UNRESOLVED, null, "NOT_IN_PROJECT")
         return notInProject(written.map { normalizeIdentifier(it) }, kind, unitSchema)
     }
-
-    /**
-     * A value, not a call: for some spelling, the full name or one of its prefixes of two or more segments is a package
-     * value (`pkg.g_tab(i)`, `pkg.g_tab.exists(i)`, `hr.pkg.g_tab.delete`). A one-segment name inside a package uses
-     * the enclosing package as owner.
-     */
-    private fun isValue(written: List<String>, unitSchema: String?, packageName: ProjectQualifiedName?): Boolean =
-        valueLookups(written, unitSchema, packageName).any { (segments, owner) ->
-            val status = snapshot.resolvePackageValue(qualifiedName(segments), owner).status
-            status == ProjectValueResolution.Status.RESOLVED || status == ProjectValueResolution.Status.AMBIGUOUS
-        }
 
     /**
      * A constructor: the named-type resolution of the first spelling whose declarations are all types (the name as
@@ -170,15 +172,17 @@ class CallResolver(
         if (!hasPublic && privates.size == 1) {
             val body = privates.single()
             val key = catalog.keyOf(body.id)
-            return CallOutcome.Call(Status.RESOLVED, key, "PRIVATE_SINGLE", bindings = bindByLabelOrPosition(key, body, arguments))
+            val bound = bindByLabelOrPosition(body, arguments)
+            return CallOutcome.Call(Status.RESOLVED, key, "PRIVATE_SINGLE",
+                bindings = bound.mapValues { key + "." + normalizeIdentifier(it.value.name.originalSpelling) }, modes = bound.mapValues { it.value.mode })
         }
         val publicCandidates = if (hasPublic) applicable(resolution) else emptyList()
         return CallOutcome.Call(Status.AMBIGUOUS, null, "PRIVATE_OVERLOADS", (publicCandidates + privates.map { catalog.keyOf(it.id) }).distinct())
     }
 
     /** Exact bindings only: a label naming a formal, or a position while every earlier actual is positional. */
-    private fun bindByLabelOrPosition(key: String, body: ProjectSubprogramView, arguments: List<WrittenArgument>): Map<Int, String> {
-        val bindings = HashMap<Int, String>()
+    private fun bindByLabelOrPosition(body: ProjectSubprogramView, arguments: List<WrittenArgument>): Map<Int, ProjectParameterView> {
+        val bindings = HashMap<Int, ProjectParameterView>()
         var positional = true
         arguments.forEachIndexed { index, argument ->
             val parameter = if (argument.label != null) {
@@ -190,7 +194,7 @@ class CallResolver(
             } else {
                 null
             }
-            if (parameter != null) bindings[index + 1] = key + "." + normalizeIdentifier(parameter.name.originalSpelling)
+            if (parameter != null) bindings[index + 1] = parameter
         }
         return bindings
     }
@@ -207,7 +211,7 @@ class CallResolver(
                 val key = catalog.keyOf(selected.declaration.id)
                 CallOutcome.Call(Status.RESOLVED, key, null, bindings = selected.bindings.associate {
                     it.argumentOrdinal to key + "." + normalizeIdentifier(it.parameter.name.originalSpelling)
-                })
+                }, modes = selected.bindings.associate { it.argumentOrdinal to it.parameter.mode })
             }
             ProjectCallResolution.Status.AMBIGUOUS -> CallOutcome.Call(Status.AMBIGUOUS, null, status.name, applicable(resolution))
             ProjectCallResolution.Status.AMBIGUOUS_TARGET ->

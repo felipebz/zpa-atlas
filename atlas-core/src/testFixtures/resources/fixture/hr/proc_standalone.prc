@@ -4,3 +4,8 @@ begin
 end;
 /
 create sequence seq_event;
+create or replace function fn_one return number is
+begin
+  return 1;
+end;
+/

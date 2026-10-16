@@ -106,10 +106,10 @@ class OracleCompareIT {
     }
 
     companion object {
-        // Oracle 26ai: STANDARD, DBMS_STANDARD, PLITBLM and SYS_STUB_FOR_PURITY_ANALYSIS rows; sequence references are
-        // not extracted yet; the private synonym is an unresolved relation; P_CHANGED is deployed differently.
-        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 13, "NOT_EXTRACTED" to 1, "SOURCE_DIFFERS" to 1, "UNRESOLVED_IN_INDEX" to 1)
+        // Oracle 26ai: STANDARD, DBMS_STANDARD, PLITBLM and SYS_STUB_FOR_PURITY_ANALYSIS rows; the private synonym is an
+        // unresolved relation; P_CHANGED is deployed differently.
+        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 13, "SOURCE_DIFFERS" to 1, "UNRESOLVED_IN_INDEX" to 1)
         val EXPECTED_INDEX_ONLY = mapOf("SOURCE_DIFFERS" to 1)
-        val EXPECTED_MATCHED = mapOf("BY_NAME" to 1, "EXACT" to 13)
+        val EXPECTED_MATCHED = mapOf("BY_NAME" to 1, "EXACT" to 14)
     }
 }

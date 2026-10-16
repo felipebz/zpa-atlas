@@ -1,22 +1,22 @@
 compare-deps summary
 
 Units
-  mapped to database objects: 31
-  scripts and anonymous blocks (not compared): 27, with 37 edge occurrence(s)
-  units without ALL_OBJECTS row (not compared): 24, with 19 index edge(s)
+  mapped to database objects: 32
+  scripts and anonymous blocks (not compared): 27, with 41 edge occurrence(s)
+  units without ALL_OBJECTS row (not compared): 25, with 19 index edge(s)
   database objects without unit in the index: 1
 
 Source
   SAME: 1
   DIFFERS: 1
   WRAPPED: 0
-  NO_STORED_SOURCE: 29
+  NO_STORED_SOURCE: 30
   UNAVAILABLE: 0
     HR.TRG_COMPANY_BU TRIGGER: first difference at stored line 5
 
 Edges
   database: 14
-  index: 13
+  index: 18
   matched: 7 (exact 6, by name 1)
   matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 5)
 
@@ -40,11 +40,11 @@ Database only: 7
   GUESSED_ELSEWHERE: 0
   NOT_EXTRACTED: 0
 
-Index only: 6
+Index only: 11
   SOURCE_DIFFERS: 2
   UNIT_INVALID: 1
-  BY_NAME_ONLY: 1
-  INDEX_ONLY: 2
+  BY_NAME_ONLY: 2
+  INDEX_ONLY: 6
 
 Top NOT_EXTRACTED names
   (none)
@@ -53,6 +53,9 @@ Top UNRESOLVED_IN_INDEX names
   NVL: 1
 
 Top INDEX_ONLY names
+  HR.SEND_QUEUE: 2
   HR.EVENT_LOG: 1
-  HR.SEND_QUEUE: 1
+  HR.FN_ONE: 1
+  HR.SEQ_EVENT: 1
+  OTHER.SEQ_X: 1
 
