@@ -1,35 +1,35 @@
 compare-deps summary
 
 Units
-  mapped to database objects: 28
-  scripts and anonymous blocks (not compared): 27, with 35 edge occurrence(s)
-  units without ALL_OBJECTS row (not compared): 21, with 6 index edge(s)
+  mapped to database objects: 31
+  scripts and anonymous blocks (not compared): 27, with 37 edge occurrence(s)
+  units without ALL_OBJECTS row (not compared): 24, with 16 index edge(s)
   database objects without unit in the index: 1
 
 Source
   SAME: 1
   DIFFERS: 1
   WRAPPED: 0
-  NO_STORED_SOURCE: 26
+  NO_STORED_SOURCE: 29
   UNAVAILABLE: 0
     HR.TRG_COMPANY_BU TRIGGER: first difference at stored line 5
 
 Edges
   database: 14
-  index: 12
-  matched: 6 (exact 5, by name 1)
+  index: 13
+  matched: 7 (exact 6, by name 1)
   matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 5)
 
 Match rate (matched / (database - BUILTIN - NON_EXISTENT))
-  overall: 50.0% (6/12)
+  overall: 58.3% (7/12)
   FUNCTION: 0.0% (0/1)
   PACKAGE: 100.0% (3/3)
   PROCEDURE: 100.0% (1/1)
   SYNONYM: 100.0% (1/1)
   TABLE: 20.0% (1/5)
-  TYPE: 0.0% (0/1)
+  TYPE: 100.0% (1/1)
 
-Database only: 8
+Database only: 7
   BUILTIN: 1
   REMOTE: 1
   NON_EXISTENT: 1
@@ -38,8 +38,7 @@ Database only: 8
   UNRESOLVED_IN_INDEX: 1
   RESOLVED_ELSEWHERE: 1
   GUESSED_ELSEWHERE: 0
-  NOT_EXTRACTED: 1
-    NOT_EXTRACTED TYPE: 1
+  NOT_EXTRACTED: 0
 
 Index only: 6
   SOURCE_DIFFERS: 2
@@ -48,7 +47,7 @@ Index only: 6
   INDEX_ONLY: 2
 
 Top NOT_EXTRACTED names
-  TY_POINT: 1
+  (none)
 
 Top UNRESOLVED_IN_INDEX names
   NVL: 1

@@ -401,13 +401,16 @@ class DependencyComparison(
         /** A definition or declaration only (an empty role set, dynamic SQL, is not). */
         private fun declaringOnly(roles: Set<String>) = roles.isNotEmpty() && roles.all { it in DECLARING_ROLES }
         private val RELATION_TYPES = setOf("TABLE", "VIEW", "MATERIALIZED VIEW")
-        private val CALLABLE_TYPES = setOf("PACKAGE", "PROCEDURE", "FUNCTION", "TYPE", "OPERATOR")
 
-        /** Whether evidence with [roles] can be about an object of [referencedType]: SQL roles for relations, CALL for callables. */
+        /**
+         * Whether evidence with [roles] can be about an object of [referencedType]: SQL roles or a type use for relations,
+         * a call or a type use for packages and types, a call for other callables, anything but a declaration otherwise.
+         */
         private fun fits(referencedType: String, roles: Set<String>): Boolean = when (referencedType) {
-            in RELATION_TYPES -> roles.any { it.startsWith("SQL_") }
-            in CALLABLE_TYPES -> "CALL" in roles
-            else -> true
+            in RELATION_TYPES -> roles.any { it.startsWith("SQL_") } || "TYPE_USE" in roles
+            "PACKAGE", "TYPE" -> "CALL" in roles || "TYPE_USE" in roles
+            "PROCEDURE", "FUNCTION", "OPERATOR" -> "CALL" in roles
+            else -> !declaringOnly(roles)
         }
         private val UNRESOLVED_STATUSES = setOf("UNRESOLVED", "AMBIGUOUS", "PARTIAL_SOURCE")
 

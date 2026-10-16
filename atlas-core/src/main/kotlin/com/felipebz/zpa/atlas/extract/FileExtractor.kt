@@ -35,6 +35,7 @@ class FileExtractor(
 
     private lateinit var catalog: DeclarationCatalog
     private lateinit var calls: CallResolver
+    private lateinit var types: TypeReferenceResolver
     private var result: FileFacts? = null
 
     private val units = ArrayList<UnitFact>()
@@ -47,11 +48,15 @@ class FileExtractor(
     private val resolver = RelationResolver(dictionary, entities, relations)
     private var recoveredRegions = 0
 
+    /** Datatype names captured by a local declaration: counted, not indexed (locals are entities in F3). */
+    private var localTypeReferences = 0
+
     override fun init() {
         val snapshot = projectAnalysis().snapshot
         catalog = catalogOf(snapshot)
         val runSchemas = catalog.schemas + dictionary.schemas + listOfNotNull(defaultSchema) + setOf("SYS", "SYSTEM")
         calls = CallResolver(snapshot, catalog, entities, relations, runSchemas)
+        types = TypeReferenceResolver(snapshot, catalog, resolver, entities, runSchemas)
     }
 
     override fun visitFile(node: AstNode) {
@@ -105,6 +110,9 @@ class FileExtractor(
         if (::catalog.isInitialized) {
             addDeclarationOccurrences()
             coverage += catalog.coverageFor(path)
+        }
+        if (localTypeReferences > 0) {
+            coverage += CoverageFact("LOCAL_ANCHOR", "$localTypeReferences datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed until F3")
         }
         return FileFacts(path, sha256, sizeBytes, encoding, status, recoveredRegions, defaultSchema, units, statements, occurrences, entities, relations, coverage)
     }
@@ -254,6 +262,7 @@ class FileExtractor(
                 ?.takeIf { it.type != PlSqlGrammar.METHOD_CALL }
                 ?.let { callSite(it, context, null) }
             PlSqlGrammar.ASSIGNMENT_STATEMENT -> newColumnAssignment(node, context)
+            PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE -> typeUse(node, context, null)
         }
         for (child in node.children) walk(child, current)
     }
@@ -335,7 +344,8 @@ class FileExtractor(
             Triple(if (named) children[0].tokenOriginalValue else null, if (named) children.last() else argument, argument)
         }
         val outcome = when {
-            symbol != null && symbol.kind in NOT_CALLABLE -> return
+            // A type of the package specification is a constructor (F1.1 §4); local values and types are not calls.
+            symbol != null && symbol.kind in NOT_CALLABLE && (symbol.kind != Symbol.Kind.TYPE || isLocalDeclaration(symbol)) -> return
             symbol != null && (symbol.kind == Symbol.Kind.PROCEDURE || symbol.kind == Symbol.Kind.FUNCTION) && isLocalSubprogram(symbol) ->
                 CallOutcome.Call(Status.UNRESOLVED, null, "LOCAL_SUBPROGRAM")
             else -> calls.resolve(segments, kind, arguments.map { WrittenArgument(it.first) }, context.schema, context.enclosingPackage)
@@ -347,6 +357,62 @@ class FileExtractor(
         }
         occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), outcome.entityKey,
             setOf(Role.CALL), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys, argumentFacts)
+    }
+
+    // ---- type references ----------------------------------------------------------------------------------------
+
+    /**
+     * One `TYPE_USE` occurrence for the name of an `ANCHORED_DATATYPE` (`name%TYPE`, `name%ROWTYPE`) or a
+     * `CUSTOM_DATATYPE`. A one-segment name is a `VARIABLE_NAME`, a longer one a `MEMBER_EXPRESSION`. A first segment
+     * the legacy table binds to a local declaration is counted (`LOCAL_ANCHOR`), not indexed; built-ins give nothing.
+     * A binding to the declaration the datatype belongs to is ignored: `comentario comentario.texto%type` names the
+     * table, the item is not visible in its own declaration.
+     */
+    private fun typeUse(node: AstNode, context: Context, statementId: Int?) {
+        val name = node.firstChild
+        val segments = nameSegments(name) ?: run {
+            coverage += CoverageFact("TYPE_NOT_A_NAME", "Datatype at line ${name.tokenLine} is not a plain name")
+            return
+        }
+        val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild
+        val symbol = (first as? SemanticAstNode)?.symbol?.takeUnless { isOwnDeclaration(it, node) }
+        if (symbol != null && isLocalDeclaration(symbol) ||
+            symbol == null && node.type == PlSqlGrammar.CUSTOM_DATATYPE && segments.size == 1 && isLocalRefCursorType(node, normalizeIdentifier(segments[0]))) {
+            localTypeReferences++
+            return
+        }
+        val outcome = if (node.type == PlSqlGrammar.ANCHORED_DATATYPE) {
+            val enclosingMember = symbol != null && symbol.scope.type == PlSqlGrammar.CREATE_PACKAGE
+            types.anchored(segments, node.lastChild.type == PlSqlKeyword.ROWTYPE, context.schema, context.enclosingPackage, enclosingMember)
+        } else {
+            types.named(segments, context.schema, context.enclosingPackage) ?: return
+        }
+        occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
+            setOf(Role.TYPE_USE), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
+    }
+
+    private fun isOwnDeclaration(symbol: Symbol, reference: AstNode): Boolean {
+        val declaration = symbol.node?.parentOrNull ?: return false
+        return generateSequence(reference) { it.parentOrNull }.any { it === declaration }
+    }
+
+    /**
+     * A REF CURSOR type of an enclosing block, subprogram or package body: the legacy table does not register
+     * `REF_CURSOR_DECLARATION`. Declarations of a package specification are project types, never local.
+     */
+    private fun isLocalRefCursorType(reference: AstNode, name: String): Boolean {
+        var node = reference.parentOrNull
+        while (node != null && node.type != PlSqlGrammar.CREATE_PACKAGE) {
+            val sections = if (node.type == PlSqlGrammar.DECLARE_SECTION) listOf(node) else node.getChildren(PlSqlGrammar.DECLARE_SECTION)
+            val declared = sections.any { section ->
+                section.getChildren(PlSqlGrammar.REF_CURSOR_DECLARATION).any {
+                    it.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { identifier -> normalizeIdentifier(identifier.tokenOriginalValue) } == name
+                }
+            }
+            if (declared) return true
+            node = node.parentOrNull
+        }
+        return false
     }
 
     // ---- SQL statements -----------------------------------------------------------------------------------------
@@ -446,6 +512,8 @@ class FileExtractor(
         }
         // The PL/SQL compiler resolves the function names of static SQL, so they follow the PL/SQL rules.
         root.getDescendants(PlSqlGrammar.METHOD_CALL).forEach { callSite(it, context, id) }
+        // `CAST(… AS t)` and the other datatypes of the statement.
+        root.getDescendants(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE).forEach { typeUse(it, context, id) }
     }
 
     private fun isPunctuation(node: AstNode) = node.type is PlSqlPunctuator
@@ -554,6 +622,16 @@ class FileExtractor(
         val scope = symbol.scope
         if (scope.outer == null) return false
         return scope.type != PlSqlGrammar.CREATE_PACKAGE && scope.type != PlSqlGrammar.CREATE_PACKAGE_BODY
+    }
+
+    /**
+     * A value or type the legacy table declares outside a package specification and below the file scope: in a
+     * block, a subprogram or a package body. zpa-core indexes the package values and types of specifications only, so
+     * these are never project declarations.
+     */
+    private fun isLocalDeclaration(symbol: Symbol): Boolean {
+        val scope = symbol.scope
+        return scope.outer != null && scope.type != PlSqlGrammar.CREATE_PACKAGE
     }
 
     private companion object {

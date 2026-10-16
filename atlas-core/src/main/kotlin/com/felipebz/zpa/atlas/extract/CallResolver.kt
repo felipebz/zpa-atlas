@@ -7,10 +7,41 @@ import com.felipebz.zpa.atlas.model.RelationFact
 import com.felipebz.zpa.atlas.model.RelationKind
 import com.felipebz.zpa.atlas.model.Status
 
+/**
+ * The spellings a name is looked up with, in order: with the unit schema [schema] as first segment, as written then
+ * without it; else, for one or two segments with a known schema, as written then prefixed with it; else as written.
+ *
+ * The project index keys each declaration by the name written in its CREATE, owner included, and never applies a
+ * compilation schema, so every lookup by name tries both spellings; the first that the project knows wins.
+ */
+internal fun nameSpellings(written: List<String>, schema: String?): List<List<String>> = when {
+    schema == null -> listOf(written)
+    written.size >= 2 && normalizeIdentifier(written[0]) == schema -> listOf(written, written.drop(1))
+    written.size <= 2 -> listOf(written, listOf("\"" + schema + "\"") + written)
+    else -> listOf(written)
+}
+
+internal fun qualifiedName(names: List<String>): ProjectQualifiedName = ProjectQualifiedName.of(*names.toTypedArray())
+
+/**
+ * The package value lookups of a name, in order, as (segments, package owner): a one-segment name under each spelling,
+ * with the enclosing package as owner; else the first segment as a value of the enclosing package (`g_tab.exists(1)`
+ * in the body), then the full name and its prefixes of two or more segments under each spelling.
+ */
+internal fun valueLookups(written: List<String>, unitSchema: String?, packageName: ProjectQualifiedName?): Sequence<Pair<List<String>, ProjectQualifiedName?>> =
+    sequence {
+        if (written.size == 1) {
+            nameSpellings(written, unitSchema).forEach { yield(it to if (it.size == 1) packageName else null) }
+            return@sequence
+        }
+        if (packageName != null) yield(written.take(1) to packageName)
+        for (length in written.size downTo 2) nameSpellings(written.take(length), unitSchema).forEach { yield(it to null) }
+    }
+
 /** A written actual: its label as written (named notation) or null (positional). */
 data class WrittenArgument(val label: String?)
 
-/** How one call site resolves; [NotACall] means the name is a value or a type, not a subprogram. */
+/** How one call site resolves; [NotACall] means the name is a value (or a type that is not identified), not a subprogram. */
 sealed class CallOutcome {
     data object NotACall : CallOutcome()
 
@@ -31,7 +62,7 @@ sealed class CallOutcome {
  *
  * The project index keys each declaration by the name written in its CREATE, owner included, and never applies a
  * compilation schema. So `S.x` and an unowned `x` are different targets, and every lookup by name tries both spellings
- * ([spellings]); the first that the project knows wins.
+ * ([nameSpellings]); the first that the project knows wins.
  *
  * @param runSchemas the schemas known to the run (unit owners, compilation schema, requested dictionary schemas,
  *   `SYS`, `SYSTEM`), used to read `A.B` as `schema.object` when the project does not know it
@@ -55,9 +86,10 @@ class CallResolver(
         unitSchema: String?,
         enclosingPackage: List<String>?
     ): CallOutcome {
-        val variants = spellings(written, unitSchema)
+        val variants = nameSpellings(written, unitSchema)
         val packageName = enclosingPackage?.let { ProjectQualifiedName.of(*it.toTypedArray()) }
-        if (isValue(written, unitSchema, packageName) || isType(variants, packageName)) return CallOutcome.NotACall
+        if (isValue(written, unitSchema, packageName)) return CallOutcome.NotACall
+        constructorType(variants, packageName)?.let { return constructor(it) ?: CallOutcome.NotACall }
 
         val callArguments = ProjectCallArguments.of(arguments.map { argument ->
             argument.label?.let { ProjectCallArgument.named(ProjectIdentifier.fromSource(it)) } ?: ProjectCallArgument.positional()
@@ -74,7 +106,7 @@ class CallResolver(
             }
         }
         for (names in variants) {
-            val resolution = snapshot.resolveCall(ProjectCallTarget.written(qualified(names)), kind, callArguments)
+            val resolution = snapshot.resolveCall(ProjectCallTarget.written(qualifiedName(names)), kind, callArguments)
             if (resolution.status != ProjectCallResolution.Status.NOT_FOUND_IN_PROJECT &&
                 resolution.status != ProjectCallResolution.Status.UNKNOWN_PACKAGE) {
                 return map(resolution)
@@ -84,51 +116,46 @@ class CallResolver(
     }
 
     /**
-     * The spellings a name is looked up with, in order: with the unit schema [schema] as first segment, as written then
-     * without it; else, for one or two segments with a known schema, as written then prefixed with it; else as written.
-     */
-    private fun spellings(written: List<String>, schema: String?): List<List<String>> = when {
-        schema == null -> listOf(written)
-        written.size >= 2 && normalizeIdentifier(written[0]) == schema -> listOf(written, written.drop(1))
-        written.size <= 2 -> listOf(written, listOf("\"" + schema + "\"") + written)
-        else -> listOf(written)
-    }
-
-    private fun qualified(names: List<String>) = ProjectQualifiedName.of(*names.toTypedArray())
-
-    /**
      * A value, not a call: for some spelling, the full name or one of its prefixes of two or more segments is a package
      * value (`pkg.g_tab(i)`, `pkg.g_tab.exists(i)`, `hr.pkg.g_tab.delete`). A one-segment name inside a package uses
      * the enclosing package as owner.
      */
-    private fun isValue(written: List<String>, unitSchema: String?, packageName: ProjectQualifiedName?): Boolean {
-        fun value(segments: List<String>, owner: ProjectQualifiedName?): Boolean {
-            val status = snapshot.resolvePackageValue(qualified(segments), owner).status
-            return status == ProjectValueResolution.Status.RESOLVED || status == ProjectValueResolution.Status.AMBIGUOUS
+    private fun isValue(written: List<String>, unitSchema: String?, packageName: ProjectQualifiedName?): Boolean =
+        valueLookups(written, unitSchema, packageName).any { (segments, owner) ->
+            val status = snapshot.resolvePackageValue(qualifiedName(segments), owner).status
+            status == ProjectValueResolution.Status.RESOLVED || status == ProjectValueResolution.Status.AMBIGUOUS
         }
-        if (written.size == 1) return spellings(written, unitSchema).any { value(it, if (it.size == 1) packageName else null) }
-        // `g_tab.exists(1)` inside the package body: the first segment is a value of the enclosing package.
-        if (packageName != null && value(written.take(1), packageName)) return true
-        return (written.size downTo 2).any { length -> spellings(written.take(length), unitSchema).any { value(it, null) } }
-    }
 
     /**
-     * A constructor: the first spelling with declarations has only types (the name as written, or a one-segment name
-     * as a member of the enclosing package).
+     * A constructor: the named-type resolution of the first spelling whose declarations are all types (the name as
+     * written, or a one-segment name as a member of the enclosing package); null when that spelling is not a type.
      */
-    private fun isType(variants: List<List<String>>, packageName: ProjectQualifiedName?): Boolean {
+    private fun constructorType(variants: List<List<String>>, packageName: ProjectQualifiedName?): ProjectNamedTypeResolution? {
         for (names in variants) {
-            val name = qualified(names)
+            val name = qualifiedName(names)
+            var owner: ProjectQualifiedName? = null
             val declarations = snapshot.findDeclarations(name).declarations.ifEmpty {
                 if (names.size == 1 && packageName != null) {
+                    owner = packageName
                     snapshot.findDeclarations(ProjectQualifiedName.ofIdentifiers(packageName.segments + name.last)).declarations
                 } else {
                     emptyList()
                 }
             }
-            if (declarations.isNotEmpty()) return declarations.all { it is ProjectTypeDeclarationView }
+            if (declarations.isNotEmpty()) {
+                return if (declarations.all { it is ProjectTypeDeclarationView }) snapshot.resolveNamedType(name, owner) else null
+            }
         }
-        return false
+        return null
+    }
+
+    /** A constructor depends on its type (F1.1 §4); null keeps the skip when no type is identified. */
+    private fun constructor(resolution: ProjectNamedTypeResolution): CallOutcome.Call? = when (resolution.status) {
+        ProjectNamedTypeResolution.Status.RESOLVED -> CallOutcome.Call(Status.RESOLVED, catalog.keyOf(resolution.declaration.get().id), null)
+        ProjectNamedTypeResolution.Status.AMBIGUOUS ->
+            CallOutcome.Call(Status.AMBIGUOUS, null, resolution.status.name, resolution.candidates.map { catalog.keyOf(it.id) }.distinct())
+        ProjectNamedTypeResolution.Status.INCOMPLETE_INDEX -> CallOutcome.Call(Status.UNRESOLVED, null, resolution.status.name)
+        else -> null
     }
 
     /** §4.3: the public result of [resolution], combined with the private body declarations of the inventory. */

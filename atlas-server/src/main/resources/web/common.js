@@ -104,6 +104,13 @@ function statusBadge(status, reason) {
   return `<span class="badge st-${esc(status)}">${esc(status)}${reason && reason !== status ? " · " + esc(reason) : ""}</span>`;
 }
 
+/** A role as shown: its label when the catalog has one (`role.<NAME>`), else the stored name. */
+function roleLabel(role) {
+  const key = "role." + role;
+  const label = t(key);
+  return label === key ? role : label;
+}
+
 async function showBanner() {
   const header = document.querySelector("header.top .run");
   const warn = document.getElementById("warn");

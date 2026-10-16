@@ -56,6 +56,8 @@ registerMessages("pt", {
   "usage.more": "carregar mais",
   "filters.clear": "Limpar filtros",
 
+  "role.TYPE_USE": "uso de tipo",
+
   "source.show": "ver linha",
   "source.stale": "O arquivo mudou desde a indexação.",
   "source.unavailable": "Fonte indisponível ({error})",

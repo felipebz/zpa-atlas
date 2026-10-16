@@ -92,7 +92,7 @@ enum class Role(val reserved: Boolean = false) : StoredEnum {
     SQL_DELETE,
     SQL_MERGE,
     SQL_LOCK,
-    TYPE_USE(reserved = true),
+    TYPE_USE,
     RAISE(reserved = true),
     HANDLE(reserved = true),
     IMPLICIT

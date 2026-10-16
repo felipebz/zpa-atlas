@@ -57,6 +57,9 @@ registerMessages("en", {
   "usage.more": "load more",
   "filters.clear": "Clear filters",
 
+  // Roles without a label are shown by their stored name.
+  "role.TYPE_USE": "type use",
+
   "source.show": "show line",
   "source.stale": "The file changed since it was indexed.",
   "source.unavailable": "Source unavailable ({error})",

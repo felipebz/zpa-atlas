@@ -68,7 +68,9 @@ class DependencyComparisonTest {
     @Test
     fun `unknown-schema names match by their first segment or as schema-qualified objects`() {
         assertThat(external.matched.map { "${if (it.byName) "BY_NAME" else "EXACT"} ${it.unit.name} ${it.reference.referencedOwner}.${it.reference.referencedName}" }).containsExactly(
-            "EXACT PK_DOC HR.PK_DOC", "EXACT PROC_EXT HR.PK_DOC",
+            // `comentario comentario.texto%type` in the spec and the body: the parameter is not visible in its own
+            // datatype, the anchor names the table (Oracle records it for both, verified on Oracle 26ai).
+            "EXACT PK_DOC HR.COMENTARIO", "EXACT PK_DOC HR.COMENTARIO", "EXACT PK_DOC HR.PK_DOC", "EXACT PROC_EXT HR.PK_DOC",
             "BY_NAME PROC_EXT OTHER_S.EXT", "BY_NAME PROC_EXT OTHER_S.PROC", "BY_NAME PROC_EXT PUBLIC.PKG_EXT"
         )
         // Both other_s calls are one index edge (to ~.OTHER_S); only the guessed table is index-only.
@@ -82,12 +84,10 @@ class DependencyComparisonTest {
                 "BUILTIN PROC_EXT PUBLIC.DUAL",
                 "GUESSED_ELSEWHERE PROC_EXT PUBLIC.EMP hr/proc_ext.prc:9->HR.EMP(UNVERIFIED)",
                 "NON_EXISTENT PROC_EXT HR.PKG_EXT",
-                // A parameter named like the table: its DECLARATION is not evidence, so not RESOLVED_ELSEWHERE.
-                "NOT_EXTRACTED PK_DOC HR.COMENTARIO",
                 // A call to a member named like the table: CALL evidence does not fit a TABLE.
                 "NOT_EXTRACTED PROC_EXT HR.COMPANY"
             )
-        assertThat(ComparisonReport.summary(external)).contains("overall: 62.5% (5/8)")
+        assertThat(ComparisonReport.summary(external)).contains("overall: 77.8% (7/9)")
     }
 
     @Test

@@ -24,7 +24,7 @@ function renderEntity(entity) {
      ${entity.parent ? " · " + esc(t("entity.parent")) + " " + entityLink(entity.parent) : ""}</p>`;
   document.getElementById("definitions").innerHTML = entity.definitions.length === 0 ? "" :
     `<h2>${esc(t("entity.definitions"))}</h2><table>${entity.definitions.map(d =>
-      `<tr><td>${esc(d.roles.join(", "))}</td><td class="mono">${esc(d.path)}:${d.span.startLine}:${d.span.startCol}</td>
+      `<tr><td>${esc(d.roles.map(roleLabel).join(", "))}</td><td class="mono">${esc(d.path)}:${d.span.startLine}:${d.span.startCol}</td>
        <td>${statusBadge(d.status)}</td><td>${lazySource(d.path, d.span.startLine)}</td></tr>`).join("")}</table>`;
   document.getElementById("overloads").innerHTML = entity.overloads.length <= 1 ? "" :
     `<h2>${esc(t("entity.overloads"))}</h2><ul>${entity.overloads.map(o =>
@@ -53,12 +53,12 @@ function renderScope() {
     toggle("implementations", "usage.scope.implementations") + toggle("children", "usage.scope.children");
 }
 
-function renderChips(id, counts, selected, attribute) {
+function renderChips(id, counts, selected, attribute, label) {
   // A selected value stays visible (count 0) even when the other filter leaves it out of the facet.
   const listed = new Set(counts.map(c => c.value));
   counts = counts.concat([...selected].filter(v => !listed.has(v)).map(v => ({ value: v, count: 0 })));
   document.getElementById(id).innerHTML = counts.map(c =>
-    `<span class="chip ${selected.has(c.value) ? "on" : ""}" data-${attribute}="${esc(c.value)}">${esc(c.value)} (${esc(formatNumber(c.count))})</span>`).join("");
+    `<span class="chip ${selected.has(c.value) ? "on" : ""}" data-${attribute}="${esc(c.value)}">${esc(label ? label(c.value) : c.value)} (${esc(formatNumber(c.count))})</span>`).join("");
 }
 
 function rowHtml(row) {
@@ -67,7 +67,7 @@ function rowHtml(row) {
   const others = row.viaCandidate ? `<div class="muted">${esc(t("usage.candidates"))} ${row.candidates.map(entityLink).join(", ")}</div>` : "";
   return `<tr><td class="mono">${row.span.startLine}:${row.span.startCol}</td><td>${entityLink(row.container)}
     <div class="muted">${esc(row.unit.kind)} ${esc(row.unit.name)}</div></td>
-    <td class="mono">${esc(row.written)}${args}</td><td>${esc(row.roles.join(", "))}${row.statementKind ? '<div class="muted">' + esc(row.statementKind) + "</div>" : ""}</td>
+    <td class="mono">${esc(row.written)}${args}</td><td>${esc(row.roles.map(roleLabel).join(", "))}${row.statementKind ? '<div class="muted">' + esc(row.statementKind) + "</div>" : ""}</td>
     <td>${statusBadge(row.status, row.reason)}${others}</td><td>${lazySource(row.path, row.span.startLine)}</td></tr>`;
 }
 
@@ -105,7 +105,7 @@ async function loadUsages(reset) {
   });
   const page = answer.result;
   renderScope();
-  renderChips("roleChips", page.facets.byRole, state.roles, "role");
+  renderChips("roleChips", page.facets.byRole, state.roles, "role", roleLabel);
   renderChips("statusChips", page.facets.byStatus, state.statuses, "status");
   if (state.roles.size || state.statuses.size) {
     document.getElementById("statusChips").insertAdjacentHTML("beforeend", ` <a href="#" id="clear">${esc(t("filters.clear"))}</a>`);
