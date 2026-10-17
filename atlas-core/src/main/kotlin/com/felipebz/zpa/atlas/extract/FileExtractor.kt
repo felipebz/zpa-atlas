@@ -274,10 +274,49 @@ class FileExtractor(
     private var view: ViewScope? = null
 
     /**
+     * The definition sites of the select list of [query]'s first query block (parentheses unwrapped): aliases, column
+     * names, and the columns a `*` expands to, following an inline view into its own select list. Returns the star
+     * items of this list.
+     */
+    private fun selectSites(statement: Statement, query: AstNode, sites: MutableMap<String, Pair<AstNode, Set<Role>>>): List<AstNode> {
+        var block = query.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK)
+        while (block != null && block.firstChild.type == PlSqlPunctuator.LPARENTHESIS) {
+            block = block.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION)?.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK)
+        }
+        val stars = ArrayList<AstNode>()
+        for (item in block?.getChildren(DmlGrammar.SELECT_COLUMN).orEmpty()) {
+            val alias = item.children.drop(1).firstOrNull { it.type == PlSqlGrammar.IDENTIFIER_NAME || it.type == PlSqlKeyword.BEGIN || it.type == PlSqlKeyword.END }
+            val expression = item.firstChild
+            when {
+                alias != null -> sites.putIfAbsent(normalizeIdentifier(alias.tokenOriginalValue), alias to VIEW_COLUMN_DEFINITION)
+                expression.type == PlSqlGrammar.VARIABLE_NAME || expression.type == PlSqlGrammar.MEMBER_EXPRESSION -> {
+                    val name = expression.getLastChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)
+                        ?: expression.getFirstDescendantOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
+                    sites.putIfAbsent(normalizeIdentifier(name.tokenOriginalValue), name to VIEW_COLUMN_DEFINITION)
+                }
+                else -> {
+                    val sources = starSources(statement, item) ?: continue
+                    stars += expression
+                    for (source in sources) {
+                        val expanded = source.target?.resolved?.relation?.takeIf { it.isColumnsComplete }
+                        val inline = source.node.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION)
+                        when {
+                            expanded != null -> for (field in expanded.rowFields) sites.putIfAbsent(field.name.exact(), expression to VIEW_STAR_DEFINITION)
+                            inline != null -> selectSites(statement, inline, sites)
+                        }
+                    }
+                }
+            }
+        }
+        return stars
+    }
+
+    /**
      * The `DEFINITION` of every dictionary column of the view, where the `CREATE VIEW` text names it: the column list,
      * matched by position; otherwise the first query block of the main query (the branch that names the columns of a
      * compound query), matched by name: an alias, a column reference's name, or a `*` (`DEFINITION,IMPLICIT`) for the
-     * columns it expands to. A column with no site gets a `VIEW_COLUMN_UNMATCHED` note.
+     * columns it expands to, or the sites inside the inline view it expands. A single star of the list also takes every
+     * column still without a site. A column with no site gets a `VIEW_COLUMN_UNMATCHED` note.
      */
     private fun viewColumns(statement: Statement, scope: ViewScope) {
         val relation = scope.relation ?: return
@@ -288,26 +327,9 @@ class FileExtractor(
         if (list.isNotEmpty()) {
             columns.zip(list).forEach { (column, name) -> sites[column.name.exact()] = name to VIEW_COLUMN_DEFINITION }
         } else {
-            var block = scope.query?.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK)
-            while (block != null && block.firstChild.type == PlSqlPunctuator.LPARENTHESIS) {
-                block = block.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION)?.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK)
-            }
-            for (item in block?.getChildren(DmlGrammar.SELECT_COLUMN).orEmpty()) {
-                val alias = item.children.drop(1).firstOrNull { it.type == PlSqlGrammar.IDENTIFIER_NAME || it.type == PlSqlKeyword.BEGIN || it.type == PlSqlKeyword.END }
-                val expression = item.firstChild
-                when {
-                    alias != null -> sites.putIfAbsent(normalizeIdentifier(alias.tokenOriginalValue), alias to VIEW_COLUMN_DEFINITION)
-                    expression.type == PlSqlGrammar.VARIABLE_NAME || expression.type == PlSqlGrammar.MEMBER_EXPRESSION -> {
-                        val name = expression.getLastChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)
-                            ?: expression.getFirstDescendantOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
-                        sites.putIfAbsent(normalizeIdentifier(name.tokenOriginalValue), name to VIEW_COLUMN_DEFINITION)
-                    }
-                    else -> for (source in starSources(statement, item).orEmpty()) {
-                        val expanded = source.target?.resolved?.relation?.takeIf { it.isColumnsComplete } ?: continue
-                        for (field in expanded.rowFields) sites.putIfAbsent(field.name.exact(), expression to VIEW_STAR_DEFINITION)
-                    }
-                }
-            }
+            val stars = scope.query?.let { selectSites(statement, it, sites) }.orEmpty()
+            // Every column no other item names can only come from a single star (TABLE(...), incomplete columns).
+            stars.singleOrNull()?.let { star -> columns.forEach { sites.putIfAbsent(it.name.exact(), star to VIEW_STAR_DEFINITION) } }
         }
         for (column in columns) {
             val name = column.name.exact()

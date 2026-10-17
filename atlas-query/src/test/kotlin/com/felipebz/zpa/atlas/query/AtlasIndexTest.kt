@@ -147,7 +147,7 @@ class AtlasIndexTest {
         assertThat(keys(index.entity("db:HR.V_COMPANY_NAMES").result!!.reads)).containsExactly("db:HR.V_COMPANY_LIST")
         assertThat(keys(index.entity("db:HR.V_COMPANY_LIST").result!!.views)).containsExactly("db:HR.V_COMPANY_NAMES")
         // A procedure reading the table is not a view over it.
-        assertThat(keys(index.entity("db:HR.EVENT_LOG").result!!.views)).containsExactly("db:HR.V_LOG_UNION", "db:HR.V_SOURCE_ONLY")
+        assertThat(keys(index.entity("db:HR.EVENT_LOG").result!!.views)).containsExactly("db:HR.V_INLINE_NESTED", "db:HR.V_INLINE_UNION", "db:HR.V_LOG_UNION", "db:HR.V_SOURCE_ONLY")
         assertThat(index.entity("db:HR.COMPANY.ID").result!!.views).isEmpty()
     }
 

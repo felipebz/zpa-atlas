@@ -100,7 +100,7 @@ class FixtureGoldenTest {
                 "hr/pack_process.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_own_objects.prc",
                 "hr/proc_source_view.prc",
                 "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_xmlseq.prc", "hr/trg_company_bu.trg",
-                "hr/trg_forms.trg", "hr/trg_syn_company.trg", "hr/ty_point.typ", "hr/ty_shapes.typ", "hr/views.sql", "scripts/broken.sql", "scripts/broken_call.sql")
+                "hr/trg_forms.trg", "hr/trg_syn_company.trg", "hr/ty_point.typ", "hr/ty_shapes.typ", "hr/views.sql", "hr/views_star.sql", "scripts/broken.sql", "scripts/broken_call.sql")
     }
 
     @Test

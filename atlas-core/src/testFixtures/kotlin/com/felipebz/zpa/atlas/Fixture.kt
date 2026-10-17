@@ -27,9 +27,11 @@ object Fixture {
     /** A folder on disk (the indexer walks it), set by the build for every test task. */
     val sources: Path = Path.of(System.getProperty("atlas.fixture") ?: error("System property atlas.fixture is not set"))
 
-    private fun relation(name: String, vararg columns: String, kind: DictionaryRelationKind = DictionaryRelationKind.TABLE, schema: String = "HR") =
+    private fun relation(
+        name: String, vararg columns: String, kind: DictionaryRelationKind = DictionaryRelationKind.TABLE, schema: String = "HR", complete: Boolean = true
+    ) =
         DictionaryRelation(
-            ProjectExternalRelation.of(schema, name, true, columns.mapIndexed { i, c -> ProjectExternalColumn.of(c, i + 1, null) }),
+            ProjectExternalRelation.of(schema, name, complete, columns.mapIndexed { i, c -> ProjectExternalColumn.of(c, i + 1, null) }),
             kind
         )
 
@@ -48,6 +50,13 @@ object Fixture {
             relation("V_LOG_UNION", "ID", "TEXT", kind = DictionaryRelationKind.VIEW),
             relation("V_ACTIVE_COMPANY", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),
             relation("V_COMPANY_NAMES", "COMPANY_ID", "COMPANY_LABEL", kind = DictionaryRelationKind.VIEW),
+            // The star views of hr/views_star.sql, and a table whose columns the dictionary does not list completely.
+            relation("PARTIAL_T", "ID", complete = false),
+            relation("V_INLINE", "X", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),
+            relation("V_INLINE_NESTED", "ID", "NOTE", kind = DictionaryRelationKind.VIEW),
+            relation("V_INLINE_UNION", "ID", "MSG", kind = DictionaryRelationKind.VIEW),
+            relation("V_TABLE_FN", "COL_A", "COL_B", kind = DictionaryRelationKind.VIEW),
+            relation("V_PARTIAL", "ID", "EXTRA", "ONE", kind = DictionaryRelationKind.VIEW),
             relation("USER_TABLES", "TABLE_NAME", "NUM_ROWS", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
             relation("USER_TAB_COLUMNS", "TABLE_NAME", "COLUMN_NAME", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
             relation("V_\$SESSION", "SID", "USERNAME", kind = DictionaryRelationKind.VIEW, schema = "SYS")
@@ -85,6 +94,8 @@ object Fixture {
                 "COMPANY" to "TABLE", "SEND_QUEUE" to "TABLE", "EVENT_LOG" to "TABLE", "V_COMPANY" to "VIEW",
                 "V_COMPANY_LIST" to "VIEW", "V_COMPANY_CALC" to "VIEW", "V_SEND_ALL" to "VIEW", "V_SEND_Q" to "VIEW",
                 "V_LOG_UNION" to "VIEW", "V_ACTIVE_COMPANY" to "VIEW", "V_COMPANY_NAMES" to "VIEW",
+                "PARTIAL_T" to "TABLE", "V_INLINE" to "VIEW", "V_INLINE_NESTED" to "VIEW", "V_INLINE_UNION" to "VIEW",
+                "V_TABLE_FN" to "VIEW", "V_PARTIAL" to "VIEW",
                 "SYN_COMPANY" to "SYNONYM", "SYN_CHAIN1" to "SYNONYM", "SYN_CHAIN2" to "SYNONYM", "SYN_LOOP_A" to "SYNONYM",
                 "SYN_LOOP_B" to "SYNONYM", "SYN_EXT_PKG" to "SYNONYM", "SYN_CALLS" to "SYNONYM",
                 "DBMS_RANDOM" to "PACKAGE", "TY_MISSING" to "TYPE", "SEQ_MISSING" to "SEQUENCE"
