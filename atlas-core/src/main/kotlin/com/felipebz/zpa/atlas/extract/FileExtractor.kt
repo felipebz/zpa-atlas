@@ -687,9 +687,14 @@ class FileExtractor(
         /** The column sources each SQL scope owns directly. */
         val sources = IdentityHashMap<AstNode, List<ColumnSource>>()
 
+        /** The column reads emitted at each name node, so that an `ORDER BY` name can repeat the read of its select item. */
+        val columnReads = IdentityHashMap<AstNode, MutableList<OccurrenceFact>>()
+
         fun occurrence(node: AstNode, entityKey: String?, roles: Set<Role>, status: Status, reason: String?, candidates: List<String> = emptyList()) {
-            occurrences += OccurrenceFact(context.unitIndex, context.container, id, spanOf(node), writtenText(node), entityKey,
+            val fact = OccurrenceFact(context.unitIndex, context.container, id, spanOf(node), writtenText(node), entityKey,
                 roles, status(status, context.partial), Origin.STATIC, reason, candidates)
+            occurrences += fact
+            if (roles == COLUMN_READ) columnReads.getOrPut(node) { ArrayList() } += fact
         }
     }
 
@@ -913,12 +918,19 @@ class FileExtractor(
         unqualifiedColumn(statement, name, normalizeIdentifier(segments.single()))
     }
 
-    /** `q.col`, `schema.t.col`: a read of the source the qualifier names; false when no SQL source or qualifier matches. */
+    /**
+     * `q.col`, `schema.t.col`: a read of the source the qualifier names; false when no SQL source or qualifier matches.
+     * A complete source that lacks the column does not capture it: the same qualifier in an enclosing scope is tried,
+     * then the PL/SQL name (a record of an enclosing cursor loop named like the alias); only when PL/SQL finds nothing
+     * either is it a read of the missing column of the innermost source.
+     */
     private fun qualifiedColumn(statement: Statement, name: AstNode, segments: List<String>): Boolean {
         val names = segments.map { normalizeIdentifier(it) }
+        var lacking: Pair<Target, String>? = null
         var scope = sqlScope(name)
-        while (scope != null) {
-            for (source in scopeSources(statement, scope, name, qualified = true)) {
+        scopes@ while (scope != null) {
+            val current: AstNode = scope
+            for (source in scopeSources(statement, current, name, qualified = true)) {
                 val columnIndex = when {
                     source.qualifier != null && source.qualifier == names[0] -> 1
                     names.size >= 3 && source.target != null && source.qualifier == source.target.written.name &&
@@ -927,25 +939,35 @@ class FileExtractor(
                 }
                 val column = names.getOrNull(columnIndex) ?: return true
                 if (column in SQL_PSEUDOCOLUMNS || source.target == null) return true
-                val resolved = resolver.resolveColumn(source.target.resolved, column)
-                statement.occurrence(name, resolved.entityKey, COLUMN_READ, resolved.status, resolved.reason)
+                if (resolver.hasColumn(source.target.resolved, column) == false) {
+                    if (lacking == null) lacking = source.target to column
+                    scope = sqlScope(current)
+                    continue@scopes
+                }
+                read(statement, name, source.target, column)
                 return true
             }
-            scope = sqlScope(scope)
+            scope = sqlScope(current)
         }
-        return isSqlQualified(name, segments)
+        val (target, column) = lacking ?: return isSqlQualified(name, segments)
+        val before = occurrences.size
+        valueReference(name, statement.context, statement.id, sql = false)
+        val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild
+        if (occurrences.size == before && (first as? SemanticAstNode)?.symbol == null) read(statement, name, target, column)
+        return true
     }
 
     /**
-     * An unqualified name: captured by SQL (a pseudocolumn, an `ORDER BY` alias), else a column of exactly one source
-     * of the innermost scope that has it, else the next scope out while every source of this one is complete. A
-     * scope with a source of unknown columns leaves the name undecided; a name no scope captures is a PL/SQL name.
+     * An unqualified name: captured by SQL (a pseudocolumn, the name of an `ORDER BY` select item), else a column of
+     * exactly one source of the innermost scope that has it, else the next scope out while every source of this one is
+     * complete. A scope with a source of unknown columns leaves the name undecided; a name no scope captures is a
+     * PL/SQL name. In `MERGE … INSERT VALUES` the target takes precedence over the `USING` source.
      */
     private fun unqualifiedColumn(statement: Statement, name: AstNode, column: String) {
-        if (column in SQL_PSEUDOCOLUMNS || isOrderByAlias(name, column)) return
+        if (column in SQL_PSEUDOCOLUMNS || orderByItem(statement, name, column)) return
         var scope = sqlScope(name)
         while (scope != null) {
-            val sources = scopeSources(statement, scope, name, qualified = false)
+            val sources = mergeValuesSources(name, scope, column, scopeSources(statement, scope, name, qualified = false))
             if (sources.isNotEmpty()) {
                 val known = sources.map { has(it, column) }
                 val matches = sources.filterIndexed { index, _ -> known[index] == true }
@@ -1110,13 +1132,50 @@ class FileExtractor(
         return children.lastOrNull()?.takeIf { children.size > 1 && it.type == PlSqlGrammar.IDENTIFIER_NAME }?.let { normalizeIdentifier(it.tokenOriginalValue) }
     }
 
-    /** An `ORDER BY` item naming an alias of the select list it orders. */
-    private fun isOrderByAlias(name: AstNode, column: String): Boolean {
+    /**
+     * An `ORDER BY` name (bare, or inside an expression) that names a select item of the query it orders (the first
+     * branch of a compound query): an alias, or the last segment of a plain column without alias. An expression item
+     * gives nothing; a plain column item repeats the item's read; several items are `AMBIGUOUS` (ORA-00960).
+     */
+    private fun orderByItem(statement: Statement, name: AstNode, column: String): Boolean {
         val orderBy = name.getFirstAncestorOrNull(DmlGrammar.ORDER_BY_CLAUSE) ?: return false
         val owner = orderBy.parentOrNull ?: return false
         val block = if (owner.type == DmlGrammar.QUERY_BLOCK) owner else owner.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK) ?: return false
         if (sqlScope(name) !== owner && sqlScope(name) !== block) return false
-        return block.getChildren(DmlGrammar.SELECT_COLUMN).any { columnAlias(it) == column }
+        val items = block.getChildren(DmlGrammar.SELECT_COLUMN).filter { item ->
+            (columnAlias(item) ?: nameSegments(item.firstChild)?.last()?.let { normalizeIdentifier(it) }) == column
+        }
+        if (items.isEmpty()) return false
+        val reads = items.map { item -> if (nameSegments(item.firstChild) != null) statement.columnReads[item.firstChild].orEmpty() else emptyList() }
+        if (items.size > 1) {
+            val candidates = reads.flatten().flatMap { listOfNotNull(it.entityKey) + it.candidateKeys }.distinct()
+            statement.occurrence(name, null, COLUMN_READ, Status.AMBIGUOUS, "AMBIGUOUS_COLUMN", candidates)
+            return true
+        }
+        for (read in reads.single()) {
+            occurrences += read.copy(span = spanOf(name), written = writtenText(name))
+            statement.columnReads.getOrPut(name) { ArrayList() } += occurrences.last()
+        }
+        return true
+    }
+
+    /**
+     * The sources of a name in the `VALUES` of a `MERGE` insert: the target when it has the column (Oracle reads it
+     * and rejects the statement, ORA-38101), else only the `USING` source; [sources] anywhere else.
+     */
+    private fun mergeValuesSources(name: AstNode, scope: AstNode, column: String, sources: List<ColumnSource>): List<ColumnSource> {
+        if (scope.type != DmlGrammar.MERGE_EXPRESSION) return sources
+        val insert = name.getFirstAncestorOrNull(DmlGrammar.MERGE_INSERT_CLAUSE)?.takeIf { sqlScope(it) === scope } ?: return sources
+        var node = name
+        while (node.parentOrNull !== insert) node = node.parent
+        val children = insert.children
+        if (children.indexOf(node) < children.indexOfFirst { it.type == PlSqlKeyword.VALUES }) return sources
+        val target = sources.firstOrNull() ?: return sources
+        return when (has(target, column)) {
+            true -> listOf(target)
+            false -> sources.drop(1)
+            null -> sources
+        }
     }
 
     /** A column of a `USING` join, or any column when [scope] has a `NATURAL` join: one read per joined relation. */
