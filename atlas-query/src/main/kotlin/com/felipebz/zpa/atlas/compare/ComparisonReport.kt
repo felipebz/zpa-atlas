@@ -25,6 +25,7 @@ object ComparisonReport {
         line("  units without ALL_OBJECTS row (not compared): ${r.unitsWithoutObject.size}, with ${r.uncomparedEdges} index edge(s)")
         line("  database objects without unit in the index: ${r.objectsWithoutUnit.size}")
         line()
+        conditionalCompilation(r.conditionalCompilation)
         line("Source")
         if (!r.sourceReadable) line("  ALL_SOURCE not readable: SOURCE_DIFFERS skipped")
         if (!r.textAvailable) line("  source files not available: NAME_NOT_IN_TEXT and SOURCE_DIFFERS skipped")
@@ -88,6 +89,40 @@ object ComparisonReport {
         top("Top TRANSITIVE paths", r.databaseOnly.filter { it.dbClass == "TRANSITIVE" && it.via != null }.map {
             "${it.via} -> ${it.reference.referencedOwner}.${it.reference.referencedName} ${it.reference.referencedType}"
         })
+    }
+
+    /**
+     * The index's conditional compilation settings next to the database's: a warning when the index was built for
+     * another database version, or for none, and the compared units whose `PLSQL_CCFLAGS` differ from the index's.
+     */
+    private fun StringBuilder.conditionalCompilation(cc: ConditionalCompilationCheck) {
+        fun line(text: String = "") = append(text).append('\n')
+        fun version(version: String?, origin: String?, absent: String) = version?.let { v -> origin?.let { "$v ($it)" } ?: v } ?: absent
+        line("Conditional compilation")
+        line("  database version: index ${version(cc.indexVersion, cc.indexVersionOrigin, "(none)")}, " +
+            "database ${version(cc.databaseVersion, cc.databaseVersionOrigin, "(not read)")}")
+        if (cc.versionDiffers) {
+            if (cc.indexVersion == null) {
+                line("  WARNING: the index was built without a database version setting; the database is ${cc.databaseVersion}")
+            } else {
+                line("  WARNING: the index was built for database version ${cc.indexVersion}; the database is ${cc.databaseVersion}")
+            }
+        }
+        line("  flags: index ${cc.indexFlags ?: "(none)"}")
+        if (!cc.flagsChecked) {
+            line("  flags not checked: ALL_PLSQL_OBJECT_SETTINGS not read")
+        } else {
+            line("  compared PL/SQL units: same flags ${cc.sameFlags}, different flags ${cc.differentFlags.size}, without settings row ${cc.withoutSettings}")
+            for ((unit, flags) in cc.differentFlags.take(20)) {
+                val text = when {
+                    flags.isNullOrBlank() -> "(none)"
+                    CcFlags.parse(flags) == null -> "$flags (not valid PLSQL_CCFLAGS)"
+                    else -> flags
+                }
+                line("    $unit: $text")
+            }
+        }
+        line()
     }
 
     private fun StringBuilder.top(title: String, names: List<String>) {

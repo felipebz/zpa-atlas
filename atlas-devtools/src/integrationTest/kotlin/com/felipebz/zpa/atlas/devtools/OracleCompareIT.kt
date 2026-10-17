@@ -104,6 +104,18 @@ class OracleCompareIT {
                     "INVALID,INDEX_ONLY,ZPA_PROBE,TRG_ORDER_INVALID,STATUS,OUT,false"
                 )
 
+                // The version comes from the database, so P_CC_VERSION is indexed as the database compiled it: the
+                // `$ELSE` branch (VER_LE_19 is FALSE from 20 on), and the packages its conditions name.
+                DriverManager.getConnection("jdbc:sqlite:$index").use { db ->
+                    db.createStatement().use { st ->
+                        st.executeQuery("SELECT database_version_origin FROM run").use { rs -> rs.next(); assertThat(rs.getString(1)).isEqualTo("DATABASE") }
+                    }
+                }
+                fun rows(file: String) = Csv.parse(Files.readString(out.resolve(file))).drop(1).filter { it[2] == "P_CC_VERSION" }.map { "${it[0]} ${it[5]}" }
+                assertThat(rows("index_only.csv")).isEmpty()
+                assertThat(rows("matched.csv")).contains("EXACT T_CC_AFTER19", "EXACT PK_CC_FLAGS").anyMatch { it.endsWith(" DBMS_DB_VERSION") }
+                assertThat(rows("matched.csv") + rows("db_only.csv")).noneMatch { it.endsWith(" T_CC_LE19") }
+
                 // The offline mode gives the same result from the saved file.
                 val offline = temp.resolve("offline")
                 val (offlineCode, offlineSummary) = captured {
@@ -170,9 +182,10 @@ class OracleCompareIT {
         // the target. DBMS_RANDOM is a package of the schema the sources lack: P_OWN_RANDOM's call matches it exactly,
         // not the public synonym of the same name. TY_CIRCLE depends on its supertype, its body on TY_CIRCLE, and
         // P_XMLSEQ on the public synonym XMLSEQUENCE and its operator SYS.XMLSEQUENCE (Oracle records both).
-        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 31, "SOURCE_DIFFERS" to 1)
+        // P_CC_VERSION depends on T_CC_AFTER19, PK_CC_FLAGS, and on DBMS_DB_VERSION through its public synonym.
+        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 34, "SOURCE_DIFFERS" to 1)
         val EXPECTED_INDEX_ONLY = mapOf("SOURCE_DIFFERS" to 1)
-        val EXPECTED_MATCHED = mapOf("EXACT" to 33, "SYNONYM" to 9)
+        val EXPECTED_MATCHED = mapOf("EXACT" to 36, "SYNONYM" to 10)
 
         val DEBUG_TRIGGERS = listOf("TRG_ORDER_DEBUG")
 

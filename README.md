@@ -105,19 +105,22 @@ zpa-atlas index --sources path/to/sources --out atlas.db --compilation-schema HR
 
 ```sh
 zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--threads N] [--encoding auto|<charset>] \
+  [--database-version 19] [--ccflags 'name:value, ...'] \
   [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]
 zpa-atlas stats <file.db>
 zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080]
 ```
 
-| Option            | Default                                                                                          |
-|-------------------|--------------------------------------------------------------------------------------------------|
-| `--extensions`    | `sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps`                                            |
-| `--encoding`      | `auto` (per file: strict UTF-8, else windows-1252), or a charset name forced for every file      |
-| `--threads`       | the number of processors                                                                         |
-| `--host`          | `127.0.0.1`                                                                                      |
-| `--port`          | `8080`                                                                                           |
-| `serve --sources` | the folder recorded in the index                                                                 |
+| Option               | Default                                                                                          |
+|----------------------|--------------------------------------------------------------------------------------------------|
+| `--extensions`       | `sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps`                                            |
+| `--encoding`         | `auto` (per file: strict UTF-8, else windows-1252), or a charset name forced for every file      |
+| `--threads`          | the number of processors                                                                         |
+| `--database-version` | the version of the `--oracle-url` database, else none                                            |
+| `--ccflags`          | none                                                                                             |
+| `--host`             | `127.0.0.1`                                                                                      |
+| `--port`             | `8080`                                                                                           |
+| `serve --sources`    | the folder recorded in the index                                                                 |
 
 - Oracle options and exit codes are those of zpa-cli: 0 success, 2 invalid usage, 3 execution failure.
 - `serve` has no authentication: binding to anything but 127.0.0.1 exposes the index and the sources to the network.

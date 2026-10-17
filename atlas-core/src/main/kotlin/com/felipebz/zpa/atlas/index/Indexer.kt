@@ -30,6 +30,7 @@ import com.felipebz.zpa.project.ProjectIndexPreparation
 import com.felipebz.zpa.project.ProjectSource
 import com.felipebz.zpa.project.ProjectSourceReader
 import com.felipebz.zpa.squid.AstScanner
+import com.felipebz.zpa.squid.ConditionalCompilationSettings
 import com.felipebz.zpa.squid.PlSqlConfiguration
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -52,7 +53,14 @@ data class IndexOptions(
     val dictionary: AtlasDictionary = AtlasDictionary.NONE,
     val threads: Int = Runtime.getRuntime().availableProcessors(),
     /** `auto` (per file: strict UTF-8, else windows-1252) or a charset name forced for every file. */
-    val encoding: String = SourceDecoding.AUTO
+    val encoding: String = SourceDecoding.AUTO,
+    /**
+     * How the sources are compiled (`PLSQL_CCFLAGS`, target database version): the branch of each `$IF` that is kept.
+     * Both lexing passes (declarations and AST) get this same value, so they agree on which branch exists.
+     */
+    val conditionalCompilation: ConditionalCompilationSettings = ConditionalCompilationSettings.NONE,
+    /** Where [conditionalCompilation]'s database version comes from; null without one. */
+    val databaseVersionOrigin: DatabaseVersionOrigin? = null
 ) {
     companion object {
         /** The default of zpa-cli `--extensions`. */
@@ -100,14 +108,14 @@ class Indexer internal constructor(
         val sources = discover(root, options.extensions, options.encoding)
 
         val prepared = ProjectAnalysisContext.prepared(
-            ProjectIndexPreparation(ProjectDeclarationExtractor(PlSqlConfiguration(StandardCharsets.UTF_8, true)))
+            ProjectIndexPreparation(ProjectDeclarationExtractor(PlSqlConfiguration(StandardCharsets.UTF_8, true, options.conditionalCompilation)))
                 .prepare(sources.map { source -> ProjectSource(FileId(source.relativePath), ProjectSourceReader { source.text }) })
         )
         val compilationSchema = options.compilationSchema?.let { ProjectIdentifier.fromSource("\"$it\"") }
         val context = if (!options.dictionary.isAvailable && compilationSchema == null) prepared
         else prepared.withExternalContext(ProjectExternalContext.of(options.dictionary.metadata, compilationSchema))
 
-        val scanner = AstScanner(emptyList(), null, true, StandardCharsets.UTF_8, context)
+        val scanner = AstScanner(emptyList(), null, true, StandardCharsets.UTF_8, context, options.conditionalCompilation)
         val catalogHolder = CatalogHolder(options.compilationSchema)
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
         fun extractor(source: Source) = FileExtractor(
@@ -180,6 +188,9 @@ class Indexer internal constructor(
                     sourceEncoding = SourceDecoding.validate(options.encoding),
                     metadataOrigin = dictionary.metadata.origin.orElse(null),
                     compilationSchema = options.compilationSchema,
+                    databaseVersion = options.conditionalCompilation.databaseVersion?.let { ConditionalCompilationText.version(it) },
+                    databaseVersionOrigin = options.databaseVersionOrigin?.takeIf { options.conditionalCompilation.databaseVersion != null }?.name,
+                    ccflags = ConditionalCompilationText.flags(options.conditionalCompilation.flags),
                     startedAt = startedAt.toString(),
                     finishedAt = clock().toString()
                 ),

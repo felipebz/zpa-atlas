@@ -6,11 +6,13 @@
 package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.flr.api.AstNode
+import com.felipebz.flr.api.Token
 import com.felipebz.zpa.api.DdlGrammar
 import com.felipebz.zpa.api.DmlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.PlSqlPunctuator
+import com.felipebz.zpa.api.PlSqlTokenType
 import com.felipebz.zpa.api.TclGrammar
 import com.felipebz.zpa.api.AggregateSqlFunctionsGrammar
 import com.felipebz.zpa.api.SingleRowSqlFunctionsGrammar
@@ -19,6 +21,7 @@ import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectCallKind
 import com.felipebz.zpa.api.project.ProjectParameterMode
+import com.felipebz.zpa.api.project.ProjectQualifiedName
 import com.felipebz.zpa.api.project.SequenceReferenceResolution
 import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.api.squid.SemanticAstNode
@@ -611,16 +614,22 @@ class FileExtractor(
     // ---- walk ---------------------------------------------------------------------------------------------------
 
     private fun walk(node: AstNode, context: Context) {
+        // A conditional compilation run is a trivia of the next token: read once, by the outermost node that token starts.
+        node.token?.let { if (node.parentOrNull?.token !== it) conditionNames(it, context) }
         var current = context
         when (node.type) {
             PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION,
             PlSqlGrammar.CREATE_PROCEDURE, PlSqlGrammar.CREATE_FUNCTION -> subprogramAt(node)?.let { current = context.inside(it) }
             DmlGrammar.SELECT_EXPRESSION, DmlGrammar.INSERT_EXPRESSION, DmlGrammar.UPDATE_EXPRESSION,
             DmlGrammar.DELETE_EXPRESSION, DmlGrammar.MERGE_EXPRESSION, TclGrammar.LOCK_TABLE_EXPRESSION -> {
+                innerConditionNames(node, context)
                 statement(node, context)
                 return
             }
-            DmlGrammar.EXPLAIN_PLAN -> return
+            DmlGrammar.EXPLAIN_PLAN -> {
+                innerConditionNames(node, context)
+                return
+            }
             // The SQL text is not parsed; calls that build it are still PL/SQL calls, found below.
             PlSqlGrammar.EXECUTE_IMMEDIATE_STATEMENT -> dynamic(node, after(node, PlSqlKeyword.IMMEDIATE), context)
             PlSqlGrammar.OPEN_FOR_STATEMENT -> if (!node.hasDirectChildren(DmlGrammar.SELECT_EXPRESSION)) {
@@ -634,6 +643,7 @@ class FileExtractor(
                 ?.takeIf { it.type != PlSqlGrammar.METHOD_CALL }
                 ?.let { callSite(it, context, null) }
             PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE -> {
+                innerConditionNames(node, context)
                 typeUse(node, context, null)
                 return
             }
@@ -647,6 +657,11 @@ class FileExtractor(
             in KEYWORD_FUNCTIONS -> sqlFunctionKeyword(node.firstChild, context, null)
         }
         for (child in node.children) walk(child, current)
+    }
+
+    /** The condition names of every token of a node the walk does not enter, but its first (read by [walk]). */
+    private fun innerConditionNames(node: AstNode, context: Context) {
+        node.tokens.drop(1).forEach { conditionNames(it, context) }
     }
 
     private fun after(node: AstNode, keyword: PlSqlKeyword): AstNode? {
@@ -824,38 +839,124 @@ class FileExtractor(
         if (isOwnBodyMember(segments, context)) return
         val packageName = context.enclosingPackage?.let { qualifiedName(it) }
         val valueReadable = segments.size >= 2 || (packageName != null && (symbol == null || symbol.scope.type == PlSqlGrammar.CREATE_PACKAGE))
+        val callable = segments.size >= 2 || symbol == null || symbol.kind == Symbol.Kind.FUNCTION || symbol.kind == Symbol.Kind.PROCEDURE
+        // A name before `%` is never a call.
+        when (val value = segmentValue(segments, context, packageName, valueReadable, callable, callAllowed = !attribute)) {
+            is SegmentValue.Member -> valueOccurrence(span, text, context, statementId, value.status, value.entityKey, value.reason, value.candidates,
+                if (attribute || value.kind == null) setOf(Role.READ) else memberRoles(name, segments, value.kind))
+            is SegmentValue.Call -> callOccurrence(name, context, statementId, value.outcome)
+            null -> Unit
+        }
+    }
+
+    /** What a dotted value name resolves to from its segments alone, for [segmentValue]. */
+    private sealed interface SegmentValue {
+        /** A package member or external member; [kind] null for a member whose kind is unknown (read as a value). */
+        class Member(val status: Status, val entityKey: String?, val reason: String?, val candidates: List<String>, val kind: MemberKind?) : SegmentValue
+        class Call(val outcome: CallOutcome.Call) : SegmentValue
+    }
+
+    /**
+     * The part of [valueReference] that needs only the segments of a name: a package value, exception or cursor
+     * ([valueReadable]); else a project function called without parentheses ([callable], a call only when
+     * [callAllowed]), a member of a package or type a synonym names, or a missing member of a project package. Null
+     * when the name is none of these.
+     */
+    private fun segmentValue(
+        segments: List<String>, context: Context, packageName: ProjectQualifiedName?, valueReadable: Boolean, callable: Boolean, callAllowed: Boolean
+    ): SegmentValue? {
         if (valueReadable) {
             values.packageMember(segments, context.schema, packageName)?.let {
-                valueOccurrence(span, text, context, statementId, it.status, it.entityKey, it.reason, it.candidateKeys,
-                    if (attribute) setOf(Role.READ) else memberRoles(name, segments, it.kind))
-                return
+                return SegmentValue.Member(it.status, it.entityKey, it.reason, it.candidateKeys, it.kind)
             }
         }
-        val callable = segments.size >= 2 || symbol == null || symbol.kind == Symbol.Kind.FUNCTION || symbol.kind == Symbol.Kind.PROCEDURE
         if (callable) {
             when (val outcome = calls.resolve(segments, ProjectCallKind.FUNCTION, emptyList(), context.schema, context.enclosingPackage, withoutParentheses = true)) {
-                is CallOutcome.Value -> {
-                    valueOccurrence(span, text, context, statementId, outcome.status, outcome.entityKey, outcome.reason, outcome.candidateKeys,
-                        if (attribute) setOf(Role.READ) else memberRoles(name, segments, outcome.kind))
-                    return
-                }
-                // Only a name the project knows is a call: anything else may be a value outside the project. A name
-                // before `%` is never a call.
-                is CallOutcome.Call -> if (!attribute && outcome.reason != "NOT_IN_PROJECT" && !(outcome.reason in INCONCLUSIVE && outcome.entityKey == null)) {
-                    callOccurrence(name, context, statementId, outcome)
-                    return
+                is CallOutcome.Value -> return SegmentValue.Member(outcome.status, outcome.entityKey, outcome.reason, outcome.candidateKeys, outcome.kind)
+                // Only a name the project knows is a call: anything else may be a value outside the project.
+                is CallOutcome.Call -> if (callAllowed && outcome.reason != "NOT_IN_PROJECT" && !(outcome.reason in INCONCLUSIVE && outcome.entityKey == null)) {
+                    return SegmentValue.Call(outcome)
                 }
                 // A member of a package or type a synonym names, kind unknown: a read of the owner.
-                is CallOutcome.ExternalMember -> {
-                    valueOccurrence(span, text, context, statementId, Status.UNRESOLVED, outcome.entityKey, "NOT_IN_PROJECT", emptyList(), setOf(Role.READ))
-                    return
-                }
+                is CallOutcome.ExternalMember -> return SegmentValue.Member(Status.UNRESOLVED, outcome.entityKey, "NOT_IN_PROJECT", emptyList(), null)
                 CallOutcome.NotACall -> Unit
             }
         }
         if (segments.size >= 2 && values.isPackageMember(segments, context.schema)) {
-            valueOccurrence(span, text, context, statementId, Status.UNRESOLVED, null, "UNKNOWN_MEMBER", emptyList(), setOf(Role.READ))
+            return SegmentValue.Member(Status.UNRESOLVED, null, "UNKNOWN_MEMBER", emptyList(), null)
         }
+        return null
+    }
+
+    /**
+     * The names written in the conditional compilation conditions Oracle evaluated, from the skipped-text trivia of
+     * [token] ([ConditionNames]): one `READ` per name, resolved by [segmentValue], at the name's own position, without
+     * statement. A condition name is always a package constant, never a local value: one the project and the
+     * synonyms do not know is a read of its external package ([externalOwner]). Closing texts and `$ERROR` give
+     * nothing; a text that cannot be read gives a `CONDITION_UNREADABLE` note.
+     */
+    private fun conditionNames(token: Token, context: Context) {
+        for (trivia in token.trivia) {
+            if (!trivia.isSkippedText) continue
+            val skipped = trivia.token
+            val whole = when (skipped.type) {
+                PlSqlTokenType.CONDITIONAL_BRANCH_BOUNDARY -> false
+                PlSqlTokenType.CONDITIONAL_DIRECTIVE -> true
+                else -> continue
+            }
+            val text = skipped.originalValue
+            val names = ConditionNames.read(text, whole) ?: run {
+                coverage += CoverageFact("CONDITION_UNREADABLE", "Conditional compilation text at line ${skipped.line} could not be read: its condition names are not indexed")
+                continue
+            }
+            val packageName = context.enclosingPackage?.let { qualifiedName(it) }
+            for (name in names) {
+                val (startLine, startColumn) = lineAt(skipped, text, name.start)
+                val (endLine, endColumn) = lineAt(skipped, text, name.end)
+                val span = SourceSpan(startLine, startColumn, endLine, endColumn)
+                val written = text.substring(name.start, name.end)
+                when (val value = segmentValue(name.segments, context, packageName, valueReadable = true, callable = true, callAllowed = true)) {
+                    is SegmentValue.Member -> valueOccurrence(span, written, context, null, value.status, value.entityKey, value.reason, value.candidates, setOf(Role.READ))
+                    is SegmentValue.Call -> valueOccurrence(span, written, context, null, value.outcome.status, value.outcome.entityKey, value.outcome.reason,
+                        value.outcome.candidateKeys, setOf(Role.READ))
+                    null -> externalOwner(name.segments, context)?.let {
+                        valueOccurrence(span, written, context, null, Status.UNRESOLVED, it, "NOT_IN_PROJECT", emptyList(), setOf(Role.READ))
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The external package that owns a condition name the project does not know: `db:S.PKG` for `S.PKG.C` when `S` is
+     * a schema of the run, else `db:~.PKG` (as [ExternalNames] keys the owner of an unknown name). Null when that
+     * package is a project declaration (the member is then simply missing).
+     */
+    private fun externalOwner(segments: List<String>, context: Context): String? {
+        val names = segments.map { normalizeIdentifier(it) }
+        val schemaQualified = names.size == 3 && names[0] in runSchemas
+        val schema = if (schemaQualified) names[0] else null
+        val name = if (schemaQualified) names[1] else names[0]
+        if (catalog.isDeclared(dbKey(schema ?: context.schema ?: UNKNOWN_SCHEMA, name))) return null
+        val key = dbKey(schema ?: UNKNOWN_SCHEMA, name)
+        entities += EntityFact(key, EntityKind.PACKAGE, schema, name, null, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
+        return key
+    }
+
+    /** The line and column of [offset] inside the text of [token], with the lexer's line breaks (LF, or CR not followed by LF). */
+    private fun lineAt(token: Token, text: String, offset: Int): Pair<Int, Int> {
+        var line = token.line
+        var column = token.column
+        for (i in 0 until offset) {
+            val c = text[i]
+            if (c == '\n' || c == '\r' && text.getOrNull(i + 1) != '\n') {
+                line++
+                column = 0
+            } else {
+                column++
+            }
+        }
+        return line to column
     }
 
     /** The segments of the name before `%` of a cursor attribute (`c%isopen`, `pkg.c%rowcount`), or null. */

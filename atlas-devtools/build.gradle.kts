@@ -13,6 +13,8 @@ dependencies {
     // The shared Oracle options and JDBC driver lookup live in the published CLI.
     implementation(project(":atlas-cli"))
     implementation(project(":atlas-query"))
+    // The database version read by the CLI is a zpa-core type, printed as the indexer does.
+    implementation(project(":atlas-core"))
     implementation("org.jcommander:jcommander:3.0")
     implementation("org.xerial:sqlite-jdbc:3.53.4.0")
     implementation("org.slf4j:slf4j-jdk14:2.0.20")

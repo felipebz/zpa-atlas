@@ -22,3 +22,7 @@ create synonym syn_customer for t_customer
 /
 create view v_open_orders as select id, customer_id, amount from t_order where status = 'O'
 /
+create table t_cc_le19 (id number)
+/
+create table t_cc_after19 (id number)
+/

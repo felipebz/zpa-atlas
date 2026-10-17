@@ -19,15 +19,21 @@ import java.util.logging.Logger
 import javax.sql.DataSource
 
 /**
- * The acquired metadata, the synonyms read with it, and the object names of the compilation and requested schemas, by
- * schema, with their `OBJECT_TYPE`.
+ * The acquired metadata, the synonyms read with it, the object names of the compilation and requested schemas, by
+ * schema, with their `OBJECT_TYPE`, and the version of the database.
  */
-class LoadedMetadata(val result: OracleMetadataResult, val synonyms: List<DictionarySynonym>, val objects: Map<String, Map<String, String>>)
+class LoadedMetadata(
+    val result: OracleMetadataResult,
+    val synonyms: List<DictionarySynonym>,
+    val objects: Map<String, Map<String, String>>,
+    val databaseVersion: DetectedDatabaseVersion
+)
 
 /**
  * Acquires Oracle metadata once per run, before scanning, exactly as zpa-cli does, plus the synonyms of relations,
  * packages, types, subprograms and sequences (public ones, except those named like a `STANDARD` subprogram, and those
- * of the compilation and requested schemas). The final targets that are relations are added to the request.
+ * of the compilation and requested schemas). The final targets that are relations are added to the request. The
+ * database version ([DatabaseVersionReader]) is read once, after the schemas check.
  * Failures abort the run with a message from which the URL and the password are removed: no partial metadata is ever
  * used. A schema that does not exist is rejected up front: the dictionary would otherwise return nothing for it,
  * silently.
@@ -90,6 +96,12 @@ object OracleMetadataLoader {
                 "Unquoted names are case-insensitive; a schema created with a quoted name needs the exact case, e.g. \"Name\"")
         }
 
+        val databaseVersion = try {
+            dataSource.connection.use { DatabaseVersionReader.read(it) }
+        } catch (e: SQLException) {
+            throw CliExecutionException("Reading the database version failed${errorCode(e)}: ${redact(e.message, settings)}")
+        }
+
         val owners = (listOf(AtlasDictionary.PUBLIC) + settings.schemas + listOfNotNull(compilationSchema)).distinct()
         val started = System.nanoTime()
         val synonyms = try {
@@ -127,7 +139,7 @@ object OracleMetadataLoader {
             "complete schemas ${result.completeSchemas}" +
             (if (notVisible.isEmpty()) "" else "; not visible $notVisible") +
             (if (synonymTargetsNotVisible.isEmpty()) "" else "; ${synonymTargetsNotVisible.size} synonym target(s) not returned"))
-        return LoadedMetadata(result, synonyms, objects)
+        return LoadedMetadata(result, synonyms, objects, databaseVersion)
     }
 
     private fun synonyms(dataSource: DataSource, owners: List<String>): List<DictionarySynonym> {

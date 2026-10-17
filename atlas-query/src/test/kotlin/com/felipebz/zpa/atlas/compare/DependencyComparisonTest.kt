@@ -7,8 +7,11 @@ package com.felipebz.zpa.atlas.compare
 
 import com.felipebz.zpa.atlas.Fixture
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.index.DatabaseVersionOrigin
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.squid.ConditionalCompilationSettings
+import com.felipebz.zpa.squid.DatabaseVersion
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
@@ -166,6 +169,75 @@ class DependencyComparisonTest {
         val written = StringWriter().also { facts.write(it) }.toString()
         assertThat(DatabaseDependencies.read(StringReader(written))).isEqualTo(facts)
         assertThat(written).isEqualTo(original)
+    }
+
+    @Test
+    fun `the summary shows the index's conditional compilation settings against the database's`() {
+        val cc = result.conditionalCompilation
+        assertThat(cc.indexVersion).isNull()
+        assertThat(cc.databaseVersion).isEqualTo("23.0")
+        assertThat(cc.versionDiffers).isTrue()
+        assertThat(cc.flagsChecked).isTrue()
+        assertThat(cc.differentFlags).containsExactly(DbObjectId("HR", "PACK_CALLS", "PACKAGE BODY") to "debug:true")
+        assertThat(cc.withoutSettings).isZero()
+        assertThat(ComparisonReport.summary(result)).contains(
+            "Conditional compilation\n" +
+                "  database version: index (none), database 23.0 (DATABASE)\n" +
+                "  WARNING: the index was built without a database version setting; the database is 23.0\n" +
+                "  flags: index (none)\n" +
+                "  compared PL/SQL units: same flags ${cc.sameFlags}, different flags 1, without settings row 0\n" +
+                "    HR.PACK_CALLS PACKAGE BODY: debug:true\n\n"
+        )
+    }
+
+    @Test
+    fun `flags compare by meaning, and a file without the settings rows does not check them`() {
+        val corpus = Path.of("src/test/resources/compare/ext-corpus")
+        val index = temp.resolve("ext-cc.db")
+        val settings = ConditionalCompilationSettings(ConditionalCompilationSettings.parseFlags("Debug:TRUE, lvl:2"), DatabaseVersion(11, 2))
+        Indexer().index(IndexOptions(corpus, index, compilationSchema = "HR", dictionary = AtlasDictionary.NONE, threads = 1,
+            conditionalCompilation = settings, databaseVersionOrigin = DatabaseVersionOrigin.OPTION))
+        val old = Files.newBufferedReader(Path.of("src/test/resources/compare/ext-dependencies.csv")).use { DatabaseDependencies.read(it) }
+        assertThat(old.ccflagsReadable).isFalse()
+        assertThat(old.databaseVersion).isNull()
+        val unchecked = DependencyComparison(index, old, corpus).compare()
+        assertThat(ComparisonReport.summary(unchecked)).contains(
+            "  database version: index 11.2 (OPTION), database (not read)\n" +
+                "  flags: index DEBUG:TRUE, LVL:2\n" +
+                "  flags not checked: ALL_PLSQL_OBJECT_SETTINGS not read\n\n"
+        )
+
+        val facts = old.copy(
+            ccflagsReadable = true,
+            ccflags = listOf(DbCcFlags("HR", "PK_DOC", "PACKAGE", " LVL : 02 ,debug:true"), DbCcFlags("HR", "PK_DOC", "PACKAGE BODY", "debug:maybe")),
+            databaseVersion = "23.0",
+            databaseVersionOrigin = "JDBC"
+        )
+        val checkedResult = DependencyComparison(index, facts, corpus).compare()
+        val checked = checkedResult.conditionalCompilation
+        assertThat(checked.sameFlags).isEqualTo(1)
+        assertThat(checked.differentFlags).containsExactly(DbObjectId("HR", "PK_DOC", "PACKAGE BODY") to "debug:maybe")
+        assertThat(checked.withoutSettings).isEqualTo(1)
+        assertThat(ComparisonReport.summary(checkedResult)).contains(
+            "  database version: index 11.2 (OPTION), database 23.0 (JDBC)\n" +
+                "  WARNING: the index was built for database version 11.2; the database is 23.0\n" +
+                "  flags: index DEBUG:TRUE, LVL:2\n" +
+                "  compared PL/SQL units: same flags 1, different flags 1, without settings row 1\n" +
+                "    HR.PK_DOC PACKAGE BODY: debug:maybe (not valid PLSQL_CCFLAGS)\n\n"
+        )
+    }
+
+    @Test
+    fun `PLSQL_CCFLAGS parse like zpa's flags`() {
+        assertThat(CcFlags.parse(null)).isEmpty()
+        assertThat(CcFlags.parse("  ")).isEmpty()
+        assertThat(CcFlags.parse("Trace : TRUE ,  lvl:2")).isEqualTo(mapOf("TRACE" to "TRUE", "LVL" to "2"))
+        assertThat(CcFlags.parse("a:1, A:null, b:-07, c:False")).isEqualTo(mapOf("A" to "NULL", "B" to "-7", "C" to "FALSE"))
+        listOf("a", "a:", ":1", "a:yes", "a:1.5", "a:1:2", "a:1,,b:2", "1a:1", "a b:1", "a:99999999999").forEach {
+            assertThat(CcFlags.parse(it)).describedAs(it).isNull()
+        }
+        assertThat(CcFlags.version("23")).isEqualTo("23.0")
+        assertThat(CcFlags.version(" 11.2 ")).isEqualTo("11.2")
     }
 
     @Test

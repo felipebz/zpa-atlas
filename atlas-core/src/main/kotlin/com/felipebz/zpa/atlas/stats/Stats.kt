@@ -21,7 +21,10 @@ object Stats {
                     UNION ALL SELECT 'zpa_version', zpa_version FROM run
                     UNION ALL SELECT 'metadata', coalesce(metadata_origin, '(none)') FROM run
                     UNION ALL SELECT 'compilation_schema', coalesce(compilation_schema, '(none)') FROM run
-                    UNION ALL SELECT 'source_encoding', source_encoding FROM run""")
+                    UNION ALL SELECT 'source_encoding', source_encoding FROM run
+                    UNION ALL SELECT 'database_version', coalesce(database_version, '(none)') FROM run
+                    UNION ALL SELECT 'database_version_origin', coalesce(database_version_origin, '(none)') FROM run
+                    UNION ALL SELECT 'ccflags', coalesce(ccflags, '(none)') FROM run""")
                 section(connection, "Files by parse status",
                     "SELECT parse_status, count(*) FROM source_file GROUP BY parse_status ORDER BY parse_status")
                 section(connection, "Files by encoding",

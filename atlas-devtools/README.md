@@ -31,15 +31,27 @@ usage `NONE`) get their own lines and are not counted; a trigger in both is `SOU
 a unit are only counted. `trigger_columns.csv` has a `group` column (`COMPARED`, `SOURCE_DIFFERS`, `INVALID`, `NO_UNIT`) and a
 `debug` column: the differences of the compared triggers, and every row of the other three groups.
 
-- With `--oracle-*` it reads `ALL_DEPENDENCIES`, `ALL_OBJECTS`, `ALL_SOURCE`, `ALL_TRIGGER_COLS` and the triggers' `ALL_PLSQL_OBJECT_SETTINGS` of the `--oracle-schemas` owners
+The "Conditional compilation" section shows the database version the index was built for (`run.database_version` and
+its origin, `(none)` without one) next to the database's, read as the indexer reads it (`DBMS_DB_VERSION.VERSION` and
+`RELEASE`, else the JDBC driver's major and minor version), with a warning when they differ or the index has none.
+It then compares the index's flags (`run.ccflags`) with `ALL_PLSQL_OBJECT_SETTINGS.PLSQL_CCFLAGS` of the compared
+PL/SQL units (views have no settings): flags compare by meaning (order, spacing and case do not count, NULL means no
+flags, text that does not parse differs), and up to 20 differing units are listed with their setting. When the
+settings were not read (an older dependencies file, or the view is not readable) it says "flags not checked".
+
+- With `--oracle-*` it reads `ALL_DEPENDENCIES`, `ALL_OBJECTS`, `ALL_SOURCE`, `ALL_TRIGGER_COLS`, `ALL_PLSQL_OBJECT_SETTINGS`
+  (`PLSQL_DEBUG`, `PLSQL_CCFLAGS`) and the database version of the `--oracle-schemas` owners
   (`--oracle-relations` is rejected). Only the seven `ALL_DEPENDENCIES` columns that exist on 10.2 are read.
 - `--save-dependencies deps.csv` also writes what was read; `--dependencies deps.csv` re-runs offline from that file.
   Format: UTF-8 CSV with the header `kind,owner,name,type,c1,c2,c3,c4` and one row per fact:
-  `META,source_readable,true|false`, `OBJ,owner,name,type,status`,
+  `META,source_readable,true|false`, `META,ccflags_readable,true|false` (optional: without it the flags are not
+  checked), `META,database_version,23.0` and `META,database_version_origin,DATABASE|JDBC` (optional),
+  `OBJ,owner,name,type,status`,
   `DEP,owner,name,type,referenced_owner,referenced_name,referenced_type,referenced_link` (empty means null),
-  `SRC,owner,name,type,line,text` and
-  `TCOL,trigger_owner,trigger_name,column_name,table_owner,table_name,column_list,column_usage` and
-  `TSET,owner,name,TRIGGER,plsql_debug` (optional: without it, no trigger counts as compiled with debug).
+  `SRC,owner,name,type,line,text`,
+  `TCOL,trigger_owner,trigger_name,column_name,table_owner,table_name,column_list,column_usage`,
+  `TSET,owner,name,TRIGGER,plsql_debug` (optional: without it, no trigger counts as compiled with debug) and
+  `CCF,owner,name,type,plsql_ccflags` (optional; empty means NULL, compiled without flags).
 - `--builtins file` replaces the built-in list (one name per line, `#` comments). The default is `STANDARD`,
   `DBMS_STANDARD`, `PLITBLM` and `SYS_STUB_FOR_PURITY_ANALYSIS` (the rows Oracle 26ai adds to units) and `DUAL` (which
   the indexer drops on purpose); check it on

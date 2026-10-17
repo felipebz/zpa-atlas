@@ -54,6 +54,12 @@ class IndexArguments {
 
     @Parameter(names = ["--compilation-schema"], description = "Schema in which analyzed units without an explicit schema compile (case-insensitive; \"Name\" for an exact case)")
     var compilationSchema: String = ""
+
+    @Parameter(names = ["--database-version"], description = "Target database version for DBMS_DB_VERSION in conditional compilation, e.g. 19 or 11.2 (default: the version of --oracle-url, else none)")
+    var databaseVersion: String = ""
+
+    @Parameter(names = ["--ccflags"], description = "PLSQL_CCFLAGS for conditional compilation, e.g. 'debug:TRUE, level:2'")
+    var ccflags: String = ""
 }
 
 @Parameters(commandNames = ["stats"], commandDescription = "Print a summary of an index database")

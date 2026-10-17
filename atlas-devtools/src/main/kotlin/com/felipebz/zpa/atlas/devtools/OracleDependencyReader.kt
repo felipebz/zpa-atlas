@@ -7,24 +7,29 @@ package com.felipebz.zpa.atlas.devtools
 
 import com.felipebz.zpa.atlas.cli.CliExecutionException
 import com.felipebz.zpa.atlas.cli.oracle.JdbcDriverDataSource
+import com.felipebz.zpa.atlas.cli.oracle.DatabaseVersionReader
 import com.felipebz.zpa.atlas.cli.oracle.JdbcDrivers
 import com.felipebz.zpa.atlas.cli.oracle.OracleMetadataLoader
 import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
 import com.felipebz.zpa.atlas.compare.DatabaseDependencies
+import com.felipebz.zpa.atlas.compare.DbCcFlags
 import com.felipebz.zpa.atlas.compare.DbDependency
 import com.felipebz.zpa.atlas.compare.DbObject
 import com.felipebz.zpa.atlas.compare.DbSourceLine
 import com.felipebz.zpa.atlas.compare.DbTriggerColumn
 import com.felipebz.zpa.atlas.compare.DbTriggerSetting
+import com.felipebz.zpa.atlas.index.ConditionalCompilationText
 import java.nio.file.Path
 import java.sql.Connection
 import java.sql.SQLException
 import java.util.logging.Logger
 
 /**
- * Reads `ALL_DEPENDENCIES`, `ALL_OBJECTS`, `ALL_SOURCE`, `ALL_TRIGGER_COLS` and the triggers' `PLSQL_DEBUG` setting for the requested owners, in one read-only transaction.
- * Only the seven `ALL_DEPENDENCIES` columns that exist on 10.2 are used. A failure to read `ALL_SOURCE` is not an
- * error: the comparison then skips the source classes. Messages never contain the URL or the password.
+ * Reads `ALL_DEPENDENCIES`, `ALL_OBJECTS`, `ALL_SOURCE`, `ALL_TRIGGER_COLS`, `ALL_PLSQL_OBJECT_SETTINGS` (the triggers'
+ * `PLSQL_DEBUG` and every unit's `PLSQL_CCFLAGS`) and the database version (as the indexer reads it) for the requested
+ * owners, in one read-only transaction. Only the seven `ALL_DEPENDENCIES` columns that exist on 10.2 are used. A failure
+ * to read `ALL_SOURCE` is not an error: the comparison then skips the source classes; nor is a failure to read
+ * `ALL_PLSQL_OBJECT_SETTINGS`: the flags are then not checked. Messages never contain the URL or the password.
  */
 object OracleDependencyReader {
     private val LOG = Logger.getLogger(OracleDependencyReader::class.java.name)
@@ -66,16 +71,25 @@ object OracleDependencyReader {
                         """SELECT trigger_owner, trigger_name, table_owner, table_name, column_name, column_list, column_usage
                            FROM all_trigger_cols WHERE trigger_owner IN ($marks)""", owners
                     ) { DbTriggerColumn(it.getString(1), it.getString(2), it.getString(3), it.getString(4), it.getString(5), it.getString(6) == "YES", it.getString(7) ?: "NONE") }
-                    val triggerSettings = try {
+                    // PLSQL_DEBUG of the triggers, PLSQL_CCFLAGS of every unit.
+                    var ccflagsReadable = true
+                    val settings = try {
                         connection.rows(
-                            "SELECT owner, name, plsql_debug FROM all_plsql_object_settings WHERE owner IN ($marks) AND type = 'TRIGGER'", owners
-                        ) { DbTriggerSetting(it.getString(1), it.getString(2), it.getString(3) == "TRUE") }
+                            "SELECT owner, name, type, plsql_debug, plsql_ccflags FROM all_plsql_object_settings WHERE owner IN ($marks) AND type IN ($OBJECT_TYPES)", owners
+                        ) { DbCcFlags(it.getString(1), it.getString(2), it.getString(3), it.getString(5)) to (it.getString(4) == "TRUE") }
                     } catch (e: SQLException) {
-                        LOG.warning("ALL_PLSQL_OBJECT_SETTINGS is not readable (error ${e.errorCode}); every trigger counts as compiled without debug")
+                        LOG.warning("ALL_PLSQL_OBJECT_SETTINGS is not readable (error ${e.errorCode}); every trigger counts as compiled without debug, PLSQL_CCFLAGS not checked")
+                        ccflagsReadable = false
                         emptyList()
                     }
-                    LOG.info("Read ${dependencies.size} dependencies, ${objects.size} objects, ${sources.size} source lines, ${triggerColumns.size} trigger columns for $owners")
-                    return DatabaseDependencies(dependencies, objects, sources, sourceReadable, triggerColumns, triggerSettings)
+                    val triggerSettings = settings.filter { it.first.type == "TRIGGER" }.map { (unit, debug) -> DbTriggerSetting(unit.owner, unit.name, debug) }
+                    val ccflags = settings.map { it.first }
+                    val version = DatabaseVersionReader.read(connection)
+                    version.failure?.let { LOG.warning("DBMS_DB_VERSION is not readable (error ${it.errorCode}); using the JDBC driver's database version") }
+                    LOG.info("Read ${dependencies.size} dependencies, ${objects.size} objects, ${sources.size} source lines, ${triggerColumns.size} trigger columns, " +
+                        "${ccflags.size} unit settings for $owners; database version ${ConditionalCompilationText.version(version.version)} (${version.origin})")
+                    return DatabaseDependencies(dependencies, objects, sources, sourceReadable, triggerColumns, triggerSettings, ccflagsReadable, ccflags,
+                        ConditionalCompilationText.version(version.version), version.origin.name)
                 } finally {
                     connection.rollback()
                 }

@@ -102,6 +102,30 @@ data class TriggerColumnFact(
     val locations: List<Location>
 )
 
+/**
+ * The conditional compilation settings the index was built with (`run.database_version`, `database_version_origin` and
+ * `ccflags`) next to the database's. Versions are text such as `23.0`, null when unknown.
+ */
+data class ConditionalCompilationCheck(
+    val indexVersion: String?,
+    val indexVersionOrigin: String?,
+    val indexFlags: String?,
+    val databaseVersion: String?,
+    val databaseVersionOrigin: String?,
+    /** False when the database's `PLSQL_CCFLAGS` were not read: the counts below are then empty. */
+    val flagsChecked: Boolean,
+    /** Compared PL/SQL units (no views) whose `PLSQL_CCFLAGS` mean the same flags as the index's. */
+    val sameFlags: Int,
+    /** Compared PL/SQL units whose `PLSQL_CCFLAGS` (null: none) differ from the index's or do not parse, sorted. */
+    val differentFlags: List<Pair<DbObjectId, String?>>,
+    /** Compared PL/SQL units without `ALL_PLSQL_OBJECT_SETTINGS` row. */
+    val withoutSettings: Int
+) {
+    /** Whether the index was built for another database version than the database's, or for none. */
+    val versionDiffers: Boolean
+        get() = databaseVersion != null && (indexVersion == null || CcFlags.version(indexVersion) != CcFlags.version(databaseVersion))
+}
+
 data class ComparisonResult(
     val units: List<UnitRow>,
     val unitsWithoutObject: List<DbObjectId>,
@@ -118,7 +142,8 @@ data class ComparisonResult(
     val textAvailable: Boolean,
     val builtins: Set<String>,
     /** `ALL_TRIGGER_COLS` against the index, for the triggers with an `ALL_OBJECTS` row; side `MATCHED`, `DB_ONLY` or `INDEX_ONLY`. */
-    val triggerColumns: List<TriggerColumnFact> = emptyList()
+    val triggerColumns: List<TriggerColumnFact> = emptyList(),
+    val conditionalCompilation: ConditionalCompilationCheck
 )
 
 /**
@@ -157,7 +182,10 @@ class DependencyComparison(
     private fun compare(connection: Connection): ComparisonResult {
         val version = connection.query("SELECT schema_version FROM run") { it.getInt(1) }.single()
         if (version != AtlasIndex.SCHEMA_VERSION) throw SchemaMismatchException(version, AtlasIndex.SCHEMA_VERSION)
-        val (runSchema, recordedRoot) = connection.query("SELECT compilation_schema, sources_root FROM run") { it.getString(1) to it.getString(2) }.single()
+        val run = connection.query("SELECT compilation_schema, sources_root, database_version, database_version_origin, ccflags FROM run") { rs ->
+            (1..5).map { rs.getString(it) }
+        }.single()
+        val (runSchema, recordedRoot) = run
         val root = sourcesRoot ?: Path.of(recordedRoot).takeIf { Files.isDirectory(it) }
 
         // ---- units to objects
@@ -454,8 +482,33 @@ class DependencyComparison(
             databaseOnly.sortedWith(compareBy<DatabaseOnlyEdge>({ it.dbClass }, { it.unit }).thenComparator { a, b -> DatabaseDependencies.DEPENDENCY_ORDER.compare(a.reference, b.reference) }),
             indexOnly.sortedWith(compareBy({ it.indexClass }, { it.unit }, { it.target })),
             collapsed, database.sourceReadable, root != null, builtins, triggerColumns(connection, mapped.filter { it.type == "TRIGGER" && it in dbObjects }.toSet(),
-                sourceStatus.filterValues { it.first == SourceStatus.DIFFERS }.keys)
+                sourceStatus.filterValues { it.first == SourceStatus.DIFFERS }.keys),
+            conditionalCompilation(run[2], run[3], run[4], compared.filter { it.type != "VIEW" })
         )
+    }
+
+    /**
+     * The index's settings against the database's for [units] (sorted): flags compare as parsed by [CcFlags.parse], so
+     * order, spacing and case do not count, and no flags (null or blank) equals no flags.
+     */
+    private fun conditionalCompilation(indexVersion: String?, indexOrigin: String?, indexFlags: String?, units: List<DbObjectId>): ConditionalCompilationCheck {
+        val settings = database.ccflags.associateBy { DbObjectId(it.owner, it.name, it.type) }
+        val expected = CcFlags.parse(indexFlags)
+        var same = 0
+        var without = 0
+        val different = ArrayList<Pair<DbObjectId, String?>>()
+        if (database.ccflagsReadable) {
+            for (unit in units) {
+                val row = settings[unit]
+                when {
+                    row == null -> without++
+                    expected != null && CcFlags.parse(row.ccflags) == expected -> same++
+                    else -> different += unit to row.ccflags
+                }
+            }
+        }
+        return ConditionalCompilationCheck(indexVersion, indexOrigin, indexFlags, database.databaseVersion, database.databaseVersionOrigin,
+            database.ccflagsReadable, same, different, without)
     }
 
     /**

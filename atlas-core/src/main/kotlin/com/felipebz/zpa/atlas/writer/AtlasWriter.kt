@@ -23,6 +23,12 @@ data class RunInfo(
     val sourceEncoding: String,
     val metadataOrigin: String?,
     val compilationSchema: String?,
+    /** The target database version of conditional compilation (`11.2`), or null. */
+    val databaseVersion: String? = null,
+    /** `OPTION`, `DATABASE` or `JDBC` with a [databaseVersion], else null. */
+    val databaseVersionOrigin: String? = null,
+    /** The `PLSQL_CCFLAGS` of the run as `NAME:VALUE, …`, or null. */
+    val ccflags: String? = null,
     val startedAt: String,
     val finishedAt: String
 )
@@ -141,7 +147,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     }
 
     private fun insertRun(run: RunInfo) {
-        prepare("INSERT INTO run(id, schema_version, atlas_version, zpa_version, sources_root, source_encoding, metadata_origin, compilation_schema, started_at, finished_at) VALUES (1,?,?,?,?,?,?,?,?,?)").use {
+        prepare("INSERT INTO run(id, schema_version, atlas_version, zpa_version, sources_root, source_encoding, metadata_origin, compilation_schema, database_version, database_version_origin, ccflags, started_at, finished_at) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?)").use {
             it.setInt(1, SCHEMA_VERSION)
             it.setString(2, run.atlasVersion)
             it.setString(3, run.zpaVersion)
@@ -149,8 +155,11 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             it.setString(5, run.sourceEncoding)
             it.setNullableString(6, run.metadataOrigin)
             it.setNullableString(7, run.compilationSchema)
-            it.setString(8, run.startedAt)
-            it.setString(9, run.finishedAt)
+            it.setNullableString(8, run.databaseVersion)
+            it.setNullableString(9, run.databaseVersionOrigin)
+            it.setNullableString(10, run.ccflags)
+            it.setString(11, run.startedAt)
+            it.setString(12, run.finishedAt)
             it.executeUpdate()
         }
     }
@@ -248,7 +257,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 6
+        const val SCHEMA_VERSION = 7
 
         /** Pending rows (all statements together) after which the batches are executed. */
         private const val FLUSH_ROWS = 20_000
@@ -339,6 +348,9 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 source_encoding TEXT NOT NULL,
                 metadata_origin TEXT NULL,
                 compilation_schema TEXT NULL,
+                database_version TEXT NULL,
+                database_version_origin TEXT NULL CHECK (database_version_origin IN ('OPTION', 'DATABASE', 'JDBC')),
+                ccflags TEXT NULL,
                 started_at TEXT NOT NULL,
                 finished_at TEXT NOT NULL
             )""",

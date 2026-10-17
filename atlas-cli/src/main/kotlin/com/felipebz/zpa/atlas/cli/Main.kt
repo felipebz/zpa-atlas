@@ -7,15 +7,21 @@ package com.felipebz.zpa.atlas.cli
 
 import com.beust.jcommander.JCommander
 import com.beust.jcommander.ParameterException
+import com.felipebz.zpa.atlas.cli.oracle.LoadedMetadata
 import com.felipebz.zpa.atlas.cli.oracle.OracleMetadataLoader
 import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.index.ConditionalCompilationText
+import com.felipebz.zpa.atlas.index.DatabaseVersionOrigin
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.index.SourceDecoding
 import com.felipebz.zpa.atlas.index.SourceIdentifiers
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.stats.Stats
+import com.felipebz.zpa.squid.CcValue
+import com.felipebz.zpa.squid.ConditionalCompilationSettings
+import com.felipebz.zpa.squid.DatabaseVersion
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.extension
@@ -30,15 +36,23 @@ private fun index(args: IndexArguments, environment: (String) -> String?): Int {
     } catch (e: IllegalArgumentException) {
         throw CliValidationException(e.message ?: "Unknown encoding")
     }
+    val explicitVersion = args.databaseVersion.takeIf { it.isNotBlank() }?.let {
+        validated("--database-version") { ConditionalCompilationSettings.parseVersion(it) }
+    }
+    val flags = validated("--ccflags") { ConditionalCompilationSettings.parseFlags(args.ccflags) }
     val settings = OracleSettings.from(args.oracle, environment)
     val compilationSchema = OracleSettings.compilationSchema(args)
-    val dictionary = settings?.let {
-        val schemas = it.schemas.toSet() + it.relations.map { relation -> relation.first }
+    val oracle = settings?.let {
         val writtenNames = SourceIdentifiers.scan(sources, args.extensions.split(','))
-        val loaded = OracleMetadataLoader.load(it, compilationSchema, applicationHome().resolve("drivers"), writtenNames)
+        it to OracleMetadataLoader.load(it, compilationSchema, applicationHome().resolve("drivers"), writtenNames)
+    }
+    val dictionary = oracle?.let { (oracleSettings, loaded) ->
+        val schemas = oracleSettings.schemas.toSet() + oracleSettings.relations.map { relation -> relation.first }
         AtlasDictionary.lookupOnly(loaded.result.metadata, schemas, loaded.synonyms, loaded.objects)
     }
         ?: AtlasDictionary.NONE
+    val (conditionalCompilation, databaseVersionOrigin) = conditionalCompilation(explicitVersion, flags, oracle)
+    if (conditionalCompilation.isActive) System.err.println(ConditionalCompilationText.describe(conditionalCompilation, databaseVersionOrigin))
     val summary = Indexer().index(
         IndexOptions(
             sources = sources,
@@ -47,12 +61,51 @@ private fun index(args: IndexArguments, environment: (String) -> String?): Int {
             compilationSchema = compilationSchema,
             dictionary = dictionary,
             threads = args.threads,
-            encoding = encoding
+            encoding = encoding,
+            conditionalCompilation = conditionalCompilation,
+            databaseVersionOrigin = databaseVersionOrigin
         )
     )
     System.err.println("Indexed ${summary.files} files into ${args.out}: scan ${summary.parseMillis} ms, write ${summary.writeMillis} ms, total ${summary.totalMillis} ms")
     if (summary.failedFiles > 0) System.err.println("${summary.failedFiles} file(s) failed extraction and were indexed as FAILED (see stats)")
     return 0
+}
+
+/** The result of [parse], or a [CliValidationException] naming [option] with the parser's message. */
+private fun <T> validated(option: String, parse: () -> T): T = try {
+    parse()
+} catch (e: IllegalArgumentException) {
+    throw CliValidationException("$option: ${e.message}")
+}
+
+/**
+ * The conditional compilation settings of a run and the origin of their database version. An explicit
+ * `--database-version` wins over the version of the [oracle] database, with a warning when they differ; without one,
+ * the database's version is used, with a warning when it only comes from the JDBC driver. Neither gives no version.
+ */
+private fun conditionalCompilation(
+    explicitVersion: DatabaseVersion?,
+    flags: Map<String, CcValue>,
+    oracle: Pair<OracleSettings, LoadedMetadata>?
+): Pair<ConditionalCompilationSettings, DatabaseVersionOrigin?> {
+    val origin = explicitVersion?.let { DatabaseVersionOrigin.OPTION }
+    val (settings, loaded) = oracle ?: return ConditionalCompilationSettings(flags, explicitVersion) to origin
+    val detected = loaded.databaseVersion
+    val detectedText = ConditionalCompilationText.version(detected.version)
+    if (explicitVersion != null) {
+        if (detected.version != explicitVersion) {
+            val explicitText = ConditionalCompilationText.version(explicitVersion)
+            val source = if (detected.origin == DatabaseVersionOrigin.JDBC) "the JDBC driver" else "DBMS_DB_VERSION"
+            System.err.println("Warning: --database-version $explicitText differs from the version of the database, $detectedText (from $source); using $explicitText")
+        }
+        return ConditionalCompilationSettings(flags, explicitVersion) to origin
+    }
+    detected.failure?.let { failure ->
+        System.err.println("Warning: DBMS_DB_VERSION could not be read (${OracleMetadataLoader.redact(failure.message, settings)}); using the JDBC " +
+            "driver's database version $detectedText. The JDBC minor version can differ from DBMS_DB_VERSION.RELEASE (on 23ai and later " +
+            "it is the release update, e.g. 23.26 against 23.0): set --database-version if it does")
+    }
+    return ConditionalCompilationSettings(flags, detected.version) to detected.origin
 }
 
 private fun serve(args: ServeArguments): Int {
