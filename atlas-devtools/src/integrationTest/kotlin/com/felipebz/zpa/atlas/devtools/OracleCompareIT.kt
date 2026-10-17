@@ -106,10 +106,11 @@ class OracleCompareIT {
     }
 
     companion object {
-        // Oracle 26ai: STANDARD, DBMS_STANDARD, PLITBLM and SYS_STUB_FOR_PURITY_ANALYSIS rows; the private synonym is an
-        // unresolved relation; P_CHANGED is deployed differently.
-        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 13, "SOURCE_DIFFERS" to 1, "UNRESOLVED_IN_INDEX" to 1)
+        // Oracle 26ai: STANDARD, DBMS_STANDARD, PLITBLM and SYS_STUB_FOR_PURITY_ANALYSIS rows; P_CHANGED is deployed
+        // differently. Oracle records a synonym, not its target: the private SYN_CUSTOMER and the public USER_TABLES and
+        // USER_TAB_COLUMNS match through the index edge to the target.
+        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 15, "SOURCE_DIFFERS" to 1)
         val EXPECTED_INDEX_ONLY = mapOf("SOURCE_DIFFERS" to 1)
-        val EXPECTED_MATCHED = mapOf("BY_NAME" to 1, "EXACT" to 14)
+        val EXPECTED_MATCHED = mapOf("BY_NAME" to 1, "EXACT" to 14, "SYNONYM" to 3)
     }
 }

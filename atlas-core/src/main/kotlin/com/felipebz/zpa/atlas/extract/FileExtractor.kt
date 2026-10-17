@@ -134,7 +134,8 @@ class FileExtractor(
         }
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
         return FileFacts(path, sha256, sizeBytes, encoding, status, recoveredRegions, defaultSchema, units, statements, occurrences,
-            LinkedHashSet(entities).toList(), LinkedHashSet(relations).toList(), coverage, resolver.dictionaryRelations.toList())
+            LinkedHashSet(entities).toList(), LinkedHashSet(relations).toList(), coverage, resolver.dictionaryRelations.toList(),
+            resolver.dictionarySynonyms.toList())
     }
 
     // ---- units --------------------------------------------------------------------------------------------------

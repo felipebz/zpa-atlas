@@ -53,7 +53,21 @@ data class UnitRow(
     val partialSource: Int
 )
 
-data class MatchedEdge(val unit: DbObjectId, val reference: DbDependency, val byName: Boolean, val collapsedOnly: Boolean, val locations: List<Location>)
+data class MatchedEdge(
+    val unit: DbObjectId,
+    val reference: DbDependency,
+    val byName: Boolean,
+    val collapsedOnly: Boolean,
+    val locations: List<Location>,
+    /** A `SYNONYM` row matched through the index edge to the synonym's final target. */
+    val synonym: Boolean = false
+) {
+    val matchClass: String get() = when {
+        synonym -> "SYNONYM"
+        byName -> "BY_NAME"
+        else -> "EXACT"
+    }
+}
 
 data class DatabaseOnlyEdge(val dbClass: String, val unit: DbObjectId, val reference: DbDependency, val detail: String)
 
@@ -276,6 +290,20 @@ class DependencyComparison(
         }
         val names = unitTexts.mapValues { PlSqlText.names(it.value) }
 
+        // ---- synonyms of the index: (owner, name) -> the projection of the final target of its SYNONYM_FOR chain
+        val synonymFor = connection.query("SELECT from_id, to_id FROM relation WHERE kind = 'SYNONYM_FOR'") { it.getLong(1) to it.getLong(2) }.toMap()
+        val synonymTargets = HashMap<Pair<String, String>, Target>()
+        for ((id, row) in entities) {
+            if (row.kind != "SYNONYM" || row.schema == null) continue
+            var current = id
+            var hops = 0
+            while (current in synonymFor && hops <= synonymFor.size) {
+                current = synonymFor.getValue(current)
+                hops++
+            }
+            if (current !in synonymFor) synonymTargets[row.schema to row.name] = project(current)
+        }
+
         // ---- matching and classification
         val matched = ArrayList<MatchedEdge>()
         val databaseOnly = ArrayList<DatabaseOnlyEdge>()
@@ -304,6 +332,17 @@ class DependencyComparison(
                     matched += MatchedEdge(obj, dep, true, same.all { it.fromCollapsedOnly },
                         same.flatMap { it.locations }.toSortedSet().toList())
                 }
+                continue
+            }
+            // Oracle records the synonym, not its target: the unit's edge to the target is the evidence.
+            val synonymEdge = if (dep.referencedType == "SYNONYM" && dep.referencedLink == null) {
+                synonymTargets[dep.referencedOwner to dep.referencedName]?.let { unitEdges[it] }
+            } else {
+                null
+            }
+            if (synonymEdge != null) {
+                matchedIndex += obj to synonymEdge.target
+                matched += MatchedEdge(obj, dep, false, synonymEdge.fromCollapsedOnly, synonymEdge.locations.toList(), synonym = true)
                 continue
             }
             val unitEvidence = evidence[obj].orEmpty().filter { dep.referencedName in it.segments && fits(dep.referencedType, it.roles) }

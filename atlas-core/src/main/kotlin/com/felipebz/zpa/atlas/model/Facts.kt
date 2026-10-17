@@ -1,6 +1,7 @@
 package com.felipebz.zpa.atlas.model
 
 import com.felipebz.zpa.api.project.ProjectExternalRelation
+import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 
 /** One-based lines, zero-based columns, exclusive end column (the ZPA token convention). */
 data class SourceSpan(val startLine: Int, val startCol: Int, val endLine: Int, val endCol: Int) : Comparable<SourceSpan> {
@@ -87,5 +88,7 @@ class FileFacts(
     val relations: List<RelationFact>,
     val coverage: List<CoverageFact>,
     /** The dictionary relations the file resolved: their entities and columns are added once per run. */
-    val dictionaryRelations: List<ProjectExternalRelation> = emptyList()
+    val dictionaryRelations: List<ProjectExternalRelation> = emptyList(),
+    /** The synonyms the file followed: their entities and `SYNONYM_FOR` relations are added once per run. */
+    val dictionarySynonyms: List<DictionarySynonym> = emptyList()
 )

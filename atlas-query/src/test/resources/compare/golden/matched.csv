@@ -6,3 +6,5 @@ EXACT,HR,PACK_CALLS,PACKAGE BODY,HR,TY_POINT,TYPE,,false,hr/pack_calls.pkb:22
 BY_NAME,HR,PACK_CALLS,PACKAGE BODY,PUBLIC,DBMS_OUTPUT,SYNONYM,,false,hr/pack_calls.pkb:44
 EXACT,HR,PACK_PROCESS,PACKAGE BODY,HR,COMPANY,TABLE,,false,hr/pack_process.pkb:8 hr/pack_process.pkb:10 hr/pack_process.pkb:11 hr/pack_process.pkb:12 hr/pack_process.pkb:13 hr/pack_process.pkb:14 hr/pack_process.pkb:15 hr/pack_process.pkb:16 hr/pack_process.pkb:17 hr/pack_process.pkb:18
 EXACT,HR,PACK_PROCESS,PACKAGE BODY,HR,PACK_PROCESS,PACKAGE,,false,hr/pack_process.pkb:1 hr/pack_process.pkb:4 hr/pack_process.pkb:8 hr/pack_process.pkb:19 hr/pack_process.pkb:25 hr/pack_process.pkb:26 hr/pack_process.pkb:27 hr/pack_process.pkb:28 hr/pack_process.pkb:29 hr/pack_process.pkb:30 hr/pack_process.pkb:31
+SYNONYM,HR,PROC_SYNONYMS,PROCEDURE,HR,SYN_COMPANY,SYNONYM,,false,hr/proc_synonyms.prc:13 hr/proc_synonyms.prc:14 hr/proc_synonyms.prc:15
+SYNONYM,HR,PROC_SYNONYMS,PROCEDURE,PUBLIC,USER_TABLES,SYNONYM,,false,hr/proc_synonyms.prc:3 hr/proc_synonyms.prc:4 hr/proc_synonyms.prc:7 hr/proc_synonyms.prc:8 hr/proc_synonyms.prc:9 hr/proc_synonyms.prc:10 hr/proc_synonyms.prc:11

@@ -8,6 +8,7 @@ import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.index.SourceDecoding
+import com.felipebz.zpa.atlas.index.SourceIdentifiers
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.stats.Stats
 import java.nio.file.Files
@@ -28,7 +29,9 @@ private fun index(args: IndexArguments, environment: (String) -> String?): Int {
     val compilationSchema = OracleSettings.compilationSchema(args)
     val dictionary = settings?.let {
         val schemas = it.schemas.toSet() + it.relations.map { relation -> relation.first }
-        AtlasDictionary.lookupOnly(OracleMetadataLoader.load(it, compilationSchema, applicationHome().resolve("drivers")).metadata, schemas)
+        val writtenNames = SourceIdentifiers.scan(sources, args.extensions.split(','))
+        val loaded = OracleMetadataLoader.load(it, compilationSchema, applicationHome().resolve("drivers"), writtenNames)
+        AtlasDictionary.lookupOnly(loaded.result.metadata, schemas, loaded.synonyms)
     }
         ?: AtlasDictionary.NONE
     val summary = Indexer().index(

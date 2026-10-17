@@ -1,5 +1,6 @@
 package com.felipebz.zpa.atlas.index
 
+import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.api.PlSqlFile
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalContext
@@ -157,6 +158,9 @@ class Indexer internal constructor(
             }
         }
         resolved.values.forEach { RelationResolver.addDictionaryRelation(dictionary, it, globalEntities, globalRelations) }
+        // The synonyms the files followed, once each, in key order.
+        facts.flatMapTo(java.util.TreeSet(compareBy<DictionarySynonym>({ it.owner }, { it.name }))) { it.dictionarySynonyms }
+            .forEach { RelationResolver.addDictionarySynonym(it, globalEntities, globalRelations) }
         if (!dictionary.enumerable && dictionary.isAvailable) {
             globalCoverage += CoverageFact("DICTIONARY_NOT_ENUMERABLE",
                 "The acquired metadata cannot list its relations: only relations named by code are entities, and views are recorded as TABLE")

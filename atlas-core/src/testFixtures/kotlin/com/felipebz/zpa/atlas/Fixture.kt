@@ -5,6 +5,7 @@ import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionaryRelation
 import com.felipebz.zpa.atlas.dictionary.DictionaryRelationKind
+import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.extract.FileExtractor
@@ -13,14 +14,17 @@ import java.nio.file.Path
 import java.sql.DriverManager
 import java.time.Instant
 
-/** The fixture corpus and a hand-built dictionary: schema HR complete, nothing else. */
+/**
+ * The fixture corpus and a hand-built dictionary: schema HR complete, a few `SYS` dictionary views (`SYS` is not
+ * complete), and synonyms: public ones for the views, private ones of HR, a chain and a cycle.
+ */
 object Fixture {
     /** A folder on disk (the indexer walks it), set by the build for every test task. */
     val sources: Path = Path.of(System.getProperty("atlas.fixture") ?: error("System property atlas.fixture is not set"))
 
-    private fun relation(name: String, vararg columns: String, kind: DictionaryRelationKind = DictionaryRelationKind.TABLE) =
+    private fun relation(name: String, vararg columns: String, kind: DictionaryRelationKind = DictionaryRelationKind.TABLE, schema: String = "HR") =
         DictionaryRelation(
-            ProjectExternalRelation.of("HR", name, true, columns.mapIndexed { i, c -> ProjectExternalColumn.of(c, i + 1, null) }),
+            ProjectExternalRelation.of(schema, name, true, columns.mapIndexed { i, c -> ProjectExternalColumn.of(c, i + 1, null) }),
             kind
         )
 
@@ -30,7 +34,24 @@ object Fixture {
             relation("COMPANY", "ID", "ST_ACTIVE", "COMPANY_NAME", "DT_CHANGED"),
             relation("SEND_QUEUE", "ID", "RECORD_TYPE", "PAYLOAD"),
             relation("EVENT_LOG", "ID", "MSG"),
-            relation("V_COMPANY", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW)
+            relation("V_COMPANY", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),
+            relation("USER_TABLES", "TABLE_NAME", "NUM_ROWS", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
+            relation("USER_TAB_COLUMNS", "TABLE_NAME", "COLUMN_NAME", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
+            relation("V_\$SESSION", "SID", "USERNAME", kind = DictionaryRelationKind.VIEW, schema = "SYS")
+        ),
+        listOf(
+            DictionarySynonym("PUBLIC", "USER_TABLES", "SYS", "USER_TABLES"),
+            DictionarySynonym("PUBLIC", "USER_TAB_COLUMNS", "SYS", "USER_TAB_COLUMNS"),
+            DictionarySynonym("PUBLIC", "V\$SESSION", "SYS", "V_\$SESSION"),
+            // Named like an HR table: the own table wins.
+            DictionarySynonym("PUBLIC", "EVENT_LOG", "SYS", "USER_TABLES"),
+            // A target the dictionary lacks, in a schema that is not complete.
+            DictionarySynonym("PUBLIC", "MISSING_VIEW", "SYS", "NO_SUCH_VIEW"),
+            DictionarySynonym("HR", "SYN_COMPANY", "HR", "COMPANY"),
+            DictionarySynonym("HR", "SYN_CHAIN1", "HR", "SYN_CHAIN2"),
+            DictionarySynonym("HR", "SYN_CHAIN2", "HR", "SEND_QUEUE"),
+            DictionarySynonym("HR", "SYN_LOOP_A", "HR", "SYN_LOOP_B"),
+            DictionarySynonym("HR", "SYN_LOOP_B", "HR", "SYN_LOOP_A")
         )
     )
 

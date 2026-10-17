@@ -32,7 +32,8 @@ object ComparisonReport {
         line("Edges")
         line("  database: $db")
         line("  index: ${r.units.filter { it.databaseStatus != null }.sumOf { it.indexEdges }}")
-        line("  matched: ${r.matched.size} (exact ${r.matched.count { !it.byName }}, by name ${r.matched.count { it.byName }})")
+        line("  matched: ${r.matched.size} (exact ${r.matched.count { it.matchClass == "EXACT" }}, by name ${r.matched.count { it.matchClass == "BY_NAME" }}, " +
+            "synonym ${r.matched.count { it.matchClass == "SYNONYM" }})")
         line("  matched only through collapsed AMBIGUOUS calls: ${r.matched.count { it.collapsedOnly }} (collapsed occurrences: ${r.collapsedOccurrences})")
         line()
         line("Match rate (matched / (database - BUILTIN - NON_EXISTENT))")
@@ -101,7 +102,7 @@ object ComparisonReport {
             } + result.objectsWithoutUnit.map { unit(it) + listOf("", "NO_UNIT", "", "", "", "", "", "", "") })
         val refHeader = listOf("ref_owner", "ref_name", "ref_type", "ref_link")
         write("matched.csv", listOf("match") + unitHeader + refHeader + listOf("collapsed_only", "locations"),
-            result.matched.map { m -> listOf(if (m.byName) "BY_NAME" else "EXACT") + unit(m.unit) + ref(m.reference) + listOf(m.collapsedOnly.toString(), m.locations.joinToString(" ")) })
+            result.matched.map { m -> listOf(m.matchClass) + unit(m.unit) + ref(m.reference) + listOf(m.collapsedOnly.toString(), m.locations.joinToString(" ")) })
         write("db_only.csv", listOf("class") + unitHeader + refHeader + listOf("detail"),
             result.databaseOnly.map { d -> listOf(d.dbClass) + unit(d.unit) + ref(d.reference) + listOf(d.detail) })
         write("index_only.csv", listOf("class") + unitHeader + listOf("target_owner", "target_name", "target_type", "target_link", "locations"),

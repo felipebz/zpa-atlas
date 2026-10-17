@@ -18,10 +18,11 @@ class OracleSettings(
     val schemas: List<String>,
     val relations: List<Pair<String, String>>
 ) {
-    fun request(): OracleMetadataRequest {
+    /** The metadata request: the schemas and relations of the options, plus [extraRelations] (synonym targets). */
+    fun request(extraRelations: Collection<Pair<String, String>> = emptyList()): OracleMetadataRequest {
         val builder = OracleMetadataRequest.builder()
         schemas.forEach { builder.schema(it) }
-        relations.forEach { (schema, name) -> builder.relation(schema, name) }
+        (relations + extraRelations).distinct().forEach { (schema, name) -> builder.relation(schema, name) }
         return builder.build()
     }
 

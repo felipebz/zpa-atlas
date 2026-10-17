@@ -4,6 +4,7 @@ import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectIdentifier
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.model.*
 
 /** A relation name as written: `[schema.]name[@link]`, each part normalized. */
@@ -31,14 +32,22 @@ object Precedence {
 
 /**
  * Resolves relation and column names against the dictionary; nothing here is shared between files. An entity a result
- * refers to is added to [entities], except for dictionary relations: those are only recorded in
- * [dictionaryRelations], and the run adds their entities (the relation and its columns) once, after the scan.
+ * refers to is added to [entities], except for dictionary relations and synonyms: those are only recorded in
+ * [dictionaryRelations] and [dictionarySynonyms], and the run adds their entities once, after the scan.
+ *
+ * A name that is not a relation may be a synonym, followed to its final target in Oracle's order: a synonym of the
+ * schema, then (only when the schema is complete, so that its own objects are known) a public synonym. The result,
+ * and every column read through it, is the target's.
  */
 class RelationResolver(private val dictionary: AtlasDictionary, private val entities: MutableList<EntityFact>, private val relations: MutableList<RelationFact>) {
     private val found = LinkedHashMap<String, ProjectExternalRelation>()
+    private val followed = LinkedHashSet<DictionarySynonym>()
 
     /** The distinct dictionary relations this file resolved, by entity key, in first-resolution order. */
     val dictionaryRelations: Collection<ProjectExternalRelation> get() = found.values
+
+    /** The distinct synonyms this file followed, every hop of each chain. */
+    val dictionarySynonyms: Collection<DictionarySynonym> get() = followed
 
     fun resolve(written: WrittenRelation, unitSchema: String?): ResolvedRelation {
         if (written.link != null) {
@@ -52,8 +61,30 @@ class RelationResolver(private val dictionary: AtlasDictionary, private val enti
             mentioned(key, EntityKind.UNKNOWN_RELATION, null, written.name, null)
             return ResolvedRelation(key, null, Status.UNVERIFIED, "SCHEMA_UNKNOWN", null)
         }
-        val key = dbKey(schema, written.name)
         val lookup = dictionary.metadata.findRelation(identifier(schema), identifier(written.name))
+        if (lookup.status != ProjectExternalLookup.Status.FOUND && schema != AtlasDictionary.PUBLIC) {
+            val chain = dictionary.synonymChain(schema, written.name)?.takeIf { it.isNotEmpty() }
+                ?: if (written.schema == null && lookup.status == ProjectExternalLookup.Status.RELATION_NOT_FOUND) {
+                    dictionary.synonymChain(AtlasDictionary.PUBLIC, written.name)
+                } else {
+                    null
+                }
+            if (!chain.isNullOrEmpty()) {
+                followed += chain
+                val target = chain.last()
+                return relation(target.targetOwner, target.targetName)
+            }
+        }
+        return relation(schema, written.name, lookup)
+    }
+
+    /** The relation `schema.name` as the dictionary [lookup] answers. */
+    private fun relation(
+        schema: String,
+        name: String,
+        lookup: ProjectExternalLookup = dictionary.metadata.findRelation(identifier(schema), identifier(name))
+    ): ResolvedRelation {
+        val key = dbKey(schema, name)
         return when (lookup.status) {
             ProjectExternalLookup.Status.FOUND -> {
                 val relation = lookup.relation.get()
@@ -61,11 +92,11 @@ class RelationResolver(private val dictionary: AtlasDictionary, private val enti
                 ResolvedRelation(dictionaryKey(relation), schema, Status.RESOLVED, null, relation)
             }
             ProjectExternalLookup.Status.RELATION_NOT_FOUND -> {
-                mentioned(key, EntityKind.UNKNOWN_RELATION, schema, written.name, null)
+                mentioned(key, EntityKind.UNKNOWN_RELATION, schema, name, null)
                 ResolvedRelation(key, schema, Status.UNRESOLVED, "NOT_IN_DICTIONARY", null)
             }
             else -> {
-                mentioned(key, EntityKind.UNKNOWN_RELATION, schema, written.name, null)
+                mentioned(key, EntityKind.UNKNOWN_RELATION, schema, name, null)
                 ResolvedRelation(key, schema, Status.UNVERIFIED, null, null)
             }
         }
@@ -127,6 +158,14 @@ class RelationResolver(private val dictionary: AtlasDictionary, private val enti
 
         fun dictionaryKey(relation: ProjectExternalRelation): String =
             dbKey(relation.schema.exact(), relation.name.exact())
+
+        /** The synonym entity (schema `PUBLIC` for a public one) and its `SYNONYM_FOR` relation to the next hop. */
+        fun addDictionarySynonym(synonym: DictionarySynonym, entities: MutableList<EntityFact>, relations: MutableList<RelationFact>) {
+            val key = dbKey(synonym.owner, synonym.name)
+            entities += EntityFact(key, EntityKind.SYNONYM, synonym.owner, synonym.name, null, "${synonym.owner}.${synonym.name}",
+                external = false, precedence = Precedence.DICTIONARY)
+            relations += RelationFact(key, RelationKind.SYNONYM_FOR, dbKey(synonym.targetOwner, synonym.targetName))
+        }
 
         /** The relation entity of the dictionary with all its columns (`CONTAINS`). */
         fun addDictionaryRelation(dictionary: AtlasDictionary, relation: ProjectExternalRelation, entities: MutableList<EntityFact>, relations: MutableList<RelationFact>) {
