@@ -139,6 +139,19 @@ class AtlasIndexTest {
     }
 
     @Test
+    fun `a view lists what its query reads and a relation lists the views over it`() {
+        fun keys(list: List<EntitySummary>) = list.map { it.key }
+        // Every level of the query: the WITH subquery's table too.
+        assertThat(keys(index.entity("db:HR.V_ACTIVE_COMPANY").result!!.reads)).containsExactly("db:HR.COMPANY")
+        assertThat(keys(index.entity("db:HR.V_LOG_UNION").result!!.reads)).containsExactly("db:HR.EVENT_LOG", "db:HR.SEND_QUEUE")
+        assertThat(keys(index.entity("db:HR.V_COMPANY_NAMES").result!!.reads)).containsExactly("db:HR.V_COMPANY_LIST")
+        assertThat(keys(index.entity("db:HR.V_COMPANY_LIST").result!!.views)).containsExactly("db:HR.V_COMPANY_NAMES")
+        // A procedure reading the table is not a view over it.
+        assertThat(keys(index.entity("db:HR.EVENT_LOG").result!!.views)).containsExactly("db:HR.V_LOG_UNION", "db:HR.V_SOURCE_ONLY")
+        assertThat(index.entity("db:HR.COMPANY.ID").result!!.views).isEmpty()
+    }
+
+    @Test
     fun `candidates of the four-parameter overload include the ambiguous calls`() {
         val page = index.occurrences(runJob4).result!!
         val ambiguous = page.rows.filter { it.viaCandidate }

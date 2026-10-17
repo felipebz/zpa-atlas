@@ -38,6 +38,8 @@ registerMessages("pt", {
   "entity.overload.body": "body",
   "entity.relations": "Relações",
   "entity.children": "Conteúdo",
+  "entity.reads": "Lê",
+  "entity.views": "Views sobre esta relação",
   "trigger.events": "Dispara em",
   "trigger.firing": "Triggers",
   "trigger.of": "de",

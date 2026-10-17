@@ -16,6 +16,7 @@ import com.felipebz.zpa.api.AggregateSqlFunctionsGrammar
 import com.felipebz.zpa.api.SingleRowSqlFunctionsGrammar
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalLookup
+import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectCallKind
 import com.felipebz.zpa.api.project.ProjectParameterMode
 import com.felipebz.zpa.api.project.SequenceReferenceResolution
@@ -210,13 +211,20 @@ class FileExtractor(
                 entityKey = key
                 trigger = key?.let { trigger(node, it, schema) }
             }
-            PlSqlGrammar.CREATE_VIEW, PlSqlGrammar.CREATE_MATERIALIZED_VIEW -> UnitKind.VIEW.also { entityKey = dictionaryView(written, schema) }
+            PlSqlGrammar.CREATE_VIEW, PlSqlGrammar.CREATE_MATERIALIZED_VIEW -> UnitKind.VIEW.also {
+                // The dictionary's view, else a VIEW entity from the source, which wins over the UNKNOWN_RELATION that a
+                // reference to it creates with the same key.
+                val relation = dictionaryView(written, schema)
+                val key = relation?.let { RelationResolver.dictionaryKey(it) } ?: sourceObject(written, EntityKind.VIEW)
+                entityKey = key
+                if (key != null) view = ViewScope(key, relation, node, node.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION))
+            }
             PlSqlGrammar.ANONYMOUS_BLOCK -> UnitKind.ANONYMOUS_BLOCK
             else -> UnitKind.SQL_STATEMENT
         }
         val index = addUnit(UnitFact(kind, displayName, entityKey, span, schema), partial)
-        if (kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY || kind == UnitKind.TRIGGER) {
-            // Package bodies, type bodies and triggers are not in the project index; their definition comes from the AST.
+        if (kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY || kind == UnitKind.TRIGGER || kind == UnitKind.VIEW && entityKey != null) {
+            // Package bodies, type bodies, triggers and views are not in the project index; their definition comes from the AST.
             occurrences += OccurrenceFact(index, entityKey, null, span, writtenText(unitName ?: node), entityKey,
                 setOf(Role.DEFINITION), status(Status.RESOLVED, partial), Origin.STATIC, null)
         }
@@ -233,6 +241,7 @@ class FileExtractor(
             emptySet()
         }
         walk(node, Context(index, partial, schema, entityKey, trigger, enclosingPackage, bodyNames))
+        view = null
     }
 
     private fun subprogramAt(node: AstNode): String? = catalog.subprogramAt(path, node.token.line, node.token.column)
@@ -246,13 +255,69 @@ class FileExtractor(
         return key
     }
 
-    private fun dictionaryView(written: List<String>, schema: String?): String? {
+    /** The dictionary relation of a view written in the sources, or null when the dictionary does not find it. */
+    private fun dictionaryView(written: List<String>, schema: String?): ProjectExternalRelation? {
         if (written.isEmpty() || schema == null) return null
         val lookup = dictionary.metadata.findRelation(RelationResolver.identifier(schema), RelationResolver.identifier(written.last()))
         if (lookup.status != ProjectExternalLookup.Status.FOUND) return null
         val relation = lookup.relation.get()
         resolver.addDictionaryRelation(relation)
-        return RelationResolver.dictionaryKey(relation)
+        return relation
+    }
+
+    /**
+     * A view being walked: its entity, its dictionary relation (null for a view only the sources know) and its query,
+     * whose statement gives the column definitions.
+     */
+    private class ViewScope(val key: String, val relation: ProjectExternalRelation?, val create: AstNode, val query: AstNode?)
+
+    private var view: ViewScope? = null
+
+    /**
+     * The `DEFINITION` of every dictionary column of the view, where the `CREATE VIEW` text names it: the column list,
+     * matched by position; otherwise the first query block of the main query (the branch that names the columns of a
+     * compound query), matched by name: an alias, a column reference's name, or a `*` (`DEFINITION,IMPLICIT`) for the
+     * columns it expands to. A column with no site gets a `VIEW_COLUMN_UNMATCHED` note.
+     */
+    private fun viewColumns(statement: Statement, scope: ViewScope) {
+        val relation = scope.relation ?: return
+        val columns = relation.rowFields.sortedBy { it.position.asInt }
+        val sites = HashMap<String, Pair<AstNode, Set<Role>>>()
+        val list = scope.create.getChildren(PlSqlGrammar.VIEW_COLUMN_DEFINITION, PlSqlGrammar.MATERIALIZED_VIEW_COLUMN_DEFINITION)
+            .mapNotNull { it.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) }
+        if (list.isNotEmpty()) {
+            columns.zip(list).forEach { (column, name) -> sites[column.name.exact()] = name to VIEW_COLUMN_DEFINITION }
+        } else {
+            var block = scope.query?.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK)
+            while (block != null && block.firstChild.type == PlSqlPunctuator.LPARENTHESIS) {
+                block = block.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION)?.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK)
+            }
+            for (item in block?.getChildren(DmlGrammar.SELECT_COLUMN).orEmpty()) {
+                val alias = item.children.drop(1).firstOrNull { it.type == PlSqlGrammar.IDENTIFIER_NAME || it.type == PlSqlKeyword.BEGIN || it.type == PlSqlKeyword.END }
+                val expression = item.firstChild
+                when {
+                    alias != null -> sites.putIfAbsent(normalizeIdentifier(alias.tokenOriginalValue), alias to VIEW_COLUMN_DEFINITION)
+                    expression.type == PlSqlGrammar.VARIABLE_NAME || expression.type == PlSqlGrammar.MEMBER_EXPRESSION -> {
+                        val name = expression.getLastChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)
+                            ?: expression.getFirstDescendantOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
+                        sites.putIfAbsent(normalizeIdentifier(name.tokenOriginalValue), name to VIEW_COLUMN_DEFINITION)
+                    }
+                    else -> for (source in starSources(statement, item).orEmpty()) {
+                        val expanded = source.target?.resolved?.relation?.takeIf { it.isColumnsComplete } ?: continue
+                        for (field in expanded.rowFields) sites.putIfAbsent(field.name.exact(), expression to VIEW_STAR_DEFINITION)
+                    }
+                }
+            }
+        }
+        for (column in columns) {
+            val name = column.name.exact()
+            val (site, roles) = sites[name] ?: run {
+                coverage += CoverageFact("VIEW_COLUMN_UNMATCHED", "${scope.key}: column $name has no site in the CREATE VIEW text")
+                continue
+            }
+            occurrences += OccurrenceFact(statement.context.unitIndex, scope.key, null, spanOf(site), writtenText(site), scope.key + "." + name,
+                roles, status(Status.RESOLVED, statement.context.partial), Origin.STATIC, null)
+        }
     }
 
     /**
@@ -943,6 +1008,7 @@ class FileExtractor(
             .filterNot { correlationColumn(it, context, id) }
             .forEach { if (it.getFirstAncestorOrNull(DmlGrammar.INTO_CLAUSE) != null) valueReference(it, context, id, sql = false) else sqlName(statement, it) }
         root.getDescendants(DmlGrammar.SELECT_COLUMN).forEach { selectStar(statement, it) }
+        view?.takeIf { it.query === root }?.let { viewColumns(statement, it) }
     }
 
     private fun isPunctuation(node: AstNode) = node.type is PlSqlPunctuator
@@ -1446,6 +1512,9 @@ class FileExtractor(
 
         val COLUMN_READ = setOf(Role.READ)
         val COLUMN_IMPLICIT_READ = setOf(Role.READ, Role.IMPLICIT)
+
+        val VIEW_COLUMN_DEFINITION = setOf(Role.DEFINITION)
+        val VIEW_STAR_DEFINITION = setOf(Role.DEFINITION, Role.IMPLICIT)
 
         val DML_EVENTS = setOf(PlSqlKeyword.INSERT, PlSqlKeyword.UPDATE, PlSqlKeyword.DELETE)
 

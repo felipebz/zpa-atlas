@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.dictionary
 
 import com.felipebz.zpa.api.project.ProjectExternalMetadata
 import com.felipebz.zpa.api.project.ProjectExternalRelation
+import com.felipebz.zpa.atlas.extract.exact
 import com.felipebz.zpa.atlas.model.EntityKind
 
 /** The dictionary kind of a relation. */
@@ -48,6 +49,8 @@ class AtlasDictionary(
 ) {
     private val kinds = relations.associate { (it.relation.schema to it.relation.name) to it.kind }
     private val synonymsByName = synonyms.associateBy { it.owner to it.name }
+    /** The `OBJECT_TYPE` of the synonym targets, which may lie in schemas whose namespace was not read. */
+    private val synonymTargetTypes = synonyms.associate { (it.targetOwner to it.targetName) to it.targetType }
 
     /** Whether the object names of [schema] were read: only then is a name it lacks known to be absent. */
     fun knowsObjects(schema: String): Boolean = schema in objects
@@ -55,9 +58,22 @@ class AtlasDictionary(
     /** The `OBJECT_TYPE` of the object [name] of [schema], or null (absent, or not read). */
     fun objectType(schema: String, name: String): String? = objects[schema]?.get(name)
 
-    fun kindOf(relation: ProjectExternalRelation): DictionaryRelationKind =
-        kinds[relation.schema to relation.name]
-            ?: if (relation.rowObjectType.isPresent) DictionaryRelationKind.OBJECT_TABLE else DictionaryRelationKind.TABLE
+    /**
+     * The kind of [relation]: the enumerated kind, else a `VIEW` when the dictionary's object types say so (the
+     * `OBJECT_TYPE` of the read schemas, or the target type of a synonym that reaches it), else `OBJECT_TABLE` when it
+     * has a row object type, else `TABLE`. A materialized view also has a `TABLE` row of the same name, which the
+     * loader keeps: it stays a `TABLE`.
+     */
+    fun kindOf(relation: ProjectExternalRelation): DictionaryRelationKind {
+        kinds[relation.schema to relation.name]?.let { return it }
+        val (schema, name) = relation.schema.exact() to relation.name.exact()
+        val type = objectType(schema, name) ?: synonymTargetTypes[schema to name]
+        return when {
+            type == "VIEW" -> DictionaryRelationKind.VIEW
+            relation.rowObjectType.isPresent -> DictionaryRelationKind.OBJECT_TABLE
+            else -> DictionaryRelationKind.TABLE
+        }
+    }
 
     val isAvailable: Boolean get() = metadata.origin.isPresent
 

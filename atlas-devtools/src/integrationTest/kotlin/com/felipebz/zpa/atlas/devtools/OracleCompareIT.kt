@@ -45,6 +45,18 @@ class OracleCompareIT {
                 val oracle = arrayOf("--oracle-url", url!!, "--oracle-user", user, "--oracle-password-env", "ATLAS_IT_ORACLE_PASSWORD", "--oracle-schemas", schema)
                 val index = temp.resolve("index.db")
                 assertThat(atlas(arrayOf("index", "--sources", sources.toString(), "--out", index.toString(), "--compilation-schema", schema) + oracle)).isEqualTo(0)
+                // Every column of a view written in the sources has a definition in its CREATE VIEW.
+                DriverManager.getConnection("jdbc:sqlite:$index").use { db ->
+                    db.createStatement().use { st ->
+                        st.executeQuery(
+                            """SELECT c.key FROM entity v JOIN unit u ON u.entity_id = v.id JOIN entity c ON c.parent_id = v.id
+                               WHERE v.kind = 'VIEW' AND c.kind = 'COLUMN' AND NOT EXISTS
+                               (SELECT 1 FROM occurrence o WHERE o.entity_id = c.id AND o.roles LIKE 'DEFINITION%')"""
+                        ).use { rs -> assertThat(generateSequence { if (rs.next()) rs.getString(1) else null }.toList()).isEmpty() }
+                        st.executeQuery("SELECT count(*) FROM occurrence o JOIN entity c ON c.id = o.entity_id JOIN entity v ON v.id = c.parent_id WHERE v.kind = 'VIEW' AND o.roles LIKE 'DEFINITION%'")
+                            .use { rs -> rs.next(); assertThat(rs.getInt(1)).isEqualTo(VIEW_COLUMN_DEFINITIONS) }
+                    }
+                }
 
                 val out = temp.resolve("out")
                 val saved = temp.resolve("deps.csv")
@@ -136,8 +148,11 @@ class OracleCompareIT {
         // P_XMLSEQ on the public synonym XMLSEQUENCE and its operator SYS.XMLSEQUENCE (Oracle records both).
         val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 31, "SOURCE_DIFFERS" to 1)
         val EXPECTED_INDEX_ONLY = mapOf("SOURCE_DIFFERS" to 1)
-        val EXPECTED_MATCHED = mapOf("EXACT" to 28, "SYNONYM" to 9)
+        val EXPECTED_MATCHED = mapOf("EXACT" to 33, "SYNONYM" to 9)
 
         val DEBUG_TRIGGERS = listOf("TRG_ORDER_DEBUG")
+
+        /** V_OPEN_ORDERS 3, V_ORDER_TOTALS 3, V_ORDER_PAIRS 2, V_ORDER_UNION 2, V_BIG_TOTALS 2. */
+        const val VIEW_COLUMN_DEFINITIONS = 12
     }
 }

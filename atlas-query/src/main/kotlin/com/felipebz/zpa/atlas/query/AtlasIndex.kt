@@ -95,9 +95,22 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         EntityDetail(
             row.key, row.kind, row.schema, row.name, row.display, row.external, parent, children, relations, definitions, overloads,
             UsageSummary(tally(usages.flatMap { roles(it.first) }), tally(usages.map { it.second }), asCandidate),
-            triggerEvents(connection, row.id, row.kind, row.parentId?.toLong())
+            triggerEvents(connection, row.id, row.kind, row.parentId?.toLong()),
+            if (row.kind == "VIEW") viewReads(connection, row.id) else emptyList(),
+            if (row.kind in VIEWED_KINDS) viewsReading(connection, row.id) else emptyList()
         )
     }
+
+    // Both derive from the SQL_SELECT occurrences: no relation rows are stored for them.
+    private fun viewReads(connection: Connection, viewId: Long): List<EntitySummary> = connection.query(
+        """SELECT DISTINCT e.key, e.kind, e.display, e.external FROM occurrence o JOIN entity e ON e.id = o.entity_id
+           WHERE o.container_entity_id = ? AND (',' || o.roles || ',') LIKE '%,SQL_SELECT,%' ORDER BY e.key""", listOf(viewId), ::entitySummary
+    )
+
+    private fun viewsReading(connection: Connection, relationId: Long): List<EntitySummary> = connection.query(
+        """SELECT DISTINCT v.key, v.kind, v.display, v.external FROM occurrence o JOIN entity v ON v.id = o.container_entity_id
+           WHERE o.entity_id = ? AND v.kind = 'VIEW' AND (',' || o.roles || ',') LIKE '%,SQL_SELECT,%' ORDER BY v.key""", listOf(relationId), ::entitySummary
+    )
 
     /** The trigger events [EntityDetail.triggerEvents] lists for an entity of [kind]. */
     private fun triggerEvents(connection: Connection, id: Long, kind: String, parentId: Long?): List<TriggerEvent> {
@@ -302,6 +315,9 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
     companion object {
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
         const val SCHEMA_VERSION = 5
+
+        /** The relation kinds whose entity page lists the views that read them. */
+        val VIEWED_KINDS = setOf("TABLE", "VIEW", "OBJECT_TABLE")
 
         /** Decodes an indexed file with the charset recorded for it (`source_file.encoding`); a leading BOM is dropped. */
         fun decode(bytes: ByteArray, encoding: String): String =

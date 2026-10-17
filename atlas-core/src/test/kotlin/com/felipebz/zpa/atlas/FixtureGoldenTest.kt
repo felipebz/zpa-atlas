@@ -98,8 +98,9 @@ class FixtureGoldenTest {
             .containsExactly("hr/fn_company_name.fun", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/pack_calls.pkb", "hr/pack_calls.pks",
                 "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_inline.sql", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
                 "hr/pack_process.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_own_objects.prc",
+                "hr/proc_source_view.prc",
                 "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_xmlseq.prc", "hr/trg_company_bu.trg",
-                "hr/trg_forms.trg", "hr/trg_syn_company.trg", "hr/ty_point.typ", "hr/ty_shapes.typ", "scripts/broken.sql", "scripts/broken_call.sql")
+                "hr/trg_forms.trg", "hr/trg_syn_company.trg", "hr/ty_point.typ", "hr/ty_shapes.typ", "hr/views.sql", "scripts/broken.sql", "scripts/broken_call.sql")
     }
 
     @Test

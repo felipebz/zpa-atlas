@@ -76,7 +76,11 @@ data class EntityDetail(
     val usage: UsageSummary,
     /** For a trigger, its events; for a table or view, the events of the triggers on it; for a column, the `UPDATE`
      * events that fire when it is updated (`UPDATE OF` naming it, or `UPDATE` without a column list). */
-    val triggerEvents: List<TriggerEvent> = emptyList()
+    val triggerEvents: List<TriggerEvent> = emptyList(),
+    /** For a view, the relations its query reads (`SQL_SELECT` occurrences inside it, every level of the query). */
+    val reads: List<EntitySummary> = emptyList(),
+    /** For a table, view or object table, the views whose query reads it. */
+    val views: List<EntitySummary> = emptyList()
 )
 
 enum class Scope { SELF, IMPLEMENTATIONS, CHILDREN }

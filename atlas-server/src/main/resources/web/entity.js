@@ -38,6 +38,11 @@ function renderEntity(entity) {
     `<h2>${esc(t(own ? "trigger.events" : "trigger.firing"))}</h2><table>${entity.triggerEvents.map(e =>
       `<tr>${own ? "" : `<td>${entityLink(e.trigger)}</td>`}<td>${esc(t("trigger.timing." + e.timing))}</td><td>${esc(e.level ? t("trigger.level." + e.level) : "")}</td>
        <td>${esc(e.event)}${e.column ? " " + esc(t("trigger.of")) + " " + entityLink(e.column) : ""}</td></tr>`).join("")}</table>`;
+  // A view's base relations, and the views over a relation: both from the SQL reads of the view queries.
+  const links = (list, title) => list.length === 0 ? "" :
+    `<h2>${esc(t(title))}</h2><ul>${list.map(e => `<li>${entityLink(e)}</li>`).join("")}</ul>`;
+  document.getElementById("viewReads").innerHTML = links(entity.reads, "entity.reads");
+  document.getElementById("views").innerHTML = links(entity.views, "entity.views");
   const byKind = {};
   for (const child of entity.children) (byKind[child.kind] ??= []).push(child);
   document.getElementById("children").innerHTML = entity.children.length === 0 ? "" :

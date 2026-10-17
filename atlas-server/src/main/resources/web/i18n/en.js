@@ -40,6 +40,8 @@ registerMessages("en", {
   "entity.overload.body": "body",
   "entity.relations": "Relations",
   "entity.children": "Contents",
+  "entity.reads": "Reads",
+  "entity.views": "Views",
   "trigger.events": "Fires on",
   "trigger.firing": "Triggers",
   "trigger.of": "of",

@@ -40,6 +40,14 @@ object Fixture {
             relation("SEND_QUEUE", "ID", "RECORD_TYPE", "PAYLOAD"),
             relation("EVENT_LOG", "ID", "MSG"),
             relation("V_COMPANY", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),
+            // The views of hr/views.sql; V_COMPANY_CALC has a column its text does not name.
+            relation("V_COMPANY_LIST", "COMPANY_ID", "COMPANY_LABEL", kind = DictionaryRelationKind.VIEW),
+            relation("V_COMPANY_CALC", "ID", "LABEL", "NAME_LEN", "LEGACY_COL", kind = DictionaryRelationKind.VIEW),
+            relation("V_SEND_ALL", "ID", "RECORD_TYPE", "PAYLOAD", kind = DictionaryRelationKind.VIEW),
+            relation("V_SEND_Q", "ID", "RECORD_TYPE", "PAYLOAD", "TAG", kind = DictionaryRelationKind.VIEW),
+            relation("V_LOG_UNION", "ID", "TEXT", kind = DictionaryRelationKind.VIEW),
+            relation("V_ACTIVE_COMPANY", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),
+            relation("V_COMPANY_NAMES", "COMPANY_ID", "COMPANY_LABEL", kind = DictionaryRelationKind.VIEW),
             relation("USER_TABLES", "TABLE_NAME", "NUM_ROWS", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
             relation("USER_TAB_COLUMNS", "TABLE_NAME", "COLUMN_NAME", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
             relation("V_\$SESSION", "SID", "USERNAME", kind = DictionaryRelationKind.VIEW, schema = "SYS")
@@ -75,6 +83,8 @@ object Fixture {
         mapOf(
             "HR" to mapOf(
                 "COMPANY" to "TABLE", "SEND_QUEUE" to "TABLE", "EVENT_LOG" to "TABLE", "V_COMPANY" to "VIEW",
+                "V_COMPANY_LIST" to "VIEW", "V_COMPANY_CALC" to "VIEW", "V_SEND_ALL" to "VIEW", "V_SEND_Q" to "VIEW",
+                "V_LOG_UNION" to "VIEW", "V_ACTIVE_COMPANY" to "VIEW", "V_COMPANY_NAMES" to "VIEW",
                 "SYN_COMPANY" to "SYNONYM", "SYN_CHAIN1" to "SYNONYM", "SYN_CHAIN2" to "SYNONYM", "SYN_LOOP_A" to "SYNONYM",
                 "SYN_LOOP_B" to "SYNONYM", "SYN_EXT_PKG" to "SYNONYM", "SYN_CALLS" to "SYNONYM",
                 "DBMS_RANDOM" to "PACKAGE", "TY_MISSING" to "TYPE", "SEQ_MISSING" to "SEQUENCE"
