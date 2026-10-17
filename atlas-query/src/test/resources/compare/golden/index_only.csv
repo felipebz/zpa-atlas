@@ -16,3 +16,4 @@ INDEX_ONLY,HR,PROC_SYNONYMS,PROCEDURE,SYS,V_$SESSION,VIEW,,hr/proc_synonyms.prc:
 SOURCE_DIFFERS,HR,TRG_COMPANY_BU,TRIGGER,HR,COMPANY,TABLE,,hr/trg_company_bu.trg:1 hr/trg_company_bu.trg:5 hr/trg_company_bu.trg:6
 SOURCE_DIFFERS,HR,TRG_COMPANY_BU,TRIGGER,HR,EVENT_LOG,TABLE,,hr/trg_company_bu.trg:7 hr/trg_company_bu.trg:8
 UNIT_INVALID,HR,PROC_STANDALONE,PROCEDURE,HR,COMPANY,TABLE,,hr/proc_standalone.prc:3
+UNIT_INVALID,HR,TRG_SYN_COMPANY,TRIGGER,HR,COMPANY,TABLE,,hr/trg_syn_company.trg:1 hr/trg_syn_company.trg:3

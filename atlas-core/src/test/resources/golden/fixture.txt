@@ -654,6 +654,7 @@ hr/trg_forms.trg	39:0-43:4	trg_schema_logon	db:HR.TRG_SCHEMA_LOGON	DEFINITION	RE
 hr/trg_forms.trg	45:0-49:4	trg_schema_ddl	db:HR.TRG_SCHEMA_DDL	DEFINITION	RESOLVED	-	db:HR.TRG_SCHEMA_DDL	-
 hr/trg_forms.trg	51:0-55:4	trg_company_stmt	db:HR.TRG_COMPANY_STMT	DEFINITION	RESOLVED	-	db:HR.TRG_COMPANY_STMT	-
 hr/trg_syn_company.trg	1:0-4:4	trg_syn_company	db:HR.TRG_SYN_COMPANY	DEFINITION	RESOLVED	-	db:HR.TRG_SYN_COMPANY	-
+hr/trg_syn_company.trg	3:5-3:12	:old.id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.TRG_SYN_COMPANY	-
 hr/ty_owned.typ	1:0-1:56	ty_owned	db:HR.TY_OWNED	DEFINITION	RESOLVED	-	db:HR.TY_OWNED	-
 hr/ty_point.typ	1:0-1:53	ty_point	db:HR.TY_POINT	DEFINITION	RESOLVED	-	db:HR.TY_POINT	-
 hr/ty_shapes.typ	1:0-1:64	ty_shape	db:HR.TY_SHAPE	DEFINITION	RESOLVED	-	db:HR.TY_SHAPE	-
@@ -1238,7 +1239,7 @@ hr/proc_synonyms.prc	DB_SOURCE	997	HR	OK	0
 hr/proc_xmlseq.prc	DB_SOURCE	169	HR	OK	0
 hr/trg_company_bu.trg	DB_SOURCE	278	HR	OK	0
 hr/trg_forms.trg	DB_SOURCE	1341	HR	OK	0
-hr/trg_syn_company.trg	DB_SOURCE	105	HR	OK	0
+hr/trg_syn_company.trg	DB_SOURCE	133	HR	OK	0
 hr/ty_owned.typ	DB_SOURCE	59	HR	OK	0
 hr/ty_point.typ	DB_SOURCE	56	HR	OK	0
 hr/ty_shapes.typ	DB_SOURCE	286	HR	OK	0

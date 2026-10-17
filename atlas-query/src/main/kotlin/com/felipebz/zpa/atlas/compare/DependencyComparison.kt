@@ -88,7 +88,7 @@ data class IndexOnlyEdge(val indexClass: String, val unit: DbObjectId, val targe
 /**
  * One (trigger, column, facet) seen by one side only, or by both. Facets: `LIST` (named in `UPDATE OF`), `IN` (read
  * through a correlation name in the body), `OUT` (written through `NEW`), and `USED` for compound triggers, where
- * Oracle records the usage as `NONE`. [group] is `COMPARED`, `SOURCE_DIFFERS` or `NO_UNIT`; [debug] is true when
+ * Oracle records the usage as `NONE`. [group] is `COMPARED`, `SOURCE_DIFFERS`, `INVALID` or `NO_UNIT`; [debug] is true when
  * the trigger was compiled with `PLSQL_DEBUG`, which makes Oracle list every column of the table as read.
  */
 data class TriggerColumnFact(
@@ -465,6 +465,7 @@ class DependencyComparison(
      */
     private fun triggerColumns(connection: Connection, units: Set<DbObjectId>, differing: Set<DbObjectId>): List<TriggerColumnFact> {
         val triggers = database.objects.filter { it.type == "TRIGGER" }.map { it.owner to it.name }.toSet()
+        val invalid = database.objects.filter { it.type == "TRIGGER" && it.status == "INVALID" }.map { DbObjectId(it.owner, it.name, it.type) }.toSet()
         val debug = database.triggerSettings.filter { it.debug }.map { it.owner to it.name }.toSet()
         val compound = connection.query(
             """SELECT DISTINCT t.schema_name, t.name FROM trigger_event e JOIN entity t ON t.id = e.trigger_id WHERE e.timing = 'COMPOUND'"""
@@ -505,9 +506,12 @@ class DependencyComparison(
         val result = ArrayList<TriggerColumnFact>()
         for (key in (index.keys + db.keys)) {
             val obj = DbObjectId(key.first, key.second, "TRIGGER")
+            // INVALID: Oracle keeps the rows of the last successful compile when a dependency invalidates the trigger
+            // (stale), and lists the columns with usage NONE when the trigger itself failed to compile (empty).
             val group = when {
                 obj !in units -> "NO_UNIT"
                 obj in differing -> "SOURCE_DIFFERS"
+                obj in invalid -> "INVALID"
                 else -> "COMPARED"
             }
             val indexFacets = index[key].orEmpty()

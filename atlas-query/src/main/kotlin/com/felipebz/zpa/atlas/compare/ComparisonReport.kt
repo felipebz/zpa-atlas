@@ -78,6 +78,8 @@ object ComparisonReport {
         }
         val triggersDiffering = r.triggerColumns.filter { it.group == "SOURCE_DIFFERS" }
         line("  SOURCE_DIFFERS (not compared): ${triggers(triggersDiffering).size} trigger(s), ${counts(triggersDiffering)}")
+        val triggersInvalid = r.triggerColumns.filter { it.group == "INVALID" }
+        line("  INVALID (not compared): ${triggers(triggersInvalid).size} trigger(s), ${counts(triggersInvalid)}")
         line("  database triggers without unit (not compared): ${triggers(r.triggerColumns.filter { it.group == "NO_UNIT" }).size}")
         line()
         top("Top NOT_EXTRACTED names", r.databaseOnly.filter { it.dbClass == "NOT_EXTRACTED" }.map { it.reference.referencedName })

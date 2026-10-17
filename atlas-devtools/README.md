@@ -26,9 +26,10 @@ triggers that are units of the index and have an `ALL_OBJECTS` row: `LIST` (`COL
 `:new`), and `USED` for compound triggers, whose usage Oracle records as `NONE`. Names in the `WHEN` clause are left
 out, as Oracle does. Each facet line also gives the counts without the triggers compiled with debug
 (`ALL_PLSQL_OBJECT_SETTINGS.PLSQL_DEBUG = 'TRUE'`): Oracle then lists every column of the table as read, whatever the
-trigger uses. Triggers whose stored source differs get their own line and are not counted; database triggers without
-a unit are only counted. `trigger_columns.csv` has a `group` column (`COMPARED`, `SOURCE_DIFFERS`, `NO_UNIT`) and a
-`debug` column: the differences of the compared triggers, and every row of the other two groups.
+trigger uses. Triggers whose stored source differs and invalid triggers (whose rows Oracle leaves stale, or with
+usage `NONE`) get their own lines and are not counted; a trigger in both is `SOURCE_DIFFERS`. Database triggers without
+a unit are only counted. `trigger_columns.csv` has a `group` column (`COMPARED`, `SOURCE_DIFFERS`, `INVALID`, `NO_UNIT`) and a
+`debug` column: the differences of the compared triggers, and every row of the other three groups.
 
 - With `--oracle-*` it reads `ALL_DEPENDENCIES`, `ALL_OBJECTS`, `ALL_SOURCE`, `ALL_TRIGGER_COLS` and the triggers' `ALL_PLSQL_OBJECT_SETTINGS` of the `--oracle-schemas` owners
   (`--oracle-relations` is rejected). Only the seven `ALL_DEPENDENCIES` columns that exist on 10.2 are read.

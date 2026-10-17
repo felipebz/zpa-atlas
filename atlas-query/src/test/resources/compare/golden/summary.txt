@@ -3,7 +3,7 @@ compare-deps summary
 Units
   mapped to database objects: 51
   scripts and anonymous blocks (not compared): 27, with 46 edge occurrence(s)
-  units without ALL_OBJECTS row (not compared): 41, with 52 index edge(s)
+  units without ALL_OBJECTS row (not compared): 40, with 51 index edge(s)
   database objects without unit in the index: 2
 
 Source
@@ -16,7 +16,7 @@ Source
 
 Edges
   database: 26
-  index: 31
+  index: 32
   matched: 14 (exact 11, by name 0, synonym 3)
   matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 5)
 
@@ -43,9 +43,9 @@ Database only: 12
   GUESSED_ELSEWHERE: 0
   NOT_EXTRACTED: 0
 
-Index only: 17
+Index only: 18
   SOURCE_DIFFERS: 2
-  UNIT_INVALID: 1
+  UNIT_INVALID: 2
   BY_NAME_ONLY: 2
   INDEX_ONLY: 12
 
@@ -56,6 +56,7 @@ Trigger columns (ALL_TRIGGER_COLS, per trigger, column and facet)
   OUT: matched 4, database only 0, index only 0; without debug: matched 0, database only 0, index only 0
   USED: matched 0, database only 0, index only 0; without debug: matched 0, database only 0, index only 0
   SOURCE_DIFFERS (not compared): 1 trigger(s), matched 1, database only 1, index only 1
+  INVALID (not compared): 1 trigger(s), matched 0, database only 0, index only 1
   database triggers without unit (not compared): 1
 
 Top NOT_EXTRACTED names
