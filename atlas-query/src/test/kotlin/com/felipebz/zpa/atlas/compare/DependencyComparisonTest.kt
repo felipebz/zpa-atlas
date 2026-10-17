@@ -77,7 +77,7 @@ class DependencyComparisonTest {
         val out = temp.resolve("out")
         ComparisonReport.writeCsv(result, out)
         val actual = mapOf("summary.txt" to ComparisonReport.summary(result)) +
-            listOf("units.csv", "matched.csv", "db_only.csv", "index_only.csv").associateWith { Files.readString(out.resolve(it)) }
+            listOf("units.csv", "matched.csv", "db_only.csv", "index_only.csv", "trigger_columns.csv").associateWith { Files.readString(out.resolve(it)) }
         if (update) {
             Files.createDirectories(golden)
             actual.forEach { (name, text) -> Files.writeString(golden.resolve(name), text) }

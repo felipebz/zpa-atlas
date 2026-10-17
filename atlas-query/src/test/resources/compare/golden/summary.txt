@@ -1,35 +1,35 @@
 compare-deps summary
 
 Units
-  mapped to database objects: 45
+  mapped to database objects: 51
   scripts and anonymous blocks (not compared): 27, with 46 edge occurrence(s)
-  units without ALL_OBJECTS row (not compared): 37, with 50 index edge(s)
-  database objects without unit in the index: 1
+  units without ALL_OBJECTS row (not compared): 41, with 52 index edge(s)
+  database objects without unit in the index: 2
 
 Source
   SAME: 1
   DIFFERS: 1
   WRAPPED: 0
-  NO_STORED_SOURCE: 43
+  NO_STORED_SOURCE: 49
   UNAVAILABLE: 0
     HR.TRG_COMPANY_BU TRIGGER: first difference at stored line 5
 
 Edges
-  database: 21
-  index: 25
-  matched: 9 (exact 6, by name 0, synonym 3)
+  database: 26
+  index: 31
+  matched: 14 (exact 11, by name 0, synonym 3)
   matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 5)
 
 Match rate (matched / (database - BUILTIN - NON_EXISTENT))
-  overall: 47.4% (9/19)
-  overall, names in the text: 69.2% (9/13)
+  overall: 58.3% (14/24)
+  overall, names in the text: 77.8% (14/18)
   FUNCTION: 0.0% (0/1); names in the text 0.0% (0/1)
-  PACKAGE: 100.0% (3/3); names in the text 100.0% (3/3)
+  PACKAGE: 100.0% (4/4); names in the text 100.0% (4/4)
   PROCEDURE: 100.0% (1/1); names in the text 100.0% (1/1)
   SYNONYM: 100.0% (3/3); names in the text 100.0% (3/3)
-  TABLE: 14.3% (1/7); names in the text 25.0% (1/4)
+  TABLE: 40.0% (4/10); names in the text 57.1% (4/7)
   TYPE: 33.3% (1/3); names in the text 100.0% (1/1)
-  VIEW: 0.0% (0/1); names in the text n/a (0/0)
+  VIEW: 50.0% (1/2); names in the text 100.0% (1/1)
 
 Database only: 12
   BUILTIN: 1
@@ -43,11 +43,20 @@ Database only: 12
   GUESSED_ELSEWHERE: 0
   NOT_EXTRACTED: 0
 
-Index only: 16
+Index only: 17
   SOURCE_DIFFERS: 2
   UNIT_INVALID: 1
-  BY_NAME_ONLY: 1
+  BY_NAME_ONLY: 2
   INDEX_ONLY: 12
+
+Trigger columns (ALL_TRIGGER_COLS, per trigger, column and facet)
+  compared triggers: 2, compiled with debug: 1
+  LIST: matched 2, database only 0, index only 0; without debug: matched 0, database only 0, index only 0
+  IN: matched 4, database only 2, index only 1; without debug: matched 2, database only 0, index only 0
+  OUT: matched 4, database only 0, index only 0; without debug: matched 0, database only 0, index only 0
+  USED: matched 0, database only 0, index only 0; without debug: matched 0, database only 0, index only 0
+  SOURCE_DIFFERS (not compared): 1 trigger(s), matched 1, database only 1, index only 1
+  database triggers without unit (not compared): 1
 
 Top NOT_EXTRACTED names
   (none)

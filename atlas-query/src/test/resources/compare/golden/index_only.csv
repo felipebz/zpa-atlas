@@ -1,5 +1,6 @@
 class,owner,name,type,target_owner,target_name,target_type,target_link,locations
 BY_NAME_ONLY,HR,PACK_PROCESS,PACKAGE BODY,~,DBMS_SQL,PACKAGE,,hr/pack_process.pkb:30
+BY_NAME_ONLY,HR,TRG_COMPANY_FORMS,TRIGGER,~,PACK_EXTERNAL,PACKAGE,,hr/trg_forms.trg:17
 INDEX_ONLY,HR,PACK_PROCESS,PACKAGE,HR,SEND_QUEUE,TABLE,,hr/pack_process.pks:3 hr/pack_process.pks:4
 INDEX_ONLY,HR,PACK_PROCESS,PACKAGE BODY,HR,EVENT_LOG,TABLE,,hr/pack_process.pkb:4
 INDEX_ONLY,HR,PACK_PROCESS,PACKAGE BODY,HR,FN_ONE,FUNCTION,,hr/pack_process.pkb:30
@@ -12,6 +13,6 @@ INDEX_ONLY,HR,PROC_SYNONYMS,PROCEDURE,HR,SEND_QUEUE,TABLE,,hr/proc_synonyms.prc:
 INDEX_ONLY,HR,PROC_SYNONYMS,PROCEDURE,SYS,NO_SUCH_VIEW,,,hr/proc_synonyms.prc:17
 INDEX_ONLY,HR,PROC_SYNONYMS,PROCEDURE,SYS,USER_TAB_COLUMNS,VIEW,,hr/proc_synonyms.prc:10 hr/proc_synonyms.prc:11
 INDEX_ONLY,HR,PROC_SYNONYMS,PROCEDURE,SYS,V_$SESSION,VIEW,,hr/proc_synonyms.prc:5 hr/proc_synonyms.prc:12
-SOURCE_DIFFERS,HR,TRG_COMPANY_BU,TRIGGER,HR,COMPANY,TABLE,,hr/trg_company_bu.trg:1
-SOURCE_DIFFERS,HR,TRG_COMPANY_BU,TRIGGER,HR,EVENT_LOG,TABLE,,hr/trg_company_bu.trg:6
+SOURCE_DIFFERS,HR,TRG_COMPANY_BU,TRIGGER,HR,COMPANY,TABLE,,hr/trg_company_bu.trg:1 hr/trg_company_bu.trg:5 hr/trg_company_bu.trg:6
+SOURCE_DIFFERS,HR,TRG_COMPANY_BU,TRIGGER,HR,EVENT_LOG,TABLE,,hr/trg_company_bu.trg:7 hr/trg_company_bu.trg:8
 UNIT_INVALID,HR,PROC_STANDALONE,PROCEDURE,HR,COMPANY,TABLE,,hr/proc_standalone.prc:3

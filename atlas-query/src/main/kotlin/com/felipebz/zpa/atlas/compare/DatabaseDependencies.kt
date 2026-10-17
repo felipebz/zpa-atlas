@@ -26,6 +26,24 @@ data class DbObject(val owner: String, val name: String, val type: String, val s
 data class DbSourceLine(val owner: String, val name: String, val type: String, val line: Int, val text: String)
 
 /**
+ * One `ALL_TRIGGER_COLS` row: a column of the trigger's table named in its `UPDATE OF` list ([columnList]) or used
+ * through a correlation name, with [usage] as Oracle writes it (`NONE`, `NEW IN`, `NEW OUT`, `NEW IN OUT`, `OLD IN`,
+ * and combinations such as `NEW OUT OLD IN`).
+ */
+data class DbTriggerColumn(
+    val triggerOwner: String,
+    val triggerName: String,
+    val tableOwner: String,
+    val tableName: String,
+    val column: String,
+    val columnList: Boolean,
+    val usage: String
+)
+
+/** One `ALL_PLSQL_OBJECT_SETTINGS` row of a trigger: [debug] is `PLSQL_DEBUG = 'TRUE'`. */
+data class DbTriggerSetting(val owner: String, val name: String, val debug: Boolean)
+
+/**
  * What the database knows about the code of some owners. [sourceReadable] is false when `ALL_SOURCE` could not be read;
  * the comparison then skips the source classes instead of failing.
  */
@@ -33,7 +51,10 @@ data class DatabaseDependencies(
     val dependencies: List<DbDependency>,
     val objects: List<DbObject>,
     val sources: List<DbSourceLine>,
-    val sourceReadable: Boolean
+    val sourceReadable: Boolean,
+    val triggerColumns: List<DbTriggerColumn> = emptyList(),
+    /** Absent from older files and unreadable databases: every trigger then counts as compiled without debug. */
+    val triggerSettings: List<DbTriggerSetting> = emptyList()
 ) {
     /**
      * Writes the dependencies file: CSV (RFC 4180, UTF-8, `\n` line ends) with the header
@@ -41,7 +62,10 @@ data class DatabaseDependencies(
      * - `META,source_readable,true|false` (the other columns empty);
      * - `OBJ,owner,name,type,status`;
      * - `DEP,owner,name,type,referenced_owner,referenced_name,referenced_type,referenced_link` (empty = null);
-     * - `SRC,owner,name,type,line,text`.
+     * - `SRC,owner,name,type,line,text`;
+     * - `TCOL,trigger_owner,trigger_name,column_name,table_owner,table_name,column_list,column_usage` (`ALL_TRIGGER_COLS`,
+     *   `column_list` `YES` or `NO`);
+     * - `TSET,owner,name,TRIGGER,plsql_debug` (`ALL_PLSQL_OBJECT_SETTINGS`, `TRUE` or `FALSE`; optional).
      */
     fun write(writer: Writer) {
         writer.write(Csv.line(listOf("kind", "owner", "name", "type", "c1", "c2", "c3", "c4")))
@@ -54,6 +78,12 @@ data class DatabaseDependencies(
         }
         for (s in sources.sortedWith(compareBy({ it.owner }, { it.name }, { it.type }, { it.line }))) {
             writer.write(Csv.line(listOf("SRC", s.owner, s.name, s.type, s.line.toString(), s.text, "", "")))
+        }
+        for (c in triggerColumns.sortedWith(compareBy({ it.triggerOwner }, { it.triggerName }, { it.column }))) {
+            writer.write(Csv.line(listOf("TCOL", c.triggerOwner, c.triggerName, c.column, c.tableOwner, c.tableName, if (c.columnList) "YES" else "NO", c.usage)))
+        }
+        for (t in triggerSettings.sortedWith(compareBy({ it.owner }, { it.name }))) {
+            writer.write(Csv.line(listOf("TSET", t.owner, t.name, "TRIGGER", if (t.debug) "TRUE" else "FALSE", "", "", "")))
         }
     }
 
@@ -69,6 +99,8 @@ data class DatabaseDependencies(
             val dependencies = ArrayList<DbDependency>()
             val objects = ArrayList<DbObject>()
             val sources = ArrayList<DbSourceLine>()
+            val triggerColumns = ArrayList<DbTriggerColumn>()
+            val triggerSettings = ArrayList<DbTriggerSetting>()
             var sourceReadable = true
             for ((index, row) in rows.withIndex().drop(1)) {
                 fun col(i: Int) = row.getOrElse(i) { "" }
@@ -78,10 +110,12 @@ data class DatabaseDependencies(
                     "OBJ" -> objects += DbObject(col(1), col(2), col(3), col(4))
                     "DEP" -> dependencies += DbDependency(col(1), col(2), col(3), nullable(4), col(5), col(6), nullable(7))
                     "SRC" -> sources += DbSourceLine(col(1), col(2), col(3), col(4).toInt(), col(5))
+                    "TCOL" -> triggerColumns += DbTriggerColumn(col(1), col(2), col(4), col(5), col(3), col(6) == "YES", col(7))
+                    "TSET" -> triggerSettings += DbTriggerSetting(col(1), col(2), col(4) == "TRUE")
                     else -> throw IllegalArgumentException("Line ${index + 1}: unknown kind '${col(0)}'")
                 }
             }
-            return DatabaseDependencies(dependencies, objects, sources, sourceReadable)
+            return DatabaseDependencies(dependencies, objects, sources, sourceReadable, triggerColumns, triggerSettings)
         }
     }
 }

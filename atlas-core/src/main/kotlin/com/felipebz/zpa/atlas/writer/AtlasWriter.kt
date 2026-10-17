@@ -42,6 +42,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         val fileIds = HashMap<String, Long>()
         val entityIds = insertEntities(globalEntities + sortedFiles.flatMap { it.entities })
         insertRelations((globalRelations + sortedFiles.flatMap { it.relations }), entityIds)
+        insertTriggerEvents(sortedFiles.flatMap { it.triggerEvents }, entityIds)
 
         val fileInsert = prepare("INSERT INTO source_file(id, path, kind, sha256, size_bytes, compilation_schema, parse_status, recovered_regions, encoding) VALUES (?,?,?,?,?,?,?,?,?)")
         val unitInsert = prepare("INSERT INTO unit(id, file_id, entity_id, kind, name, start_line, start_col, end_line, end_col, origin_path, origin_line_offset) VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL)")
@@ -198,6 +199,23 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         }
     }
 
+    private fun insertTriggerEvents(facts: List<TriggerEventFact>, ids: Map<String, Long>) {
+        val rows = facts.distinct().sortedWith(compareBy({ ids.getValue(it.triggerKey) }, { it.event }, { it.timing }, { it.level }, { it.columnKey?.let(ids::getValue) ?: 0L }))
+        prepare("INSERT INTO trigger_event(trigger_id, timing, level, event, column_id) VALUES (?,?,?,?,?)").use { insert ->
+            val batches = Batches(insert)
+            for (row in rows) {
+                insert.setLong(1, ids.getValue(row.triggerKey))
+                insert.setString(2, row.timing.name)
+                insert.setNullableString(3, row.level?.name)
+                insert.setString(4, row.event)
+                insert.setNullableLong(5, row.columnKey?.let { ids.getValue(it) })
+                batches.add(insert)
+                batches.flushIfFull()
+            }
+            batches.flush()
+        }
+    }
+
     private fun prepare(sql: String): PreparedStatement = connection.prepareStatement(sql)
 
     /**
@@ -230,7 +248,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 4
+        const val SCHEMA_VERSION = 5
 
         /** Pending rows (all statements together) after which the batches are executed. */
         private const val FLUSH_ROWS = 20_000
@@ -414,6 +432,14 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 file_id INTEGER NULL REFERENCES source_file(id),
                 kind TEXT NOT NULL,
                 message TEXT NOT NULL
+            )""",
+            // The event is free text: DML events, but also the DDL and database events of system triggers.
+            """CREATE TABLE trigger_event (
+                trigger_id INTEGER NOT NULL REFERENCES entity(id),
+                timing TEXT NOT NULL ${check<TriggerTiming>("timing")},
+                level TEXT NULL ${check<TriggerLevel>("level")},
+                event TEXT NOT NULL,
+                column_id INTEGER NULL REFERENCES entity(id)
             )"""
         ).map { it.trimIndent() }
 
@@ -429,7 +455,9 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             "CREATE INDEX entity_name_nocase ON entity(name COLLATE NOCASE)",
             "CREATE INDEX relation_from ON relation(from_id)",
             "CREATE INDEX call_argument_parameter ON call_argument(parameter_entity_id)",
-            "CREATE INDEX relation_to ON relation(to_id)"
+            "CREATE INDEX relation_to ON relation(to_id)",
+            "CREATE INDEX trigger_event_trigger ON trigger_event(trigger_id)",
+            "CREATE INDEX trigger_event_column ON trigger_event(column_id)"
         )
     }
 }

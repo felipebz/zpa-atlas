@@ -14,13 +14,15 @@ import com.felipebz.zpa.atlas.compare.DatabaseDependencies
 import com.felipebz.zpa.atlas.compare.DbDependency
 import com.felipebz.zpa.atlas.compare.DbObject
 import com.felipebz.zpa.atlas.compare.DbSourceLine
+import com.felipebz.zpa.atlas.compare.DbTriggerColumn
+import com.felipebz.zpa.atlas.compare.DbTriggerSetting
 import java.nio.file.Path
 import java.sql.Connection
 import java.sql.SQLException
 import java.util.logging.Logger
 
 /**
- * Reads `ALL_DEPENDENCIES`, `ALL_OBJECTS` and `ALL_SOURCE` for the requested owners, in one read-only transaction.
+ * Reads `ALL_DEPENDENCIES`, `ALL_OBJECTS`, `ALL_SOURCE`, `ALL_TRIGGER_COLS` and the triggers' `PLSQL_DEBUG` setting for the requested owners, in one read-only transaction.
  * Only the seven `ALL_DEPENDENCIES` columns that exist on 10.2 are used. A failure to read `ALL_SOURCE` is not an
  * error: the comparison then skips the source classes. Messages never contain the URL or the password.
  */
@@ -60,8 +62,20 @@ object OracleDependencyReader {
                         sourceReadable = false
                         emptyList()
                     }
-                    LOG.info("Read ${dependencies.size} dependencies, ${objects.size} objects, ${sources.size} source lines for $owners")
-                    return DatabaseDependencies(dependencies, objects, sources, sourceReadable)
+                    val triggerColumns = connection.rows(
+                        """SELECT trigger_owner, trigger_name, table_owner, table_name, column_name, column_list, column_usage
+                           FROM all_trigger_cols WHERE trigger_owner IN ($marks)""", owners
+                    ) { DbTriggerColumn(it.getString(1), it.getString(2), it.getString(3), it.getString(4), it.getString(5), it.getString(6) == "YES", it.getString(7) ?: "NONE") }
+                    val triggerSettings = try {
+                        connection.rows(
+                            "SELECT owner, name, plsql_debug FROM all_plsql_object_settings WHERE owner IN ($marks) AND type = 'TRIGGER'", owners
+                        ) { DbTriggerSetting(it.getString(1), it.getString(2), it.getString(3) == "TRUE") }
+                    } catch (e: SQLException) {
+                        LOG.warning("ALL_PLSQL_OBJECT_SETTINGS is not readable (error ${e.errorCode}); every trigger counts as compiled without debug")
+                        emptyList()
+                    }
+                    LOG.info("Read ${dependencies.size} dependencies, ${objects.size} objects, ${sources.size} source lines, ${triggerColumns.size} trigger columns for $owners")
+                    return DatabaseDependencies(dependencies, objects, sources, sourceReadable, triggerColumns, triggerSettings)
                 } finally {
                     connection.rollback()
                 }

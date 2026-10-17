@@ -8,3 +8,8 @@ EXACT,HR,PACK_PROCESS,PACKAGE BODY,HR,COMPANY,TABLE,,false,hr/pack_process.pkb:8
 EXACT,HR,PACK_PROCESS,PACKAGE BODY,HR,PACK_PROCESS,PACKAGE,,false,hr/pack_process.pkb:1 hr/pack_process.pkb:4 hr/pack_process.pkb:8 hr/pack_process.pkb:19 hr/pack_process.pkb:25 hr/pack_process.pkb:26 hr/pack_process.pkb:27 hr/pack_process.pkb:28 hr/pack_process.pkb:29 hr/pack_process.pkb:30 hr/pack_process.pkb:31
 SYNONYM,HR,PROC_SYNONYMS,PROCEDURE,HR,SYN_COMPANY,SYNONYM,,false,hr/proc_synonyms.prc:13 hr/proc_synonyms.prc:14 hr/proc_synonyms.prc:15
 SYNONYM,HR,PROC_SYNONYMS,PROCEDURE,PUBLIC,USER_TABLES,SYNONYM,,false,hr/proc_synonyms.prc:3 hr/proc_synonyms.prc:4 hr/proc_synonyms.prc:7 hr/proc_synonyms.prc:8 hr/proc_synonyms.prc:9 hr/proc_synonyms.prc:10 hr/proc_synonyms.prc:11
+EXACT,HR,TRG_COMPANY_FORMS,TRIGGER,HR,COMPANY,TABLE,,false,hr/trg_forms.trg:1 hr/trg_forms.trg:5 hr/trg_forms.trg:8 hr/trg_forms.trg:10 hr/trg_forms.trg:11 hr/trg_forms.trg:12 hr/trg_forms.trg:14 hr/trg_forms.trg:16 hr/trg_forms.trg:17 hr/trg_forms.trg:18
+EXACT,HR,TRG_COMPANY_FORMS,TRIGGER,HR,EVENT_LOG,TABLE,,false,hr/trg_forms.trg:18
+EXACT,HR,TRG_COMPANY_FORMS,TRIGGER,HR,PACK_PROCESS,PACKAGE,,false,hr/trg_forms.trg:16
+EXACT,HR,TRG_V_COMPANY_IOI,TRIGGER,HR,COMPANY,TABLE,,false,hr/trg_forms.trg:36
+EXACT,HR,TRG_V_COMPANY_IOI,TRIGGER,HR,V_COMPANY,VIEW,,false,hr/trg_forms.trg:32 hr/trg_forms.trg:36

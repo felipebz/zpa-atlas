@@ -57,6 +57,7 @@ class FileExtractor(
     private val entities = ArrayList<EntityFact>()
     private val relations = ArrayList<RelationFact>()
     private val coverage = ArrayList<CoverageFact>()
+    private val triggerEvents = ArrayList<TriggerEventFact>()
     private val synonyms = SynonymResolver(dictionary)
     private val resolver = RelationResolver(dictionary, synonyms, entities, relations)
     private var recoveredRegions = 0
@@ -143,24 +144,29 @@ class FileExtractor(
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
         return FileFacts(path, sha256, sizeBytes, encoding, status, recoveredRegions, defaultSchema, units, statements, occurrences,
             LinkedHashSet(entities).toList(), LinkedHashSet(relations).toList(), coverage, resolver.dictionaryRelations.toList(),
-            synonyms.dictionarySynonyms.toList())
+            synonyms.dictionarySynonyms.toList(), triggerEvents.toList())
     }
 
     // ---- units --------------------------------------------------------------------------------------------------
+
+    /**
+     * A DML trigger seen from its body: the correlation names, the relation they read and write ([target], null for a
+     * nested-table trigger), and the `WHEN` expression, where correlation names are written without a colon.
+     */
+    private class TriggerScope(val key: String, val newNames: Set<String>, val oldNames: Set<String>, val target: ResolvedRelation?, val whenExpression: AstNode?)
 
     private class Context(
         val unitIndex: Int,
         val partial: Boolean,
         val schema: String?,
         val container: String?,
-        val newNames: Set<String>?,
-        val triggerKey: String?,
+        val trigger: TriggerScope?,
         /** The package spec or body around the code, as written in its CREATE; null elsewhere. */
         val enclosingPackage: List<String>? = null,
         /** Variables, cursors and types declared at the level of the package body around the code. */
         val bodyNames: Set<String> = emptySet()
     ) {
-        fun inside(container: String) = Context(unitIndex, partial, schema, container, newNames, triggerKey, enclosingPackage, bodyNames)
+        fun inside(container: String) = Context(unitIndex, partial, schema, container, trigger, enclosingPackage, bodyNames)
     }
 
     private fun addUnit(unit: UnitFact, partial: Boolean): Int {
@@ -174,7 +180,7 @@ class FileExtractor(
 
     private fun sqlUnit(node: AstNode, partial: Boolean) {
         val index = addUnit(UnitFact(UnitKind.SQL_STATEMENT, "", null, spanOf(node), defaultSchema), partial)
-        walk(node, Context(index, partial, defaultSchema, null, null, null))
+        walk(node, Context(index, partial, defaultSchema, null, null))
     }
 
     private fun compilationUnit(node: AstNode, partial: Boolean) {
@@ -189,8 +195,7 @@ class FileExtractor(
             written.joinToString(".")
         }
         var entityKey: String? = null
-        var newNames: Set<String>? = null
-        var triggerKey: String? = null
+        var trigger: TriggerScope? = null
         val kind = when (node.type) {
             PlSqlGrammar.CREATE_PACKAGE -> UnitKind.PACKAGE.also { entityKey = sourceObject(written, EntityKind.PACKAGE) }
             PlSqlGrammar.CREATE_PACKAGE_BODY -> UnitKind.PACKAGE_BODY.also {
@@ -203,8 +208,7 @@ class FileExtractor(
             PlSqlGrammar.CREATE_TRIGGER -> UnitKind.TRIGGER.also {
                 val key = sourceObject(written, EntityKind.TRIGGER)
                 entityKey = key
-                triggerKey = key
-                newNames = trigger(node, key, schema)
+                trigger = key?.let { trigger(node, it, schema) }
             }
             PlSqlGrammar.CREATE_VIEW, PlSqlGrammar.CREATE_MATERIALIZED_VIEW -> UnitKind.VIEW.also { entityKey = dictionaryView(written, schema) }
             PlSqlGrammar.ANONYMOUS_BLOCK -> UnitKind.ANONYMOUS_BLOCK
@@ -228,7 +232,7 @@ class FileExtractor(
         } else {
             emptySet()
         }
-        walk(node, Context(index, partial, schema, entityKey, newNames, triggerKey, enclosingPackage, bodyNames))
+        walk(node, Context(index, partial, schema, entityKey, trigger, enclosingPackage, bodyNames))
     }
 
     private fun subprogramAt(node: AstNode): String? = catalog.subprogramAt(path, node.token.line, node.token.column)
@@ -251,27 +255,84 @@ class FileExtractor(
         return RelationResolver.dictionaryKey(relation)
     }
 
-    /** `TRIGGER_ON` and the correlation names of a DML trigger; null for system triggers. */
-    private fun trigger(node: AstNode, key: String?, schema: String?): Set<String>? {
+    /**
+     * The events of a trigger, its `TRIGGER_ON` relation, and for a DML trigger the scope of its correlation names
+     * (`NEW` and `OLD`, or their `REFERENCING` aliases); null for a system trigger.
+     */
+    private fun trigger(node: AstNode, key: String, schema: String?): TriggerScope? {
+        val system = node.getFirstChildOrNull(PlSqlGrammar.SYSTEM_TRIGGER)
+        if (system != null) {
+            systemEvents(system, key)
+            return null
+        }
         val dml = node.getFirstChildOrNull(PlSqlGrammar.SIMPLE_DML_TRIGGER, PlSqlGrammar.INSTEAD_OF_DML_TRIGGER, PlSqlGrammar.COMPOUND_DML_TRIGGER)
             ?: return null
         val target = dml.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)
-        if (key != null && target != null && !dml.hasDirectChildren(PlSqlKeyword.NESTED)) {
+        val relation = if (target != null && !dml.hasDirectChildren(PlSqlKeyword.NESTED)) {
             val written = names(target)
-            val relation = resolver.resolve(WrittenRelation(written.getOrNull(written.size - 2), written.last(), null), schema)
-            relations += RelationFact(key, RelationKind.TRIGGER_ON, relation.entityKey)
+            resolver.resolve(WrittenRelation(written.getOrNull(written.size - 2), written.last(), null), schema).also {
+                relations += RelationFact(key, RelationKind.TRIGGER_ON, it.entityKey)
+            }
+        } else {
+            null
         }
+        dmlEvents(dml, key, relation)
         val referencing = dml.getFirstChildOrNull(PlSqlGrammar.REFERENCING_CLAUSE)
-        val aliases = HashSet<String>()
-        if (referencing != null) {
-            val children = referencing.children
-            for ((i, child) in children.withIndex()) {
-                if (child.type == PlSqlKeyword.NEW) {
-                    children.drop(i + 1).firstOrNull { it.type == PlSqlGrammar.IDENTIFIER_NAME }?.let { aliases += normalizeIdentifier(it.tokenOriginalValue) }
-                }
+        fun aliases(keyword: PlSqlKeyword): Set<String> {
+            val children = referencing?.children.orEmpty()
+            return children.withIndex().filter { it.value.type == keyword }
+                .mapNotNull { (i, _) -> children.drop(i + 1).firstOrNull { it.type == PlSqlGrammar.IDENTIFIER_NAME } }
+                .map { normalizeIdentifier(it.tokenOriginalValue) }.toSet()
+        }
+        val whenExpression = dml.children.indexOfFirst { it.type == PlSqlKeyword.WHEN }.takeIf { it >= 0 }?.let { dml.children.getOrNull(it + 2) }
+        return TriggerScope(key, aliases(PlSqlKeyword.NEW).ifEmpty { setOf("NEW") }, aliases(PlSqlKeyword.OLD).ifEmpty { setOf("OLD") }, relation, whenExpression)
+    }
+
+    /** The events of a DML trigger; an `UPDATE OF` column resolves on the trigger's relation. */
+    private fun dmlEvents(dml: AstNode, key: String, relation: ResolvedRelation?) {
+        val row = dml.hasDirectChildren(PlSqlKeyword.ROW)
+        val (timing, level) = when (dml.type) {
+            PlSqlGrammar.COMPOUND_DML_TRIGGER -> TriggerTiming.COMPOUND to null
+            PlSqlGrammar.INSTEAD_OF_DML_TRIGGER -> TriggerTiming.INSTEAD_OF to TriggerLevel.ROW
+            else -> (if (dml.firstChild.type == PlSqlKeyword.BEFORE) TriggerTiming.BEFORE else TriggerTiming.AFTER) to
+                (if (row) TriggerLevel.ROW else TriggerLevel.STATEMENT)
+        }
+        val events = if (dml.type == PlSqlGrammar.INSTEAD_OF_DML_TRIGGER) {
+            dml.children.takeWhile { it.type != PlSqlKeyword.ON }.filter { it.type in DML_EVENTS }.map { it.tokenValue.uppercase() to emptyList<AstNode>() }
+        } else {
+            dml.getChildren(PlSqlGrammar.DML_EVENT_CLAUSE).map { it.firstChild.tokenValue.uppercase() to it.getChildren(PlSqlGrammar.IDENTIFIER_NAME) }
+        }
+        for ((event, columns) in events) {
+            if (columns.isEmpty()) {
+                triggerEvents += TriggerEventFact(key, timing, level, event, null)
+                continue
+            }
+            for (column in columns) {
+                val name = normalizeIdentifier(column.tokenOriginalValue)
+                val resolved = relation?.let { resolver.resolveColumn(it, name) }
+                val columnKey = resolved?.takeIf { it.status != Status.UNRESOLVED }?.entityKey
+                if (columnKey == null) coverage += CoverageFact("TRIGGER_COLUMN_UNRESOLVED", "$key: UPDATE OF column $name is not a column of the trigger's relation")
+                triggerEvents += TriggerEventFact(key, timing, level, event, columnKey)
             }
         }
-        return aliases.ifEmpty { setOf("NEW") }
+    }
+
+    /** The DDL or database events of a system trigger: each database event carries its own timing. */
+    private fun systemEvents(system: AstNode, key: String) {
+        val sharedTiming = when (system.firstChild.type) {
+            PlSqlKeyword.BEFORE -> TriggerTiming.BEFORE
+            PlSqlKeyword.AFTER -> TriggerTiming.AFTER
+            PlSqlKeyword.INSTEAD -> TriggerTiming.INSTEAD_OF
+            else -> null
+        }
+        for (ddl in system.getChildren(PlSqlGrammar.DDL_EVENT)) {
+            triggerEvents += TriggerEventFact(key, sharedTiming ?: TriggerTiming.AFTER, null, tokensOf(ddl).joinToString(" ") { it.value.uppercase() }, null)
+        }
+        for (database in system.getChildren(PlSqlGrammar.DATABASE_EVENT)) {
+            val tokens = tokensOf(database).map { it.value.uppercase() }
+            val timing = if (tokens.first() == "BEFORE") TriggerTiming.BEFORE else TriggerTiming.AFTER
+            triggerEvents += TriggerEventFact(key, timing, null, tokens.drop(1).joinToString(" "), null)
+        }
     }
 
     // ---- walk ---------------------------------------------------------------------------------------------------
@@ -299,14 +360,13 @@ class FileExtractor(
             PlSqlGrammar.CALL_STATEMENT -> node.children.firstOrNull { it.type != PlSqlGrammar.LABELS && it.type != PlSqlPunctuator.SEMICOLON }
                 ?.takeIf { it.type != PlSqlGrammar.METHOD_CALL }
                 ?.let { callSite(it, context, null) }
-            PlSqlGrammar.ASSIGNMENT_STATEMENT -> newColumnAssignment(node, context)
             PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE -> {
                 typeUse(node, context, null)
                 return
             }
             PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION -> if (isAggregateImplementation(node)) {
                 aggregateType(node, context)
-            } else if (isValueName(node)) {
+            } else if (isValueName(node) && !correlationColumn(node, context, null)) {
                 valueReference(node, context, null, sql = false)
             }
             PlSqlGrammar.UNIT_NAME -> if (isSupertype(node)) supertypeUse(node, context)
@@ -335,12 +395,38 @@ class FileExtractor(
         return (named ?: arguments.getOrNull(1))?.lastChild ?: node
     }
 
-    private fun newColumnAssignment(node: AstNode, context: Context) {
-        val names = context.newNames ?: return
-        val tokens = tokensOf(node.firstChild)
-        if (tokens.size >= 2 && tokens[0].value == ":" && normalizeIdentifier(tokens[1].originalValue) in names) {
-            coverage += CoverageFact("TRIGGER_NEW_COLUMN_WRITE", "${context.triggerKey} assigns :NEW columns (column writes through :NEW are not indexed)")
+    /**
+     * A column of the trigger's relation through a correlation name: `:new.col` and `:old.col` in the body (in PL/SQL
+     * or in static SQL), `new.col` without the colon in the `WHEN` clause. `:new` columns take the roles of any value
+     * (assignment and `INTO` targets, `OUT` arguments of resolved calls); `:old` columns are read only. The occurrence
+     * spans the whole reference, as other column occurrences span their qualified name. Pseudocolumns give nothing.
+     */
+    private fun correlationColumn(name: AstNode, context: Context, statementId: Int?): Boolean {
+        val scope = context.trigger ?: return false
+        if (name.type != PlSqlGrammar.MEMBER_EXPRESSION) return false
+        val parts = name.children.filter { it.type != PlSqlPunctuator.DOT }
+        if (parts.size != 2 || parts[0].type != PlSqlGrammar.VARIABLE_NAME || parts[1].type != PlSqlGrammar.IDENTIFIER_NAME) return false
+        val host = parts[0].getFirstChildOrNull(PlSqlGrammar.HOST_AND_INDICATOR_VARIABLE)
+        val correlation = if (host != null) {
+            host.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.tokenOriginalValue ?: return false
+        } else {
+            // Without a colon, only in the WHEN clause.
+            val inWhen = scope.whenExpression != null && generateSequence(name) { it.parentOrNull }.any { it === scope.whenExpression }
+            if (!inWhen) return false
+            parts[0].tokenOriginalValue
         }
+        val normalized = normalizeIdentifier(correlation)
+        val isNew = normalized in scope.newNames
+        if (!isNew && normalized !in scope.oldNames) return false
+        val target = scope.target ?: return false
+        val column = normalizeIdentifier(parts[1].tokenOriginalValue)
+        // `:new.rowid`: captured like `t.rowid` in SQL, with no occurrence.
+        if (column in SQL_PSEUDOCOLUMNS) return true
+        val roles = if (isNew) valueRoles(name, listOf(correlation, column)) else setOf(Role.READ)
+        val resolved = resolver.resolveColumn(target, column)
+        occurrences += OccurrenceFact(context.unitIndex, scope.key, statementId, spanOf(name), writtenText(name), resolved.entityKey,
+            roles, status(resolved.status, context.partial), Origin.STATIC, resolved.reason)
+        return true
     }
 
     private fun status(normal: Status, partial: Boolean) = if (partial) Status.PARTIAL_SOURCE else normal
@@ -850,9 +936,11 @@ class FileExtractor(
         root.getDescendants(*KEYWORD_FUNCTIONS).forEach { sqlFunctionKeyword(it.firstChild, context, id) }
         // `CAST(… AS t)` and the other datatypes of the statement.
         root.getDescendants(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE).forEach { typeUse(it, context, id) }
-        // Names: INTO targets are PL/SQL values; every other name is a column read when an SQL scope captures it.
+        // Names: correlation columns of a trigger; INTO targets are PL/SQL values; every other name is a column read when
+        // an SQL scope captures it.
         root.getDescendants(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION)
             .filter { isValueName(it) && it.getFirstAncestorOrNull(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE) == null }
+            .filterNot { correlationColumn(it, context, id) }
             .forEach { if (it.getFirstAncestorOrNull(DmlGrammar.INTO_CLAUSE) != null) valueReference(it, context, id, sql = false) else sqlName(statement, it) }
         root.getDescendants(DmlGrammar.SELECT_COLUMN).forEach { selectStar(statement, it) }
     }
@@ -1358,6 +1446,8 @@ class FileExtractor(
 
         val COLUMN_READ = setOf(Role.READ)
         val COLUMN_IMPLICIT_READ = setOf(Role.READ, Role.IMPLICIT)
+
+        val DML_EVENTS = setOf(PlSqlKeyword.INSERT, PlSqlKeyword.UPDATE, PlSqlKeyword.DELETE)
 
         /** Built-in SQL functions the grammar parses as their own expression, named by a synonym in the dictionary. */
         val KEYWORD_FUNCTIONS = arrayOf<com.felipebz.flr.api.AstNodeType>(

@@ -56,6 +56,10 @@ data class Overload(val entity: EntitySummary, val body: Boolean, val self: Bool
 @Serializable
 data class UsageSummary(val byRole: List<Count>, val byStatus: List<Count>, val asCandidate: Long)
 
+/** One event of a trigger: its [timing] (`INSTEAD_OF` for INSTEAD OF), level (null for compound and system triggers) and column for `UPDATE OF`. */
+@Serializable
+data class TriggerEvent(val trigger: EntitySummary, val timing: String, val level: String?, val event: String, val column: EntitySummary?)
+
 @Serializable
 data class EntityDetail(
     val key: String,
@@ -69,7 +73,10 @@ data class EntityDetail(
     val relations: List<RelationLink>,
     val definitions: List<Location>,
     val overloads: List<Overload>,
-    val usage: UsageSummary
+    val usage: UsageSummary,
+    /** For a trigger, its events; for a table or view, the events of the triggers on it; for a column, the `UPDATE`
+     * events that fire when it is updated (`UPDATE OF` naming it, or `UPDATE` without a column list). */
+    val triggerEvents: List<TriggerEvent> = emptyList()
 )
 
 enum class Scope { SELF, IMPLEMENTATIONS, CHILDREN }

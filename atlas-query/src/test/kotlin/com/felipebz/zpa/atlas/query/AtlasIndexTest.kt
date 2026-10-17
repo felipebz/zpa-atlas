@@ -111,6 +111,34 @@ class AtlasIndexTest {
     }
 
     @Test
+    fun `who writes a column lists the triggers assigning it through NEW`() {
+        val rows = index.occurrences("db:HR.COMPANY.DT_CHANGED", roles = setOf("WRITE")).result!!.rows
+        assertThat(rows.map { it.container?.key }).contains("db:HR.TRG_COMPANY_BU", "db:HR.TRG_COMPANY_FORMS", "db:HR.TRG_COMPANY_COMPOUND")
+    }
+
+    @Test
+    fun `trigger events are listed on the trigger, its table and the updated columns`() {
+        fun events(key: String) = index.entity(key).result!!.triggerEvents.map { "${it.trigger.key} ${it.timing} ${it.event} ${it.column?.key ?: "-"}" }
+        assertThat(events("db:HR.TRG_COMPANY_FORMS")).containsExactly(
+            "db:HR.TRG_COMPANY_FORMS BEFORE INSERT -",
+            "db:HR.TRG_COMPANY_FORMS BEFORE UPDATE -",
+            "db:HR.TRG_COMPANY_FORMS BEFORE UPDATE db:HR.COMPANY.COMPANY_NAME",
+            "db:HR.TRG_COMPANY_FORMS BEFORE UPDATE db:HR.COMPANY.ST_ACTIVE"
+        )
+        assertThat(events("db:HR.COMPANY")).contains("db:HR.TRG_COMPANY_STMT AFTER DELETE -").doesNotContain("db:HR.TRG_V_COMPANY_IOI INSTEAD_OF INSERT -")
+        assertThat(events("db:HR.V_COMPANY")).containsExactly("db:HR.TRG_V_COMPANY_IOI INSTEAD_OF INSERT -")
+        // UPDATE OF the column, or UPDATE without a column list (also through the synonym); not UPDATE OF another column, not other events.
+        assertThat(events("db:HR.COMPANY.ST_ACTIVE")).containsExactly(
+            "db:HR.TRG_COMPANY_BU BEFORE UPDATE -",
+            "db:HR.TRG_COMPANY_COMPOUND COMPOUND UPDATE -",
+            "db:HR.TRG_COMPANY_FORMS BEFORE UPDATE db:HR.COMPANY.ST_ACTIVE",
+            "db:HR.TRG_SYN_COMPANY BEFORE UPDATE -"
+        )
+        // TRG_COMPANY_FORMS lists columns, one of them unresolved (no column): it does not fire on other columns.
+        assertThat(events("db:HR.COMPANY.DT_CHANGED")).noneMatch { it.startsWith("db:HR.TRG_COMPANY_FORMS") }
+    }
+
+    @Test
     fun `candidates of the four-parameter overload include the ambiguous calls`() {
         val page = index.occurrences(runJob4).result!!
         val ambiguous = page.rows.filter { it.viaCandidate }

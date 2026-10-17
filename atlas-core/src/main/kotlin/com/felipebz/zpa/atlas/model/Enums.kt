@@ -120,6 +120,19 @@ enum class Origin(val reserved: Boolean = false) : StoredEnum {
     HEURISTIC(reserved = true)
 }
 
+enum class TriggerTiming : StoredEnum {
+    BEFORE,
+    AFTER,
+    INSTEAD_OF,
+    COMPOUND
+}
+
+/** `FOR EACH ROW` or not; none for compound and system triggers. */
+enum class TriggerLevel : StoredEnum {
+    ROW,
+    STATEMENT
+}
+
 enum class StatementKind : StoredEnum {
     SELECT,
     INSERT,

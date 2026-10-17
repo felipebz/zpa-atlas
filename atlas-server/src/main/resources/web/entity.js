@@ -32,6 +32,12 @@ function renderEntity(entity) {
   document.getElementById("relations").innerHTML = entity.relations.length === 0 ? "" :
     `<h2>${esc(t("entity.relations"))}</h2><ul>${entity.relations.map(r =>
       `<li>${esc(r.kind)} ${r.direction === "OUT" ? "→" : "←"} ${entityLink(r.entity)}</li>`).join("")}</ul>`;
+  // A trigger lists its events; a relation or a column, the triggers that fire on it.
+  const own = entity.kind === "TRIGGER";
+  document.getElementById("triggers").innerHTML = entity.triggerEvents.length === 0 ? "" :
+    `<h2>${esc(t(own ? "trigger.events" : "trigger.firing"))}</h2><table>${entity.triggerEvents.map(e =>
+      `<tr>${own ? "" : `<td>${entityLink(e.trigger)}</td>`}<td>${esc(t("trigger.timing." + e.timing))}</td><td>${esc(e.level ? t("trigger.level." + e.level) : "")}</td>
+       <td>${esc(e.event)}${e.column ? " " + esc(t("trigger.of")) + " " + entityLink(e.column) : ""}</td></tr>`).join("")}</table>`;
   const byKind = {};
   for (const child of entity.children) (byKind[child.kind] ??= []).push(child);
   document.getElementById("children").innerHTML = entity.children.length === 0 ? "" :

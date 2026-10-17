@@ -76,6 +76,12 @@ data class CallArgumentFact(val ordinal: Int, val label: String?, val parameterK
 
 data class CoverageFact(val kind: String, val message: String)
 
+/**
+ * One event a trigger fires on: `INSERT`, `UPDATE`, `DELETE`, or a DDL or database event (`LOGON`, `CREATE`). An
+ * `UPDATE OF a, b` gives one fact per column, with the column entity when it resolves.
+ */
+data class TriggerEventFact(val triggerKey: String, val timing: TriggerTiming, val level: TriggerLevel?, val event: String, val columnKey: String?)
+
 /** Everything one file contributes, produced off the writer thread. */
 class FileFacts(
     val path: String,
@@ -95,5 +101,6 @@ class FileFacts(
     /** The dictionary relations the file resolved: their entities and columns are added once per run. */
     val dictionaryRelations: List<ProjectExternalRelation> = emptyList(),
     /** The synonyms the file followed: their entities and `SYNONYM_FOR` relations are added once per run. */
-    val dictionarySynonyms: List<DictionarySynonym> = emptyList()
+    val dictionarySynonyms: List<DictionarySynonym> = emptyList(),
+    val triggerEvents: List<TriggerEventFact> = emptyList()
 )

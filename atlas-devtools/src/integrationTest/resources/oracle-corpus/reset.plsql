@@ -1,5 +1,6 @@
 declare
   l_failures pls_integer := 0;
+  l_exists pls_integer;
 begin
   for r in (
     select object_type, object_name
@@ -30,6 +31,9 @@ begin
        else 100
      end
   ) loop
+    -- Dropping a view or table drops its triggers too.
+    select count(*) into l_exists from user_objects where object_type = r.object_type and object_name = r.object_name;
+    if l_exists > 0 then
     begin
       case r.object_type
         when 'MATERIALIZED VIEW' then
@@ -60,6 +64,7 @@ begin
           'ZPA_CLEANUP_WARNING|' || r.object_type || '|' || r.object_name || '|' || sqlerrm
         );
     end;
+    end if;
   end loop;
 
   if l_failures > 0 then

@@ -66,6 +66,20 @@ object ComparisonReport {
         line("Index only: ${r.indexOnly.size}")
         for (c in INDEX_CLASSES) line("  $c: ${r.indexOnly.count { it.indexClass == c }}")
         line()
+        line("Trigger columns (ALL_TRIGGER_COLS, per trigger, column and facet)")
+        val compared = r.triggerColumns.filter { it.group == "COMPARED" }
+        fun triggers(rows: List<TriggerColumnFact>) = rows.map { it.owner to it.trigger }.toSet()
+        line("  compared triggers: ${triggers(compared).size}, compiled with debug: ${triggers(compared.filter { it.debug }).size}")
+        fun counts(rows: List<TriggerColumnFact>) =
+            "matched ${rows.count { it.side == "MATCHED" }}, database only ${rows.count { it.side == "DB_ONLY" }}, index only ${rows.count { it.side == "INDEX_ONLY" }}"
+        for (facet in listOf("LIST", "IN", "OUT", "USED")) {
+            val rows = compared.filter { it.facet == facet }
+            line("  $facet: ${counts(rows)}; without debug: ${counts(rows.filter { !it.debug })}")
+        }
+        val triggersDiffering = r.triggerColumns.filter { it.group == "SOURCE_DIFFERS" }
+        line("  SOURCE_DIFFERS (not compared): ${triggers(triggersDiffering).size} trigger(s), ${counts(triggersDiffering)}")
+        line("  database triggers without unit (not compared): ${triggers(r.triggerColumns.filter { it.group == "NO_UNIT" }).size}")
+        line()
         top("Top NOT_EXTRACTED names", r.databaseOnly.filter { it.dbClass == "NOT_EXTRACTED" }.map { it.reference.referencedName })
         top("Top UNRESOLVED_IN_INDEX names", r.databaseOnly.filter { it.dbClass == "UNRESOLVED_IN_INDEX" }.map { it.reference.referencedName })
         top("Top INDEX_ONLY names", r.indexOnly.filter { it.indexClass == "INDEX_ONLY" }.map { it.target.toString() })
@@ -100,7 +114,7 @@ object ComparisonReport {
     private fun unit(u: DbObjectId) = listOf(u.owner, u.name, u.type)
     private fun ref(d: DbDependency) = listOf(d.referencedOwner ?: "", d.referencedName, d.referencedType, d.referencedLink ?: "")
 
-    /** Writes `units.csv`, `matched.csv`, `db_only.csv` and `index_only.csv` into [directory]. */
+    /** Writes `units.csv`, `matched.csv`, `db_only.csv`, `index_only.csv` and `trigger_columns.csv` (the differences) into [directory]. */
     fun writeCsv(result: ComparisonResult, directory: Path) {
         Files.createDirectories(directory)
         fun write(name: String, header: List<String>, rows: List<List<String>>) {
@@ -123,6 +137,11 @@ object ComparisonReport {
         write("index_only.csv", listOf("class") + unitHeader + listOf("target_owner", "target_name", "target_type", "target_link", "locations"),
             result.indexOnly.map { e ->
                 listOf(e.indexClass) + unit(e.unit) + listOf(e.target.owner ?: "~", e.target.name, e.target.type ?: "", e.target.link ?: "", e.locations.joinToString(" "))
+            })
+        // Compared triggers: the differences; the triggers left out of the comparison: every row, under their group.
+        write("trigger_columns.csv", listOf("group", "side", "owner", "trigger", "column", "facet", "debug", "locations"),
+            result.triggerColumns.filter { it.group != "COMPARED" || it.side != "MATCHED" }.map {
+                listOf(it.group, it.side, it.owner, it.trigger, it.column, it.facet, it.debug.toString(), it.locations.joinToString(" "))
             })
     }
 }

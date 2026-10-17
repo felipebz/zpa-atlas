@@ -94,8 +94,33 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         val asCandidate = connection.query("SELECT count(*) FROM occurrence_candidate WHERE entity_id = ?", listOf(row.id)) { it.getLong(1) }.single()
         EntityDetail(
             row.key, row.kind, row.schema, row.name, row.display, row.external, parent, children, relations, definitions, overloads,
-            UsageSummary(tally(usages.flatMap { roles(it.first) }), tally(usages.map { it.second }), asCandidate)
+            UsageSummary(tally(usages.flatMap { roles(it.first) }), tally(usages.map { it.second }), asCandidate),
+            triggerEvents(connection, row.id, row.kind, row.parentId?.toLong())
         )
+    }
+
+    /** The trigger events [EntityDetail.triggerEvents] lists for an entity of [kind]. */
+    private fun triggerEvents(connection: Connection, id: Long, kind: String, parentId: Long?): List<TriggerEvent> {
+        val select = """SELECT t.key, t.kind, t.display, t.external, e.timing, e.level, e.event, c.key, c.kind, c.display, c.external
+               FROM trigger_event e JOIN entity t ON t.id = e.trigger_id LEFT JOIN entity c ON c.id = e.column_id"""
+        val order = " ORDER BY t.key, e.event, e.timing, c.key"
+        val map = { rs: ResultSet ->
+            TriggerEvent(EntitySummary(rs.getString(1), rs.getString(2), rs.getString(3), rs.getInt(4) == 1), rs.getString(5), rs.getString(6), rs.getString(7),
+                rs.getString(8)?.let { EntitySummary(it, rs.getString(9), rs.getString(10), rs.getInt(11) == 1) })
+        }
+        return when (kind) {
+            "TRIGGER" -> connection.query("$select WHERE e.trigger_id = ?$order", listOf(id), map)
+            "TABLE", "VIEW", "OBJECT_TABLE", "UNKNOWN_RELATION" -> connection.query(
+                "$select WHERE e.trigger_id IN (SELECT from_id FROM relation WHERE kind = 'TRIGGER_ON' AND to_id = ?)$order", listOf(id), map)
+            // UPDATE OF this column, or an UPDATE without column list of a trigger on the column's relation. A NULL column
+            // is also an unresolved UPDATE OF column: a trigger with a resolved one has a column list.
+            "COLUMN" -> if (parentId == null) emptyList() else connection.query(
+                """$select WHERE e.event = 'UPDATE' AND (e.column_id = ? OR (e.column_id IS NULL
+                     AND e.trigger_id IN (SELECT from_id FROM relation WHERE kind = 'TRIGGER_ON' AND to_id = ?)
+                     AND NOT EXISTS (SELECT 1 FROM trigger_event o WHERE o.trigger_id = e.trigger_id AND o.event = 'UPDATE' AND o.column_id IS NOT NULL)))$order""",
+                listOf(id, parentId), map)
+            else -> emptyList()
+        }
     }
 
     /**
@@ -276,7 +301,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     companion object {
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 4
+        const val SCHEMA_VERSION = 5
 
         /** Decodes an indexed file with the charset recorded for it (`source_file.encoding`); a leading BOM is dropped. */
         fun decode(bytes: ByteArray, encoding: String): String =

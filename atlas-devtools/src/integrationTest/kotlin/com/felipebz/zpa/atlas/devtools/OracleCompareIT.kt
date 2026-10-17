@@ -57,6 +57,12 @@ class OracleCompareIT {
                 assertThat(classes(out.resolve("db_only.csv"))).isEqualTo(EXPECTED_DB_ONLY)
                 assertThat(classes(out.resolve("index_only.csv"))).isEqualTo(EXPECTED_INDEX_ONLY)
                 assertThat(classes(out.resolve("matched.csv"))).isEqualTo(EXPECTED_MATCHED)
+                // The only differences: the columns Oracle lists for the trigger compiled with debug.
+                assertThat(Files.readAllLines(out.resolve("trigger_columns.csv")).drop(1)).containsExactlyInAnyOrder(
+                    "COMPARED,DB_ONLY,ZPA_PROBE,TRG_ORDER_DEBUG,AMOUNT,IN,true,",
+                    "COMPARED,DB_ONLY,ZPA_PROBE,TRG_ORDER_DEBUG,CUSTOMER_ID,IN,true,",
+                    "COMPARED,DB_ONLY,ZPA_PROBE,TRG_ORDER_DEBUG,STATUS,IN,true,"
+                )
 
                 // The offline mode gives the same result from the saved file.
                 val offline = temp.resolve("offline")
@@ -113,6 +119,8 @@ class OracleCompareIT {
             }
         }
         connection.createStatement().use { it.execute("begin dbms_utility.compile_schema(user, false); end;") }
+        // Compiled with debug, Oracle lists every column of the table in ALL_TRIGGER_COLS.
+        for (trigger in DEBUG_TRIGGERS) connection.createStatement().use { it.execute("alter trigger $trigger compile debug") }
     }
 
     companion object {
@@ -122,8 +130,10 @@ class OracleCompareIT {
         // the target. DBMS_RANDOM is a package of the schema the sources lack: P_OWN_RANDOM's call matches it exactly,
         // not the public synonym of the same name. TY_CIRCLE depends on its supertype, its body on TY_CIRCLE, and
         // P_XMLSEQ on the public synonym XMLSEQUENCE and its operator SYS.XMLSEQUENCE (Oracle records both).
-        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 24, "SOURCE_DIFFERS" to 1)
+        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 30, "SOURCE_DIFFERS" to 1)
         val EXPECTED_INDEX_ONLY = mapOf("SOURCE_DIFFERS" to 1)
-        val EXPECTED_MATCHED = mapOf("EXACT" to 19, "SYNONYM" to 9)
+        val EXPECTED_MATCHED = mapOf("EXACT" to 27, "SYNONYM" to 9)
+
+        val DEBUG_TRIGGERS = listOf("TRG_ORDER_DEBUG")
     }
 }
