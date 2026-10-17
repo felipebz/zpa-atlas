@@ -120,7 +120,8 @@ class Indexer internal constructor(
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
         fun extractor(source: Source) = FileExtractor(
             source.relativePath, sha256(source.bytes), source.bytes.size.toLong(), source.charset.name(), source.text.lines().size,
-            options.dictionary, options.compilationSchema, catalogHolder::get
+            options.dictionary, options.compilationSchema, catalogHolder::get,
+            jsonBuiltIn = (options.conditionalCompilation.databaseVersion?.version ?: 0) >= JSON_BUILT_IN_VERSION
         )
         val walked: List<Result<FileFacts>> = try {
             sources.map { source ->
@@ -230,6 +231,9 @@ class Indexer internal constructor(
     }
 
     companion object {
+        /** The first Oracle version with the built-in `JSON` type: from it on, a type named `JSON` cannot exist. */
+        private const val JSON_BUILT_IN_VERSION = 21
+
         private val VERSIONS = Properties().apply {
             Indexer::class.java.getResourceAsStream("/zpa-atlas-version.properties")?.use { load(it) }
         }

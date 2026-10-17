@@ -1,9 +1,9 @@
 compare-deps summary
 
 Units
-  mapped to database objects: 85
+  mapped to database objects: 89
   scripts and anonymous blocks (not compared): 27, with 46 edge occurrence(s)
-  units without ALL_OBJECTS row (not compared): 74, with 93 index edge(s)
+  units without ALL_OBJECTS row (not compared): 78, with 97 index edge(s)
   database objects without unit in the index: 2
 
 Conditional compilation
@@ -17,7 +17,7 @@ Source
   SAME: 1
   DIFFERS: 1
   WRAPPED: 0
-  NO_STORED_SOURCE: 83
+  NO_STORED_SOURCE: 87
   UNAVAILABLE: 0
     HR.TRG_COMPANY_BU TRIGGER: first difference at stored line 5
 
@@ -25,7 +25,7 @@ Edges
   database: 26
   index: 32
   matched: 14 (exact 11, by name 0, synonym 3)
-  matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 5)
+  matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 6)
 
 Match rate (matched / (database - BUILTIN - NON_EXISTENT))
   overall: 58.3% (14/24)

@@ -64,9 +64,12 @@ class TypeReferenceResolver(
      * else a type a synonym names (`xmltype` is `SYS.XMLTYPE`, resolved as if written), else an unknown type with an
      * external entity under the key rules of unknown calls.
      *
+     * @param parsedAsBuiltIn the name was parsed as a built-in type but may name a user type (a bare `json`): the
+     *   built-in check is skipped, so a synonym is still followed, and a name nothing finds is the built-in type (null)
+     *   instead of an unknown type
      * @param synonymTarget the object [written] was rewritten to, a synonym target or an own object the project lacks (internal)
      */
-    fun named(written: List<String>, unitSchema: String?, enclosingPackage: List<String>?, synonymTarget: NameTarget? = null): TypeOutcome? {
+    fun named(written: List<String>, unitSchema: String?, enclosingPackage: List<String>?, parsedAsBuiltIn: Boolean = false, synonymTarget: NameTarget? = null): TypeOutcome? {
         val packageName = enclosingPackage?.let { qualifiedName(it) }
         for (names in nameSpellings(written, unitSchema)) {
             // A one-segment name is a member of the enclosing package first, then a standalone type.
@@ -84,15 +87,16 @@ class TypeReferenceResolver(
                 }
             }
         }
-        if (isBuiltIn(written, packageName)) return null
+        if (!parsedAsBuiltIn && isBuiltIn(written, packageName)) return null
         if (values.isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
         val names = written.map { normalizeIdentifier(it) }
         if (synonymTarget == null) {
             val targetTypes = if (names.size == 1) SynonymResolver.TYPES else SynonymResolver.PACKAGES_AND_TYPES
             synonyms.follow(names[0], unitSchema, targetTypes)?.let { target ->
-                return named(SynonymResolver.written(target, names.drop(1)), unitSchema, null, target)
+                return named(SynonymResolver.written(target, names.drop(1)), unitSchema, null, synonymTarget = target)
             }
         }
+        if (parsedAsBuiltIn && synonymTarget == null) return null
         return unknownType(names, unitSchema, synonymTarget)
     }
 

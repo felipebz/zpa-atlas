@@ -44,7 +44,9 @@ class FileExtractor(
     private val lineCount: Int,
     private val dictionary: AtlasDictionary,
     private val defaultSchema: String?,
-    private val catalogOf: (ProjectSnapshot) -> DeclarationCatalog
+    private val catalogOf: (ProjectSnapshot) -> DeclarationCatalog,
+    /** Whether a bare `json` is always the built-in type: the run targets Oracle 21 or later. */
+    private val jsonBuiltIn: Boolean = false
 ) : PlSqlCheck() {
 
     private lateinit var catalog: DeclarationCatalog
@@ -647,6 +649,10 @@ class FileExtractor(
                 typeUse(node, context, null)
                 return
             }
+            PlSqlGrammar.JSON_DATATYPE -> {
+                jsonTypeUse(node, context)
+                return
+            }
             PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION -> if (isAggregateImplementation(node)) {
                 aggregateType(node, context)
             } else if (isValueName(node) && !correlationColumn(node, context, null)) {
@@ -759,6 +765,8 @@ class FileExtractor(
             coverage += CoverageFact("CALL_NOT_A_NAME", "Call at line ${callee.tokenLine} has a callee that is not a plain name")
             return
         }
+        // From version 21 on a call written `json(...)` is Oracle's built-in JSON function, never a user type's constructor.
+        if (jsonBuiltIn && segments.size == 1 && normalizeIdentifier(segments[0]) == "JSON") return
         val first = if (callee.type == PlSqlGrammar.VARIABLE_NAME) callee else callee.firstChild
         val symbol = (first as? SemanticAstNode)?.symbol
         val arguments = actuals.map { argument ->
@@ -1149,6 +1157,17 @@ class FileExtractor(
         typeUseOf(name, segments, context)
     }
 
+    /**
+     * A bare `json` (no modifier, no `LIMIT`): the parser reads it as the built-in `JSON` type, but it may name a user
+     * type, as PL/JSON's `JSON`. Below version 21, where the built-in type does not exist, or without a database version,
+     * a type the project, the dictionary or a synonym finds gets a `TYPE_USE`; nothing found is the built-in type. From
+     * 21 on Oracle rejects a type named `JSON` (ORA-02302), so it is always the built-in.
+     */
+    private fun jsonTypeUse(node: AstNode, context: Context, statementId: Int? = null) {
+        if (jsonBuiltIn || node.numberOfChildren != 1) return
+        typeUseOf(node, listOf(node.tokenOriginalValue), context, parsedAsBuiltIn = true, statementId = statementId)
+    }
+
     /** The supertype of `CREATE TYPE t UNDER s`. */
     private fun isSupertype(node: AstNode): Boolean =
         node.previousSiblingOrNull?.type == PlSqlKeyword.UNDER && node.parentOrNull?.type == PlSqlGrammar.OBJECT_TYPE_DEFINITION
@@ -1159,18 +1178,21 @@ class FileExtractor(
         typeUseOf(name, segments, context)
     }
 
-    private fun typeUseOf(name: AstNode, segments: List<String>, context: Context) {
-        val outcome = types.named(segments, context.schema, context.enclosingPackage) ?: return
-        occurrences += OccurrenceFact(context.unitIndex, context.container, null, spanOf(name), writtenText(name), outcome.entityKey,
+    private fun typeUseOf(name: AstNode, segments: List<String>, context: Context, parsedAsBuiltIn: Boolean = false, statementId: Int? = null) {
+        val outcome = types.named(segments, context.schema, context.enclosingPackage, parsedAsBuiltIn) ?: return
+        occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
             setOf(Role.TYPE_USE), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
     }
 
     /**
-     * A built-in SQL function the grammar parses as its own expression (`XMLAGG(… ORDER BY …)`, `XMLSEQUENCE(…)`): a
-     * `CALL` of its keyword only when a synonym names it (Oracle records the public synonym, and the target for an
-     * operator); nothing otherwise, as for other built-ins.
+     * A built-in SQL function the grammar parses as its own expression (`XMLAGG(… ORDER BY …)`, `XMLSEQUENCE(…)`,
+     * `JSON(x)`): a `CALL` of its keyword only when something names it (Oracle records the public synonym, and the
+     * target for an operator; `json(x)` is the constructor of a user type `JSON` or of the type a synonym `JSON` names,
+     * below version 21); nothing otherwise, as for other built-ins.
      */
     private fun sqlFunctionKeyword(keyword: AstNode, context: Context, statementId: Int?) {
+        // From version 21 on `json(x)` is always Oracle's built-in function, as a bare `json` is the built-in type.
+        if (jsonBuiltIn && keyword.parent.type == SingleRowSqlFunctionsGrammar.JSON_CONSTRUCTOR) return
         val outcome = calls.resolve(listOf(keyword.tokenOriginalValue), ProjectCallKind.FUNCTION, emptyList(), context.schema, context.enclosingPackage)
         if (outcome is CallOutcome.Call && outcome.entityKey != null) callOccurrence(keyword, context, statementId, outcome)
     }
@@ -1316,6 +1338,7 @@ class FileExtractor(
         root.getDescendants(*KEYWORD_FUNCTIONS).forEach { sqlFunctionKeyword(it.firstChild, context, id) }
         // `CAST(… AS t)` and the other datatypes of the statement.
         root.getDescendants(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE).forEach { typeUse(it, context, id) }
+        root.getDescendants(PlSqlGrammar.JSON_DATATYPE).forEach { jsonTypeUse(it, context, id) }
         // Names: correlation columns of a trigger; INTO targets are PL/SQL values; every other name is a column read when
         // an SQL scope captures it.
         root.getDescendants(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION)
@@ -1844,7 +1867,9 @@ class FileExtractor(
 
         /** Built-in SQL functions the grammar parses as their own expression, named by a synonym in the dictionary. */
         val KEYWORD_FUNCTIONS = arrayOf<com.felipebz.flr.api.AstNodeType>(
-            AggregateSqlFunctionsGrammar.XMLAGG_EXPRESSION, SingleRowSqlFunctionsGrammar.XMLSEQUENCE_EXPRESSION
+            AggregateSqlFunctionsGrammar.XMLAGG_EXPRESSION, SingleRowSqlFunctionsGrammar.XMLSEQUENCE_EXPRESSION,
+            // `json(x)` with one argument: a constructor of a user type `JSON` (PL/JSON) below version 21.
+            SingleRowSqlFunctionsGrammar.JSON_CONSTRUCTOR
         )
 
         val CURSOR_ATTRIBUTES = setOf("ISOPEN", "FOUND", "NOTFOUND", "ROWCOUNT", "BULK_ROWCOUNT", "BULK_EXCEPTIONS")
