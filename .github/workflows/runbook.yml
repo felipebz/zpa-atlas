@@ -1,8 +1,9 @@
 name: Runbook
 
 # The atlas-devtools runbook (atlas-devtools/README.md) on a real corpus: utPLSQL, deployed to a throwaway Oracle
-# service container, indexed with metadata, measured and compared with ALL_DEPENDENCIES. A measurement, not a gate:
-# it fails only when a step fails, never on a match rate.
+# service container, indexed with metadata, measured and compared with ALL_DEPENDENCIES. The runbook is a measurement,
+# not a gate: it fails only when a step fails, never on a match rate. The Oracle integration test of atlas-devtools runs
+# against the same container (schema ZPA_PROBE) and is a gate: its expected classes must match.
 on:
   pull_request:
     branches:
@@ -22,7 +23,7 @@ permissions:
 
 jobs:
   runbook:
-    name: Runbook on utPLSQL (${{ matrix.oracle.name }})
+    name: Runbook and Oracle integration test (${{ matrix.oracle.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -38,6 +39,9 @@ jobs:
         image: ${{ matrix.oracle.image }}
         env:
           ORACLE_PASSWORD: oracle
+          # The schema of the Oracle integration test, created in the pluggable database by the image.
+          APP_USER: zpa_probe
+          APP_USER_PASSWORD: zpa_probe
         ports:
           - 1521:1521
         options: >-
@@ -121,6 +125,17 @@ jobs:
             --oracle-url "${ORACLE_URL}" --oracle-user ut3 --oracle-schemas UT3 \
             --save-dependencies runbook/deps.csv > runbook/compare.txt
 
+      # Runs whatever the runbook steps did: both results are reported, and either failure fails the job. The test
+      # resets the ZPA_PROBE schema before and after; UT3 is not touched.
+      - name: Oracle integration test
+        if: ${{ !cancelled() }}
+        env:
+          ATLAS_IT_ORACLE_URL: ${{ env.ORACLE_URL }}
+          ATLAS_IT_ORACLE_USER: zpa_probe
+          # The password of the throwaway database's test schema: not a secret.
+          ATLAS_IT_ORACLE_PASSWORD: zpa_probe
+        run: ./gradlew :atlas-devtools:integrationTest
+
       - name: Write the job summary
         if: always()
         shell: bash
@@ -144,5 +159,6 @@ jobs:
           path: |
             runbook/
             utplsql/source/install.log
+            atlas-devtools/build/reports/tests/integrationTest/
           retention-days: 14
           if-no-files-found: warn
