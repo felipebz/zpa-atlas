@@ -42,7 +42,7 @@ class CompareArguments {
     var builtins: String = ""
 }
 
-@Parameters(commandNames = ["timings"], commandDescription = "Time the query API for the 5 most used entities of an index")
+@Parameters(commandNames = ["timings"], commandDescription = "Time the query API for the 5 most used entities of an index and the column with the most view columns over it")
 class TimingsArguments {
     @Parameter(description = "<file.db>", required = true)
     var database: List<String> = ArrayList()

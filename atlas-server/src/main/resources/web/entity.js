@@ -1,7 +1,7 @@
 "use strict";
 
 const key = new URLSearchParams(location.search).get("key");
-const state = { roles: new Set(), statuses: new Set(), implementations: false, children: false, after: null, groups: {} };
+const state = { roles: new Set(), statuses: new Set(), implementations: false, children: false, views: false, after: null, groups: {} };
 
 function lazySource(path, line) {
   const id = "src" + Math.random().toString(36).slice(2);
@@ -43,6 +43,9 @@ function renderEntity(entity) {
     `<h2>${esc(t(title))}</h2><ul>${list.map(e => `<li>${entityLink(e)}</li>`).join("")}</ul>`;
   document.getElementById("viewReads").innerHTML = links(entity.reads, "entity.reads");
   document.getElementById("views").innerHTML = links(entity.views, "entity.views");
+  // A view column's sources, and the view columns computed from a column: one hop of the stored lineage.
+  document.getElementById("baseColumns").innerHTML = links(entity.baseColumns, "entity.baseColumns");
+  document.getElementById("viewColumns").innerHTML = links(entity.viewColumns, "entity.viewColumns");
   const byKind = {};
   for (const child of entity.children) (byKind[child.kind] ??= []).push(child);
   document.getElementById("children").innerHTML = entity.children.length === 0 ? "" :
@@ -61,7 +64,8 @@ function renderScope() {
   const toggle = (name, label) =>
     `<span class="chip ${state[name] ? "on" : ""}" data-scope="${name}">${esc(t(label))}</span>`;
   document.getElementById("scope").innerHTML = esc(t("usage.scope")) + " " +
-    toggle("implementations", "usage.scope.implementations") + toggle("children", "usage.scope.children");
+    toggle("implementations", "usage.scope.implementations") + toggle("children", "usage.scope.children") +
+    toggle("views", "usage.scope.views");
 }
 
 function renderChips(id, counts, selected, attribute, label) {
@@ -76,9 +80,11 @@ function rowHtml(row) {
   const args = row.arguments.length === 0 ? "" : `<div class="muted mono">(${row.arguments.map(a =>
     (a.label ? esc(a.label) + " => " : "") + (a.parameter ? "→" + esc(a.parameter.display.split(".").pop()) : "?")).join(", ")})</div>`;
   const others = row.viaCandidate ? `<div class="muted">${esc(t("usage.candidates"))} ${row.candidates.map(entityLink).join(", ")}</div>` : "";
+  // The view column or view the row was reached through.
+  const via = row.viaView ? `<div class="muted">${esc(t("usage.via"))} ${entityLink(row.matched)}</div>` : "";
   return `<tr><td class="mono">${row.span.startLine}:${row.span.startCol}</td><td>${entityLink(row.container)}
     <div class="muted">${esc(row.unit.kind)} ${esc(row.unit.name)}</div></td>
-    <td class="mono">${esc(row.written)}${args}</td><td>${esc(row.roles.map(roleLabel).join(", "))}${row.statementKind ? '<div class="muted">' + esc(row.statementKind) + "</div>" : ""}</td>
+    <td class="mono">${esc(row.written)}${args}${via}</td><td>${esc(row.roles.map(roleLabel).join(", "))}${row.statementKind ? '<div class="muted">' + esc(row.statementKind) + "</div>" : ""}</td>
     <td>${statusBadge(row.status, row.reason)}${others}</td><td>${lazySource(row.path, row.span.startLine)}</td></tr>`;
 }
 
@@ -110,6 +116,7 @@ async function loadUsages(reset) {
   const scope = ["SELF"];
   if (state.implementations) scope.push("IMPLEMENTATIONS");
   if (state.children) scope.push("CHILDREN");
+  if (state.views) scope.push("VIEWS");
   const answer = await api("api/occurrences", {
     key, scope: scope.join(","), roles: [...state.roles].join(","), status: [...state.statuses].join(","),
     candidates: true, after: state.after, limit: 100

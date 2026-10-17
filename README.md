@@ -13,6 +13,8 @@ browsed in a local web page or queried with SQL, and can optionally be checked a
   and trigger `:new.col` assignments. Example: "who writes `HR.COMPANY.DT_CHANGED`" lists trigger `TRG_COMPANY_BU`.
 - **Where something is defined**, including package and type bodies, triggers, views and the columns of a view.
 - **Which views read a table, and what a view reads.**
+- **Where the value of a view column comes from**: every column its expression reads (`VIEW_BASE` relations, one hop
+  per view). "Who uses" a column can follow them through views: the web page's "Through views" toggle.
 - **Which triggers fire on a table or column**, with timing, level, event and `UPDATE OF` columns.
 - **What could not be resolved, and why.** Every use carries a status and a reason, and each file can carry coverage
   notes.

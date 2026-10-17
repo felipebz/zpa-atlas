@@ -57,6 +57,30 @@ class OracleCompareIT {
                             .use { rs -> rs.next(); assertThat(rs.getInt(1)).isEqualTo(VIEW_COLUMN_DEFINITIONS) }
                     }
                 }
+                // An updatable column of a view is a plain copy of exactly one base column: one VIEW_BASE row each.
+                val updatable = connection.createStatement().use { st ->
+                    st.executeQuery(
+                        """SELECT table_name, column_name FROM user_updatable_columns
+                           WHERE updatable = 'YES' AND table_name IN (SELECT view_name FROM user_views)"""
+                    ).use { rs -> generateSequence { if (rs.next()) rs.getString(1) to rs.getString(2) else null }.toList() }
+                }
+                DriverManager.getConnection("jdbc:sqlite:$index").use { db ->
+                    val views = db.createStatement().use { st ->
+                        st.executeQuery("SELECT v.name FROM unit u JOIN entity v ON v.id = u.entity_id WHERE u.kind = 'VIEW'")
+                            .use { rs -> generateSequence { if (rs.next()) rs.getString(1) else null }.toSet() }
+                    }
+                    val expected = updatable.filter { (view, _) -> view in views }
+                    assertThat(expected).describedAs("updatable columns of indexed views").isNotEmpty()
+                    val bases = db.prepareStatement(
+                        "SELECT count(*) FROM relation r JOIN entity c ON c.id = r.from_id WHERE r.kind = 'VIEW_BASE' AND c.key = ?"
+                    ).use { st ->
+                        expected.associate { (view, column) ->
+                            st.setString(1, "db:$schema.$view.$column")
+                            "$view.$column" to st.executeQuery().use { rs -> rs.next(); rs.getInt(1) }
+                        }
+                    }
+                    assertThat(bases.filterValues { it != 1 }).describedAs("updatable view columns by VIEW_BASE rows, expected 1 each").isEmpty()
+                }
 
                 val out = temp.resolve("out")
                 val saved = temp.resolve("deps.csv")

@@ -24,7 +24,7 @@ class ReservedValuesTest {
             "FORMS_BLOCK", "FORMS_ITEM", "FORMS_TRIGGER", "FORMS_PROGRAM_UNIT", "FORMS_LIBRARY"
         )
         assertThat(RelationKind.entries.filter { it.reserved }.map { it.name }).containsExactly(
-            "OVERLOAD_OF", "VIEW_BASE", "FORMS_BLOCK_TABLE", "FORMS_ITEM_COLUMN", "FORMS_ATTACHED_LIBRARY"
+            "OVERLOAD_OF", "FORMS_BLOCK_TABLE", "FORMS_ITEM_COLUMN", "FORMS_ATTACHED_LIBRARY"
         )
         assertThat(Role.entries.filter { it.reserved }).isEmpty()
         assertThat(Status.entries.filter { it.reserved }).isEmpty()

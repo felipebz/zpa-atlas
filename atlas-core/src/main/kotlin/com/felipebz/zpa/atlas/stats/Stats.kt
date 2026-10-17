@@ -38,6 +38,22 @@ object Stats {
                     "SELECT reason, count(*) FROM occurrence WHERE status = 'DYNAMIC' OR (status = 'PARTIAL_SOURCE' AND entity_id IS NULL AND reason IN ('LITERAL', 'EXPRESSION')) GROUP BY reason ORDER BY reason")
                 section(connection, "Coverage notes by kind",
                     "SELECT kind, count(*) FROM coverage_note GROUP BY kind ORDER BY kind")
+                section(connection, "View column lineage", """
+                    WITH base AS (SELECT from_id, count(*) AS n FROM relation WHERE kind = 'VIEW_BASE' GROUP BY from_id)
+                    SELECT '1 base column', count(*) FROM base WHERE n = 1
+                    UNION ALL SELECT '2 base columns', count(*) FROM base WHERE n = 2
+                    UNION ALL SELECT '3 or more base columns', count(*) FROM base WHERE n >= 3
+                    UNION ALL SELECT 'no base column, no note', count(*) FROM entity c JOIN entity v ON v.id = c.parent_id
+                    WHERE c.kind = 'COLUMN' AND v.kind = 'VIEW'
+                      AND EXISTS (SELECT 1 FROM occurrence o WHERE o.entity_id = c.id AND (',' || o.roles || ',') LIKE '%,DEFINITION,%')
+                      AND c.id NOT IN (SELECT from_id FROM base)
+                      AND v.key || ': column ' || substr(c.key, length(v.key) + 2) || ' ' NOT IN (
+                        SELECT substr(message, 1, instr(message, ' comes from ')) FROM coverage_note WHERE kind = 'VIEW_LINEAGE_UNKNOWN')
+                    UNION ALL SELECT 'VIEW_LINEAGE_UNKNOWN notes', count(*) FROM coverage_note WHERE kind = 'VIEW_LINEAGE_UNKNOWN'
+                    UNION ALL SELECT 'VIEW_BASE rows', count(*) FROM relation WHERE kind = 'VIEW_BASE'""")
+                section(connection, "Top 10 view columns by base columns", """
+                    SELECT e.key, count(*) AS n FROM relation r JOIN entity e ON e.id = r.from_id
+                    WHERE r.kind = 'VIEW_BASE' GROUP BY e.key ORDER BY n DESC, e.key LIMIT 10""")
                 section(connection, "Top 20 relations by writers", """
                     SELECT e.key, count(DISTINCT coalesce(o.container_entity_id, -o.unit_id)) AS writers
                     FROM occurrence o JOIN entity e ON e.id = o.entity_id

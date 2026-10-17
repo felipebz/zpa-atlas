@@ -78,7 +78,9 @@ enum class RelationKind(val reserved: Boolean = false) : StoredEnum {
     IMPLEMENTS,
     OVERLOAD_OF(reserved = true),
     SYNONYM_FOR,
-    VIEW_BASE(reserved = true),
+
+    /** A view column to a column its value is computed from (another view's column included: one hop per view). */
+    VIEW_BASE,
     TRIGGER_ON,
     FORMS_BLOCK_TABLE(reserved = true),
     FORMS_ITEM_COLUMN(reserved = true),

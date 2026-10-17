@@ -147,8 +147,63 @@ class AtlasIndexTest {
         assertThat(keys(index.entity("db:HR.V_COMPANY_NAMES").result!!.reads)).containsExactly("db:HR.V_COMPANY_LIST")
         assertThat(keys(index.entity("db:HR.V_COMPANY_LIST").result!!.views)).containsExactly("db:HR.V_COMPANY_NAMES")
         // A procedure reading the table is not a view over it.
-        assertThat(keys(index.entity("db:HR.EVENT_LOG").result!!.views)).containsExactly("db:HR.V_INLINE_NESTED", "db:HR.V_INLINE_UNION", "db:HR.V_LOG_UNION", "db:HR.V_SOURCE_ONLY")
+        assertThat(keys(index.entity("db:HR.EVENT_LOG").result!!.views)).containsExactly(
+            "db:HR.V_INLINE_NESTED", "db:HR.V_INLINE_UNION", "db:HR.V_LIN_JOIN", "db:HR.V_LIN_SCALAR", "db:HR.V_LIN_UNION",
+            "db:HR.V_LIN_WITH_STAR", "db:HR.V_LOG_UNION", "db:HR.V_SOURCE_ONLY"
+        )
         assertThat(index.entity("db:HR.COMPANY.ID").result!!.views).isEmpty()
+    }
+
+    @Test
+    fun `a view column lists the columns it comes from and a column the view columns computed from it`() {
+        fun keys(list: List<EntitySummary>) = list.map { it.key }
+        assertThat(keys(index.entity("db:HR.V_CHAIN2.LABEL").result!!.baseColumns)).containsExactly("db:HR.V_CHAIN1.COMPANY_NAME")
+        val middle = index.entity("db:HR.V_CHAIN1.COMPANY_NAME").result!!
+        assertThat(keys(middle.baseColumns)).containsExactly("db:HR.COMPANY.COMPANY_NAME")
+        assertThat(keys(middle.viewColumns)).containsExactly("db:HR.V_CHAIN2.LABEL")
+        // The lineage has its own lists, in neither direction among the relations.
+        assertThat(middle.relations).noneMatch { it.kind == "VIEW_BASE" }
+        // One hop: the second level of the chain is not listed on the table column.
+        assertThat(keys(index.entity("db:HR.COMPANY.COMPANY_NAME").result!!.viewColumns))
+            .contains("db:HR.V_CHAIN1.COMPANY_NAME").doesNotContain("db:HR.V_CHAIN2.LABEL")
+        assertThat(index.entity("db:HR.COMPANY").result!!.viewColumns).isEmpty()
+    }
+
+    @Test
+    fun `VIEWS scope on a column reaches the uses of the view columns computed from it, through every level`() {
+        val key = "db:HR.COMPANY.COMPANY_NAME"
+        val self = index.occurrences(key, limit = 500).result!!
+        val viewed = index.occurrences(key, scope = setOf(Scope.SELF, Scope.VIEWS), limit = 500).result!!
+        assertThat(self.nextAfter).isNull()
+        assertThat(viewed.nextAfter).isNull()
+        assertThat(self.rows).noneMatch { it.viaView || it.path == "hr/proc_view_chain.prc" }
+        // V_CHAIN2.LABEL comes from V_CHAIN1.COMPANY_NAME, which comes from the table column.
+        val chain = viewed.rows.single { it.path == "hr/proc_view_chain.prc" && it.span.startLine == 4 }
+        assertThat(chain.written).isEqualTo("label")
+        assertThat(chain.viaView).isTrue()
+        assertThat(chain.matched.key).isEqualTo("db:HR.V_CHAIN2.LABEL")
+        // Rows hit directly are the same, and not marked.
+        assertThat(viewed.rows.filter { !it.viaView }).isEqualTo(self.rows)
+        assertThat(viewed.total).isGreaterThan(self.total)
+    }
+
+    @Test
+    fun `VIEWS scope on a table adds the views reading it and their columns from it, not their other columns`() {
+        val page = index.occurrences("db:HR.COMPANY", scope = setOf(Scope.CHILDREN, Scope.VIEWS), limit = 500).result!!
+        assertThat(page.nextAfter).isNull()
+        val rows = page.rows.filter { it.path == "hr/proc_view_chain.prc" }
+        // V_LIN_JOIN.MSG (5:9) comes from EVENT_LOG.MSG: CHILDREN does not apply to the views VIEWS adds.
+        assertThat(rows.map { "${it.span.startLine}:${it.span.startCol} ${it.matched.key} ${it.viaView}" }).containsExactly(
+            "4:9 db:HR.V_CHAIN2.LABEL true",
+            "4:27 db:HR.V_CHAIN2 true",
+            "4:42 db:HR.V_CHAIN2.ID true",
+            "5:25 db:HR.V_LIN_JOIN true",
+            "5:42 db:HR.V_LIN_JOIN.ID true",
+            "6:9 db:HR.V_LIN_JOIN.COMPANY_NAME true",
+            "6:34 db:HR.V_LIN_JOIN true"
+        )
+        assertThat(page.rows).anyMatch { it.matched.key == "db:HR.COMPANY" && !it.viaView }
+        assertThat(index.occurrences("db:HR.COMPANY", scope = setOf(Scope.CHILDREN), limit = 500).result!!.rows).noneMatch { it.viaView }
     }
 
     @Test

@@ -80,10 +80,19 @@ data class EntityDetail(
     /** For a view, the relations its query reads (`SQL_SELECT` occurrences inside it, every level of the query). */
     val reads: List<EntitySummary> = emptyList(),
     /** For a table, view or object table, the views whose query reads it. */
-    val views: List<EntitySummary> = emptyList()
+    val views: List<EntitySummary> = emptyList(),
+    /** For a view column, the columns its value is computed from (`VIEW_BASE` targets, one hop: a table column or
+     * another view's column). */
+    val baseColumns: List<EntitySummary> = emptyList(),
+    /** For a column, the view columns computed from it (`VIEW_BASE` sources, one hop). */
+    val viewColumns: List<EntitySummary> = emptyList()
 )
 
-enum class Scope { SELF, IMPLEMENTATIONS, CHILDREN }
+/**
+ * What "who uses" covers besides the entity itself: [IMPLEMENTATIONS] its `IMPLEMENTS` partners, [CHILDREN] its
+ * `CONTAINS` descendants, [VIEWS] the view columns computed from them and the views reading them, transitively.
+ */
+enum class Scope { SELF, IMPLEMENTATIONS, CHILDREN, VIEWS }
 
 @Serializable
 data class UnitRef(val kind: String, val name: String)
@@ -104,6 +113,8 @@ data class OccurrenceRow(
     /** The entity in scope this row hit (the occurrence entity, or the candidate). */
     val matched: EntitySummary,
     val viaCandidate: Boolean,
+    /** [matched] is a view column or view the [Scope.VIEWS] scope added, not the entity asked about or its partners and children. */
+    val viaView: Boolean,
     val entity: EntitySummary?,
     val container: EntitySummary?,
     val unit: UnitRef,

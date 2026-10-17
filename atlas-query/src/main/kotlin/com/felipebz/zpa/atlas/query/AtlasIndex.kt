@@ -67,12 +67,13 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             """SELECT c.key, c.kind, c.display, c.external FROM relation r JOIN entity c ON c.id = r.to_id
                WHERE r.from_id = ? AND r.kind = 'CONTAINS' ORDER BY c.kind, c.name, c.key""", listOf(row.id), ::entitySummary
         )
+        // VIEW_BASE edges have their own lists (baseColumns, viewColumns).
         val relations = connection.query(
             """SELECT r.kind, 'OUT', t.key, t.kind, t.display, t.external FROM relation r JOIN entity t ON t.id = r.to_id
-               WHERE r.from_id = ? AND r.kind <> 'CONTAINS'
+               WHERE r.from_id = ? AND r.kind NOT IN ('CONTAINS', 'VIEW_BASE')
                UNION ALL
                SELECT r.kind, 'IN', f.key, f.kind, f.display, f.external FROM relation r JOIN entity f ON f.id = r.from_id
-               WHERE r.to_id = ? AND r.kind <> 'CONTAINS'
+               WHERE r.to_id = ? AND r.kind NOT IN ('CONTAINS', 'VIEW_BASE')
                ORDER BY 1, 2, 3""", listOf(row.id, row.id)
         ) { RelationLink(it.getString(1), it.getString(2), EntitySummary(it.getString(3), it.getString(4), it.getString(5), it.getInt(6) == 1)) }
         val definitions = connection.query(
@@ -97,7 +98,18 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             UsageSummary(tally(usages.flatMap { roles(it.first) }), tally(usages.map { it.second }), asCandidate),
             triggerEvents(connection, row.id, row.kind, row.parentId?.toLong()),
             if (row.kind == "VIEW") viewReads(connection, row.id) else emptyList(),
-            if (row.kind in VIEWED_KINDS) viewsReading(connection, row.id) else emptyList()
+            if (row.kind in VIEWED_KINDS) viewsReading(connection, row.id) else emptyList(),
+            if (row.kind == "COLUMN") viewBase(connection, row.id, outgoing = true) else emptyList(),
+            if (row.kind == "COLUMN") viewBase(connection, row.id, outgoing = false) else emptyList()
+        )
+    }
+
+    /** One hop of `VIEW_BASE` edges of a column: the columns it comes from ([outgoing]), or the view columns coming from it. */
+    private fun viewBase(connection: Connection, columnId: Long, outgoing: Boolean): List<EntitySummary> {
+        val (near, far) = if (outgoing) "from_id" to "to_id" else "to_id" to "from_id"
+        return connection.query(
+            """SELECT e.key, e.kind, e.display, e.external FROM relation r JOIN entity e ON e.id = r.$far
+               WHERE r.$near = ? AND r.kind = 'VIEW_BASE' ORDER BY e.key""", listOf(columnId), ::entitySummary
         )
     }
 
@@ -138,9 +150,13 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     /**
      * "Who uses" [key]: occurrences of the entities in [scope] (the entity itself, plus `IMPLEMENTS` partners in
-     * either direction, plus transitive `CONTAINS` descendants), and with [includeCandidates] the `AMBIGUOUS`
-     * occurrences where one of them is a candidate. Rows are in occurrence id order, which is source order. Facets
-     * count the whole filtered set: roles under the status filter only, statuses under the role filter only.
+     * either direction, plus transitive `CONTAINS` descendants, plus with [Scope.VIEWS] transitively the view columns
+     * whose `VIEW_BASE` edges reach one of them and the views whose query reads a table, view or object table among
+     * them), and with [includeCandidates] the `AMBIGUOUS` occurrences where one of them is a candidate. What
+     * [Scope.VIEWS] adds gets no children: a join view's columns from another relation stay out. An occurrence hit
+     * several ways reports one hit: a direct one before a candidate one, one not added by [Scope.VIEWS] before one
+     * added by it ([OccurrenceRow.viaView]). Rows are in occurrence id order, which is source order. Facets count the
+     * whole filtered set: roles under the status filter only, statuses under the role filter only.
      */
     fun occurrences(
         key: String,
@@ -157,6 +173,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         val roleFilter = roles?.ifEmpty { null } ?: USAGE_ROLES
         return read { connection, _ ->
             if (connection.query("SELECT 1 FROM entity WHERE key = ?", listOf(key)) { 1 }.isEmpty()) return@read null
+            // UNION, not UNION ALL, in the recursive CTEs: an entity already in the set is not followed again (no cycles).
             val hits = connection.query(
                 """WITH RECURSIVE
                      self(id) AS (SELECT id FROM entity WHERE key = ?),
@@ -167,15 +184,23 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
                      scope(id) AS (
                        SELECT id FROM linked
                        UNION SELECT r.to_id FROM relation r JOIN scope s ON r.from_id = s.id WHERE ? AND r.kind = 'CONTAINS'),
-                     hits(oid, matched, via) AS (
-                       SELECT o.id, o.entity_id, 0 FROM occurrence o WHERE o.entity_id IN (SELECT id FROM scope)
+                     viewed(id) AS (
+                       SELECT id FROM scope
+                       UNION SELECT r.from_id FROM viewed v JOIN relation r ON r.to_id = v.id WHERE ? AND r.kind = 'VIEW_BASE'
+                       UNION SELECT o.container_entity_id FROM viewed v JOIN entity t ON t.id = v.id
+                         JOIN occurrence o ON o.entity_id = v.id JOIN entity w ON w.id = o.container_entity_id
+                         WHERE ? AND t.kind IN ($VIEWED_KINDS_SQL) AND w.kind = 'VIEW' AND (',' || o.roles || ',') LIKE '%,SQL_SELECT,%'),
+                     hits(oid, matched, via_candidate) AS (
+                       SELECT o.id, o.entity_id, 0 FROM occurrence o WHERE o.entity_id IN (SELECT id FROM viewed)
                        UNION ALL
-                       SELECT c.occurrence_id, c.entity_id, 1 FROM occurrence_candidate c WHERE ? AND c.entity_id IN (SELECT id FROM scope))
-                   SELECT h.oid, min(h.matched), min(h.via), o.roles, o.status
+                       SELECT c.occurrence_id, c.entity_id, 1 FROM occurrence_candidate c WHERE ? AND c.entity_id IN (SELECT id FROM viewed))
+                   SELECT h.oid, h.matched, h.via_candidate, h.matched NOT IN (SELECT id FROM scope), o.roles, o.status
                    FROM hits h JOIN occurrence o ON o.id = h.oid
-                   GROUP BY h.oid ORDER BY h.oid""",
-                listOf(key, Scope.IMPLEMENTATIONS in scope, Scope.IMPLEMENTATIONS in scope, Scope.CHILDREN in scope, includeCandidates)
-            ) { Hit(it.getLong(1), it.getLong(2), it.getInt(3) == 1, roles(it.getString(4)), it.getString(5)) }
+                   ORDER BY h.oid""",
+                listOf(key, Scope.IMPLEMENTATIONS in scope, Scope.IMPLEMENTATIONS in scope, Scope.CHILDREN in scope,
+                    Scope.VIEWS in scope, Scope.VIEWS in scope, includeCandidates)
+            ) { Hit(it.getLong(1), it.getLong(2), it.getInt(3) == 1, it.getInt(4) == 1, roles(it.getString(5)), it.getString(6)) }
+                .groupBy { it.id }.values.map { it.minWith(hitPreference) }
 
             fun roleMatch(hit: Hit) = hit.roles.any { it in roleFilter }
             fun statusMatch(hit: Hit) = statuses.isNullOrEmpty() || hit.status in statuses
@@ -221,7 +246,10 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
     private class Entity(val id: Long, val key: String, val kind: String, val schema: String?, val name: String, val display: String,
                          val external: Boolean, val parentId: Number?)
 
-    private class Hit(val id: Long, val matched: Long, val viaCandidate: Boolean, val roles: List<String>, val status: String)
+    private class Hit(val id: Long, val matched: Long, val viaCandidate: Boolean, val viaView: Boolean, val roles: List<String>, val status: String)
+
+    /** The hit an occurrence hit several ways reports: not added by [Scope.VIEWS] first, then direct before candidate. */
+    private val hitPreference = compareBy<Hit>({ it.viaView }, { it.viaCandidate }, { it.matched })
 
     private fun rows(connection: Connection, page: List<Hit>): List<OccurrenceRow> {
         if (page.isEmpty()) return emptyList()
@@ -257,7 +285,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             val containerId = (rs.getObject(13) as Number?)?.toLong()
             OccurrenceRow(
                 id, rs.getString(2), span(rs, 3), rs.getString(7), roles(rs.getString(8)), rs.getString(9), rs.getString(10), rs.getString(11),
-                entityOf(hit.matched)!!, hit.viaCandidate, null, null, UnitRef(rs.getString(14), rs.getString(15)), rs.getString(16),
+                entityOf(hit.matched)!!, hit.viaCandidate, hit.viaView, null, null, UnitRef(rs.getString(14), rs.getString(15)), rs.getString(16),
                 candidates[id].orEmpty(), arguments[id].orEmpty()
             ).let { it.copy(entity = entityOf(entityId), container = entityOf(containerId)) }
         }
@@ -314,10 +342,11 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     companion object {
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 5
+        const val SCHEMA_VERSION = 6
 
-        /** The relation kinds whose entity page lists the views that read them. */
+        /** The relation kinds whose entity page lists the views that read them, and whose readers [Scope.VIEWS] follows. */
         val VIEWED_KINDS = setOf("TABLE", "VIEW", "OBJECT_TABLE")
+        private val VIEWED_KINDS_SQL = VIEWED_KINDS.joinToString { "'$it'" }
 
         /** Decodes an indexed file with the charset recorded for it (`source_file.encoding`); a leading BOM is dropped. */
         fun decode(bytes: ByteArray, encoding: String): String =
