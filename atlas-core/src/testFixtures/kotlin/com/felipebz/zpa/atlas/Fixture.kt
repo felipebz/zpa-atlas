@@ -45,18 +45,39 @@ object Fixture {
             relation("V_\$SESSION", "SID", "USERNAME", kind = DictionaryRelationKind.VIEW, schema = "SYS")
         ),
         listOf(
-            DictionarySynonym("PUBLIC", "USER_TABLES", "SYS", "USER_TABLES"),
-            DictionarySynonym("PUBLIC", "USER_TAB_COLUMNS", "SYS", "USER_TAB_COLUMNS"),
-            DictionarySynonym("PUBLIC", "V\$SESSION", "SYS", "V_\$SESSION"),
+            DictionarySynonym("PUBLIC", "USER_TABLES", "SYS", "USER_TABLES", "VIEW"),
+            DictionarySynonym("PUBLIC", "USER_TAB_COLUMNS", "SYS", "USER_TAB_COLUMNS", "VIEW"),
+            DictionarySynonym("PUBLIC", "V\$SESSION", "SYS", "V_\$SESSION", "VIEW"),
             // Named like an HR table: the own table wins.
-            DictionarySynonym("PUBLIC", "EVENT_LOG", "SYS", "USER_TABLES"),
+            DictionarySynonym("PUBLIC", "EVENT_LOG", "SYS", "USER_TABLES", "VIEW"),
             // A target the dictionary lacks, in a schema that is not complete.
-            DictionarySynonym("PUBLIC", "MISSING_VIEW", "SYS", "NO_SUCH_VIEW"),
-            DictionarySynonym("HR", "SYN_COMPANY", "HR", "COMPANY"),
-            DictionarySynonym("HR", "SYN_CHAIN1", "HR", "SYN_CHAIN2"),
-            DictionarySynonym("HR", "SYN_CHAIN2", "HR", "SEND_QUEUE"),
-            DictionarySynonym("HR", "SYN_LOOP_A", "HR", "SYN_LOOP_B"),
-            DictionarySynonym("HR", "SYN_LOOP_B", "HR", "SYN_LOOP_A")
+            DictionarySynonym("PUBLIC", "MISSING_VIEW", "SYS", "NO_SUCH_VIEW", "VIEW"),
+            DictionarySynonym("HR", "SYN_COMPANY", "HR", "COMPANY", "TABLE"),
+            DictionarySynonym("HR", "SYN_CHAIN1", "HR", "SYN_CHAIN2", "SYNONYM"),
+            DictionarySynonym("HR", "SYN_CHAIN2", "HR", "SEND_QUEUE", "TABLE"),
+            DictionarySynonym("HR", "SYN_LOOP_A", "HR", "SYN_LOOP_B", "SYNONYM"),
+            DictionarySynonym("HR", "SYN_LOOP_B", "HR", "SYN_LOOP_A", "SYNONYM"),
+            // Public synonyms of SYS packages, types, functions and sequences.
+            DictionarySynonym("PUBLIC", "DBMS_OUTPUT", "SYS", "DBMS_OUTPUT", "PACKAGE"),
+            DictionarySynonym("PUBLIC", "DBMS_UTILITY", "SYS", "DBMS_UTILITY", "PACKAGE"),
+            DictionarySynonym("PUBLIC", "XMLTYPE", "SYS", "XMLTYPE", "TYPE"),
+            DictionarySynonym("PUBLIC", "XMLAGG", "SYS", "SYS_IXMLAGG", "FUNCTION"),
+            DictionarySynonym("PUBLIC", "GET_ENV", "SYS", "GET_ENV_FN", "FUNCTION"),
+            DictionarySynonym("PUBLIC", "SYN_SEQ", "SYS", "GLOBAL_SEQ", "SEQUENCE"),
+            // Private synonyms of HR: a package of another schema, and a project package.
+            DictionarySynonym("HR", "SYN_EXT_PKG", "OTHER", "EXT_PKG", "PACKAGE"),
+            DictionarySynonym("HR", "SYN_CALLS", "HR", "PACK_CALLS", "PACKAGE"),
+            // Named like the HR package DBMS_RANDOM: the own package wins.
+            DictionarySynonym("PUBLIC", "DBMS_RANDOM", "SYS", "DBMS_RANDOM", "PACKAGE")
+        ),
+        // The namespace of HR as the database lists it: its relations and synonyms, and objects the sources lack.
+        mapOf(
+            "HR" to mapOf(
+                "COMPANY" to "TABLE", "SEND_QUEUE" to "TABLE", "EVENT_LOG" to "TABLE", "V_COMPANY" to "VIEW",
+                "SYN_COMPANY" to "SYNONYM", "SYN_CHAIN1" to "SYNONYM", "SYN_CHAIN2" to "SYNONYM", "SYN_LOOP_A" to "SYNONYM",
+                "SYN_LOOP_B" to "SYNONYM", "SYN_EXT_PKG" to "SYNONYM", "SYN_CALLS" to "SYNONYM",
+                "DBMS_RANDOM" to "PACKAGE", "TY_MISSING" to "TYPE", "SEQ_MISSING" to "SEQUENCE"
+            )
         )
     )
 

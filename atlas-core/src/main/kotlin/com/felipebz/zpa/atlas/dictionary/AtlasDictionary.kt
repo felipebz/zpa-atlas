@@ -18,12 +18,15 @@ enum class DictionaryRelationKind(val entityKind: EntityKind) {
 
 data class DictionaryRelation(val relation: ProjectExternalRelation, val kind: DictionaryRelationKind)
 
-/** A synonym without database link, exact dictionary names: `owner.name` (owner `PUBLIC` for a public one) for `target`. */
-data class DictionarySynonym(val owner: String, val name: String, val targetOwner: String, val targetName: String)
+/**
+ * A synonym without database link, exact dictionary names: `owner.name` (owner `PUBLIC` for a public one) for `target`,
+ * whose `ALL_OBJECTS.OBJECT_TYPE` is [targetType] (`SYNONYM` for a hop of a chain).
+ */
+data class DictionarySynonym(val owner: String, val name: String, val targetOwner: String, val targetName: String, val targetType: String)
 
 /**
  * The Oracle dictionary as the indexer sees it: the [metadata] used for every lookup, the relations it can enumerate,
- * and the [synonyms] of relations (zpa leaves synonyms to its consumers).
+ * and the [synonyms] of relations, packages, types, subprograms and sequences (zpa leaves synonyms to its consumers).
  *
  * [ProjectExternalMetadata] has no public way to list its relations, and it does not record whether a relation is a
  * table or a view (see the report). When [relations] is not [enumerable] (an [OracleMetadataAcquisition] result), a
@@ -36,10 +39,21 @@ class AtlasDictionary(
     val enumerable: Boolean,
     /** Exact names of the schemas the dictionary was requested for. */
     val schemas: Set<String> = emptySet(),
-    val synonyms: List<DictionarySynonym> = emptyList()
+    val synonyms: List<DictionarySynonym> = emptyList(),
+    /**
+     * The names of the objects of the schemas whose namespace was read (tables, views, synonyms, sequences, packages,
+     * types, subprograms), by schema, with their `OBJECT_TYPE`. A schema absent here has an unknown namespace.
+     */
+    val objects: Map<String, Map<String, String>> = emptyMap()
 ) {
     private val kinds = relations.associate { (it.relation.schema to it.relation.name) to it.kind }
     private val synonymsByName = synonyms.associateBy { it.owner to it.name }
+
+    /** Whether the object names of [schema] were read: only then is a name it lacks known to be absent. */
+    fun knowsObjects(schema: String): Boolean = schema in objects
+
+    /** The `OBJECT_TYPE` of the object [name] of [schema], or null (absent, or not read). */
+    fun objectType(schema: String, name: String): String? = objects[schema]?.get(name)
 
     fun kindOf(relation: ProjectExternalRelation): DictionaryRelationKind =
         kinds[relation.schema to relation.name]
@@ -72,17 +86,22 @@ class AtlasDictionary(
             origin: String,
             completeSchemas: Collection<String>,
             relations: List<DictionaryRelation>,
-            synonyms: List<DictionarySynonym> = emptyList()
+            synonyms: List<DictionarySynonym> = emptyList(),
+            objects: Map<String, Map<String, String>> = emptyMap()
         ): AtlasDictionary {
             val builder = ProjectExternalMetadata.builder(origin)
             completeSchemas.forEach { builder.completeSchema(it) }
             relations.forEach { builder.relation(it.relation) }
             val schemas = completeSchemas.toSet() + relations.map { it.relation.schema.originalSpelling.removeSurrounding("\"") }
-            return AtlasDictionary(builder.build(), relations, enumerable = true, schemas = schemas, synonyms = synonyms)
+            return AtlasDictionary(builder.build(), relations, enumerable = true, schemas = schemas, synonyms = synonyms, objects = objects)
         }
 
         /** An acquired dictionary for the requested [schemas]: lookups only, no enumeration. */
-        fun lookupOnly(metadata: ProjectExternalMetadata, schemas: Set<String>, synonyms: List<DictionarySynonym> = emptyList()): AtlasDictionary =
-            AtlasDictionary(metadata, emptyList(), enumerable = false, schemas = schemas, synonyms = synonyms)
+        fun lookupOnly(
+            metadata: ProjectExternalMetadata,
+            schemas: Set<String>,
+            synonyms: List<DictionarySynonym> = emptyList(),
+            objects: Map<String, Map<String, String>> = emptyMap()
+        ): AtlasDictionary = AtlasDictionary(metadata, emptyList(), enumerable = false, schemas = schemas, synonyms = synonyms, objects = objects)
     }
 }

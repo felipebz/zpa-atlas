@@ -93,11 +93,16 @@ class OracleCompareIT {
         connection.createStatement().use { it.execute(Files.readString(resource("reset.plsql"))) }
     }
 
-    /** Runs every `/`-terminated statement of the source files in name order; `deployed/` replaces a file on purpose. */
+    /**
+     * Runs every `/`-terminated statement of the source files in name order. A file of `deployed/` replaces the source
+     * file of the same name on purpose; one without a source file is an object the database has and the sources lack.
+     */
     private fun deploy(connection: Connection) {
         // Specifications before bodies, then a recompilation of whatever is still invalid.
         val rank = listOf("sql", "typ", "pks", "prc", "pkb", "trg")
-        val files = Files.list(resource("sources")).use { it.toList() }.sortedWith(compareBy({ rank.indexOf(it.name.substringAfterLast('.')) }, { it.name }))
+        val sources = Files.list(resource("sources")).use { it.toList() }
+        val databaseOnly = Files.list(resource("deployed")).use { it.toList() }.filter { deployed -> sources.none { it.name == deployed.name } }
+        val files = (sources + databaseOnly).sortedWith(compareBy({ rank.indexOf(it.name.substringAfterLast('.')) }, { it.name }))
         for (file in files) {
             val deployed = resource("deployed").resolve(file.name).takeIf { Files.exists(it) } ?: file
             for (chunk in Files.readString(deployed).replace("\r\n", "\n").split(Regex("(?m)^/\\s*$"))) {
@@ -112,10 +117,12 @@ class OracleCompareIT {
 
     companion object {
         // Oracle 26ai: STANDARD, DBMS_STANDARD, PLITBLM and SYS_STUB_FOR_PURITY_ANALYSIS rows; P_CHANGED is deployed
-        // differently. Oracle records a synonym, not its target: the private SYN_CUSTOMER and the public USER_TABLES and
-        // USER_TAB_COLUMNS match through the index edge to the target.
-        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 15, "SOURCE_DIFFERS" to 1)
+        // differently. Oracle records a synonym, not its target: the private SYN_CUSTOMER, the public USER_TABLES and
+        // USER_TAB_COLUMNS, and the public DBMS_OUTPUT (twice), XMLTYPE and DBMS_UTILITY match through the index edge to
+        // the target. DBMS_RANDOM is a package of the schema the sources lack: P_OWN_RANDOM's call matches it exactly,
+        // not the public synonym of the same name.
+        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 19, "SOURCE_DIFFERS" to 1)
         val EXPECTED_INDEX_ONLY = mapOf("SOURCE_DIFFERS" to 1)
-        val EXPECTED_MATCHED = mapOf("BY_NAME" to 1, "EXACT" to 14, "SYNONYM" to 3)
+        val EXPECTED_MATCHED = mapOf("EXACT" to 15, "SYNONYM" to 7)
     }
 }

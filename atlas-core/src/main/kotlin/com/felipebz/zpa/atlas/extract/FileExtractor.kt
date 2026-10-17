@@ -12,6 +12,7 @@ import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.TclGrammar
+import com.felipebz.zpa.api.AggregateSqlFunctionsGrammar
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectCallKind
@@ -55,7 +56,8 @@ class FileExtractor(
     private val entities = ArrayList<EntityFact>()
     private val relations = ArrayList<RelationFact>()
     private val coverage = ArrayList<CoverageFact>()
-    private val resolver = RelationResolver(dictionary, entities, relations)
+    private val synonyms = SynonymResolver(dictionary)
+    private val resolver = RelationResolver(dictionary, synonyms, entities, relations)
     private var recoveredRegions = 0
 
     /** Datatype names captured by a local declaration: counted, not indexed (locals are not entities). */
@@ -75,8 +77,8 @@ class FileExtractor(
         catalog = catalogOf(snapshot)
         runSchemas = catalog.schemas + dictionary.schemas + listOfNotNull(defaultSchema) + setOf("SYS", "SYSTEM")
         values = PackageValues(snapshot, catalog)
-        calls = CallResolver(snapshot, catalog, values, entities, relations, runSchemas)
-        types = TypeReferenceResolver(snapshot, catalog, values, resolver, entities, relations, runSchemas)
+        calls = CallResolver(snapshot, catalog, values, synonyms, entities, relations, runSchemas)
+        types = TypeReferenceResolver(snapshot, catalog, values, resolver, synonyms, entities, relations, runSchemas)
     }
 
     override fun visitFile(node: AstNode) {
@@ -140,7 +142,7 @@ class FileExtractor(
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
         return FileFacts(path, sha256, sizeBytes, encoding, status, recoveredRegions, defaultSchema, units, statements, occurrences,
             LinkedHashSet(entities).toList(), LinkedHashSet(relations).toList(), coverage, resolver.dictionaryRelations.toList(),
-            resolver.dictionarySynonyms.toList())
+            synonyms.dictionarySynonyms.toList())
     }
 
     // ---- units --------------------------------------------------------------------------------------------------
@@ -301,7 +303,11 @@ class FileExtractor(
                 typeUse(node, context, null)
                 return
             }
-            PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION -> if (isValueName(node)) valueReference(node, context, null, sql = false)
+            PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION -> if (isAggregateImplementation(node)) {
+                aggregateType(node, context)
+            } else if (isValueName(node)) {
+                valueReference(node, context, null, sql = false)
+            }
         }
         for (child in node.children) walk(child, current)
     }
@@ -476,6 +482,11 @@ class FileExtractor(
                     callOccurrence(name, context, statementId, outcome)
                     return
                 }
+                // A member of a package or type a synonym names, kind unknown: a read of the owner.
+                is CallOutcome.ExternalMember -> {
+                    valueOccurrence(span, text, context, statementId, Status.UNRESOLVED, outcome.entityKey, "NOT_IN_PROJECT", emptyList(), setOf(Role.READ))
+                    return
+                }
                 CallOutcome.NotACall -> Unit
             }
         }
@@ -580,12 +591,19 @@ class FileExtractor(
         val nameParts = children.subList(0, lastDot)
         val text = nameParts.joinToString("") { writtenText(it) }
         val span = spanOf(nameParts.first(), nameParts.last())
-        val declared = values.sequence(written, context.schema)
+        // A sequence the project does not declare may be named by a synonym: `syn_seq.nextval` reads the target.
+        val target = if (values.sequence(written, context.schema) == null && written.size == 1) {
+            synonyms.follow(normalizeIdentifier(written[0]), context.schema, SynonymResolver.SEQUENCES)
+        } else {
+            null
+        }
+        val resolvedName = target?.let { SynonymResolver.written(it, emptyList()) } ?: written
+        val declared = values.sequence(resolvedName, context.schema)
         val (key, status) = if (declared != null) {
             declared to Status.RESOLVED
         } else {
-            val names = written.map { normalizeIdentifier(it) }
-            val schemaQualified = names.size == 2 && names[0] in runSchemas
+            val names = resolvedName.map { normalizeIdentifier(it) }
+            val schemaQualified = names.size == 2 && (names[0] in runSchemas || target != null)
             val key = if (schemaQualified) dbKey(names[0], names[1]) else dbKey(UNKNOWN_SCHEMA, *names.toTypedArray())
             entities += EntityFact(key, EntityKind.SEQUENCE, if (schemaQualified) names[0] else null, names.last(), null, key.removePrefix("db:"),
                 external = true, precedence = Precedence.MENTIONED)
@@ -655,6 +673,27 @@ class FileExtractor(
         }
         occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
             setOf(Role.TYPE_USE), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
+    }
+
+    /** The type after `AGGREGATE USING` of a user-defined aggregate function. */
+    private fun isAggregateImplementation(node: AstNode): Boolean =
+        node.previousSiblingOrNull?.type == PlSqlKeyword.USING && node.parentOrNull?.hasDirectChildren(PlSqlKeyword.AGGREGATE) == true
+
+    /** `AGGREGATE USING t`: a `TYPE_USE` of the implementation type. */
+    private fun aggregateType(name: AstNode, context: Context) {
+        val segments = nameSegments(name) ?: return
+        val outcome = types.named(segments, context.schema, context.enclosingPackage) ?: return
+        occurrences += OccurrenceFact(context.unitIndex, context.container, null, spanOf(name), writtenText(name), outcome.entityKey,
+            setOf(Role.TYPE_USE), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
+    }
+
+    /**
+     * A built-in SQL function the grammar parses as its own expression (`XMLAGG(… ORDER BY …)`): a `CALL` of its keyword
+     * only when a synonym names it (Oracle records the public synonym); nothing otherwise, as for other built-ins.
+     */
+    private fun sqlFunctionKeyword(keyword: AstNode, context: Context, statementId: Int) {
+        val outcome = calls.resolve(listOf(keyword.tokenOriginalValue), ProjectCallKind.FUNCTION, emptyList(), context.schema, context.enclosingPackage)
+        if (outcome is CallOutcome.Call && outcome.entityKey != null) callOccurrence(keyword, context, statementId, outcome)
     }
 
     private fun isOwnDeclaration(symbol: Symbol, reference: AstNode): Boolean {
@@ -789,6 +828,7 @@ class FileExtractor(
         }
         // The PL/SQL compiler resolves the function names of static SQL, so they follow the PL/SQL rules.
         root.getDescendants(PlSqlGrammar.METHOD_CALL).forEach { callSite(it, context, id) }
+        root.getDescendants(AggregateSqlFunctionsGrammar.XMLAGG_EXPRESSION).forEach { sqlFunctionKeyword(it.firstChild, context, id) }
         // `CAST(… AS t)` and the other datatypes of the statement.
         root.getDescendants(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE).forEach { typeUse(it, context, id) }
         // Names: INTO targets are PL/SQL values; every other name is a column read when an SQL scope captures it.

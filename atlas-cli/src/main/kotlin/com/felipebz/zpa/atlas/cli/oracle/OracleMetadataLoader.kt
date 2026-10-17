@@ -18,12 +18,16 @@ import java.sql.SQLException
 import java.util.logging.Logger
 import javax.sql.DataSource
 
-/** The acquired metadata and the synonyms of relations read with it. */
-class LoadedMetadata(val result: OracleMetadataResult, val synonyms: List<DictionarySynonym>)
+/**
+ * The acquired metadata, the synonyms read with it, and the object names of the compilation and requested schemas, by
+ * schema, with their `OBJECT_TYPE`.
+ */
+class LoadedMetadata(val result: OracleMetadataResult, val synonyms: List<DictionarySynonym>, val objects: Map<String, Map<String, String>>)
 
 /**
- * Acquires Oracle metadata once per run, before scanning, exactly as zpa-cli does, plus the synonyms of relations
- * (public ones and those of the compilation and requested schemas), whose final targets are added to the request.
+ * Acquires Oracle metadata once per run, before scanning, exactly as zpa-cli does, plus the synonyms of relations,
+ * packages, types, subprograms and sequences (public ones, except those named like a `STANDARD` subprogram, and those
+ * of the compilation and requested schemas). The final targets that are relations are added to the request.
  * Failures abort the run with a message from which the URL and the password are removed: no partial metadata is ever
  * used. A schema that does not exist is rejected up front: the dictionary would otherwise return nothing for it,
  * silently.
@@ -32,16 +36,32 @@ object OracleMetadataLoader {
     private val LOG = Logger.getLogger(OracleMetadataLoader::class.java.name)
 
     /**
-     * Synonyms without database link whose target is a table, a view or a synonym the session can see (this keeps out
-     * the public synonyms of packages, types and Java classes). Only the columns of `ALL_SYNONYMS` on 10g are read.
+     * Synonyms without database link whose target is a table, a view, a package, a type, a subprogram, a sequence or a
+     * synonym the session can see, with the target's object type (the scalar subquery gives one row per synonym; an
+     * evolved type has several `ALL_OBJECTS` rows). Bodies are left out: they would duplicate rows. Only the columns of
+     * `ALL_SYNONYMS` on 10g are read.
      */
-    private const val SYNONYMS_SQL = """SELECT s.owner, s.synonym_name, s.table_owner, s.table_name
-  FROM all_synonyms s
- WHERE s.owner IN (%s)
-   AND s.db_link IS NULL
-   AND EXISTS (SELECT 1 FROM all_objects o
-                WHERE o.owner = s.table_owner AND o.object_name = s.table_name
-                  AND o.object_type IN ('TABLE', 'VIEW', 'SYNONYM'))"""
+    private const val SYNONYMS_SQL = """SELECT owner, synonym_name, table_owner, table_name, object_type FROM (
+  SELECT s.owner, s.synonym_name, s.table_owner, s.table_name,
+         (SELECT MIN(o.object_type) FROM all_objects o
+           WHERE o.owner = s.table_owner AND o.object_name = s.table_name
+             AND o.object_type IN ('TABLE', 'VIEW', 'SYNONYM', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE', 'SEQUENCE')) object_type
+    FROM all_synonyms s
+   WHERE s.owner IN (%s)
+     AND s.db_link IS NULL)
+ WHERE object_type IS NOT NULL"""
+
+    /** The subprograms of `SYS.STANDARD`: a one-segment name of one of them is never a public synonym (STANDARD wins). */
+    private const val STANDARD_SQL = "SELECT DISTINCT procedure_name FROM all_procedures WHERE owner = 'SYS' AND object_name = 'STANDARD' AND procedure_name IS NOT NULL"
+
+    /**
+     * The names in the namespace of schema objects Oracle searches before public synonyms. An evolved type has several
+     * rows: one per name is kept.
+     */
+    private const val OBJECTS_SQL = """SELECT owner, object_name, MIN(object_type) FROM all_objects
+ WHERE owner IN (%s)
+   AND object_type IN ('TABLE', 'VIEW', 'SYNONYM', 'SEQUENCE', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE')
+ GROUP BY owner, object_name"""
 
     /**
      * @param compilationSchema checked for existence with the requested schemas; null when not configured
@@ -73,14 +93,22 @@ object OracleMetadataLoader {
         val owners = (listOf(AtlasDictionary.PUBLIC) + settings.schemas + listOfNotNull(compilationSchema)).distinct()
         val started = System.nanoTime()
         val synonyms = try {
-            synonyms(dataSource, owners)
+            val standard = standardNames(dataSource)
+            synonyms(dataSource, owners).filterNot { it.owner == AtlasDictionary.PUBLIC && it.name in standard }
         } catch (e: SQLException) {
             throw CliExecutionException("Reading the synonyms failed${errorCode(e)}: ${redact(e.message, settings)}")
         } catch (e: RuntimeException) {
             throw CliExecutionException("Reading the synonyms failed: ${redact(e.message, settings)}")
         }
+        val objectsStarted = System.nanoTime()
+        val objects = try {
+            objects(dataSource, (settings.schemas + listOfNotNull(compilationSchema)).distinct())
+        } catch (e: SQLException) {
+            throw CliExecutionException("Reading the schema objects failed${errorCode(e)}: ${redact(e.message, settings)}")
+        }
         val targets = synonymTargets(synonyms.filter { it.name in writtenNames }, synonyms, settings.schemas.toSet())
-        LOG.info("Synonyms: ${synonyms.size} read in ${(System.nanoTime() - started) / 1_000_000} ms; ${targets.size} target relation(s) requested")
+        LOG.info("Synonyms: ${synonyms.size} read in ${(objectsStarted - started) / 1_000_000} ms; ${targets.size} target relation(s) requested; " +
+            "${objects.values.sumOf { it.size }} object name(s) of ${objects.keys} read in ${(System.nanoTime() - objectsStarted) / 1_000_000} ms")
 
         LOG.info("Reading Oracle metadata as ${settings.user} (schemas ${settings.schemas}, relations ${settings.relations.map { "${it.first}.${it.second}" }})...")
         val acquisitionStarted = System.nanoTime()
@@ -99,7 +127,7 @@ object OracleMetadataLoader {
             "complete schemas ${result.completeSchemas}" +
             (if (notVisible.isEmpty()) "" else "; not visible $notVisible") +
             (if (synonymTargetsNotVisible.isEmpty()) "" else "; ${synonymTargetsNotVisible.size} synonym target(s) not returned"))
-        return LoadedMetadata(result, synonyms)
+        return LoadedMetadata(result, synonyms, objects)
     }
 
     private fun synonyms(dataSource: DataSource, owners: List<String>): List<DictionarySynonym> {
@@ -108,21 +136,44 @@ object OracleMetadataLoader {
             connection.prepareStatement(SYNONYMS_SQL.format(owners.joinToString(",") { "?" })).use { statement ->
                 owners.forEachIndexed { index, owner -> statement.setString(index + 1, owner) }
                 statement.executeQuery().use { rows ->
-                    while (rows.next()) result += DictionarySynonym(rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4))
+                    while (rows.next()) result += DictionarySynonym(rows.getString(1), rows.getString(2), rows.getString(3), rows.getString(4), rows.getString(5))
                 }
             }
         }
         return result
     }
 
+    /** Every schema of [owners] gets an entry, even without objects: its namespace is known. */
+    private fun objects(dataSource: DataSource, owners: List<String>): Map<String, Map<String, String>> {
+        val result = owners.associateWithTo(LinkedHashMap()) { HashMap<String, String>() }
+        dataSource.connection.use { connection ->
+            connection.prepareStatement(OBJECTS_SQL.format(owners.joinToString(",") { "?" })).use { statement ->
+                owners.forEachIndexed { index, owner -> statement.setString(index + 1, owner) }
+                statement.executeQuery().use { rows -> while (rows.next()) result.getValue(rows.getString(1))[rows.getString(2)] = rows.getString(3) }
+            }
+        }
+        return result
+    }
+
+    private fun standardNames(dataSource: DataSource): Set<String> {
+        val result = HashSet<String>()
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery(STANDARD_SQL).use { rows -> while (rows.next()) result += rows.getString(1) }
+            }
+        }
+        return result
+    }
+
     /**
-     * The final targets of the [named] synonyms (chains followed through [all], cycles dropped) outside the
-     * [requestedSchemas], which are read completely anyway.
+     * The final targets that are relations of the [named] synonyms (chains followed through [all], cycles dropped)
+     * outside the [requestedSchemas], which are read completely anyway. Other targets are not acquired.
      */
     private fun synonymTargets(named: List<DictionarySynonym>, all: List<DictionarySynonym>, requestedSchemas: Set<String>): Set<Pair<String, String>> {
         val table = AtlasDictionary.lookupOnly(ProjectExternalMetadata.none(), emptySet(), all)
         return named.mapNotNullTo(LinkedHashSet()) { synonym ->
-            table.synonymChain(synonym.owner, synonym.name)?.last()?.let { it.targetOwner to it.targetName }
+            table.synonymChain(synonym.owner, synonym.name)?.last()?.takeIf { it.targetType == "TABLE" || it.targetType == "VIEW" }
+                ?.let { it.targetOwner to it.targetName }
         }.filterTo(LinkedHashSet()) { it.first !in requestedSchemas }
     }
 

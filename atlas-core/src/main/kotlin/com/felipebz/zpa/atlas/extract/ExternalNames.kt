@@ -28,6 +28,7 @@ object ExternalNames {
     /**
      * @param names the normalized segments, at least two
      * @param unitSchema the schema of the unit, for the owner key of a two-segment name
+     * @param parentKind the kind of the owner entity: `PACKAGE`, or `TYPE` for a member of a type a synonym names
      */
     fun external(
         names: List<String>,
@@ -36,7 +37,8 @@ object ExternalNames {
         runSchemas: Set<String>,
         catalog: DeclarationCatalog,
         entities: MutableList<EntityFact>,
-        relations: MutableList<RelationFact>
+        relations: MutableList<RelationFact>,
+        parentKind: EntityKind = EntityKind.PACKAGE
     ): Result {
         require(names.size >= 2) { "An external name has at least two segments" }
         val owner = if (names.size == 2) dbKey(unitSchema ?: UNKNOWN_SCHEMA, names[0]) else dbKey(names[0], *names.subList(1, names.size - 1).toTypedArray())
@@ -51,7 +53,7 @@ object ExternalNames {
             else -> null
         }
         if (parent != null) {
-            entities += EntityFact(parent, EntityKind.PACKAGE, schema, names[names.size - 2], null, parent.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
+            entities += EntityFact(parent, parentKind, schema, names[names.size - 2], null, parent.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
             relations += RelationFact(parent, RelationKind.CONTAINS, key)
         }
         entities += EntityFact(key, kind, schema, names.last(), parent, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)

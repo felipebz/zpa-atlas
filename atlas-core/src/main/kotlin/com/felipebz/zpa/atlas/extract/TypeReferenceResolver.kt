@@ -26,6 +26,7 @@ class TypeReferenceResolver(
     private val catalog: DeclarationCatalog,
     private val values: PackageValues,
     private val relationResolver: RelationResolver,
+    private val synonyms: SynonymResolver,
     private val entities: MutableList<EntityFact>,
     private val relations: MutableList<RelationFact>,
     private val runSchemas: Set<String>
@@ -60,9 +61,12 @@ class TypeReferenceResolver(
 
     /**
      * A named type: a project type (package type, subtype or standalone type), else nothing for a built-in (null),
-     * else an unknown type with an external entity under the key rules of unknown calls.
+     * else a type a synonym names (`xmltype` is `SYS.XMLTYPE`, resolved as if written), else an unknown type with an
+     * external entity under the key rules of unknown calls.
+     *
+     * @param synonymTarget the object [written] was rewritten to, a synonym target or an own object the project lacks (internal)
      */
-    fun named(written: List<String>, unitSchema: String?, enclosingPackage: List<String>?): TypeOutcome? {
+    fun named(written: List<String>, unitSchema: String?, enclosingPackage: List<String>?, synonymTarget: NameTarget? = null): TypeOutcome? {
         val packageName = enclosingPackage?.let { qualifiedName(it) }
         for (names in nameSpellings(written, unitSchema)) {
             // A one-segment name is a member of the enclosing package first, then a standalone type.
@@ -82,7 +86,14 @@ class TypeReferenceResolver(
         }
         if (isBuiltIn(written, packageName)) return null
         if (values.isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
-        return unknownType(written.map { normalizeIdentifier(it) }, unitSchema)
+        val names = written.map { normalizeIdentifier(it) }
+        if (synonymTarget == null) {
+            val targetTypes = if (names.size == 1) SynonymResolver.TYPES else SynonymResolver.PACKAGES_AND_TYPES
+            synonyms.follow(names[0], unitSchema, targetTypes)?.let { target ->
+                return named(SynonymResolver.written(target, names.drop(1)), unitSchema, null, target)
+            }
+        }
+        return unknownType(names, unitSchema, synonymTarget)
     }
 
     /** A built-in of zpa-core's classifier, or a type of `SYS.STANDARD` it does not list (written in one segment). */
@@ -97,16 +108,24 @@ class TypeReferenceResolver(
 
     /**
      * An external `TYPE` entity, with the key and parent rules of unknown calls ([ExternalNames]): a type of a package
-     * belongs to that package. One segment (typically a public synonym such as `XMLTYPE`) is `db:~.X`, without parent.
+     * belongs to that package. One segment (typically a public synonym such as `XMLTYPE` without dictionary) is
+     * `db:~.X`, without parent; through a synonym, the target `db:O.T` (or `db:O.P.T` under the package `db:O.P`).
      */
-    private fun unknownType(names: List<String>, unitSchema: String?): TypeOutcome {
+    private fun unknownType(names: List<String>, unitSchema: String?, synonymTarget: NameTarget?): TypeOutcome {
+        if (synonymTarget != null && names.size == 2) {
+            val key = dbKey(names[0], names[1])
+            if (catalog.isDeclared(key)) return UNKNOWN_MEMBER
+            entities += EntityFact(key, EntityKind.TYPE, names[0], names[1], null, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
+            return NOT_IN_PROJECT.copy(entityKey = key)
+        }
         if (names.size == 1) {
             val key = dbKey(UNKNOWN_SCHEMA, names[0])
             if (catalog.isDeclared(key)) return UNKNOWN_MEMBER
             entities += EntityFact(key, EntityKind.TYPE, null, names[0], null, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
             return NOT_IN_PROJECT.copy(entityKey = key)
         }
-        return when (val result = ExternalNames.external(names, EntityKind.TYPE, unitSchema, runSchemas, catalog, entities, relations)) {
+        val schemas = if (synonymTarget != null) runSchemas + synonymTarget.owner else runSchemas
+        return when (val result = ExternalNames.external(names, EntityKind.TYPE, unitSchema, schemas, catalog, entities, relations)) {
             ExternalNames.Result.UnknownMember -> UNKNOWN_MEMBER
             is ExternalNames.Result.External -> NOT_IN_PROJECT.copy(entityKey = result.key)
         }

@@ -36,7 +36,7 @@ private fun index(args: IndexArguments, environment: (String) -> String?): Int {
         val schemas = it.schemas.toSet() + it.relations.map { relation -> relation.first }
         val writtenNames = SourceIdentifiers.scan(sources, args.extensions.split(','))
         val loaded = OracleMetadataLoader.load(it, compilationSchema, applicationHome().resolve("drivers"), writtenNames)
-        AtlasDictionary.lookupOnly(loaded.result.metadata, schemas, loaded.synonyms)
+        AtlasDictionary.lookupOnly(loaded.result.metadata, schemas, loaded.synonyms, loaded.objects)
     }
         ?: AtlasDictionary.NONE
     val summary = Indexer().index(

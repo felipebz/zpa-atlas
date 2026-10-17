@@ -98,7 +98,8 @@ class AtlasIndexTest {
         val body = "db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER)@BODY"
         assertThat(index.occurrences(body).result!!.rows).isEmpty()
         val rows = index.occurrences(body, scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS)).result!!.rows
-        assertThat(rows.map { it.path to it.statementKind }).containsExactly("hr/pack_calls.pkb" to "SELECT", "scripts/calls.sql" to "SELECT")
+        assertThat(rows.map { it.path to it.statementKind })
+            .containsExactly("hr/pack_calls.pkb" to "SELECT", "hr/proc_synonym_objects.prc" to null, "scripts/calls.sql" to "SELECT")
         assertThat(rows).allMatch { it.matched.key == "db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER)" && it.arguments.single().parameter != null }
     }
 

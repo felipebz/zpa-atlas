@@ -54,6 +54,12 @@ data class WrittenArgument(val label: String?)
 sealed class CallOutcome {
     data object NotACall : CallOutcome()
 
+    /**
+     * A member of an external package or type read without parentheses (`dbms_utility.format_error_backtrace`): its
+     * kind is unknown (a function, a variable, a constant), so the entity is the owner [entityKey].
+     */
+    data class ExternalMember(val entityKey: String) : CallOutcome()
+
     /** The name is a package value, exception or cursor ([kind]): the entity is it, the first hop of the name. */
     data class Value(val kind: MemberKind, val status: Status, val entityKey: String?, val reason: String?, val candidateKeys: List<String> = emptyList()) : CallOutcome()
 
@@ -85,6 +91,7 @@ class CallResolver(
     private val snapshot: ProjectSnapshot,
     private val catalog: DeclarationCatalog,
     private val values: PackageValues,
+    private val synonyms: SynonymResolver,
     private val entities: MutableList<EntityFact>,
     private val relations: MutableList<RelationFact>,
     private val runSchemas: Set<String>
@@ -94,7 +101,9 @@ class CallResolver(
      * @param unitSchema the schema of the unit (written owner, else the compilation schema), or null
      * @param enclosingPackage the package spec or body containing the call, as written in its CREATE, or null
      * @param withoutParentheses a name read as a function call without parentheses: constructors do not apply,
-     *   and a name the project does not know is `NOT_IN_PROJECT` without external entity (it may be anything)
+     *   and a name the project does not know is `NOT_IN_PROJECT` without external entity (it may be anything), except a
+     *   member of a package or type a synonym names ([CallOutcome.ExternalMember])
+     * @param synonymTarget the object [written] was rewritten to, a synonym target or an own object the project lacks (internal)
      */
     fun resolve(
         written: List<String>,
@@ -102,7 +111,8 @@ class CallResolver(
         arguments: List<WrittenArgument>,
         unitSchema: String?,
         enclosingPackage: List<String>?,
-        withoutParentheses: Boolean = false
+        withoutParentheses: Boolean = false,
+        synonymTarget: NameTarget? = null
     ): CallOutcome {
         val variants = nameSpellings(written, unitSchema)
         val packageName = enclosingPackage?.let { ProjectQualifiedName.of(*it.toTypedArray()) }
@@ -130,8 +140,21 @@ class CallResolver(
                 return map(resolution)
             }
         }
-        if (withoutParentheses) return CallOutcome.Call(Status.UNRESOLVED, null, "NOT_IN_PROJECT")
-        return notInProject(written.map { normalizeIdentifier(it) }, kind, unitSchema)
+        // A name the project does not know may be an object of the unit's schema the sources lack, or a synonym: a
+        // one-segment call of a function, a procedure or a type (a constructor), or the owner of a member. The object
+        // (a synonym's final target) is then resolved as if written, project first.
+        val names = written.map { normalizeIdentifier(it) }
+        if (synonymTarget == null && !(withoutParentheses && names.size == 1)) {
+            val targetTypes = if (names.size == 1) SynonymResolver.CALLABLES else SynonymResolver.PACKAGES_AND_TYPES
+            synonyms.follow(names[0], unitSchema, targetTypes)?.let { target ->
+                return resolve(SynonymResolver.written(target, names.drop(1)), kind, arguments, unitSchema, enclosingPackage, withoutParentheses, target)
+            }
+        }
+        if (withoutParentheses) {
+            return synonymTarget?.let { externalOwner(it) }?.let { CallOutcome.ExternalMember(it) }
+                ?: CallOutcome.Call(Status.UNRESOLVED, null, "NOT_IN_PROJECT")
+        }
+        return notInProject(names, kind, unitSchema, synonymTarget)
     }
 
     /**
@@ -238,13 +261,40 @@ class CallResolver(
      * `db:A.B` without parent, `db:A.B.C` under package `db:A.B`. Otherwise: `db:~.A.B` under package `db:~.A`
      * (a package, a synonym or a schema: not known), and `db:~.A.B.C` without parent.
      */
-    private fun notInProject(names: List<String>, kind: ProjectCallKind, unitSchema: String?): CallOutcome.Call {
+    private fun notInProject(names: List<String>, kind: ProjectCallKind, unitSchema: String?, synonymTarget: NameTarget?): CallOutcome.Call {
         val notFound = CallOutcome.Call(Status.UNRESOLVED, null, "NOT_IN_PROJECT")
         if (names.size < 2) return notFound
         val entityKind = if (kind == ProjectCallKind.FUNCTION) EntityKind.FUNCTION else EntityKind.PROCEDURE
-        return when (val result = ExternalNames.external(names, entityKind, unitSchema, runSchemas, catalog, entities, relations)) {
+        if (synonymTarget != null && names.size == 2) {
+            // A one-segment call through a synonym: the function, procedure or type (a constructor) itself.
+            val key = dbKey(synonymTarget.owner, synonymTarget.name)
+            val targetKind = when (synonymTarget.type) {
+                "TYPE" -> EntityKind.TYPE
+                "FUNCTION" -> EntityKind.FUNCTION
+                else -> EntityKind.PROCEDURE
+            }
+            entities += EntityFact(key, targetKind, synonymTarget.owner, synonymTarget.name, null, key.removePrefix("db:"),
+                external = true, precedence = Precedence.MENTIONED)
+            return notFound.copy(entityKey = key)
+        }
+        val schemas = if (synonymTarget != null) runSchemas + synonymTarget.owner else runSchemas
+        val parentKind = if (synonymTarget?.type == "TYPE") EntityKind.TYPE else EntityKind.PACKAGE
+        return when (val result = ExternalNames.external(names, entityKind, unitSchema, schemas, catalog, entities, relations, parentKind)) {
             ExternalNames.Result.UnknownMember -> CallOutcome.Call(Status.UNRESOLVED, null, "UNKNOWN_MEMBER")
             is ExternalNames.Result.External -> notFound.copy(entityKey = result.key)
         }
+    }
+
+    /** The external package or type a synonym names, as an entity: the owner of a member read without parentheses. */
+    private fun externalOwner(target: NameTarget): String? {
+        val key = dbKey(target.owner, target.name)
+        if (catalog.isDeclared(key)) return null
+        val kind = when (target.type) {
+            "PACKAGE" -> EntityKind.PACKAGE
+            "TYPE" -> EntityKind.TYPE
+            else -> return null
+        }
+        entities += EntityFact(key, kind, target.owner, target.name, null, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
+        return key
     }
 }

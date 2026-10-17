@@ -37,22 +37,24 @@ object Precedence {
 
 /**
  * Resolves relation and column names against the dictionary; nothing here is shared between files. An entity a result
- * refers to is added to [entities], except for dictionary relations and synonyms: those are only recorded in
- * [dictionaryRelations] and [dictionarySynonyms], and the run adds their entities once, after the scan.
+ * refers to is added to [entities], except for dictionary relations: those are only recorded in [dictionaryRelations],
+ * and the run adds their entities once, after the scan (the synonyms followed are recorded by [synonyms]).
  *
- * A name that is not a relation may be a synonym, followed to its final target in Oracle's order: a synonym of the
- * schema, then (only when the schema is complete, so that its own objects are known) a public synonym. The result,
- * and every column read through it, is the target's.
+ * A name that is not a relation may be a synonym of a table or a view, followed to its final target in Oracle's order:
+ * a synonym of the schema, then (only when the schema is complete, so that its own objects are known) a public
+ * synonym. The result, and every column read through it, is the target's. A synonym of anything else (a package) is
+ * not a relation.
  */
-class RelationResolver(private val dictionary: AtlasDictionary, private val entities: MutableList<EntityFact>, private val relations: MutableList<RelationFact>) {
+class RelationResolver(
+    private val dictionary: AtlasDictionary,
+    private val synonyms: SynonymResolver,
+    private val entities: MutableList<EntityFact>,
+    private val relations: MutableList<RelationFact>
+) {
     private val found = LinkedHashMap<String, ProjectExternalRelation>()
-    private val followed = LinkedHashSet<DictionarySynonym>()
 
     /** The distinct dictionary relations this file resolved, by entity key, in first-resolution order. */
     val dictionaryRelations: Collection<ProjectExternalRelation> get() = found.values
-
-    /** The distinct synonyms this file followed, every hop of each chain. */
-    val dictionarySynonyms: Collection<DictionarySynonym> get() = followed
 
     fun resolve(written: WrittenRelation, unitSchema: String?): ResolvedRelation {
         if (written.link != null) {
@@ -68,17 +70,8 @@ class RelationResolver(private val dictionary: AtlasDictionary, private val enti
         }
         val lookup = dictionary.metadata.findRelation(identifier(schema), identifier(written.name))
         if (lookup.status != ProjectExternalLookup.Status.FOUND && schema != AtlasDictionary.PUBLIC) {
-            val chain = dictionary.synonymChain(schema, written.name)?.takeIf { it.isNotEmpty() }
-                ?: if (written.schema == null && lookup.status == ProjectExternalLookup.Status.RELATION_NOT_FOUND) {
-                    dictionary.synonymChain(AtlasDictionary.PUBLIC, written.name)
-                } else {
-                    null
-                }
-            if (!chain.isNullOrEmpty()) {
-                followed += chain
-                val target = chain.last()
-                return relation(target.targetOwner, target.targetName)
-            }
+            val publicAllowed = written.schema == null && lookup.status == ProjectExternalLookup.Status.RELATION_NOT_FOUND
+            synonyms.follow(written.name, schema, SynonymResolver.RELATIONS, publicAllowed)?.let { return relation(it.owner, it.name) }
         }
         return relation(schema, written.name, lookup)
     }

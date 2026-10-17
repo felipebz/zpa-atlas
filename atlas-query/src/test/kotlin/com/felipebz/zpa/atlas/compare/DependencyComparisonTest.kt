@@ -90,7 +90,7 @@ class DependencyComparisonTest {
     fun `every class is hit at least once`() {
         assertThat((result.databaseOnly + external.databaseOnly).map { it.dbClass }.toSet()).containsExactlyInAnyOrderElementsOf(ComparisonReport.DB_CLASSES)
         assertThat(result.indexOnly.map { it.indexClass }.toSet()).containsExactlyInAnyOrderElementsOf(ComparisonReport.INDEX_CLASSES)
-        assertThat(result.matched).anyMatch { it.byName && it.reference.referencedName == "DBMS_OUTPUT" }
+        assertThat(result.matched).anyMatch { it.matchClass == "SYNONYM" && it.reference.referencedName == "DBMS_OUTPUT" }
         assertThat(result.collapsedOccurrences).isGreaterThan(0)
         assertThat(result.databaseOnly.single { it.dbClass == "RESOLVED_ELSEWHERE" }.reference.referencedOwner).isEqualTo("SCOTT")
     }
