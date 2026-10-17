@@ -35,3 +35,84 @@ application {
 tasks.test {
     useJUnitPlatform()
 }
+
+/**
+ * `THIRD-PARTY.md`: every JAR of the distribution's `lib/` (the runtime classpath plus this project's JAR), with its
+ * license and where its source code is, read from the Maven POMs (parents followed for inherited licenses and URLs).
+ * ZPA and FLR are LGPL-3.0-or-later: their entries point to `licenses/LGPL-3.0.txt`.
+ */
+val thirdPartyNotice by tasks.registering {
+    description = "Writes THIRD-PARTY.md, the license of every JAR in the distribution's lib/ directory."
+    val runtime = configurations.runtimeClasspath
+    val jar = tasks.jar.flatMap { it.archiveFileName }
+    val output = layout.buildDirectory.file("third-party/THIRD-PARTY.md")
+    inputs.files(runtime)
+    inputs.property("jar", jar)
+    outputs.file(output)
+    doLast {
+        class Pom(val name: String?, val url: String?, val scm: String?, val licenses: List<Pair<String, String?>>, val parent: String?)
+
+        fun pom(coordinates: String): Pom {
+            val file = project.configurations.detachedConfiguration(project.dependencies.create("$coordinates@pom"))
+                .apply { isTransitive = false }.singleFile
+            val root = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file).documentElement
+            fun children(node: org.w3c.dom.Node, name: String) =
+                (0 until node.childNodes.length).map { node.childNodes.item(it) }.filter { it.nodeName == name }
+            fun text(node: org.w3c.dom.Node, vararg path: String): String? {
+                var current = node
+                for (name in path) current = children(current, name).firstOrNull() ?: return null
+                return current.textContent.trim().ifEmpty { null }
+            }
+            val licenses = children(root, "licenses").flatMap { children(it, "license") }.map { (text(it, "name") ?: "?") to text(it, "url") }
+            val parent = children(root, "parent").firstOrNull()?.let { "${text(it, "groupId")}:${text(it, "artifactId")}:${text(it, "version")}" }
+            return Pom(text(root, "name"), text(root, "url"), text(root, "scm", "url"), licenses, parent)
+        }
+
+        val lgpl = "GNU Lesser General Public License, version 3 or later ([licenses/LGPL-3.0.txt](licenses/LGPL-3.0.txt), " +
+            "with [licenses/GPL-3.0.txt](licenses/GPL-3.0.txt))"
+        val apache = "Apache License, Version 2.0 ([LICENSE](LICENSE))"
+        val atlasUrl = "https://github.com/felipebz/zpa-atlas"
+        val rows = ArrayList<List<String>>()
+        rows += listOf(jar.get(), apache, atlasUrl)
+        for (artifact in runtime.get().incoming.artifacts) {
+            val fileName = artifact.file.name
+            when (val id = artifact.id.componentIdentifier) {
+                is org.gradle.api.artifacts.component.ProjectComponentIdentifier -> rows += listOf(fileName, apache, atlasUrl)
+                is org.gradle.api.artifacts.component.ModuleComponentIdentifier -> {
+                    val chain = generateSequence(pom("${id.group}:${id.module}:${id.version}")) { it.parent?.let(::pom) }.take(5).toList()
+                    val url = chain.firstNotNullOfOrNull { it.scm ?: it.url } ?: error("No project URL in the POM of $id")
+                    val license = if (id.group == "com.felipebz.zpa" || id.group == "com.felipebz.flr") {
+                        lgpl
+                    } else {
+                        chain.firstOrNull { it.licenses.isNotEmpty() }?.licenses
+                            ?.joinToString(", ") { (name, link) -> if (link != null) "[$name]($link)" else name }
+                            ?: error("No license in the POM of $id")
+                    }
+                    rows += listOf(fileName, license, url)
+                }
+                else -> error("Unexpected runtime artifact $id")
+            }
+        }
+        val text = buildString {
+            append("# Third-party libraries\n\n")
+            append("Every JAR in `lib/`, with its license and where its source code can be obtained. Generated from the runtime ")
+            append("classpath of `atlas-cli` by `./gradlew :atlas-cli:thirdPartyNotice` (part of every distribution build).\n\n")
+            append("The JARs are kept separate so that any of them, ZPA and FLR included, can be replaced by another version.\n\n")
+            append("| JAR | License | Source code |\n|---|---|---|\n")
+            rows.sortedBy { it[0] }.forEach { (file, license, url) -> append("| `$file` | $license | $url |\n") }
+        }
+        output.get().asFile.writeText(text)
+    }
+}
+
+distributions {
+    main {
+        contents {
+            from(rootProject.file("LICENSE"), rootProject.file("NOTICE"))
+            from(thirdPartyNotice)
+            from(rootProject.file("licenses")) {
+                into("licenses")
+            }
+        }
+    }
+}

@@ -30,3 +30,11 @@ temporary file and renamed at the end; a schema change means re-indexing.
 `atlas-devtools` is a separate distribution with the tools that measure the atlas itself (`compare-deps` against
 `ALL_DEPENDENCIES`, `timings`), the runbook for the real corpus and the Oracle integration test: see
 [atlas-devtools/README.md](atlas-devtools/README.md).
+
+## License
+
+ZPA Atlas is licensed under the [Apache License, Version 2.0](LICENSE).
+
+It depends on [ZPA](https://github.com/felipebz/zpa) and [FLR](https://github.com/felipebz/flr), which are licensed under the GNU Lesser General Public License, version 3 or later. The binary distribution lists every bundled library and its license in `THIRD-PARTY.md`.
+
+`THIRD-PARTY.md` is generated from the runtime classpath of `atlas-cli` by `./gradlew :atlas-cli:thirdPartyNotice`, which every distribution build (`distZip`, `distTar`, `installDist`) runs. The license texts the distribution ships for ZPA and FLR are in [licenses/](licenses).

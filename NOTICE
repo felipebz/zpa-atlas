@@ -1,0 +1,6 @@
+ZPA Atlas
+Copyright 2026 Felipe Zorzo
+
+This product depends on ZPA (zpa-core, zpa-oracle-metadata) and FLR,
+which are licensed under the GNU Lesser General Public License, version 3
+or later. See https://github.com/felipebz/zpa and https://github.com/felipebz/flr.
