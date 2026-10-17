@@ -120,9 +120,10 @@ class OracleCompareIT {
         // differently. Oracle records a synonym, not its target: the private SYN_CUSTOMER, the public USER_TABLES and
         // USER_TAB_COLUMNS, and the public DBMS_OUTPUT (twice), XMLTYPE and DBMS_UTILITY match through the index edge to
         // the target. DBMS_RANDOM is a package of the schema the sources lack: P_OWN_RANDOM's call matches it exactly,
-        // not the public synonym of the same name.
-        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 19, "SOURCE_DIFFERS" to 1)
+        // not the public synonym of the same name. TY_CIRCLE depends on its supertype, its body on TY_CIRCLE, and
+        // P_XMLSEQ on the public synonym XMLSEQUENCE and its operator SYS.XMLSEQUENCE (Oracle records both).
+        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 24, "SOURCE_DIFFERS" to 1)
         val EXPECTED_INDEX_ONLY = mapOf("SOURCE_DIFFERS" to 1)
-        val EXPECTED_MATCHED = mapOf("EXACT" to 15, "SYNONYM" to 7)
+        val EXPECTED_MATCHED = mapOf("EXACT" to 19, "SYNONYM" to 9)
     }
 }

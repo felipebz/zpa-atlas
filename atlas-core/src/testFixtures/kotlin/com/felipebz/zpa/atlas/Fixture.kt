@@ -62,6 +62,7 @@ object Fixture {
             DictionarySynonym("PUBLIC", "DBMS_UTILITY", "SYS", "DBMS_UTILITY", "PACKAGE"),
             DictionarySynonym("PUBLIC", "XMLTYPE", "SYS", "XMLTYPE", "TYPE"),
             DictionarySynonym("PUBLIC", "XMLAGG", "SYS", "SYS_IXMLAGG", "FUNCTION"),
+            DictionarySynonym("PUBLIC", "XMLSEQUENCE", "SYS", "XMLSEQUENCE", "OPERATOR"),
             DictionarySynonym("PUBLIC", "GET_ENV", "SYS", "GET_ENV_FN", "FUNCTION"),
             DictionarySynonym("PUBLIC", "SYN_SEQ", "SYS", "GLOBAL_SEQ", "SEQUENCE"),
             // Private synonyms of HR: a package of another schema, and a project package.

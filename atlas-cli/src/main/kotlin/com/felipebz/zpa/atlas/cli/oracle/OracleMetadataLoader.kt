@@ -36,16 +36,16 @@ object OracleMetadataLoader {
     private val LOG = Logger.getLogger(OracleMetadataLoader::class.java.name)
 
     /**
-     * Synonyms without database link whose target is a table, a view, a package, a type, a subprogram, a sequence or a
-     * synonym the session can see, with the target's object type (the scalar subquery gives one row per synonym; an
-     * evolved type has several `ALL_OBJECTS` rows). Bodies are left out: they would duplicate rows. Only the columns of
-     * `ALL_SYNONYMS` on 10g are read.
+     * Synonyms without database link whose target is a table, a view, a package, a type, a subprogram, an operator, a
+     * sequence or a synonym the session can see, with the target's object type (the scalar subquery gives one row per
+     * synonym; an evolved type has several `ALL_OBJECTS` rows). Bodies are left out: they would duplicate rows. Only the
+     * columns of `ALL_SYNONYMS` on 10g are read.
      */
     private const val SYNONYMS_SQL = """SELECT owner, synonym_name, table_owner, table_name, object_type FROM (
   SELECT s.owner, s.synonym_name, s.table_owner, s.table_name,
          (SELECT MIN(o.object_type) FROM all_objects o
            WHERE o.owner = s.table_owner AND o.object_name = s.table_name
-             AND o.object_type IN ('TABLE', 'VIEW', 'SYNONYM', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE', 'SEQUENCE')) object_type
+             AND o.object_type IN ('TABLE', 'VIEW', 'SYNONYM', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE', 'OPERATOR', 'SEQUENCE')) object_type
     FROM all_synonyms s
    WHERE s.owner IN (%s)
      AND s.db_link IS NULL)
@@ -60,7 +60,7 @@ object OracleMetadataLoader {
      */
     private const val OBJECTS_SQL = """SELECT owner, object_name, MIN(object_type) FROM all_objects
  WHERE owner IN (%s)
-   AND object_type IN ('TABLE', 'VIEW', 'SYNONYM', 'SEQUENCE', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE')
+   AND object_type IN ('TABLE', 'VIEW', 'SYNONYM', 'SEQUENCE', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE', 'OPERATOR')
  GROUP BY owner, object_name"""
 
     /**

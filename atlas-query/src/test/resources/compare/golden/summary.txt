@@ -1,40 +1,43 @@
 compare-deps summary
 
 Units
-  mapped to database objects: 41
+  mapped to database objects: 45
   scripts and anonymous blocks (not compared): 27, with 46 edge occurrence(s)
-  units without ALL_OBJECTS row (not compared): 33, with 45 index edge(s)
+  units without ALL_OBJECTS row (not compared): 37, with 50 index edge(s)
   database objects without unit in the index: 1
 
 Source
   SAME: 1
   DIFFERS: 1
   WRAPPED: 0
-  NO_STORED_SOURCE: 39
+  NO_STORED_SOURCE: 43
   UNAVAILABLE: 0
     HR.TRG_COMPANY_BU TRIGGER: first difference at stored line 5
 
 Edges
-  database: 16
+  database: 21
   index: 25
   matched: 9 (exact 6, by name 0, synonym 3)
   matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 5)
 
 Match rate (matched / (database - BUILTIN - NON_EXISTENT))
-  overall: 64.3% (9/14)
-  FUNCTION: 0.0% (0/1)
-  PACKAGE: 100.0% (3/3)
-  PROCEDURE: 100.0% (1/1)
-  SYNONYM: 100.0% (3/3)
-  TABLE: 20.0% (1/5)
-  TYPE: 100.0% (1/1)
+  overall: 47.4% (9/19)
+  overall, names in the text: 69.2% (9/13)
+  FUNCTION: 0.0% (0/1); names in the text 0.0% (0/1)
+  PACKAGE: 100.0% (3/3); names in the text 100.0% (3/3)
+  PROCEDURE: 100.0% (1/1); names in the text 100.0% (1/1)
+  SYNONYM: 100.0% (3/3); names in the text 100.0% (3/3)
+  TABLE: 14.3% (1/7); names in the text 25.0% (1/4)
+  TYPE: 33.3% (1/3); names in the text 100.0% (1/1)
+  VIEW: 0.0% (0/1); names in the text n/a (0/0)
 
-Database only: 7
+Database only: 12
   BUILTIN: 1
   REMOTE: 1
   NON_EXISTENT: 1
   SOURCE_DIFFERS: 1
-  NAME_NOT_IN_TEXT: 1
+  TRANSITIVE: 2
+  NAME_NOT_IN_TEXT: 4
   UNRESOLVED_IN_INDEX: 1
   RESOLVED_ELSEWHERE: 1
   GUESSED_ELSEWHERE: 0
@@ -62,4 +65,8 @@ Top INDEX_ONLY names
   SYS.NO_SUCH_VIEW: 1
   SYS.USER_TAB_COLUMNS: 1
   SYS.V_$SESSION: 1
+
+Top TRANSITIVE paths
+  HR.TY_POINT TYPE -> HR.TY_COORD TYPE: 1
+  PUBLIC.DBMS_OUTPUT SYNONYM -> SYS.DBMSOUTPUT_LINESARRAY TYPE: 1
 

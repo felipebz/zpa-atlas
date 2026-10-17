@@ -87,6 +87,18 @@ class DependencyComparisonTest {
     }
 
     @Test
+    fun `a name not in the text is transitive only through a matched first hop, on the shortest path`() {
+        fun row(unit: String, name: String) = result.databaseOnly.single { it.unit.name == unit && it.reference.referencedName == name }.let { "${it.dbClass} ${it.detail}" }
+        // One hop: the matched type TY_POINT depends on TY_COORD. Two hops: the matched public synonym, then SYS.DBMS_OUTPUT.
+        assertThat(row("PACK_CALLS", "TY_COORD")).isEqualTo("TRANSITIVE via HR.TY_POINT TYPE (1)")
+        assertThat(row("PACK_CALLS", "DBMSOUTPUT_LINESARRAY")).isEqualTo("TRANSITIVE via PUBLIC.DBMS_OUTPUT SYNONYM (2)")
+        // The walk through the TY_POINT/TY_COORD cycle ends without reaching it.
+        assertThat(row("PACK_CALLS", "T_NOWHERE")).isEqualTo("NAME_NOT_IN_TEXT ")
+        // The only path starts with V_GHOST, a dependency the index does not match.
+        assertThat(row("PROC_STANDALONE", "T_GHOST")).isEqualTo("NAME_NOT_IN_TEXT ")
+    }
+
+    @Test
     fun `every class is hit at least once`() {
         assertThat((result.databaseOnly + external.databaseOnly).map { it.dbClass }.toSet()).containsExactlyInAnyOrderElementsOf(ComparisonReport.DB_CLASSES)
         assertThat(result.indexOnly.map { it.indexClass }.toSet()).containsExactlyInAnyOrderElementsOf(ComparisonReport.INDEX_CLASSES)

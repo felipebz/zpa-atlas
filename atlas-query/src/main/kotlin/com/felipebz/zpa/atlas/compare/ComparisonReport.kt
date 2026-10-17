@@ -43,6 +43,9 @@ object ComparisonReport {
         line()
         line("Match rate (matched / (database - BUILTIN - NON_EXISTENT))")
         line("  overall: ${rate(r.matched.size, db - expected)}")
+        // The same ratio without the rows whose name the unit's text does not contain (TRANSITIVE, NAME_NOT_IN_TEXT).
+        val unnamed = r.databaseOnly.count { it.dbClass in NOT_IN_TEXT_CLASSES }
+        line("  overall, names in the text: ${rate(r.matched.size, db - expected - unnamed)}")
         // Types whose rows are all expected (BUILTIN, NON_EXISTENT) have no rate.
         val types = (r.matched.map { it.reference.referencedType } +
             r.databaseOnly.filter { it.dbClass !in EXPECTED_CLASSES }.map { it.reference.referencedType }).toSortedSet()
@@ -50,7 +53,8 @@ object ComparisonReport {
             val m = r.matched.count { it.reference.referencedType == type }
             val d = m + r.databaseOnly.count { it.reference.referencedType == type }
             val b = r.databaseOnly.count { it.reference.referencedType == type && it.dbClass in EXPECTED_CLASSES }
-            line("  $type: ${rate(m, d - b)}")
+            val n = r.databaseOnly.count { it.reference.referencedType == type && it.dbClass in NOT_IN_TEXT_CLASSES }
+            line("  $type: ${rate(m, d - b)}; names in the text ${rate(m, d - b - n)}")
         }
         line()
         line("Database only: ${r.databaseOnly.size}")
@@ -65,6 +69,9 @@ object ComparisonReport {
         top("Top NOT_EXTRACTED names", r.databaseOnly.filter { it.dbClass == "NOT_EXTRACTED" }.map { it.reference.referencedName })
         top("Top UNRESOLVED_IN_INDEX names", r.databaseOnly.filter { it.dbClass == "UNRESOLVED_IN_INDEX" }.map { it.reference.referencedName })
         top("Top INDEX_ONLY names", r.indexOnly.filter { it.indexClass == "INDEX_ONLY" }.map { it.target.toString() })
+        top("Top TRANSITIVE paths", r.databaseOnly.filter { it.dbClass == "TRANSITIVE" && it.via != null }.map {
+            "${it.via} -> ${it.reference.referencedOwner}.${it.reference.referencedName} ${it.reference.referencedType}"
+        })
     }
 
     private fun StringBuilder.top(title: String, names: List<String>) {
@@ -79,11 +86,14 @@ object ComparisonReport {
         if (denominator <= 0) "n/a ($numerator/$denominator)" else String.format(Locale.ROOT, "%.1f%% (%d/%d)", 100.0 * numerator / denominator, numerator, denominator)
 
     val DB_CLASSES = listOf(
-        "BUILTIN", "REMOTE", "NON_EXISTENT", "SOURCE_DIFFERS", "NAME_NOT_IN_TEXT", "UNRESOLVED_IN_INDEX", "RESOLVED_ELSEWHERE",
-        "GUESSED_ELSEWHERE", "NOT_EXTRACTED"
+        "BUILTIN", "REMOTE", "NON_EXISTENT", "SOURCE_DIFFERS", "TRANSITIVE", "NAME_NOT_IN_TEXT", "UNRESOLVED_IN_INDEX",
+        "RESOLVED_ELSEWHERE", "GUESSED_ELSEWHERE", "NOT_EXTRACTED"
     )
     /** Database-only classes left out of the match-rate denominator. */
     val EXPECTED_CLASSES = setOf("BUILTIN", "NON_EXISTENT")
+
+    /** Database-only classes whose name the unit's text does not contain: also left out of the "names in the text" rates. */
+    val NOT_IN_TEXT_CLASSES = setOf("TRANSITIVE", "NAME_NOT_IN_TEXT")
 
     val INDEX_CLASSES = listOf("SOURCE_DIFFERS", "UNIT_INVALID", "BY_NAME_ONLY", "INDEX_ONLY")
 

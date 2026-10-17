@@ -54,7 +54,9 @@ class SynonymResolver(private val dictionary: AtlasDictionary) {
     companion object {
         val RELATIONS = setOf("TABLE", "VIEW")
         val PACKAGES_AND_TYPES = setOf("PACKAGE", "TYPE")
-        val CALLABLES = setOf("FUNCTION", "PROCEDURE", "TYPE")
+
+        /** One-segment calls: an operator (`XMLSEQUENCE`) is called like a function. */
+        val CALLABLES = setOf("FUNCTION", "PROCEDURE", "TYPE", "OPERATOR")
         val TYPES = setOf("TYPE")
         val SEQUENCES = setOf("SEQUENCE")
 

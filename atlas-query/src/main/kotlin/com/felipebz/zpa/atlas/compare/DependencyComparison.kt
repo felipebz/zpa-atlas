@@ -74,7 +74,14 @@ data class MatchedEdge(
     }
 }
 
-data class DatabaseOnlyEdge(val dbClass: String, val unit: DbObjectId, val reference: DbDependency, val detail: String)
+data class DatabaseOnlyEdge(
+    val dbClass: String,
+    val unit: DbObjectId,
+    val reference: DbDependency,
+    val detail: String,
+    /** For `TRANSITIVE`: the first hop, a matched dependency of the unit through which the database reaches the target. */
+    val via: DbObjectId? = null
+)
 
 data class IndexOnlyEdge(val indexClass: String, val unit: DbObjectId, val target: Target, val locations: List<Location>)
 
@@ -257,6 +264,15 @@ class DependencyComparison(
             addEdge(obj, project(rs.getLong(1)), Location(rs.getString(3), rs.getInt(4)), false)
         }
 
+        // A package body or a type body depends on its specification: the unit's own entity, as Oracle compiles it.
+        connection.forEach(
+            """SELECT u.id, u.entity_id, f.path, u.start_line FROM unit u JOIN source_file f ON f.id = u.file_id
+               WHERE u.kind IN ('PACKAGE_BODY', 'TYPE_BODY') AND u.entity_id IS NOT NULL"""
+        ) { rs ->
+            val obj = unitsById.getValue(rs.getLong(1)).obj ?: return@forEach
+            addEdge(obj, project(rs.getLong(2)), Location(rs.getString(3), rs.getInt(4)), false)
+        }
+
         // ---- database side
         val mapped = units.mapNotNull { it.obj }.toSortedSet()
         val dbObjects = database.objects.associateBy { DbObjectId(it.owner, it.name, it.type) }
@@ -309,10 +325,11 @@ class DependencyComparison(
             if (current !in synonymFor) synonymTargets[row.schema to row.name] = project(current)
         }
 
-        // ---- matching and classification
+        // ---- matching
         val matched = ArrayList<MatchedEdge>()
         val databaseOnly = ArrayList<DatabaseOnlyEdge>()
         val matchedIndex = HashSet<Pair<DbObjectId, Target>>()
+        val unmatched = ArrayList<DbDependency>()
         for (dep in dbEdges) {
             val obj = DbObjectId(dep.owner, dep.name, dep.type)
             val unitEdges = edges[obj].orEmpty()
@@ -350,6 +367,16 @@ class DependencyComparison(
                 matched += MatchedEdge(obj, dep, false, synonymEdge.fromCollapsedOnly, synonymEdge.locations.toList(), synonym = true)
                 continue
             }
+            unmatched += dep
+        }
+
+        // ---- classification of the database rows the index does not match
+        val paths = TransitivePaths(database.dependencies)
+        // The first hops of each unit: the objects of its matched rows, in dependency order.
+        val firstHops = matched.sortedWith { a, b -> DatabaseDependencies.DEPENDENCY_ORDER.compare(a.reference, b.reference) }
+            .groupBy({ it.unit }, { DbObjectId(it.reference.referencedOwner ?: "", it.reference.referencedName, it.reference.referencedType) })
+        for (dep in unmatched) {
+            val obj = DbObjectId(dep.owner, dep.name, dep.type)
             val unitEvidence = evidence[obj].orEmpty().filter { dep.referencedName in it.segments && fits(dep.referencedType, it.roles) }
             val unresolved = unitEvidence.filter { it.status in UNRESOLVED_STATUSES }
             val elsewhere = unitEvidence.filter { it.target != null && !(it.target.owner == dep.referencedOwner && it.target.name == dep.referencedName) &&
@@ -357,18 +384,25 @@ class DependencyComparison(
             // Only RESOLVED evidence is a likely resolution bug; UNVERIFIED, EXTERNAL and collapsed guesses are guesses.
             val (resolvedElsewhere, guessedElsewhere) = elsewhere.partition { it.status == "RESOLVED" }
             fun describe(list: List<Evidence>) = list.map { "${it.location}->${it.target}(${it.status})" }.distinct().joinToString(" ")
+            val nameNotInText = names[obj] != null && dep.referencedName !in names.getValue(obj)
+            val path = if (nameNotInText && dep.referencedOwner != null && dep.referencedLink == null) {
+                paths.shortest(firstHops[obj].orEmpty(), DbObjectId(dep.referencedOwner, dep.referencedName, dep.referencedType))
+            } else {
+                null
+            }
             val (dbClass, detail) = when {
                 dep.referencedOwner in BUILTIN_OWNERS && dep.referencedName in builtins -> "BUILTIN" to ""
                 dep.referencedLink != null -> "REMOTE" to ""
                 dep.referencedType == "NON-EXISTENT" -> "NON_EXISTENT" to ""
                 sourceStatus[obj]?.first == SourceStatus.DIFFERS -> "SOURCE_DIFFERS" to ""
-                names[obj] != null && dep.referencedName !in names.getValue(obj) -> "NAME_NOT_IN_TEXT" to ""
+                path != null -> "TRANSITIVE" to "via ${path.first} (${path.second})"
+                nameNotInText -> "NAME_NOT_IN_TEXT" to ""
                 unresolved.isNotEmpty() -> "UNRESOLVED_IN_INDEX" to unresolved.joinToString(" ") { "${it.location}(${it.status})" }
                 resolvedElsewhere.isNotEmpty() -> "RESOLVED_ELSEWHERE" to describe(resolvedElsewhere)
                 guessedElsewhere.isNotEmpty() -> "GUESSED_ELSEWHERE" to describe(guessedElsewhere)
                 else -> "NOT_EXTRACTED" to ""
             }
-            databaseOnly += DatabaseOnlyEdge(dbClass, obj, dep, detail)
+            databaseOnly += DatabaseOnlyEdge(dbClass, obj, dep, detail, path?.first)
         }
         val indexOnly = ArrayList<IndexOnlyEdge>()
         for ((obj, unitEdges) in edges.toSortedMap()) {

@@ -266,11 +266,12 @@ class CallResolver(
         if (names.size < 2) return notFound
         val entityKind = if (kind == ProjectCallKind.FUNCTION) EntityKind.FUNCTION else EntityKind.PROCEDURE
         if (synonymTarget != null && names.size == 2) {
-            // A one-segment call through a synonym: the function, procedure or type (a constructor) itself.
+            // A one-segment call through a synonym: the function, procedure, operator or type (a constructor) itself.
+            // An operator is a FUNCTION entity: it is called like one, and a new entity kind would change the schema.
             val key = dbKey(synonymTarget.owner, synonymTarget.name)
             val targetKind = when (synonymTarget.type) {
                 "TYPE" -> EntityKind.TYPE
-                "FUNCTION" -> EntityKind.FUNCTION
+                "FUNCTION", "OPERATOR" -> EntityKind.FUNCTION
                 else -> EntityKind.PROCEDURE
             }
             entities += EntityFact(key, targetKind, synonymTarget.owner, synonymTarget.name, null, key.removePrefix("db:"),

@@ -13,6 +13,7 @@ import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.TclGrammar
 import com.felipebz.zpa.api.AggregateSqlFunctionsGrammar
+import com.felipebz.zpa.api.SingleRowSqlFunctionsGrammar
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectCallKind
@@ -308,6 +309,9 @@ class FileExtractor(
             } else if (isValueName(node)) {
                 valueReference(node, context, null, sql = false)
             }
+            PlSqlGrammar.UNIT_NAME -> if (isSupertype(node)) supertypeUse(node, context)
+            // In a PL/SQL expression (static SQL is handled with its statement).
+            in KEYWORD_FUNCTIONS -> sqlFunctionKeyword(node.firstChild, context, null)
         }
         for (child in node.children) walk(child, current)
     }
@@ -682,16 +686,31 @@ class FileExtractor(
     /** `AGGREGATE USING t`: a `TYPE_USE` of the implementation type. */
     private fun aggregateType(name: AstNode, context: Context) {
         val segments = nameSegments(name) ?: return
+        typeUseOf(name, segments, context)
+    }
+
+    /** The supertype of `CREATE TYPE t UNDER s`. */
+    private fun isSupertype(node: AstNode): Boolean =
+        node.previousSiblingOrNull?.type == PlSqlKeyword.UNDER && node.parentOrNull?.type == PlSqlGrammar.OBJECT_TYPE_DEFINITION
+
+    /** `UNDER s`: a `TYPE_USE` of the supertype. */
+    private fun supertypeUse(name: AstNode, context: Context) {
+        val segments = name.getChildren(PlSqlGrammar.IDENTIFIER_NAME).map { it.tokenOriginalValue }.ifEmpty { return }
+        typeUseOf(name, segments, context)
+    }
+
+    private fun typeUseOf(name: AstNode, segments: List<String>, context: Context) {
         val outcome = types.named(segments, context.schema, context.enclosingPackage) ?: return
         occurrences += OccurrenceFact(context.unitIndex, context.container, null, spanOf(name), writtenText(name), outcome.entityKey,
             setOf(Role.TYPE_USE), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
     }
 
     /**
-     * A built-in SQL function the grammar parses as its own expression (`XMLAGG(… ORDER BY …)`): a `CALL` of its keyword
-     * only when a synonym names it (Oracle records the public synonym); nothing otherwise, as for other built-ins.
+     * A built-in SQL function the grammar parses as its own expression (`XMLAGG(… ORDER BY …)`, `XMLSEQUENCE(…)`): a
+     * `CALL` of its keyword only when a synonym names it (Oracle records the public synonym, and the target for an
+     * operator); nothing otherwise, as for other built-ins.
      */
-    private fun sqlFunctionKeyword(keyword: AstNode, context: Context, statementId: Int) {
+    private fun sqlFunctionKeyword(keyword: AstNode, context: Context, statementId: Int?) {
         val outcome = calls.resolve(listOf(keyword.tokenOriginalValue), ProjectCallKind.FUNCTION, emptyList(), context.schema, context.enclosingPackage)
         if (outcome is CallOutcome.Call && outcome.entityKey != null) callOccurrence(keyword, context, statementId, outcome)
     }
@@ -828,7 +847,7 @@ class FileExtractor(
         }
         // The PL/SQL compiler resolves the function names of static SQL, so they follow the PL/SQL rules.
         root.getDescendants(PlSqlGrammar.METHOD_CALL).forEach { callSite(it, context, id) }
-        root.getDescendants(AggregateSqlFunctionsGrammar.XMLAGG_EXPRESSION).forEach { sqlFunctionKeyword(it.firstChild, context, id) }
+        root.getDescendants(*KEYWORD_FUNCTIONS).forEach { sqlFunctionKeyword(it.firstChild, context, id) }
         // `CAST(… AS t)` and the other datatypes of the statement.
         root.getDescendants(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE).forEach { typeUse(it, context, id) }
         // Names: INTO targets are PL/SQL values; every other name is a column read when an SQL scope captures it.
@@ -1339,6 +1358,11 @@ class FileExtractor(
 
         val COLUMN_READ = setOf(Role.READ)
         val COLUMN_IMPLICIT_READ = setOf(Role.READ, Role.IMPLICIT)
+
+        /** Built-in SQL functions the grammar parses as their own expression, named by a synonym in the dictionary. */
+        val KEYWORD_FUNCTIONS = arrayOf<com.felipebz.flr.api.AstNodeType>(
+            AggregateSqlFunctionsGrammar.XMLAGG_EXPRESSION, SingleRowSqlFunctionsGrammar.XMLSEQUENCE_EXPRESSION
+        )
 
         val CURSOR_ATTRIBUTES = setOf("ISOPEN", "FOUND", "NOTFOUND", "ROWCOUNT", "BULK_ROWCOUNT", "BULK_EXCEPTIONS")
 
