@@ -15,6 +15,7 @@ import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.extract.DeclarationCatalog
 import com.felipebz.zpa.atlas.extract.FileExtractor
+import com.felipebz.zpa.atlas.extract.ObjectTypeMembers
 import com.felipebz.zpa.atlas.extract.RelationResolver
 import com.felipebz.zpa.atlas.extract.sha256
 import com.felipebz.zpa.atlas.model.CoverageFact
@@ -116,12 +117,20 @@ class Indexer internal constructor(
         else prepared.withExternalContext(ProjectExternalContext.of(options.dictionary.metadata, compilationSchema))
 
         val scanner = AstScanner(emptyList(), null, true, StandardCharsets.UTF_8, context, options.conditionalCompilation)
+        // The members of the object types, read before any type body is walked.
+        val typeMembers = ObjectTypeMembers()
+        for (source in sources) {
+            if (ObjectTypeMembers.MAY_SPECIFY_OBJECT.containsMatchIn(source.text)) {
+                scanner.scanFile(source, listOf(typeMembers.collector(options.compilationSchema)), source.relativePath)
+            }
+        }
         val catalogHolder = CatalogHolder(options.compilationSchema)
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
         fun extractor(source: Source) = FileExtractor(
             source.relativePath, sha256(source.bytes), source.bytes.size.toLong(), source.charset.name(), source.text.lines().size,
             options.dictionary, options.compilationSchema, catalogHolder::get,
-            jsonBuiltIn = (options.conditionalCompilation.databaseVersion?.version ?: 0) >= JSON_BUILT_IN_VERSION
+            jsonBuiltIn = (options.conditionalCompilation.databaseVersion?.version ?: 0) >= JSON_BUILT_IN_VERSION,
+            typeMembers = typeMembers
         )
         val walked: List<Result<FileFacts>> = try {
             sources.map { source ->
