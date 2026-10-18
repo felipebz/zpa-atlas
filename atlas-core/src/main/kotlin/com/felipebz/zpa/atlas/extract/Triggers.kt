@@ -122,8 +122,15 @@ internal class Triggers(private val state: FileState, private val resolver: Rela
         if (column in SQL_PSEUDOCOLUMNS) return true
         val roles = if (isNew) plsql.valueRoles(name, listOf(correlation, column)) else setOf(Role.READ)
         val resolved = resolver.resolveColumn(target, column)
+        // What a `:new` write puts in the row: an assignment, a `SELECT … INTO`, or nothing to read (counted).
+        val values = if (isNew && Role.WRITE in roles) {
+            val (assigned, position) = WrittenValues.assigned(name)
+            WrittenValues.facts(assigned, position, context, state)
+        } else {
+            emptyList()
+        }
         state.occurrences += OccurrenceFact(context.unitIndex, scope.key, statementId, spanOf(name), writtenText(name), resolved.entityKey,
-            roles, status(resolved.status, context.partial), context.origin, resolved.reason)
+            roles, status(resolved.status, context.partial), context.origin, resolved.reason, writtenValues = values)
         return true
     }
 }

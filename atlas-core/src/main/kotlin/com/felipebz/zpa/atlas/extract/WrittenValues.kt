@@ -10,6 +10,7 @@ import com.felipebz.zpa.api.DmlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.PlSqlPunctuator
+import com.felipebz.zpa.atlas.model.WrittenValueFact
 
 /** The value expressions of the columns a write clause lists: per row, one per column position; or why there are none. */
 internal sealed interface ColumnValues {
@@ -75,6 +76,48 @@ internal object WrittenValues {
     /** A query the pairing does not read: an empty select list, a block that is not a plain `SELECT`. */
     const val QUERY_SHAPE = "query shape"
     const val COLUMNS_INCOMPLETE = "columns not complete"
+    const val OUT_ARGUMENT = "OUT argument"
+    const val INTO_WITHOUT_QUERY = "INTO without a query"
+
+    /**
+     * The expressions of [values] for the column at [position], classified, one per row; none, counted under their
+     * reason, when the statement gives none.
+     */
+    fun facts(values: ColumnValues, position: Int, context: Context, state: FileState): List<WrittenValueFact> = when (values) {
+        is ColumnValues.Rows -> values.of(position).mapIndexed { index, node ->
+            val value = ExpressionValues.of(node, context::hasHoles)
+            WrittenValueFact(index + 1, value.kind, value.value, spanOf(node))
+        }
+        is ColumnValues.None -> {
+            unvalued(state, values.reason)
+            emptyList()
+        }
+    }
+
+    fun unvalued(state: FileState, reason: String) {
+        state.unvaluedWrites.merge(reason, 1, Int::plus)
+    }
+
+    /**
+     * What a write to a variable or a correlation column writes, from where [target] stands: the right side of `:=`;
+     * the select list item at its position among the `INTO` targets of a `SELECT … INTO`; else nothing, an `INTO` of a
+     * `FETCH`, `EXECUTE IMMEDIATE` or `RETURNING` (no query to pair) or an `OUT` actual of a call.
+     */
+    fun assigned(target: AstNode): Pair<ColumnValues, Int> {
+        val parent = target.parentOrNull ?: return ColumnValues.None(OUT_ARGUMENT) to 0
+        if (parent.type == PlSqlGrammar.ASSIGNMENT_STATEMENT) {
+            val children = parent.children
+            val assignment = children.indexOfFirst { it.type == PlSqlPunctuator.ASSIGNMENT }
+            val value = children.getOrNull(assignment + 1)
+            if (value != null && children.indexOf(target) < assignment) return ColumnValues.Rows(listOf(listOf(value))) to 0
+        }
+        if (parent.type == DmlGrammar.INTO_CLAUSE) {
+            val block = parent.parentOrNull?.takeIf { it.type == DmlGrammar.QUERY_BLOCK } ?: return ColumnValues.None(INTO_WITHOUT_QUERY) to 0
+            val targets = parent.children.filter { it.type !is PlSqlPunctuator && it.type !is PlSqlKeyword }
+            return WriteSource.Query(block.parent).forColumns(targets.size) to targets.indexOf(target)
+        }
+        return ColumnValues.None(OUT_ARGUMENT) to 0
+    }
 
     /** The query inside [node], through the parentheses and the unary wrapper the parser puts around a subquery. */
     fun subquery(node: AstNode): AstNode? {

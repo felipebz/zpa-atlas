@@ -64,6 +64,27 @@ class WrittenValuesTest {
         assertThat(insert("insert into t select d.* from d", 3)).isEqualTo(WrittenValues.SET_OR_STAR)
     }
 
+    /** What the `INTO` target [target] of [statement] is given: its value's text, or the reason it has none. */
+    private fun assigned(statement: String, target: String): Any {
+        val root = parser.parse("begin $statement; end;")
+        val node = root.getDescendants(DmlGrammar.INTO_CLAUSE).flatMap { it.children }.first { writtenText(it) == target }
+        val (values, position) = WrittenValues.assigned(node)
+        return when (values) {
+            is ColumnValues.Rows -> writtenText(values.of(position).single())
+            is ColumnValues.None -> values.reason
+        }
+    }
+
+    @Test
+    fun `an INTO target gets the select item at its position, whatever the other targets are`() {
+        assertThat(assigned("select 1, 'y' into v, :new.b from dual", ":new.b")).isEqualTo("'y'")
+        assertThat(assigned("select 1, 'y' into v, :new.b from dual", "v")).isEqualTo("1")
+        assertThat(assigned("select x, y into :new.a, :new.b from d", ":new.a")).isEqualTo("x")
+        assertThat(assigned("select x into :new.a, :new.b from d", ":new.a")).isEqualTo(WrittenValues.COUNT_MISMATCH)
+        assertThat(assigned("fetch c into :new.a", ":new.a")).isEqualTo(WrittenValues.INTO_WITHOUT_QUERY)
+        assertThat(assigned("execute immediate 'x' into :new.a", ":new.a")).isEqualTo(WrittenValues.INTO_WITHOUT_QUERY)
+    }
+
     @Test
     fun `a record gives no value`() {
         assertThat(insert("insert into t values r", 3)).isEqualTo(WrittenValues.RECORD)

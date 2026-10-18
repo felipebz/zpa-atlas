@@ -1003,6 +1003,21 @@ hr/trg_company_bu.trg	7:29-7:32	msg	db:HR.EVENT_LOG.MSG	SQL_INSERT,WRITE	RESOLVE
 hr/trg_company_bu.trg	8:14-8:23	event_log	db:HR.EVENT_LOG	SQL_INSERT	RESOLVED	-	db:HR.TRG_COMPANY_BU	INSERT
 hr/trg_company_bu.trg	8:25-8:27	id	db:HR.EVENT_LOG.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.TRG_COMPANY_BU	INSERT
 hr/trg_company_bu.trg	8:29-8:32	msg	db:HR.EVENT_LOG.MSG	SQL_INSERT,WRITE	RESOLVED	-	db:HR.TRG_COMPANY_BU	INSERT
+hr/trg_company_values.trg	1:0-15:4	trg_company_values	db:HR.TRG_COMPANY_VALUES	DEFINITION	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	-
+hr/trg_company_values.trg	7:2-7:16	:new.st_active	db:HR.COMPANY.ST_ACTIVE	WRITE	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	-
+hr/trg_company_values.trg	8:2-8:19	:new.company_name	db:HR.COMPANY.COMPANY_NAME	WRITE	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	-
+hr/trg_company_values.trg	8:23-8:28	upper	-	CALL	UNRESOLVED	NOT_IN_PROJECT	db:HR.TRG_COMPANY_VALUES	-
+hr/trg_company_values.trg	8:29-8:46	:new.company_name	db:HR.COMPANY.COMPANY_NAME	READ	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	-
+hr/trg_company_values.trg	9:5-9:20	:new.dt_changed	db:HR.COMPANY.DT_CHANGED	READ	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	-
+hr/trg_company_values.trg	9:34-9:49	:new.dt_changed	db:HR.COMPANY.DT_CHANGED	WRITE	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	-
+hr/trg_company_values.trg	10:9-10:18	seq_event	db:HR.SEQ_EVENT	READ	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	SELECT
+hr/trg_company_values.trg	10:32-10:39	:new.id	db:HR.COMPANY.ID	WRITE	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	SELECT
+hr/trg_company_values.trg	11:27-11:44	:new.company_name	db:HR.COMPANY.COMPANY_NAME	WRITE	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	SELECT
+hr/trg_company_values.trg	11:46-11:61	:new.dt_changed	db:HR.COMPANY.DT_CHANGED	WRITE	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	SELECT
+hr/trg_company_values.trg	12:24-12:41	:new.company_name	db:HR.COMPANY.COMPANY_NAME	WRITE	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	SELECT
+hr/trg_company_values.trg	13:2-13:24	pack_process.get_event	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER)	CALL	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	-
+hr/trg_company_values.trg	13:28-13:35	:new.id	db:HR.COMPANY.ID	WRITE	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	-
+hr/trg_company_values.trg	14:2-14:16	:new.st_active	db:HR.COMPANY.ST_ACTIVE	WRITE	RESOLVED	-	db:HR.TRG_COMPANY_VALUES	-
 hr/trg_dynamic.trg	1:0-6:4	trg_dynamic	db:HR.TRG_DYNAMIC	DEFINITION	RESOLVED	-	db:HR.TRG_DYNAMIC	-
 hr/trg_dynamic.trg	5:20-5:80	EXECUTE IMMEDIATE	-		DYNAMIC	PARSED	db:HR.TRG_DYNAMIC	DYNAMIC
 hr/trg_dynamic.trg	5:28-5:35	company	db:HR.COMPANY	SQL_UPDATE	RESOLVED	-	db:HR.TRG_DYNAMIC	UPDATE
@@ -1617,6 +1632,7 @@ hr/proc_writes.prc	1:0-20:4	proc_writes	1:28-1:39
 hr/proc_xmlseq.prc	1:0-5:16	proc_xmlseq	1:28-1:39
 hr/proc_xmlseq.prc	1:40-1:53	p_doc	1:40-1:45
 hr/trg_company_bu.trg	1:0-9:4	trg_company_bu	1:26-1:40
+hr/trg_company_values.trg	1:0-15:4	trg_company_values	1:26-1:44
 hr/trg_dynamic.trg	1:0-6:4	trg_dynamic	1:26-1:37
 hr/trg_forms.trg	1:0-21:4	trg_company_forms	1:26-1:43
 hr/trg_forms.trg	23:0-30:25	trg_company_compound	23:26-23:46
@@ -2046,6 +2062,7 @@ db:HR.TRG_COMPANY_BU	TRIGGER	HR	TRG_COMPANY_BU	-	HR.TRG_COMPANY_BU	0
 db:HR.TRG_COMPANY_COMPOUND	TRIGGER	HR	TRG_COMPANY_COMPOUND	-	HR.TRG_COMPANY_COMPOUND	0
 db:HR.TRG_COMPANY_FORMS	TRIGGER	HR	TRG_COMPANY_FORMS	-	HR.TRG_COMPANY_FORMS	0
 db:HR.TRG_COMPANY_STMT	TRIGGER	HR	TRG_COMPANY_STMT	-	HR.TRG_COMPANY_STMT	0
+db:HR.TRG_COMPANY_VALUES	TRIGGER	HR	TRG_COMPANY_VALUES	-	HR.TRG_COMPANY_VALUES	0
 db:HR.TRG_DYNAMIC	TRIGGER	HR	TRG_DYNAMIC	-	HR.TRG_DYNAMIC	0
 db:HR.TRG_SCHEMA_DDL	TRIGGER	HR	TRG_SCHEMA_DDL	-	HR.TRG_SCHEMA_DDL	0
 db:HR.TRG_SCHEMA_LOGON	TRIGGER	HR	TRG_SCHEMA_LOGON	-	HR.TRG_SCHEMA_LOGON	0
@@ -2512,6 +2529,7 @@ db:HR.TRG_COMPANY_BU	TRIGGER_ON	db:HR.COMPANY
 db:HR.TRG_COMPANY_COMPOUND	TRIGGER_ON	db:HR.COMPANY
 db:HR.TRG_COMPANY_FORMS	TRIGGER_ON	db:HR.COMPANY
 db:HR.TRG_COMPANY_STMT	TRIGGER_ON	db:HR.COMPANY
+db:HR.TRG_COMPANY_VALUES	TRIGGER_ON	db:HR.COMPANY
 db:HR.TRG_DYNAMIC	TRIGGER_ON	db:HR.COMPANY
 db:HR.TRG_SYN_COMPANY	TRIGGER_ON	db:HR.COMPANY
 db:HR.TRG_V_COMPANY_IOI	TRIGGER_ON	db:HR.V_COMPANY
@@ -2717,6 +2735,7 @@ hr/proc_view_chain.prc	DB_SOURCE	242	HR	OK	0
 hr/proc_writes.prc	DB_SOURCE	1067	HR	OK	0
 hr/proc_xmlseq.prc	DB_SOURCE	169	HR	OK	0
 hr/trg_company_bu.trg	DB_SOURCE	278	HR	OK	0
+hr/trg_company_values.trg	DB_SOURCE	512	HR	OK	0
 hr/trg_dynamic.trg	DB_SOURCE	171	HR	OK	0
 hr/trg_forms.trg	DB_SOURCE	1341	HR	OK	0
 hr/trg_syn_company.trg	DB_SOURCE	133	HR	OK	0
@@ -2801,6 +2820,7 @@ hr/proc_view_chain.prc	PROCEDURE	PROC_VIEW_CHAIN	db:HR.PROC_VIEW_CHAIN()	1:0-7:4
 hr/proc_writes.prc	PROCEDURE	PROC_WRITES	db:HR.PROC_WRITES()	1:0-20:4
 hr/proc_xmlseq.prc	PROCEDURE	PROC_XMLSEQ	db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	1:0-5:16
 hr/trg_company_bu.trg	TRIGGER	TRG_COMPANY_BU	db:HR.TRG_COMPANY_BU	1:0-9:4
+hr/trg_company_values.trg	TRIGGER	TRG_COMPANY_VALUES	db:HR.TRG_COMPANY_VALUES	1:0-15:4
 hr/trg_dynamic.trg	TRIGGER	TRG_DYNAMIC	db:HR.TRG_DYNAMIC	1:0-6:4
 hr/trg_forms.trg	TRIGGER	TRG_COMPANY_FORMS	db:HR.TRG_COMPANY_FORMS	1:0-21:4
 hr/trg_forms.trg	TRIGGER	TRG_COMPANY_COMPOUND	db:HR.TRG_COMPANY_COMPOUND	23:0-30:25
@@ -3082,6 +3102,9 @@ hr/proc_writes.prc	INSERT	db:HR.PROC_WRITES()	19:2-19:63
 hr/proc_xmlseq.prc	SELECT	db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	4:2-4:72
 hr/trg_company_bu.trg	INSERT	db:HR.TRG_COMPANY_BU	7:2-7:56
 hr/trg_company_bu.trg	INSERT	db:HR.TRG_COMPANY_BU	8:2-8:51
+hr/trg_company_values.trg	SELECT	db:HR.TRG_COMPANY_VALUES	10:2-10:49
+hr/trg_company_values.trg	SELECT	db:HR.TRG_COMPANY_VALUES	11:2-11:71
+hr/trg_company_values.trg	SELECT	db:HR.TRG_COMPANY_VALUES	12:2-12:51
 hr/trg_dynamic.trg	DYNAMIC	db:HR.TRG_DYNAMIC	5:2-5:81
 hr/trg_dynamic.trg	UPDATE	db:HR.TRG_DYNAMIC	5:21-5:79
 hr/trg_forms.trg	SELECT	db:HR.TRG_COMPANY_FORMS	8:14-8:46
@@ -3329,6 +3352,10 @@ hr/proc_synonyms.prc	19:9	count	1	-	-	19:15-19:16	EXPRESSION	-
 hr/proc_xmlseq.prc	4:9	count	1	-	-	4:15-4:16	EXPRESSION	-
 hr/proc_xmlseq.prc	4:48	extract	1	-	-	4:56-4:61	NAME	P_DOC
 hr/proc_xmlseq.prc	4:48	extract	2	-	-	4:63-4:69	STRING	/a/b
+hr/trg_company_values.trg	8:23	upper	1	-	-	8:29-8:46	NAME	:NEW.COMPANY_NAME
+hr/trg_company_values.trg	13:2	pack_process.get_event	1	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_ID	13:25-13:26	NUMBER	1
+hr/trg_company_values.trg	13:2	pack_process.get_event	2	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_OUT	13:28-13:35	NAME	:NEW.ID
+hr/trg_company_values.trg	13:2	pack_process.get_event	3	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_IO	13:37-13:38	NAME	V
 hr/trg_forms.trg	16:2	pack_process.get_event	1	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_ID	16:25-16:30	NAME	:O.ID
 hr/trg_forms.trg	16:2	pack_process.get_event	2	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_OUT	16:32-16:44	NAME	:N.ST_ACTIVE
 hr/trg_forms.trg	16:2	pack_process.get_event	3	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_IO	16:46-16:51	NAME	:N.ID
@@ -3422,13 +3449,25 @@ hr/proc_writes.prc	17:38	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	N	17:63-17:6
 hr/proc_writes.prc	18:40	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	X	18:52-18:55
 hr/proc_writes.prc	19:23	id	db:HR.COMPANY.ID	1	NUMBER	4	19:46-19:47
 hr/proc_writes.prc	19:27	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	P	19:49-19:52
+hr/trg_company_bu.trg	5:2	:new.dt_changed	db:HR.COMPANY.DT_CHANGED	1	NAME	SYSDATE	5:21-5:28
 hr/trg_company_bu.trg	7:25	id	db:HR.EVENT_LOG.ID	1	NUMBER	2	7:42-7:43
 hr/trg_company_bu.trg	7:29	msg	db:HR.EVENT_LOG.MSG	1	NAME	:OLD.ROWID	7:45-7:55
 hr/trg_company_bu.trg	8:25	id	db:HR.EVENT_LOG.ID	1	NUMBER	1	8:42-8:43
 hr/trg_company_bu.trg	8:29	msg	db:HR.EVENT_LOG.MSG	1	STRING	upd	8:45-8:50
+hr/trg_company_values.trg	7:2	:new.st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	S	7:20-7:23
+hr/trg_company_values.trg	8:2	:new.company_name	db:HR.COMPANY.COMPANY_NAME	1	EXPRESSION	-	8:23-8:47
+hr/trg_company_values.trg	9:34	:new.dt_changed	db:HR.COMPANY.DT_CHANGED	1	NAME	SYSDATE	9:53-9:60
+hr/trg_company_values.trg	10:32	:new.id	db:HR.COMPANY.ID	1	NAME	SEQ_EVENT.NEXTVAL	10:9-10:26
+hr/trg_company_values.trg	11:27	:new.company_name	db:HR.COMPANY.COMPANY_NAME	1	STRING	x	11:9-11:12
+hr/trg_company_values.trg	11:46	:new.dt_changed	db:HR.COMPANY.DT_CHANGED	1	NAME	SYSDATE	11:14-11:21
+hr/trg_company_values.trg	12:24	:new.company_name	db:HR.COMPANY.COMPANY_NAME	1	STRING	y	12:12-12:15
+hr/trg_company_values.trg	14:2	:new.st_active	db:HR.COMPANY.ST_ACTIVE	1	NULL	-	14:20-14:22
 hr/trg_dynamic.trg	5:40	st_active	db:HR.COMPANY.ST_ACTIVE	1	NAME	:NEW.ST_ACTIVE	5:52-5:66
+hr/trg_forms.trg	11:2	:n.dt_changed	db:HR.COMPANY.DT_CHANGED	1	NAME	SYSDATE	11:19-11:26
+hr/trg_forms.trg	12:27	:n.company_name	db:HR.COMPANY.COMPANY_NAME	1	NAME	COMPANY_NAME	12:9-12:21
 hr/trg_forms.trg	18:25	id	db:HR.EVENT_LOG.ID	1	NAME	:N.ID	18:42-18:47
 hr/trg_forms.trg	18:29	msg	db:HR.EVENT_LOG.MSG	1	NAME	:O.COMPANY_NAME	18:49-18:64
+hr/trg_forms.trg	28:4	:new.dt_changed	db:HR.COMPANY.DT_CHANGED	1	NAME	:OLD.DT_CHANGED	28:23-28:38
 hr/trg_forms.trg	36:23	id	db:HR.COMPANY.ID	1	NAME	:NEW.ID	36:49-36:56
 hr/trg_forms.trg	36:27	company_name	db:HR.COMPANY.COMPANY_NAME	1	NAME	:NEW.COMPANY_NAME	36:58-36:75
 scripts/broken.sql	3:21	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	X	3:33-3:36
@@ -3457,7 +3496,10 @@ hr/proc_columns.prc	SQL_NAME_UNDECIDED	5 unqualified name(s) in static SQL may b
 hr/proc_writes.prc	WRITE_VALUE_UNKNOWN	2 column write(s) without a value: set operator or *
 hr/proc_writes.prc	WRITE_VALUE_UNKNOWN	4 column write(s) without a value: record
 hr/proc_xmlseq.prc	SQL_NAME_UNDECIDED	1 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed
+hr/trg_company_values.trg	WRITE_VALUE_UNKNOWN	1 column write(s) without a value: OUT argument
 hr/trg_forms.trg	TRIGGER_COLUMN_UNRESOLVED	db:HR.TRG_COMPANY_FORMS: UPDATE OF column NO_SUCH_COL is not a column of the trigger's relation
+hr/trg_forms.trg	WRITE_VALUE_UNKNOWN	1 column write(s) without a value: INTO without a query
+hr/trg_forms.trg	WRITE_VALUE_UNKNOWN	2 column write(s) without a value: OUT argument
 hr/views.sql	VIEW_COLUMN_UNMATCHED	db:HR.V_COMPANY_CALC: column LEGACY_COL has no site in the CREATE VIEW text
 hr/views_lineage.sql	VIEW_COLUMN_UNMATCHED	db:HR.V_LIN_SHORT: column EXTRA has no site in the CREATE VIEW text
 hr/views_lineage.sql	VIEW_LINEAGE_UNKNOWN	db:HR.V_LIN_FN: column COL_A comes from a source whose columns cannot be followed
@@ -3475,6 +3517,8 @@ db:HR.TRG_COMPANY_FORMS	BEFORE	ROW	UPDATE	-
 db:HR.TRG_COMPANY_FORMS	BEFORE	ROW	UPDATE	db:HR.COMPANY.COMPANY_NAME
 db:HR.TRG_COMPANY_FORMS	BEFORE	ROW	UPDATE	db:HR.COMPANY.ST_ACTIVE
 db:HR.TRG_COMPANY_STMT	AFTER	STATEMENT	DELETE	-
+db:HR.TRG_COMPANY_VALUES	BEFORE	ROW	INSERT	-
+db:HR.TRG_COMPANY_VALUES	BEFORE	ROW	UPDATE	-
 db:HR.TRG_DYNAMIC	BEFORE	ROW	UPDATE	-
 db:HR.TRG_SCHEMA_DDL	BEFORE	-	CREATE	-
 db:HR.TRG_SCHEMA_DDL	BEFORE	-	DROP	-

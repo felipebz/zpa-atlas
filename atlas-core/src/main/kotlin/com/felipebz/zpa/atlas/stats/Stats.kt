@@ -49,6 +49,9 @@ object Stats {
                 section(connection, "Column writes by value kind", """
                     SELECT value_kind, count(*) FROM written_value GROUP BY value_kind
                     UNION ALL
+                    SELECT 'from triggers (:new)', count(*) FROM written_value w JOIN occurrence o ON o.id = w.occurrence_id
+                    WHERE o.roles NOT LIKE '%SQL\_%' ESCAPE '\'
+                    UNION ALL
                     SELECT 'no value: ' || substr(message, instr(message, ': ') + 2), sum(CAST(substr(message, 1, instr(message, ' ') - 1) AS INTEGER))
                     FROM coverage_note WHERE kind = 'WRITE_VALUE_UNKNOWN' GROUP BY 1 ORDER BY 1""")
                 section(connection, "DDL targets by role and status", """

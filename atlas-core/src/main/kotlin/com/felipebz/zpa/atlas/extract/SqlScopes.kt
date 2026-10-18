@@ -39,20 +39,9 @@ internal class Statement(val root: AstNode, val context: Context, val id: Int, p
      * The values a column write writes: the expressions of [values] for one column, classified, one per row; none,
      * counted under their reason, when the statement gives none.
      */
-    fun writtenValues(values: ColumnValues, position: Int): List<WrittenValueFact> = when (values) {
-        is ColumnValues.Rows -> values.of(position).mapIndexed { index, node ->
-            val value = ExpressionValues.of(node, context::hasHoles)
-            WrittenValueFact(index + 1, value.kind, value.value, spanOf(node))
-        }
-        is ColumnValues.None -> {
-            unvalued(values.reason)
-            emptyList()
-        }
-    }
+    fun writtenValues(values: ColumnValues, position: Int): List<WrittenValueFact> = WrittenValues.facts(values, position, context, state)
 
-    fun unvalued(reason: String) {
-        state.unvaluedWrites.merge(reason, 1, Int::plus)
-    }
+    fun unvalued(reason: String) = WrittenValues.unvalued(state, reason)
 
     fun occurrence(
         node: AstNode, entityKey: String?, roles: Set<Role>, status: Status, reason: String?, candidates: List<String> = emptyList(),

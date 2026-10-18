@@ -132,6 +132,7 @@ class AtlasIndexTest {
             "db:HR.TRG_COMPANY_BU BEFORE UPDATE -",
             "db:HR.TRG_COMPANY_COMPOUND COMPOUND UPDATE -",
             "db:HR.TRG_COMPANY_FORMS BEFORE UPDATE db:HR.COMPANY.ST_ACTIVE",
+            "db:HR.TRG_COMPANY_VALUES BEFORE UPDATE -",
             "db:HR.TRG_DYNAMIC BEFORE UPDATE -",
             "db:HR.TRG_SYN_COMPANY BEFORE UPDATE -"
         )
@@ -318,11 +319,13 @@ class AtlasIndexTest {
     @Test
     fun `the values written to a column are grouped like the values passed, and open their write sites`() {
         val groups = index.values("db:HR.COMPANY.ST_ACTIVE").result!!
-        assertThat(groups.take(5)).containsExactly(ValueGroup("STRING", "S", 8), ValueGroup("STRING", "N", 7), ValueGroup("STRING", "X", 3), ValueGroup("NULL", null, 2), ValueGroup("DEFAULT", null, 1))
+        assertThat(groups.take(5)).containsExactly(ValueGroup("STRING", "S", 9), ValueGroup("STRING", "N", 7), ValueGroup("NULL", null, 3), ValueGroup("STRING", "X", 3), ValueGroup("DEFAULT", null, 1))
         val sites = index.valueSites("db:HR.COMPANY.ST_ACTIVE", "STRING", "S").result!!
         assertThat(sites.rows.filter { it.path == "hr/proc_writes.prc" }.map { it.span.startLine }).containsExactly(7, 9, 10, 16)
         assertThat(sites.rows.first { it.path == "hr/proc_writes.prc" }.values.single().let { it.valueKind to it.value }).isEqualTo("STRING" to "S")
         assertThat(index.values("db:HR.COMPANY").result).isEmpty()
+        // A row trigger's `:new.st_active := 'S'` is a write of the column too.
+        assertThat(sites.rows.filter { it.path == "hr/trg_company_values.trg" }.map { it.span.startLine }).containsExactly(7)
     }
 
     @Test
