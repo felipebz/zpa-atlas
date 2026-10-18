@@ -1,29 +1,30 @@
 compare-deps summary
 
 Units
-  mapped to database objects: 99
+  mapped to database objects: 101
   scripts and anonymous blocks (not compared): 27, with 46 edge occurrence(s)
-  units without ALL_OBJECTS row (not compared): 86, with 108 index edge(s)
+  units without ALL_OBJECTS row (not compared): 85, with 106 index edge(s)
   database objects without unit in the index: 2
 
 Conditional compilation
   database version: index (none), database 23.0 (DATABASE)
   WARNING: the index was built without a database version setting; the database is 23.0
   flags: index (none)
-  compared PL/SQL units: same flags 11, different flags 1, without settings row 0
+  compared PL/SQL units: same flags 12, different flags 1, without settings row 0
     HR.PACK_CALLS PACKAGE BODY: debug:true
 
 Source
-  SAME: 1
-  DIFFERS: 1
+  SAME: 2
+  DIFFERS: 2
   WRAPPED: 0
   NO_STORED_SOURCE: 97
   UNAVAILABLE: 0
     HR.TRG_COMPANY_BU TRIGGER: first difference at stored line 5
+    HR.V_REMOTE_DIFFERS VIEW: first difference at stored line 1
 
 Edges
   database: 31
-  index: 35
+  index: 40
   matched: 17 (exact 14, by name 0, synonym 3)
   matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 6)
 
@@ -51,10 +52,11 @@ Database only: 14
   GUESSED_ELSEWHERE: 0
   NOT_EXTRACTED: 0
 
-Index only: 18
-  SOURCE_DIFFERS: 2
+Index only: 23
+  VIEW_REMOTE: 2
+  SOURCE_DIFFERS: 3
   UNIT_INVALID: 2
-  BY_NAME_ONLY: 2
+  BY_NAME_ONLY: 4
   INDEX_ONLY: 12
 
 Trigger columns (ALL_TRIGGER_COLS, per trigger, column and facet)

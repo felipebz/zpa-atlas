@@ -337,6 +337,16 @@ class DependencyComparisonTest {
     }
 
     @Test
+    fun `a view's edge through a database link is VIEW_REMOTE whatever its text, a PL-SQL unit's is not`() {
+        fun classes(name: String) = result.indexOnly.filter { it.unit.name == name }.map { "${it.indexClass} ${it.target.name}@${it.target.link}" }
+        assertThat(result.units.single { it.unit.name == "V_REMOTE_SAME" }.sourceStatus).isEqualTo(SourceStatus.SAME)
+        assertThat(classes("V_REMOTE_SAME")).containsExactly("VIEW_REMOTE REMOTE_REQ@FAR.EXAMPLE.COM")
+        assertThat(result.units.single { it.unit.name == "V_REMOTE_DIFFERS" }.sourceStatus).isEqualTo(SourceStatus.DIFFERS)
+        assertThat(classes("V_REMOTE_DIFFERS")).containsExactlyInAnyOrder("VIEW_REMOTE REMOTE_REQ@FAR.EXAMPLE.COM", "SOURCE_DIFFERS COMPANY@null")
+        assertThat(classes("PACK_REMOTE")).isNotEmpty.noneMatch { it.startsWith("VIEW_REMOTE") }
+    }
+
+    @Test
     fun `names in text skip comments and string literals`() {
         val names = PlSqlText.names("select x from t_a -- t_b\n/* t_c */ where y = 'T_D' and z = q'[T_E]' and \"Mixed\" = 1")
         assertThat(names).contains("SELECT", "X", "T_A", "Y", "Z", "Mixed").doesNotContain("T_B", "T_C", "T_D", "T_E")

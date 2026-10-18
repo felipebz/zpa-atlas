@@ -23,6 +23,15 @@ object that does not exist, and `MVIEW_CONTAINER` is the row of a materialized v
 `TABLE` of the same owner and name). A materialized view unit is compared as its `MATERIALIZED VIEW` object; a reference
 to it is recorded by Oracle, and projected by the index, as its `TABLE`.
 
+An index edge without a database row (`index_only.csv`) gets the first class that applies:
+
+- `VIEW_REMOTE`: a view's edge to an object behind a database link. Oracle does not record a view's dependency on a
+  remote object (only a local PL/SQL unit's on a remote one), so the edge is never in `ALL_DEPENDENCIES`.
+- `SOURCE_DIFFERS`: the unit's stored text differs from the file.
+- `UNIT_INVALID`: the database object is `INVALID`, so its dependencies may be stale.
+- `BY_NAME_ONLY`: the target was resolved by name only (no owner known).
+- `INDEX_ONLY`: none of the above.
+
 The "Trigger columns" section compares `ALL_TRIGGER_COLS` with the index per trigger, column and facet, for the
 triggers that are units of the index and have an `ALL_OBJECTS` row: `LIST` (`COLUMN_LIST = 'YES'` against the
 `UPDATE OF` events), `IN` (usage `IN` against reads through `:new`/`:old`), `OUT` (usage `OUT` against writes through

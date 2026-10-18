@@ -462,6 +462,8 @@ class DependencyComparison(
             for (edge in unitEdges.values.sortedBy { it.target }) {
                 if (obj to edge.target in matchedIndex) continue
                 val indexClass = when {
+                    // Oracle records no dependency of a view on a remote object, whatever the view's text.
+                    obj.type == "VIEW" && edge.target.link != null -> "VIEW_REMOTE"
                     sourceStatus[obj]?.first == SourceStatus.DIFFERS -> "SOURCE_DIFFERS"
                     dbObjects[obj]?.status == "INVALID" -> "UNIT_INVALID"
                     edge.target.byName -> "BY_NAME_ONLY"
