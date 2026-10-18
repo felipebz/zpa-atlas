@@ -17,6 +17,10 @@ import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.http.content.staticResources
+import io.ktor.server.plugins.compression.Compression
+import io.ktor.server.plugins.compression.deflate
+import io.ktor.server.plugins.compression.gzip
+import io.ktor.server.plugins.compression.minimumSize
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
@@ -29,11 +33,17 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class ApiError(val error: String)
 
+const val COMPRESSION_MINIMUM_BYTES = 1024L
+
 /**
  * The HTTP API (`/api/…`, JSON, GET only) and the static web. Routes only parse parameters, call one [AtlasIndex]
  * method and serialize its answer; a future MCP endpoint can mount on the same [Application].
  */
 fun Application.atlasModule(index: AtlasIndex) {
+    install(Compression) {
+        gzip { priority = 1.0; minimumSize(COMPRESSION_MINIMUM_BYTES) }
+        deflate { priority = 0.9; minimumSize(COMPRESSION_MINIMUM_BYTES) }
+    }
     install(ContentNegotiation) {
         json(Json { explicitNulls = true; encodeDefaults = true })
     }

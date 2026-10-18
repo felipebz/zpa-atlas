@@ -75,7 +75,7 @@ settings were not read (an older dependencies file, or the view is not readable)
 
 `timings` times the query API (first page with `SELF`, with `IMPLEMENTATIONS,CHILDREN`, and `entity`) for the 5
 entities with the most non-definition occurrences, and the file view (`/api/file`: time and payload size) of the file
-with the most occurrences, read from `--sources` (default: the folder recorded in the index).
+with the most occurrences (with its gzip size and time, as the server compresses it), read from `--sources` (default: the folder recorded in the index).
 
 `same-rows` checks that two indexes have the same rows in every table: every column, rows ordered by primary key
 (`rowid` without one); the run timestamps and the acquisition time in `run.metadata_origin` are ignored. It prints one line per table and exits with 3 when anything

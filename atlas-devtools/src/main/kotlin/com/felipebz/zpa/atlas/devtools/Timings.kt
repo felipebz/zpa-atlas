@@ -52,11 +52,20 @@ object Timings {
             if (answer!!.result == null) {
                 append(String.format(Locale.ROOT, "  %s (%d occurrences): sources not available%n", path, count))
             } else {
-                val bytes = JSON.encodeToString(serializer<Answer<FileView?>>(), answer!!).toByteArray(Charsets.UTF_8).size
-                append(String.format(Locale.ROOT, "  %s (%d occurrences): file %.1f, %d bytes%n", path, count, file, bytes))
+                val bytes = JSON.encodeToString(serializer<Answer<FileView?>>(), answer!!).toByteArray(Charsets.UTF_8)
+                var gzipped = 0
+                val gzip = time { gzipped = gzip(bytes).size }
+                append(String.format(Locale.ROOT, "  %s (%d occurrences): file %.1f, %d bytes, gzip %d bytes in %.1f ms%n", path, count, file, bytes.size, gzipped, gzip))
             }
         }
         append('\n')
+    }
+
+    /** Gzip at the default level, as the server's Compression plugin does. */
+    private fun gzip(bytes: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        java.util.zip.GZIPOutputStream(out).use { it.write(bytes) }
+        return out.toByteArray()
     }
 
     // The server's settings, so that the size is the one sent.

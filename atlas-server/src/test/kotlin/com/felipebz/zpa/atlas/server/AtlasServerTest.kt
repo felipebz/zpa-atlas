@@ -8,8 +8,11 @@ package com.felipebz.zpa.atlas.server
 import com.felipebz.zpa.atlas.Fixture
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
@@ -91,6 +94,23 @@ class AtlasServerTest {
         assertThat(client.get("/api/occurrences") { parameter("key", "db:NO.SUCH") }.status).isEqualTo(HttpStatusCode.NotFound)
         val error = json(client.get("/api/entity").bodyAsText())
         assertThat(error["error"]!!.jsonPrimitive.content).isEqualTo("Missing parameter: key")
+    }
+
+    @Test
+    fun `large answers are gzipped for clients that accept it, small ones and other clients get plain bytes`() = api {
+        val plain = client.get("/api/file") { parameter("path", "hr/pack_calls.pkb") }
+        assertThat(plain.headers[HttpHeaders.ContentEncoding]).isNull()
+        val plainBytes = plain.bodyAsBytes()
+        assertThat(plainBytes.size.toLong()).isGreaterThan(COMPRESSION_MINIMUM_BYTES)
+        val gzipped = client.get("/api/file") { parameter("path", "hr/pack_calls.pkb"); header(HttpHeaders.AcceptEncoding, "gzip") }
+        assertThat(gzipped.headers[HttpHeaders.ContentEncoding]).isEqualTo("gzip")
+        val raw = gzipped.bodyAsBytes()
+        assertThat(java.util.zip.GZIPInputStream(raw.inputStream()).readBytes()).isEqualTo(plainBytes)
+        assertThat(raw.size).isLessThan(plainBytes.size)
+
+        val run = client.get("/api/run") { header(HttpHeaders.AcceptEncoding, "gzip") }
+        assertThat(run.bodyAsBytes().size.toLong()).isLessThan(COMPRESSION_MINIMUM_BYTES)
+        assertThat(run.headers[HttpHeaders.ContentEncoding]).isNull()
     }
 
     @Test
