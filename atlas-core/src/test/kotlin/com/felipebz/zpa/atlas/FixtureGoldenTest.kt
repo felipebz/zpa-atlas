@@ -24,6 +24,7 @@ class FixtureGoldenTest {
         for ((title, sql) in listOf(
             "occurrence" to Fixture.OCCURRENCES,
             "occurrence_name" to "SELECT f.path, o.start_line || ':' || o.start_col || '-' || o.end_line || ':' || o.end_col, o.written, o.name_start_line || ':' || o.name_start_col || '-' || o.name_end_line || ':' || o.name_end_col FROM occurrence o JOIN source_file f ON f.id = o.file_id WHERE o.name_start_line IS NOT NULL ORDER BY o.id",
+            "occurrence_origin" to "SELECT f.path, o.start_line || ':' || o.start_col || '-' || o.end_line || ':' || o.end_col, o.written, o.origin FROM occurrence o JOIN source_file f ON f.id = o.file_id WHERE o.origin <> 'STATIC' ORDER BY o.id",
             "entity" to "SELECT key, kind, coalesce(schema_name, '-'), name, coalesce((SELECT p.key FROM entity p WHERE p.id = e.parent_id), '-'), display, external FROM entity e ORDER BY id",
             "relation" to "SELECT f.key, r.kind, t.key FROM relation r JOIN entity f ON f.id = r.from_id JOIN entity t ON t.id = r.to_id ORDER BY 1, 2, 3",
             "source_file" to "SELECT path, kind, size_bytes, coalesce(compilation_schema, '-'), parse_status, recovered_regions FROM source_file ORDER BY id",
@@ -49,6 +50,13 @@ class FixtureGoldenTest {
         val expected = String(Files.readAllBytes(Path.of(javaClass.getResource("/golden/fixture.txt")!!.toURI())), Charsets.UTF_8)
         if (actual != expected) Files.writeString(Path.of("build", "fixture-actual.txt"), actual)
         assertThat(actual).isEqualTo(expected)
+    }
+
+    @Test
+    fun `no placeholder of a dynamic text becomes a name`() {
+        assertThat(Fixture.query(db, "SELECT count(*) FROM occurrence WHERE origin = 'DYNAMIC_LITERAL'").single().toInt()).isGreaterThan(0)
+        assertThat(Fixture.query(db, "SELECT written FROM occurrence WHERE written LIKE '%ZPA$%'")).isEmpty()
+        assertThat(Fixture.query(db, "SELECT key FROM entity WHERE key LIKE '%ZPA$%'")).isEmpty()
     }
 
     @Test
@@ -97,10 +105,10 @@ class FixtureGoldenTest {
             .containsExactly("db:HR.COMPANY", "db:~.COMPANY", "db:~.PACK_PROCESS")
         assertThat(Fixture.query(noSchema, "SELECT f.path FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE c.kind = 'SCHEMA_UNKNOWN' ORDER BY 1"))
             .containsExactly("hr/conditional.sql", "hr/fn_company_name.fun", "hr/json_holder.typ", "hr/json_type.typ", "hr/mv_company.sql", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/pack_calls.pkb", "hr/pack_calls.pks",
-                "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_inline.sql", "hr/pack_json.pkb", "hr/pack_json.pks", "hr/pack_methods.pkb", "hr/pack_methods.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
+                "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_dynamic.pkb", "hr/pack_dynamic.pks", "hr/pack_inline.sql", "hr/pack_json.pkb", "hr/pack_json.pks", "hr/pack_methods.pkb", "hr/pack_methods.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
                 "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_mview.prc", "hr/proc_own_objects.prc",
                 "hr/proc_source_view.prc",
-                "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_view_chain.prc", "hr/proc_xmlseq.prc", "hr/trg_company_bu.trg",
+                "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_view_chain.prc", "hr/proc_xmlseq.prc", "hr/trg_company_bu.trg", "hr/trg_dynamic.trg",
                 "hr/trg_forms.trg", "hr/trg_syn_company.trg", "hr/ty_bag.tpb", "hr/ty_bag.typ", "hr/ty_num_list.typ", "hr/ty_point.typ", "hr/ty_shapes.typ", "hr/views.sql", "hr/views_lineage.sql", "hr/views_remote.sql", "hr/views_star.sql",
                 "scripts/broken.sql", "scripts/broken_call.sql")
     }

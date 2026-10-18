@@ -28,7 +28,7 @@ class ReservedValuesTest {
         )
         assertThat(Role.entries.filter { it.reserved }).isEmpty()
         assertThat(Status.entries.filter { it.reserved }).isEmpty()
-        assertThat(Origin.entries.filter { it.reserved }.map { it.name }).containsExactly("DYNAMIC_LITERAL", "FORMS_IMPLICIT", "HEURISTIC")
+        assertThat(Origin.entries.filter { it.reserved }.map { it.name }).containsExactly("FORMS_IMPLICIT", "HEURISTIC")
         assertThat(UnitKind.entries.filter { it.reserved }.map { it.name }).containsExactly("FORMS_TRIGGER", "FORMS_PROGRAM_UNIT")
         assertThat(FileKind.entries.filter { it.reserved }.map { it.name }).containsExactly("FORMS_MODULE")
     }

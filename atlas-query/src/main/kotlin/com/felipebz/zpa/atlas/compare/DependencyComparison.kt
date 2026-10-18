@@ -258,9 +258,10 @@ class DependencyComparison(
 
         val candidates = connection.query("SELECT occurrence_id, entity_id FROM occurrence_candidate") { it.getLong(1) to it.getLong(2) }
             .groupBy({ it.first }, { it.second })
+        // Static code only: Oracle records no dependency for the SQL text of a dynamic statement.
         connection.forEach(
             """SELECT o.id, o.unit_id, o.entity_id, o.status, o.written, f.path, o.start_line, o.reason, o.roles
-               FROM occurrence o JOIN source_file f ON f.id = o.file_id ORDER BY o.id"""
+               FROM occurrence o JOIN source_file f ON f.id = o.file_id WHERE o.origin = 'STATIC' ORDER BY o.id"""
         ) { rs ->
             val unit = unitsById.getValue(rs.getLong(2))
             val entityId = (rs.getObject(3) as Number?)?.toLong()
@@ -545,7 +546,7 @@ class DependencyComparison(
             """SELECT t.schema_name, t.name, c.name, o.roles, f.path, o.start_line FROM occurrence o JOIN entity t ON t.id = o.container_entity_id
                JOIN entity c ON c.id = o.entity_id JOIN source_file f ON f.id = o.file_id
                JOIN relation r ON r.from_id = t.id AND r.kind = 'TRIGGER_ON' AND r.to_id = c.parent_id
-               WHERE t.kind = 'TRIGGER' AND c.kind = 'COLUMN' AND o.written LIKE ':%'"""
+               WHERE t.kind = 'TRIGGER' AND c.kind = 'COLUMN' AND o.written LIKE ':%' AND o.origin = 'STATIC'"""
         ) { rs ->
             val trigger = rs.getString(1) to rs.getString(2)
             val location = Location(rs.getString(5), rs.getInt(6))

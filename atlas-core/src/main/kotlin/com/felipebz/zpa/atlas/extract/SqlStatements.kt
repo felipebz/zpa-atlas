@@ -130,8 +130,12 @@ internal class SqlStatements(
         state.coverage += CoverageFact("DML_SUBQUERY_TARGET", "DML on an inline view or collection at line ${node.tokenLine}: its base relation is not a write target")
     }
 
-    /** A relation occurrence, or null for names that are not relations (WITH names, DUAL). */
+    /**
+     * A relation occurrence, or null for names that are not relations (WITH names, DUAL) or not known (a placeholder of
+     * a dynamic text: a source whose columns are unknown, with no entity).
+     */
     private fun target(statement: Statement, reference: AstNode, roles: Set<Role>, alias: String?): Target? {
+        if (statement.context.hasHoles(reference)) return null
         val written = scopes.written(reference)
         if (written.link == null && written.schema == null && written.name in statement.localNames) return null
         if (written.link == null && written.name == "DUAL" && (written.schema == null || written.schema == "SYS")) return null
@@ -156,6 +160,7 @@ internal class SqlStatements(
     }
 
     private fun column(statement: Statement, node: AstNode, target: Target, role: Role) {
+        if (statement.context.hasHoles(node)) return
         val parts = node.children.filter { it.type != PlSqlPunctuator.DOT }.ifEmpty { listOf(node) }
         if (parts.any { it.type is PlSqlPunctuator || tokensOf(it).size != 1 }) {
             state.coverage += CoverageFact("COLUMN_EXPRESSION", "Written column at line ${node.tokenLine} is not a plain name")

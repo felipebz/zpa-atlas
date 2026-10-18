@@ -1,8 +1,10 @@
 class,owner,name,type,target_owner,target_name,target_type,target_link,locations
+BY_NAME_ONLY,HR,PACK_DYNAMIC,PACKAGE BODY,~,DBMS_SQL,PACKAGE,,hr/pack_dynamic.pkb:30
 BY_NAME_ONLY,HR,PACK_PROCESS,PACKAGE BODY,~,DBMS_SQL,PACKAGE,,hr/pack_process.pkb:30
 BY_NAME_ONLY,HR,PACK_REMOTE,PACKAGE,~,REMOTE_REQ,,FAR,hr/pack_remote.pks:3 hr/pack_remote.pks:5
 BY_NAME_ONLY,HR,PACK_REMOTE,PACKAGE,~,REMOTE_REQ,,FAR.EXAMPLE.COM,hr/pack_remote.pks:2 hr/pack_remote.pks:4 hr/pack_remote.pks:6 hr/pack_remote.pks:7 hr/pack_remote.pks:8
 BY_NAME_ONLY,HR,TRG_COMPANY_FORMS,TRIGGER,~,PACK_EXTERNAL,PACKAGE,,hr/trg_forms.trg:17
+INDEX_ONLY,HR,PACK_DYNAMIC,PACKAGE BODY,HR,PACK_DYNAMIC,PACKAGE,,hr/pack_dynamic.pkb:1
 INDEX_ONLY,HR,PACK_PROCESS,PACKAGE,HR,SEND_QUEUE,TABLE,,hr/pack_process.pks:3 hr/pack_process.pks:4
 INDEX_ONLY,HR,PACK_PROCESS,PACKAGE BODY,HR,EVENT_LOG,TABLE,,hr/pack_process.pkb:4
 INDEX_ONLY,HR,PACK_PROCESS,PACKAGE BODY,HR,FN_ONE,FUNCTION,,hr/pack_process.pkb:30

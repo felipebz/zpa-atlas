@@ -10,7 +10,9 @@ import com.felipebz.flr.api.AstNodeType
 import com.felipebz.zpa.api.AggregateSqlFunctionsGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.SingleRowSqlFunctionsGrammar
+import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
 import com.felipebz.zpa.api.project.ProjectParameterMode
+import com.felipebz.zpa.api.symbols.SymbolTable
 import com.felipebz.zpa.atlas.model.*
 import java.util.IdentityHashMap
 
@@ -68,14 +70,31 @@ internal class Context(
     val schema: String?,
     val container: String?,
     val trigger: TriggerScope?,
+    /** The symbol table of the nodes walked: the file's, or the one of the dynamic text being walked. */
+    val symbols: SymbolTable,
     /** The package spec or body around the code, as written in its CREATE; null elsewhere. */
     val enclosingPackage: List<String>? = null,
     /** Variables, cursors and types declared at the level of the package body around the code. */
     val bodyNames: Set<String> = emptySet(),
     /** In a type body, the key of its type (`db:S.T`); null elsewhere. */
-    val objectType: String? = null
+    val objectType: String? = null,
+    /** The SQL text of a dynamic statement being walked; null in the code of the file. */
+    val dynamic: DynamicSqlText? = null
 ) {
-    fun inside(container: String) = Context(unitIndex, partial, schema, container, trigger, enclosingPackage, bodyNames, objectType)
+    /** The origin of the occurrences found here: in a dynamic text, `DYNAMIC_LITERAL`. */
+    val origin: Origin get() = if (dynamic == null) Origin.STATIC else Origin.DYNAMIC_LITERAL
+
+    fun inside(container: String) = Context(unitIndex, partial, schema, container, trigger, symbols, enclosingPackage, bodyNames, objectType, dynamic)
+
+    /**
+     * The walk of a dynamic [text] run by this code: same unit, container and schema, the text's own symbol table, and
+     * nothing of the code around it (its package, the body's private names, its object type, its trigger): Oracle
+     * compiles the text on its own, and `:new` / `:old` in it are bind variables.
+     */
+    fun dynamicText(text: DynamicSqlText) = Context(unitIndex, partial, schema, container, null, text.symbolTable, dynamic = text)
+
+    /** Whether [node] is or contains a placeholder of the dynamic text: never a name. */
+    fun hasHoles(node: AstNode): Boolean = dynamic != null && dynamic.holesIn(node).isNotEmpty()
 }
 
 internal val PSEUDOCOLUMNS = setOf("NEXTVAL", "CURRVAL")

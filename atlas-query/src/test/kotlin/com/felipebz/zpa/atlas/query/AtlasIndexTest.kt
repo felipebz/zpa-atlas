@@ -132,6 +132,7 @@ class AtlasIndexTest {
             "db:HR.TRG_COMPANY_BU BEFORE UPDATE -",
             "db:HR.TRG_COMPANY_COMPOUND COMPOUND UPDATE -",
             "db:HR.TRG_COMPANY_FORMS BEFORE UPDATE db:HR.COMPANY.ST_ACTIVE",
+            "db:HR.TRG_DYNAMIC BEFORE UPDATE -",
             "db:HR.TRG_SYN_COMPANY BEFORE UPDATE -"
         )
         // TRG_COMPANY_FORMS lists columns, one of them unresolved (no column): it does not fire on other columns.
@@ -292,6 +293,15 @@ class AtlasIndexTest {
         assertThat(calls.at(10, 12)).containsExactly("10,12,10,17 $pMix [DEFINITION]")
         assertThat(calls.at(10, 18)).containsExactly("10,18,10,21 $pMix.P_A [DEFINITION]")
         assertThat(index.file("hr/views_remote.sql").result!!.at(1, 23)).containsExactly("1,23,1,36 db:HR.V_REMOTE_SAME [DEFINITION]")
+    }
+
+    @Test
+    fun `file gives the names inside the literal of a dynamic statement at their place`() {
+        val dynamic = index.file("hr/pack_dynamic.pkb").result!!
+        assertThat(dynamic.at(10, 35)).containsExactly("10,35,10,42 db:HR.COMPANY [SQL_DELETE]")
+        // The second line of a literal across two lines.
+        assertThat(dynamic.at(27, 10)).containsExactly("27,10,27,22 db:HR.COMPANY.COMPANY_NAME [SQL_UPDATE, WRITE]")
+        assertThat(dynamic.lines[26].substring(10, 22)).isEqualTo("company_name")
     }
 
     @Test

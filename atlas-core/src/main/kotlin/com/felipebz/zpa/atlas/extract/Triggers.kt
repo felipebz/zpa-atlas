@@ -123,7 +123,7 @@ internal class Triggers(private val state: FileState, private val resolver: Rela
         val roles = if (isNew) plsql.valueRoles(name, listOf(correlation, column)) else setOf(Role.READ)
         val resolved = resolver.resolveColumn(target, column)
         state.occurrences += OccurrenceFact(context.unitIndex, scope.key, statementId, spanOf(name), writtenText(name), resolved.entityKey,
-            roles, status(resolved.status, context.partial), Origin.STATIC, resolved.reason)
+            roles, status(resolved.status, context.partial), context.origin, resolved.reason)
         return true
     }
 }

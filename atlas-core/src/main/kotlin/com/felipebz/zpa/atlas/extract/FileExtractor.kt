@@ -72,7 +72,7 @@ class FileExtractor(
     override fun visitFile(node: AstNode) {
         root = node
         val scopes = SqlScopes()
-        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, context.symbolTable, projectAnalysis())
+        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, projectAnalysis())
         triggers = Triggers(state, resolver, plsql)
         typeReferences = TypeReferences(state, types, resolver, calls, plsql, jsonBuiltIn)
         val columnReads = ColumnReads(state, resolver, scopes, plsql)
@@ -145,7 +145,7 @@ class FileExtractor(
 
     private fun sqlUnit(node: AstNode, partial: Boolean) {
         val index = state.addUnit(UnitFact(UnitKind.SQL_STATEMENT, "", null, spanOf(node), defaultSchema), partial)
-        walk(node, Context(index, partial, defaultSchema, null, null))
+        walk(node, Context(index, partial, defaultSchema, null, null, context.symbolTable))
     }
 
     private fun compilationUnit(node: AstNode, partial: Boolean) {
@@ -205,7 +205,7 @@ class FileExtractor(
             emptySet()
         }
         val objectType = if (kind == UnitKind.TYPE_BODY) ObjectTypeMembers.typeKey(unitName, defaultSchema) else null
-        walk(node, Context(index, partial, schema, entityKey, trigger, enclosingPackage, bodyNames, objectType))
+        walk(node, Context(index, partial, schema, entityKey, trigger, context.symbolTable, enclosingPackage, bodyNames, objectType))
         view = null
     }
 
@@ -252,7 +252,7 @@ class FileExtractor(
                 innerConditionNames(node, context)
                 return
             }
-            // The SQL text is not parsed; calls that build it are still PL/SQL calls, found below.
+            // Calls that build the SQL text are PL/SQL calls, found below.
             PlSqlGrammar.EXECUTE_IMMEDIATE_STATEMENT -> dynamic(node, after(node, PlSqlKeyword.IMMEDIATE), context)
             PlSqlGrammar.OPEN_FOR_STATEMENT -> if (!node.hasDirectChildren(DmlGrammar.SELECT_EXPRESSION)) {
                 dynamic(node, after(node, PlSqlKeyword.FOR), context)
@@ -309,17 +309,41 @@ class FileExtractor(
         return (named ?: arguments.getOrNull(1))?.lastChild ?: node
     }
 
+    /**
+     * A dynamic statement: one `DYNAMIC` occurrence whose reason says what became of its SQL text, then, when zpa parsed
+     * the text, the walk of its statement as code of its own ([Context.dynamicText]). A dynamic statement inside a
+     * dynamic text is recorded but its text is not asked for: it is not a node of the file.
+     */
     private fun dynamic(node: AstNode, sql: AstNode?, context: Context) {
         val id = state.statements.size
         state.statements += StatementFact(id, context.unitIndex, context.container, StatementKind.DYNAMIC, spanOf(node), sha256(normalizedSql(node)))
-        val literal = sql != null && sql.type == PlSqlGrammar.LITERAL && sql.numberOfChildren == 1 && sql.firstChild.type == PlSqlGrammar.CHARACTER_LITERAL
+        val text = if (sql != null && context.dynamic == null) this.context.dynamicSql(sql) else null
+        val reason = when {
+            text == null -> if (sql != null && hasStringLiteral(sql)) "NOT_PARSED" else "EXPRESSION"
+            text.holesDropped -> "PARSED_HOLES_DROPPED"
+            text.holes.isNotEmpty() -> "PARSED_WITH_HOLES"
+            else -> "PARSED"
+        }
         val written = when (node.type) {
             PlSqlGrammar.EXECUTE_IMMEDIATE_STATEMENT -> "EXECUTE IMMEDIATE"
             PlSqlGrammar.OPEN_FOR_STATEMENT -> "OPEN FOR"
             else -> "DBMS_SQL.PARSE"
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, id, spanOf(sql ?: node), written, null, emptySet(),
-            status(Status.DYNAMIC, context.partial), Origin.STATIC, if (literal) "LITERAL" else "EXPRESSION")
+            status(Status.DYNAMIC, context.partial), context.origin, reason)
+        if (text != null) walk(text.root, context.dynamicText(text))
+    }
+
+    /**
+     * Whether a part of [sql] is a string literal, its operands taken as zpa takes them (a concatenation flattened,
+     * parentheses unwrapped): a text zpa could not parse is then `NOT_PARSED`, not an `EXPRESSION`.
+     */
+    private fun hasStringLiteral(sql: AstNode): Boolean = when {
+        sql.type == PlSqlGrammar.CONCATENATION_EXPRESSION ->
+            sql.children.any { it.type != PlSqlGrammar.CONCATENATION_OPERATOR && hasStringLiteral(it) }
+        sql.type == PlSqlGrammar.BRACKED_EXPRESSION && sql.numberOfChildren == 3 -> hasStringLiteral(sql.children[1])
+        sql.type == PlSqlGrammar.CHARACTER_LITERAL -> true
+        else -> sql.type == PlSqlGrammar.LITERAL && sql.numberOfChildren == 1 && sql.firstChild.type == PlSqlGrammar.CHARACTER_LITERAL
     }
 
     // ---- declarations -------------------------------------------------------------------------------------------

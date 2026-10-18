@@ -51,7 +51,7 @@ internal class ColumnReads(
      * the source their qualifier names; unqualified ones walk the scopes outward from the innermost query block.
      */
     fun sqlName(statement: Statement, name: AstNode) {
-        if (isWrittenColumn(name) || isStarQualifier(name)) return
+        if (isWrittenColumn(name) || isStarQualifier(name) || statement.context.hasHoles(name)) return
         val attribute = name.type == PlSqlGrammar.MEMBER_EXPRESSION && name.hasDirectChildren(PlSqlPunctuator.MOD)
         val segments = (if (attribute) null else plsql.nameSegments(name)) ?: run {
             plsql.valueReference(name, statement.context, statement.id, sql = true)

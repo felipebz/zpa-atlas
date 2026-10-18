@@ -119,7 +119,7 @@ enum class Status(val reserved: Boolean = false) : StoredEnum {
 
 enum class Origin(val reserved: Boolean = false) : StoredEnum {
     STATIC,
-    DYNAMIC_LITERAL(reserved = true),
+    DYNAMIC_LITERAL,
     FORMS_IMPLICIT(reserved = true),
     HEURISTIC(reserved = true)
 }

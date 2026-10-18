@@ -40,7 +40,7 @@ internal class Statement(val root: AstNode, val context: Context, val id: Int, p
         span: SourceSpan = spanOf(node), written: String = writtenText(node)
     ) {
         val fact = OccurrenceFact(context.unitIndex, context.container, id, span, written, entityKey,
-            roles, status(status, context.partial), Origin.STATIC, reason, candidates)
+            roles, status(status, context.partial), context.origin, reason, candidates)
         state.occurrences += fact
         if (roles == COLUMN_READ) columnReads.getOrPut(node) { ArrayList() } += fact
     }

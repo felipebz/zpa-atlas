@@ -18,7 +18,6 @@ import com.felipebz.zpa.api.project.ProjectQualifiedName
 import com.felipebz.zpa.api.project.SequenceReferenceResolution
 import com.felipebz.zpa.api.squid.SemanticAstNode
 import com.felipebz.zpa.api.symbols.Symbol
-import com.felipebz.zpa.api.symbols.SymbolTable
 import com.felipebz.zpa.atlas.model.*
 
 /**
@@ -36,8 +35,6 @@ internal class PlSqlNames(
     private val typeMembers: ObjectTypeMembers,
     private val runSchemas: Set<String>,
     private val jsonBuiltIn: Boolean,
-    /** The legacy symbol table of the file. */
-    private val symbolTable: SymbolTable,
     private val projectAnalysis: ProjectAnalysis
 ) {
     /** The segments of a plain dotted name as written, or null for anything else (a host variable, `f(x).g`, `c%rowcount`). */
@@ -62,6 +59,7 @@ internal class PlSqlNames(
         // The calls in its arguments are separate METHOD_CALL nodes, visited on their own.
         if (isMethodCall && node.previousSiblingOrNull?.type == PlSqlPunctuator.DOT) return
         val callee = if (isMethodCall) node.firstChild else node
+        if (context.hasHoles(callee)) return
         val kind = if (!isMethodCall || node.parent.type == PlSqlGrammar.CALL_STATEMENT) ProjectCallKind.PROCEDURE else ProjectCallKind.FUNCTION
         val actuals = if (isMethodCall) node.getFirstChildOrNull(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT).orEmpty() else emptyList()
         val segments = nameSegments(callee) ?: run {
@@ -131,7 +129,7 @@ internal class PlSqlNames(
                 if (outcome.status == Status.RESOLVED) outcome.bindings[index + 1] else null, spanOf(expression))
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), outcome.entityKey,
-            setOf(Role.CALL), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys, argumentFacts)
+            setOf(Role.CALL), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys, argumentFacts)
     }
 
     /**
@@ -152,6 +150,7 @@ internal class PlSqlNames(
      * ([sql]) only qualified names whose first segment is not an SQL qualifier are read.
      */
     fun valueReference(name: AstNode, context: Context, statementId: Int?, sql: Boolean) {
+        if (context.hasHoles(name)) return
         val attribute = name.type == PlSqlGrammar.MEMBER_EXPRESSION && name.hasDirectChildren(PlSqlPunctuator.MOD)
         val parts = if (attribute) name.children.takeWhile { it.type != PlSqlPunctuator.MOD } else listOf(name)
         val segments = (if (attribute) attributeName(name, parts) else nameSegments(name)) ?: return
@@ -234,7 +233,7 @@ internal class PlSqlNames(
             val methods = typeMembers.methods(type)
             if (names[0] == "SELF") {
                 val member = names.getOrNull(1) ?: return OwnName.VALUE
-                return if (names.size == 2 && (member in methods || isUnitSubprogram(name, member))) OwnName.SUBPROGRAM else OwnName.VALUE
+                return if (names.size == 2 && (member in methods || isUnitSubprogram(name, member, context))) OwnName.SUBPROGRAM else OwnName.VALUE
             }
             if (names[0] in members) return if (names.size == 1 && names[0] in methods) OwnName.SUBPROGRAM else OwnName.VALUE
         }
@@ -255,7 +254,7 @@ internal class PlSqlNames(
             index++
             consumed++
         }
-        val declared = symbolTable.getScopeFor(units[index].node)?.symbols.orEmpty().firstOrNull { it.called(names[consumed]) } ?: return null
+        val declared = context.symbols.getScopeFor(units[index].node)?.symbols.orEmpty().firstOrNull { it.called(names[consumed]) } ?: return null
         return when (declared.kind) {
             Symbol.Kind.PROCEDURE, Symbol.Kind.FUNCTION -> if (consumed == names.size - 1) OwnName.SUBPROGRAM else OwnName.VALUE
             else -> OwnName.VALUE
@@ -263,9 +262,9 @@ internal class PlSqlNames(
     }
 
     /** A subprogram declared in the type body around [node] (a method body). */
-    private fun isUnitSubprogram(node: AstNode, name: String): Boolean {
+    private fun isUnitSubprogram(node: AstNode, name: String, context: Context): Boolean {
         val body = node.getFirstAncestorOrNull(PlSqlGrammar.CREATE_TYPE_BODY) ?: return false
-        return symbolTable.getScopeFor(body)?.symbols.orEmpty()
+        return context.symbols.getScopeFor(body)?.symbols.orEmpty()
             .any { it.called(name) && (it.kind == Symbol.Kind.PROCEDURE || it.kind == Symbol.Kind.FUNCTION) }
     }
 
@@ -426,13 +425,13 @@ internal class PlSqlNames(
     private fun valueOccurrence(span: SourceSpan, written: String, context: Context, statementId: Int?, status: Status, entityKey: String?,
                                 reason: String?, candidates: List<String>, roles: Set<Role>) {
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, span, written, entityKey,
-            roles, status(status, context.partial), Origin.STATIC, reason, candidates)
+            roles, status(status, context.partial), context.origin, reason, candidates)
     }
 
     /** A function called without parentheses: a `CALL` occurrence without actuals. */
     fun callOccurrence(name: AstNode, context: Context, statementId: Int?, outcome: CallOutcome.Call) {
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
-            setOf(Role.CALL), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
+            setOf(Role.CALL), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys)
     }
 
     /**
@@ -515,7 +514,7 @@ internal class PlSqlNames(
             key to Status.UNVERIFIED
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, span, text, key,
-            setOf(Role.READ), status(status, context.partial), Origin.STATIC, null)
+            setOf(Role.READ), status(status, context.partial), context.origin, null)
     }
 
     /**

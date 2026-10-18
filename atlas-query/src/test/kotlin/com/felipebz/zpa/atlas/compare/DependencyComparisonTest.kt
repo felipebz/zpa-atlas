@@ -347,6 +347,14 @@ class DependencyComparisonTest {
     }
 
     @Test
+    fun `the SQL text of a dynamic statement adds no index edge`() {
+        val body = DbObjectId("HR", "PACK_DYNAMIC", "PACKAGE BODY")
+        assertThat(result.units.single { it.unit == body }.databaseStatus).isEqualTo("VALID")
+        val targets = result.indexOnly.filter { it.unit == body }.map { it.target.name } + result.matched.filter { it.unit == body }.map { it.reference.referencedName }
+        assertThat(targets).isNotEmpty.doesNotContain("COMPANY", "EVENT_LOG", "PACK_PROCESS")
+    }
+
+    @Test
     fun `names in text skip comments and string literals`() {
         val names = PlSqlText.names("select x from t_a -- t_b\n/* t_c */ where y = 'T_D' and z = q'[T_E]' and \"Mixed\" = 1")
         assertThat(names).contains("SELECT", "X", "T_A", "Y", "Z", "Mixed").doesNotContain("T_B", "T_C", "T_D", "T_E")

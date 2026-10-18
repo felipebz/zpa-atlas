@@ -33,6 +33,7 @@ internal class TypeReferences(
      */
     fun typeUse(node: AstNode, context: Context, statementId: Int?) {
         val name = node.firstChild
+        if (context.hasHoles(node)) return
         if (node.type == PlSqlGrammar.ANCHORED_DATATYPE && remoteAnchor(node, context, statementId)) return
         val segments = plsql.nameSegments(name) ?: run {
             state.coverage += CoverageFact("TYPE_NOT_A_NAME", "Datatype at line ${name.tokenLine} is not a plain name")
@@ -52,7 +53,7 @@ internal class TypeReferences(
             types.named(segments, context.schema, context.enclosingPackage) ?: return
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
-            setOf(Role.TYPE_USE), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
+            setOf(Role.TYPE_USE), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys)
     }
 
     /**
@@ -82,7 +83,7 @@ internal class TypeReferences(
             resolver.resolveColumn(relation, segments.last()).let { Triple(it.entityKey, it.status, it.reason) }
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), key,
-            setOf(Role.TYPE_USE), status(status, context.partial), Origin.STATIC, reason)
+            setOf(Role.TYPE_USE), status(status, context.partial), context.origin, reason)
         return true
     }
 
@@ -118,9 +119,10 @@ internal class TypeReferences(
     }
 
     private fun typeUseOf(name: AstNode, segments: List<String>, context: Context, parsedAsBuiltIn: Boolean = false, statementId: Int? = null) {
+        if (context.hasHoles(name)) return
         val outcome = types.named(segments, context.schema, context.enclosingPackage, parsedAsBuiltIn) ?: return
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
-            setOf(Role.TYPE_USE), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
+            setOf(Role.TYPE_USE), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys)
     }
 
     /**

@@ -37,8 +37,12 @@ object Stats {
                     "SELECT CASE roles WHEN '' THEN '(none)' ELSE roles END, count(*) FROM occurrence GROUP BY roles ORDER BY roles")
                 section(connection, "Occurrences by status",
                     "SELECT status, count(*) FROM occurrence GROUP BY status ORDER BY status")
+                section(connection, "Occurrences by origin",
+                    "SELECT origin, count(*) FROM occurrence GROUP BY origin ORDER BY origin")
+                // The occurrence of a dynamic statement is the one on its DYNAMIC statement row (its status is
+                // PARTIAL_SOURCE in a recovered region); the occurrences inside its text have statements of their own.
                 section(connection, "Dynamic SQL by reason",
-                    "SELECT reason, count(*) FROM occurrence WHERE status = 'DYNAMIC' OR (status = 'PARTIAL_SOURCE' AND entity_id IS NULL AND reason IN ('LITERAL', 'EXPRESSION')) GROUP BY reason ORDER BY reason")
+                    "SELECT o.reason, count(*) FROM occurrence o JOIN sql_statement s ON s.id = o.statement_id WHERE s.kind = 'DYNAMIC' GROUP BY o.reason ORDER BY o.reason")
                 section(connection, "Coverage notes by kind",
                     "SELECT kind, count(*) FROM coverage_note GROUP BY kind ORDER BY kind")
                 section(connection, "View column lineage", """

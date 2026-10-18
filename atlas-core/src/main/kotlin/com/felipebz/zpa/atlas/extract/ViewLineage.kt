@@ -118,7 +118,7 @@ internal class ViewLineage(
             }
             val columnKey = scope.key + "." + name
             state.occurrences += OccurrenceFact(statement.context.unitIndex, scope.key, null, spanOf(site), writtenText(site), columnKey,
-                roles, status(Status.RESOLVED, statement.context.partial), Origin.STATIC, null)
+                roles, status(Status.RESOLVED, statement.context.partial), statement.context.origin, null)
             val query = scope.query ?: continue
             val bases = if (list.isNotEmpty()) columnAt(statement, query, listed.indexOf(name)) else columnByName(statement, query, name)
             if (bases == null) {

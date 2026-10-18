@@ -49,8 +49,22 @@ Vocabulary used by the web page and `stats`:
     | `AMBIGUOUS`      | Several candidates, e.g. overloads.                                          |
     | `UNRESOLVED`     | Named but not found. The reason says why, e.g. `NOT_IN_DICTIONARY`.          |
     | `EXTERNAL`       | Outside what the index can check, e.g. through a database link (`DB_LINK`). |
-    | `DYNAMIC`        | Dynamic SQL.                                                                 |
+    | `DYNAMIC`        | A dynamic statement. The reason says what became of its SQL text, below.     |
     | `PARTIAL_SOURCE` | Inside a region the parser had to recover.                                   |
+
+  - Origin: `STATIC` for code, `DYNAMIC_LITERAL` for a name inside the SQL text of a dynamic statement
+    (`EXECUTE IMMEDIATE`, `OPEN … FOR`, `DBMS_SQL.PARSE`). That text is indexed like code, at its place inside the
+    literal; a part built at run time (a variable, a call) is a hole and never becomes a name. Oracle records no
+    dependency for dynamic SQL, so these occurrences give no dependency in `compare-deps`.
+  - The reason of a `DYNAMIC` occurrence:
+
+    | Reason                 | Meaning                                                                     |
+    |------------------------|-----------------------------------------------------------------------------|
+    | `PARSED`               | The text is fully known and parsed.                                         |
+    | `PARSED_WITH_HOLES`    | Parsed, with parts built at run time.                                       |
+    | `PARSED_HOLES_DROPPED` | Parsed only once the parts built at run time were left out: may be partial. |
+    | `NOT_PARSED`           | The text has a string literal but was not parsed: not one statement, or a dynamic statement inside another dynamic text. |
+    | `EXPRESSION`           | No string literal: nothing to read (a variable, a call).                    |
 
 - **Unit:** one compiled object or script, such as a package body, trigger, view or anonymous block.
 
