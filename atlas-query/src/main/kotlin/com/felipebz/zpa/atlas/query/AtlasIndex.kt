@@ -270,8 +270,22 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
                 val ids = listOf(id) + twins
                 ValueSource("SELECT occurrence_id, value_kind, value FROM call_argument WHERE parameter_entity_id IN (${ids.joinToString(",") { "?" }})", ids)
             }
+            // The column's own writes, and the writes to every view column that reaches it: a chain of VIEW_BASE
+            // relations whose columns each belong to a VIEW (a materialized view keeps its own rows), have exactly one
+            // base (a computed or UNION column is not written in valid code), and whose view has no INSTEAD OF trigger
+            // (Oracle then runs the trigger, whose own writes are indexed in it).
             "COLUMN" -> ValueSource(
-                "SELECT w.occurrence_id, w.value_kind, w.value FROM written_value w JOIN occurrence c ON c.id = w.occurrence_id WHERE c.entity_id = ?", listOf(id)
+                """WITH RECURSIVE reach(id) AS (
+                     SELECT ?
+                     UNION
+                     SELECT r.from_id FROM reach JOIN relation r ON r.to_id = reach.id AND r.kind = 'VIEW_BASE'
+                     JOIN entity c ON c.id = r.from_id JOIN entity v ON v.id = c.parent_id
+                     WHERE v.kind = 'VIEW'
+                       AND (SELECT count(*) FROM relation b WHERE b.from_id = c.id AND b.kind = 'VIEW_BASE') = 1
+                       AND NOT EXISTS (SELECT 1 FROM relation t JOIN trigger_event e ON e.trigger_id = t.from_id
+                                       WHERE t.to_id = v.id AND t.kind = 'TRIGGER_ON' AND e.timing = 'INSTEAD_OF'))
+                   SELECT w.occurrence_id, w.value_kind, w.value FROM written_value w JOIN occurrence o ON o.id = w.occurrence_id
+                   WHERE o.entity_id IN (SELECT id FROM reach)""", listOf(id)
             )
             else -> ValueSource("SELECT occurrence_id, value_kind, value FROM call_argument WHERE 0", emptyList())
         }

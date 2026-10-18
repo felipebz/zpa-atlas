@@ -337,6 +337,22 @@ class AtlasIndexTest {
         assertThat(pack.children.map { it.key }).containsExactlyInAnyOrder("db:~.PACK_REQ@FAR.EXAMPLE.COM.CLOSE_REQ", "db:~.PACK_REQ@FAR.EXAMPLE.COM.GET_MAX")
     }
 
+    private fun throughViews(key: String) = index.values(key).result!!.filter { it.value in setOf("10", "11", "12") || it.value?.startsWith("via ") == true }
+
+    @Test
+    fun `values written through views reach the base column, stopped by a trigger or a materialized view`() {
+        assertThat(throughViews("db:HR.COMPANY.ID")).containsExactly(ValueGroup("NUMBER", "10", 1))
+        assertThat(throughViews("db:HR.COMPANY.COMPANY_NAME")).containsExactlyInAnyOrder(
+            ValueGroup("STRING", "via list", 1), ValueGroup("STRING", "via names", 1), ValueGroup("STRING", "via calc", 1))
+        assertThat(throughViews("db:HR.V_COMPANY_LIST.COMPANY_LABEL")).containsExactlyInAnyOrder(ValueGroup("STRING", "via list", 1), ValueGroup("STRING", "via names", 1))
+        // A site through a view is the occurrence on the view column.
+        val sites = index.valueSites("db:HR.COMPANY.COMPANY_NAME", "STRING", "via names").result!!
+        assertThat(sites.rows.map { "${it.path}:${it.span.startLine} ${it.entity?.key}" })
+            .containsExactly("hr/proc_view_writes.prc:4 db:HR.V_COMPANY_NAMES.COMPANY_LABEL")
+        assertThat(index.valueSites("db:HR.COMPANY.ID", "NUMBER", "11").result!!.rows).isEmpty()
+        assertThat(index.valueSites("db:HR.COMPANY.ID", "NUMBER", "12").result!!.rows).isEmpty()
+    }
+
     @Test
     fun `file gives the names inside the literal of a dynamic statement at their place`() {
         val dynamic = index.file("hr/pack_dynamic.pkb").result!!

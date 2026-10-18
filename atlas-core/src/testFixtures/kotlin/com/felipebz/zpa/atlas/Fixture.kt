@@ -50,6 +50,8 @@ object Fixture {
             relation("V_LOG_UNION", "ID", "TEXT", kind = DictionaryRelationKind.VIEW),
             relation("V_ACTIVE_COMPANY", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),
             relation("V_COMPANY_NAMES", "COMPANY_ID", "COMPANY_LABEL", kind = DictionaryRelationKind.VIEW),
+            // The view of hr/view_ioi.sql, with an INSTEAD OF trigger.
+            relation("V_COMPANY_IOI", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),
             // The star views of hr/views_star.sql, and a table whose columns the dictionary does not list completely.
             relation("PARTIAL_T", "ID", complete = false),
             relation("V_INLINE", "X", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),
@@ -111,7 +113,7 @@ object Fixture {
         // The namespace of HR as the database lists it: its relations and synonyms, and objects the sources lack.
         mapOf(
             "HR" to mapOf(
-                "COMPANY" to "TABLE", "SEND_QUEUE" to "TABLE", "EVENT_LOG" to "TABLE", "V_COMPANY" to "VIEW",
+                "COMPANY" to "TABLE", "SEND_QUEUE" to "TABLE", "EVENT_LOG" to "TABLE", "V_COMPANY" to "VIEW", "V_COMPANY_IOI" to "VIEW",
                 "V_COMPANY_LIST" to "VIEW", "V_COMPANY_CALC" to "VIEW", "V_SEND_ALL" to "VIEW", "V_SEND_Q" to "VIEW",
                 "V_LOG_UNION" to "VIEW", "V_ACTIVE_COMPANY" to "VIEW", "V_COMPANY_NAMES" to "VIEW",
                 "PARTIAL_T" to "TABLE", "V_INLINE" to "VIEW", "V_INLINE_NESTED" to "VIEW", "V_INLINE_UNION" to "VIEW",
