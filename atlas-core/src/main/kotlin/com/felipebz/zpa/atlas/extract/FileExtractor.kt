@@ -72,7 +72,7 @@ class FileExtractor(
         val scopes = SqlScopes()
         plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, context.symbolTable, projectAnalysis())
         triggers = Triggers(state, resolver, plsql)
-        typeReferences = TypeReferences(state, types, calls, plsql, jsonBuiltIn)
+        typeReferences = TypeReferences(state, types, resolver, calls, plsql, jsonBuiltIn)
         val columnReads = ColumnReads(state, resolver, scopes, plsql)
         sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads)
         lineage = ViewLineage(state, scopes, columnReads, plsql)

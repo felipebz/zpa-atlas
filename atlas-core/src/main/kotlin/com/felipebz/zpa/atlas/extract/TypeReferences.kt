@@ -8,6 +8,7 @@ package com.felipebz.zpa.atlas.extract
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
+import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.SingleRowSqlFunctionsGrammar
 import com.felipebz.zpa.api.project.ProjectCallKind
 import com.felipebz.zpa.api.squid.SemanticAstNode
@@ -18,6 +19,7 @@ import com.felipebz.zpa.atlas.model.*
 internal class TypeReferences(
     private val state: FileState,
     private val types: TypeReferenceResolver,
+    private val resolver: RelationResolver,
     private val calls: CallResolver,
     private val plsql: PlSqlNames,
     private val jsonBuiltIn: Boolean
@@ -31,6 +33,7 @@ internal class TypeReferences(
      */
     fun typeUse(node: AstNode, context: Context, statementId: Int?) {
         val name = node.firstChild
+        if (node.type == PlSqlGrammar.ANCHORED_DATATYPE && remoteAnchor(node, context, statementId)) return
         val segments = plsql.nameSegments(name) ?: run {
             state.coverage += CoverageFact("TYPE_NOT_A_NAME", "Datatype at line ${name.tokenLine} is not a plain name")
             return
@@ -50,6 +53,37 @@ internal class TypeReferences(
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
             setOf(Role.TYPE_USE), status(outcome.status, context.partial), Origin.STATIC, outcome.reason, outcome.candidateKeys)
+    }
+
+    /**
+     * An anchor on an object behind a database link (`t@link%ROWTYPE`, `s.t.c@link%TYPE`): the relation the segments
+     * before `@` name (without the column for `%TYPE`), resolved with its link as static SQL resolves a remote
+     * relation, and its column for `%TYPE`. Never a local declaration or a package member. False when the anchor has
+     * no link or is not a plain dotted name.
+     */
+    private fun remoteAnchor(node: AstNode, context: Context, statementId: Int?): Boolean {
+        val name = node.firstChild
+        if (name.type != PlSqlGrammar.MEMBER_EXPRESSION) return false
+        val children = name.children
+        val remote = children.indexOfFirst { it.type == PlSqlPunctuator.REMOTE }
+        if (remote < 0) return false
+        val local = children.subList(0, remote).filter { it.type != PlSqlPunctuator.DOT }
+        if (local.any { it.type is PlSqlPunctuator || tokensOf(it).size != 1 }) return false
+        val segments = local.map { normalizeIdentifier(it.tokenOriginalValue) }
+        val link = children.subList(remote + 1, children.size).filter { it.type == PlSqlGrammar.IDENTIFIER_NAME }
+            .joinToString(".") { normalizeIdentifier(it.tokenOriginalValue) }
+        val rowType = node.lastChild.type == PlSqlKeyword.ROWTYPE
+        val relationNames = if (rowType) segments else segments.dropLast(1)
+        if (link.isEmpty() || relationNames.size !in 1..2) return false
+        val relation = resolver.resolve(WrittenRelation(relationNames.getOrNull(relationNames.size - 2), relationNames.last(), link), context.schema)
+        val (key, status, reason) = if (rowType) {
+            Triple(relation.entityKey, relation.status, relation.reason)
+        } else {
+            resolver.resolveColumn(relation, segments.last()).let { Triple(it.entityKey, it.status, it.reason) }
+        }
+        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), key,
+            setOf(Role.TYPE_USE), status(status, context.partial), Origin.STATIC, reason)
+        return true
     }
 
     /** The type after `AGGREGATE USING` of a user-defined aggregate function. */

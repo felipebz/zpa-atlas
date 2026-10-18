@@ -315,6 +315,19 @@ class DependencyComparisonTest {
     }
 
     @Test
+    fun `a type anchored behind a database link matches the remote dependency by name and link`() {
+        val corpus = Path.of("src/test/resources/compare/remote-corpus")
+        val index = temp.resolve("remote.db")
+        Indexer().index(IndexOptions(corpus, index, compilationSchema = "HR", dictionary = AtlasDictionary.NONE, threads = 1))
+        val facts = Files.newBufferedReader(Path.of("src/test/resources/compare/remote-dependencies.csv")).use { DatabaseDependencies.read(it) }
+        val remote = DependencyComparison(index, facts, corpus).compare()
+        assertThat(remote.matched.map { "${it.unit.name} ${it.reference.referencedOwner}.${it.reference.referencedName}@${it.reference.referencedLink}" })
+            .containsExactly("PK_REMOTE DESENV.REMOTE_REQ@FAR.EXAMPLE.COM")
+        assertThat(remote.databaseOnly).isEmpty()
+        assertThat(remote.indexOnly).isEmpty()
+    }
+
+    @Test
     fun `names in text skip comments and string literals`() {
         val names = PlSqlText.names("select x from t_a -- t_b\n/* t_c */ where y = 'T_D' and z = q'[T_E]' and \"Mixed\" = 1")
         assertThat(names).contains("SELECT", "X", "T_A", "Y", "Z", "Mixed").doesNotContain("T_B", "T_C", "T_D", "T_E")

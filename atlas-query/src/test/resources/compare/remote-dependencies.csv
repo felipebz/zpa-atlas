@@ -1,0 +1,4 @@
+kind,owner,name,type,c1,c2,c3,c4
+META,source_readable,true,,,,,
+OBJ,HR,PK_REMOTE,PACKAGE,VALID,,,
+DEP,HR,PK_REMOTE,PACKAGE,DESENV,REMOTE_REQ,TABLE,FAR.EXAMPLE.COM
