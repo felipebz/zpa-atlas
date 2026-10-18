@@ -125,8 +125,9 @@ internal class PlSqlNames(
             arguments.forEachIndexed { index, (_, expression, _) -> outcome.modes[index + 1]?.let { state.argumentModes[expression] = it } }
         }
         val argumentFacts = arguments.mapIndexed { index, (label, expression, _) ->
+            val value = ArgumentValues.of(expression)
             CallArgumentFact(index + 1, label?.let { normalizeIdentifier(it) },
-                if (outcome.status == Status.RESOLVED) outcome.bindings[index + 1] else null, spanOf(expression))
+                if (outcome.status == Status.RESOLVED) outcome.bindings[index + 1] else null, spanOf(expression), value.kind, value.value)
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), outcome.entityKey,
             setOf(Role.CALL), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys, argumentFacts)

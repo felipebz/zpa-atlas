@@ -55,7 +55,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         val statementInsert = prepare("INSERT INTO sql_statement(id, file_id, unit_id, container_entity_id, kind, start_line, start_col, end_line, end_col, normalized_hash) VALUES (?,?,?,?,?,?,?,?,?,?)")
         val occurrenceInsert = prepare("INSERT INTO occurrence(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line, end_col, written, entity_id, roles, status, origin, reason, name_start_line, name_start_col, name_end_line, name_end_col) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
         val candidateInsert = prepare("INSERT INTO occurrence_candidate(occurrence_id, entity_id) VALUES (?,?)")
-        val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col) VALUES (?,?,?,?,?,?,?,?)")
+        val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col, value_kind, value) VALUES (?,?,?,?,?,?,?,?,?,?)")
         val coverageInsert = prepare("INSERT INTO coverage_note(id, file_id, kind, message) VALUES (?,?,?,?)")
         val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, coverageInsert)
 
@@ -132,6 +132,8 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                     argumentInsert.setNullableString(3, argument.label)
                     argumentInsert.setNullableLong(4, argument.parameterKey?.let { entityIds.getValue(it) })
                     argumentInsert.setSpan(5, argument.span)
+                    argumentInsert.setString(9, argument.valueKind.name)
+                    argumentInsert.setNullableString(10, argument.value)
                     batches.add(argumentInsert)
                 }
             }
@@ -262,7 +264,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 10
+        const val SCHEMA_VERSION = 11
 
         /** Pending rows (all statements together) after which the batches are executed. */
         private const val FLUSH_ROWS = 20_000
@@ -447,6 +449,9 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 start_col INTEGER NOT NULL,
                 end_line INTEGER NOT NULL,
                 end_col INTEGER NOT NULL,
+                value_kind TEXT NOT NULL ${check<ValueKind>("value_kind")},
+                -- The literal's value (a decoded string, a canonical number), the name or bind as written; null otherwise.
+                value TEXT NULL,
                 PRIMARY KEY (occurrence_id, ordinal)
             )""",
             """CREATE TABLE coverage_note (

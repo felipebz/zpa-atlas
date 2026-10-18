@@ -74,6 +74,53 @@ hr/nested_scopes.sql	23:5-23:9	area	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TRG
 hr/nested_scopes.sql	28:0-32:2	ty_square	db:HR.TY_SQUARE	DEFINITION	RESOLVED	-	db:HR.TY_SQUARE	-
 hr/nested_scopes.sql	34:0-44:4	ty_square	db:HR.TY_SQUARE	DEFINITION	RESOLVED	-	db:HR.TY_SQUARE	-
 hr/nested_scopes.sql	42:15-42:19	area	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TY_SQUARE	-
+hr/pack_args.pkb	1:0-37:14	pack_args	db:HR.PACK_ARGS	DEFINITION	RESOLVED	-	db:HR.PACK_ARGS	-
+hr/pack_args.pkb	2:2-2:116	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	DEFINITION	RESOLVED	-	db:HR.PACK_ARGS	-
+hr/pack_args.pkb	2:14-2:30	p_code	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_CODE	DEFINITION	RESOLVED	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	-
+hr/pack_args.pkb	2:32-2:63	p_name	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_NAME	DEFINITION	RESOLVED	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	-
+hr/pack_args.pkb	2:65-2:95	p_flag	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_FLAG	DEFINITION	RESOLVED	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	-
+hr/pack_args.pkb	4:2-4:67	f	db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY	DEFINITION	RESOLVED	-	db:HR.PACK_ARGS	-
+hr/pack_args.pkb	4:13-4:26	p_x	db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY.P_X	DEFINITION	RESOLVED	-	db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY	-
+hr/pack_args.pkb	6:2-36:6	caller	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	DEFINITION	RESOLVED	-	db:HR.PACK_ARGS	-
+hr/pack_args.pkb	6:19-6:33	p_in	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY.P_IN	DEFINITION	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	12:4-12:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	13:4-13:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	14:4-14:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	15:4-15:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	16:4-16:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	17:4-17:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	18:4-18:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	19:4-19:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	20:4-20:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	21:4-21:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	22:4-22:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	23:4-23:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	24:4-24:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	25:4-25:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	26:4-26:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	26:9-26:28	pack_process.c_kind	db:HR.PACK_PROCESS.C_KIND	READ	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	27:4-27:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	28:4-28:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	29:4-29:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	30:4-30:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	30:6-30:7	f	db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY	CALL	RESOLVED	PRIVATE_SINGLE	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	31:4-31:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	31:9-31:16	to_char	-	CALL	UNRESOLVED	NOT_IN_PROJECT	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	32:11-32:14	nvl	-	CALL	UNRESOLVED	NOT_IN_PROJECT	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	SELECT
+hr/pack_args.pkb	32:15-32:18	max	-	CALL	UNRESOLVED	NOT_IN_PROJECT	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	SELECT
+hr/pack_args.pkb	32:19-32:21	id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	SELECT
+hr/pack_args.pkb	32:39-32:46	company	db:HR.COMPANY	SQL_SELECT	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	SELECT
+hr/pack_args.pkb	33:22-33:58	EXECUTE IMMEDIATE	-		DYNAMIC	PARSED	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	DYNAMIC
+hr/pack_args.pkb	33:29-33:40	pack_args.p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	34:4-34:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pkb	35:4-35:5	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CALL	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	-
+hr/pack_args.pks	1:0-4:14	pack_args	db:HR.PACK_ARGS	DECLARATION	RESOLVED	-	db:HR.PACK_ARGS	-
+hr/pack_args.pks	2:2-2:97	p	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	DECLARATION	RESOLVED	-	db:HR.PACK_ARGS	-
+hr/pack_args.pks	2:14-2:30	p_code	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	DECLARATION	RESOLVED	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	-
+hr/pack_args.pks	2:32-2:63	p_name	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	DECLARATION	RESOLVED	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	-
+hr/pack_args.pks	2:65-2:95	p_flag	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_FLAG	DECLARATION	RESOLVED	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	-
+hr/pack_args.pks	3:2-3:35	caller	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)	DECLARATION	RESOLVED	-	db:HR.PACK_ARGS	-
+hr/pack_args.pks	3:19-3:33	p_in	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER).P_IN	DECLARATION	RESOLVED	-	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)	-
 hr/pack_calls.pkb	1:0-47:15	pack_calls	db:HR.PACK_CALLS	DEFINITION	RESOLVED	-	db:HR.PACK_CALLS	-
 hr/pack_calls.pkb	2:2-5:6	p_priv	db:HR.PACK_CALLS.P_PRIV(P_X IN NUMBER,P_Y IN VARCHAR2)@BODY	DEFINITION	RESOLVED	-	db:HR.PACK_CALLS	-
 hr/pack_calls.pkb	2:19-2:29	p_x	db:HR.PACK_CALLS.P_PRIV(P_X IN NUMBER,P_Y IN VARCHAR2)@BODY.P_X	DEFINITION	RESOLVED	-	db:HR.PACK_CALLS.P_PRIV(P_X IN NUMBER,P_Y IN VARCHAR2)@BODY	-
@@ -1266,6 +1313,22 @@ hr/nested_scopes.sql	9:32-9:40	x	9:32-9:33
 hr/nested_scopes.sql	14:0-26:4	trg_area_check	14:26-14:40
 hr/nested_scopes.sql	28:0-32:2	ty_square	28:23-28:32
 hr/nested_scopes.sql	34:0-44:4	ty_square	34:28-34:37
+hr/pack_args.pkb	1:0-37:14	pack_args	1:31-1:40
+hr/pack_args.pkb	2:2-2:116	p	2:12-2:13
+hr/pack_args.pkb	2:14-2:30	p_code	2:14-2:20
+hr/pack_args.pkb	2:32-2:63	p_name	2:32-2:38
+hr/pack_args.pkb	2:65-2:95	p_flag	2:65-2:71
+hr/pack_args.pkb	4:2-4:67	f	4:11-4:12
+hr/pack_args.pkb	4:13-4:26	p_x	4:13-4:16
+hr/pack_args.pkb	6:2-36:6	caller	6:12-6:18
+hr/pack_args.pkb	6:19-6:33	p_in	6:19-6:23
+hr/pack_args.pks	1:0-4:14	pack_args	1:26-1:35
+hr/pack_args.pks	2:2-2:97	p	2:12-2:13
+hr/pack_args.pks	2:14-2:30	p_code	2:14-2:20
+hr/pack_args.pks	2:32-2:63	p_name	2:32-2:38
+hr/pack_args.pks	2:65-2:95	p_flag	2:65-2:71
+hr/pack_args.pks	3:2-3:35	caller	3:12-3:18
+hr/pack_args.pks	3:19-3:33	p_in	3:19-3:23
 hr/pack_calls.pkb	1:0-47:15	pack_calls	1:31-1:41
 hr/pack_calls.pkb	2:2-5:6	p_priv	2:12-2:18
 hr/pack_calls.pkb	2:19-2:29	p_x	2:19-2:22
@@ -1549,6 +1612,7 @@ other/proc_external.prc	1:48-1:56	p	1:48-1:49
 scripts/broken.sql	1:0-4:4	broken_proc	1:28-1:39
 scripts/broken_call.sql	1:0-4:4	broken_proc2	1:28-1:40
 ## occurrence_origin
+hr/pack_args.pkb	33:29-33:40	pack_args.p	DYNAMIC_LITERAL
 hr/pack_ddl.pkb	4:38-4:45	company	DYNAMIC_LITERAL
 hr/pack_ddl.pkb	5:38-5:50	hr.event_log	DYNAMIC_LITERAL
 hr/pack_ddl.pkb	7:38-7:49	syn_company	DYNAMIC_LITERAL
@@ -1664,6 +1728,21 @@ db:HR.MV_COMPANY_LOG.COMPANY_NAME	COLUMN	HR	COMPANY_NAME	db:HR.MV_COMPANY_LOG	HR
 db:HR.MV_COMPANY_LOG.ID	COLUMN	HR	ID	db:HR.MV_COMPANY_LOG	HR.MV_COMPANY_LOG.ID	0
 db:HR.NO_SUCH_TABLE	UNKNOWN_RELATION	HR	NO_SUCH_TABLE	-	HR.NO_SUCH_TABLE	1
 db:HR.NO_SUCH_TABLE.COL	COLUMN	HR	COL	db:HR.NO_SUCH_TABLE	HR.NO_SUCH_TABLE.COL	1
+db:HR.PACK_ARGS	PACKAGE	HR	PACK_ARGS	-	HR.PACK_ARGS	0
+db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)	PROCEDURE	HR	CALLER	db:HR.PACK_ARGS	HR.PACK_ARGS.CALLER(P_IN IN NUMBER)	0
+db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER).P_IN	PARAMETER	HR	P_IN	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)	HR.PACK_ARGS.CALLER(P_IN IN NUMBER).P_IN	0
+db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	PROCEDURE	HR	CALLER	db:HR.PACK_ARGS	HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	0
+db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY.P_IN	PARAMETER	HR	P_IN	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY.P_IN	0
+db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY	FUNCTION	HR	F	db:HR.PACK_ARGS	HR.PACK_ARGS.F(P_X IN NUMBER)@BODY	0
+db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY.P_X	PARAMETER	HR	P_X	db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY	HR.PACK_ARGS.F(P_X IN NUMBER)@BODY.P_X	0
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	PROCEDURE	HR	P	db:HR.PACK_ARGS	HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	0
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	PARAMETER	HR	P_CODE	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	0
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_FLAG	PARAMETER	HR	P_FLAG	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_FLAG	0
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	PARAMETER	HR	P_NAME	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	0
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	PROCEDURE	HR	P	db:HR.PACK_ARGS	HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	0
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_CODE	PARAMETER	HR	P_CODE	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_CODE	0
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_FLAG	PARAMETER	HR	P_FLAG	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_FLAG	0
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_NAME	PARAMETER	HR	P_NAME	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_NAME	0
 db:HR.PACK_CALLS	PACKAGE	HR	PACK_CALLS	-	HR.PACK_CALLS	0
 db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER)	FUNCTION	HR	F_PUB	db:HR.PACK_CALLS	HR.PACK_CALLS.F_PUB(P_X IN NUMBER)	0
 db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER).P_X	PARAMETER	HR	P_X	db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER)	HR.PACK_CALLS.F_PUB(P_X IN NUMBER).P_X	0
@@ -2118,6 +2197,22 @@ db:HR.MV_COMPANY_LOG.COMPANY_LABEL	VIEW_BASE	db:HR.V_COMPANY_LIST.COMPANY_LABEL
 db:HR.MV_COMPANY_LOG.COMPANY_NAME	VIEW_BASE	db:HR.COMPANY.COMPANY_NAME
 db:HR.MV_COMPANY_LOG.ID	VIEW_BASE	db:HR.COMPANY.ID
 db:HR.NO_SUCH_TABLE	CONTAINS	db:HR.NO_SUCH_TABLE.COL
+db:HR.PACK_ARGS	CONTAINS	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)
+db:HR.PACK_ARGS	CONTAINS	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY
+db:HR.PACK_ARGS	CONTAINS	db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY
+db:HR.PACK_ARGS	CONTAINS	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)
+db:HR.PACK_ARGS	CONTAINS	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY
+db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)	CONTAINS	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER).P_IN
+db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	CONTAINS	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY.P_IN
+db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	IMPLEMENTS	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)
+db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY	CONTAINS	db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY.P_X
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CONTAINS	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CONTAINS	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_FLAG
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)	CONTAINS	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	CONTAINS	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_CODE
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	CONTAINS	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_FLAG
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	CONTAINS	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY.P_NAME
+db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)@BODY	IMPLEMENTS	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN)
 db:HR.PACK_CALLS	CONTAINS	db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER)
 db:HR.PACK_CALLS	CONTAINS	db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER)@BODY
 db:HR.PACK_CALLS	CONTAINS	db:HR.PACK_CALLS.G_TAB
@@ -2523,6 +2618,8 @@ hr/json_type.typ	DB_SOURCE	147	HR	OK	0
 hr/mv_company.sql	DB_SOURCE	156	HR	OK	0
 hr/nested_calls.sql	DB_SOURCE	808	HR	OK	0
 hr/nested_scopes.sql	DB_SOURCE	900	HR	OK	0
+hr/pack_args.pkb	DB_SOURCE	889	HR	OK	0
+hr/pack_args.pks	DB_SOURCE	190	HR	OK	0
 hr/pack_calls.pkb	DB_SOURCE	1326	HR	OK	0
 hr/pack_calls.pks	DB_SOURCE	288	HR	OK	0
 hr/pack_collection.pkb	DB_SOURCE	210	HR	OK	0
@@ -2600,6 +2697,8 @@ hr/nested_scopes.sql	FUNCTION	AREA	db:HR.AREA(X IN NUMBER)	9:0-12:4
 hr/nested_scopes.sql	TRIGGER	TRG_AREA_CHECK	db:HR.TRG_AREA_CHECK	14:0-26:4
 hr/nested_scopes.sql	TYPE	TY_SQUARE	db:HR.TY_SQUARE	28:0-32:2
 hr/nested_scopes.sql	TYPE_BODY	TY_SQUARE	db:HR.TY_SQUARE	34:0-44:4
+hr/pack_args.pkb	PACKAGE_BODY	PACK_ARGS	db:HR.PACK_ARGS	1:0-37:14
+hr/pack_args.pks	PACKAGE	PACK_ARGS	db:HR.PACK_ARGS	1:0-4:14
 hr/pack_calls.pkb	PACKAGE_BODY	PACK_CALLS	db:HR.PACK_CALLS	1:0-47:15
 hr/pack_calls.pks	PACKAGE	PACK_CALLS	db:HR.PACK_CALLS	1:0-9:15
 hr/pack_collection.pkb	PACKAGE_BODY	PACK_COLLECTION	db:HR.PACK_COLLECTION	1:0-11:4
@@ -2726,6 +2825,8 @@ hr/conditional.sql	SELECT	db:HR.PACK_COND.WORK()@BODY	37:6-37:43
 hr/conditional.sql	UPDATE	db:HR.PACK_COND.WORK()@BODY	40:6-40:40
 hr/fn_company_name.fun	SELECT	db:HR.FN_COMPANY_NAME(P_ID IN NUMBER)	4:2-4:62
 hr/mv_company.sql	SELECT	db:HR.MV_COMPANY_LOG	2:2-3:63
+hr/pack_args.pkb	SELECT	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	32:4-32:46
+hr/pack_args.pkb	DYNAMIC	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY	33:4-33:59
 hr/pack_calls.pkb	SELECT	db:HR.PACK_CALLS.P_MIX(P_A IN NUMBER)@BODY	45:4-45:36
 hr/pack_ddl.pkb	DYNAMIC	db:HR.PACK_DDL.RUN(P_TABLE IN VARCHAR2)@BODY	4:4-4:47
 hr/pack_ddl.pkb	DDL	db:HR.PACK_DDL.RUN(P_TABLE IN VARCHAR2)@BODY	4:23-4:45
@@ -2980,174 +3081,214 @@ hr/proc_columns.prc	12:76	id	db:HR.SEND_QUEUE.ID
 hr/proc_synonyms.prc	11:19	table_name	db:SYS.USER_TABLES.TABLE_NAME
 hr/proc_synonyms.prc	11:19	table_name	db:SYS.USER_TAB_COLUMNS.TABLE_NAME
 ## call_argument
-hr/conditional.sql	29:13	count	1	-	-	29:19-29:20
-hr/conditional.sql	37:13	count	1	-	-	37:19-37:20
-hr/conditional.sql	55:44	run_new	1	-	-	55:52-55:53
-hr/nested_calls.sql	12:9	md5	1	-	-	12:13-12:14
-hr/nested_calls.sql	22:9	md5	1	-	-	22:13-22:14
-hr/nested_calls.sql	34:9	md5	1	-	-	34:13-34:14
-hr/nested_calls.sql	41:9	md5	1	-	db:HR.MD5(P IN VARCHAR2).P	41:13-41:14
-hr/nested_scopes.sql	6:13	fat	1	-	db:HR.FAT(N IN NUMBER).N	6:17-6:22
-hr/nested_scopes.sql	23:5	area	1	-	-	23:10-23:11
-hr/pack_calls.pkb	22:18	ty_point	1	-	-	22:27-22:28
-hr/pack_calls.pkb	26:4	local_p	1	-	-	26:12-26:13
-hr/pack_calls.pkb	32:4	pack_process.run_job	1	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_A	32:25-32:26
-hr/pack_calls.pkb	32:4	pack_process.run_job	2	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_B	32:28-32:31
-hr/pack_calls.pkb	32:4	pack_process.run_job	3	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_C	32:33-32:34
-hr/pack_calls.pkb	32:4	pack_process.run_job	4	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_D	32:36-32:43
-hr/pack_calls.pkb	32:4	pack_process.run_job	5	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_E	32:45-32:46
-hr/pack_calls.pkb	33:4	pack_process.run_job	1	-	-	33:25-33:26
-hr/pack_calls.pkb	33:4	pack_process.run_job	2	-	-	33:28-33:31
-hr/pack_calls.pkb	33:4	pack_process.run_job	3	-	-	33:33-33:34
-hr/pack_calls.pkb	33:4	pack_process.run_job	4	-	-	33:36-33:43
-hr/pack_calls.pkb	34:4	pack_process.run_job	1	P_A	-	34:32-34:33
-hr/pack_calls.pkb	34:4	pack_process.run_job	2	P_B	-	34:42-34:45
-hr/pack_calls.pkb	34:4	pack_process.run_job	3	P_C	-	34:54-34:55
-hr/pack_calls.pkb	34:4	pack_process.run_job	4	P_D	-	34:64-34:71
-hr/pack_calls.pkb	35:4	pack_process.run_job	1	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_A	35:25-35:26
-hr/pack_calls.pkb	35:4	pack_process.run_job	2	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_B	35:28-35:31
-hr/pack_calls.pkb	35:4	pack_process.run_job	3	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_C	35:33-35:34
-hr/pack_calls.pkb	35:4	pack_process.run_job	4	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_D	35:36-35:43
-hr/pack_calls.pkb	35:4	pack_process.run_job	5	P_E	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_E	35:52-35:53
-hr/pack_calls.pkb	36:4	p_pub	1	-	-	36:10-36:11
-hr/pack_calls.pkb	37:4	p_priv	1	-	db:HR.PACK_CALLS.P_PRIV(P_X IN NUMBER,P_Y IN VARCHAR2)@BODY.P_X	37:11-37:12
-hr/pack_calls.pkb	38:4	pack_calls.p_priv	1	-	db:HR.PACK_CALLS.P_PRIV(P_X IN NUMBER,P_Y IN VARCHAR2)@BODY.P_X	38:22-38:23
-hr/pack_calls.pkb	38:4	pack_calls.p_priv	2	P_Y	db:HR.PACK_CALLS.P_PRIV(P_X IN NUMBER,P_Y IN VARCHAR2)@BODY.P_Y	38:32-38:35
-hr/pack_calls.pkb	39:4	p_over	1	-	-	39:11-39:12
-hr/pack_calls.pkb	40:4	p_mix	1	-	-	40:10-40:11
-hr/pack_calls.pkb	40:4	p_mix	2	-	-	40:13-40:16
-hr/pack_calls.pkb	41:4	proc_standalone	1	-	db:HR.PROC_STANDALONE(P_ID IN NUMBER).P_ID	41:20-41:21
-hr/pack_calls.pkb	43:4	hr.proc_standalone	1	P_ID	db:HR.PROC_STANDALONE(P_ID IN NUMBER).P_ID	43:31-43:32
-hr/pack_calls.pkb	44:4	dbms_output.put_line	1	-	-	44:25-44:52
-hr/pack_calls.pkb	44:25	nvl	1	-	-	44:29-44:46
-hr/pack_calls.pkb	44:25	nvl	2	-	-	44:48-44:51
-hr/pack_calls.pkb	44:29	substr	1	-	-	44:36-44:39
-hr/pack_calls.pkb	44:29	substr	2	-	-	44:41-44:42
-hr/pack_calls.pkb	44:29	substr	3	-	-	44:44-44:45
-hr/pack_calls.pkb	45:11	f_pub	1	-	db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER).P_X	45:17-45:18
-hr/pack_dynamic.pkb	22:29	pack_process.get_event	1	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_ID	22:52-22:53
-hr/pack_dynamic.pkb	22:29	pack_process.get_event	2	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_OUT	22:55-22:57
-hr/pack_dynamic.pkb	22:29	pack_process.get_event	3	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_IO	22:59-22:62
-hr/pack_dynamic.pkb	23:29	log_step	1	-	-	23:38-23:41
-hr/pack_dynamic.pkb	25:29	log_step	1	-	-	25:38-25:45
-hr/pack_dynamic.pkb	30:4	dbms_sql.parse	1	-	-	30:19-30:27
-hr/pack_dynamic.pkb	30:4	dbms_sql.parse	2	-	-	30:29-30:65
-hr/pack_dynamic.pkb	30:4	dbms_sql.parse	3	-	-	30:67-30:82
-hr/pack_json.pkb	15:9	make	1	-	db:HR.PACK_JSON.MAKE(P IN JSON).P	15:14-15:20
-hr/pack_json.pkb	16:4	f	1	-	-	16:6-16:7
-hr/pack_methods.pkb	12:9	f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	12:13-12:14
-hr/pack_methods.pkb	12:21	f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	12:25-12:26
-hr/pack_methods.pkb	13:25	f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	13:29-13:30
-hr/pack_methods.pkb	14:85	extract	1	-	-	14:93-14:108
-hr/pack_methods.pkb	14:85	extract	2	-	-	14:110-14:114
-hr/pack_methods.pkb	14:93	xmltype	1	-	-	14:101-14:107
-hr/pack_methods.pkb	15:62	extract	1	-	-	15:70-15:85
-hr/pack_methods.pkb	15:62	extract	2	-	-	15:87-15:91
-hr/pack_methods.pkb	15:70	xmltype	1	-	-	15:78-15:84
-hr/pack_methods.pkb	17:11	pack_methods.f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	17:28-17:29
-hr/pack_methods.pkb	18:11	pack_methods.f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	18:28-18:29
-hr/pack_nested.pkb	13:11	md5	1	-	-	13:15-13:16
-hr/pack_nested.pkb	18:11	md5_private	1	-	db:HR.PACK_NESTED.MD5_PRIVATE(X IN VARCHAR2)@BODY.X	18:23-18:33
-hr/pack_nested.pkb	18:23	wrapper	1	-	db:HR.PACK_NESTED.WRAPPER(P IN VARCHAR2)@BODY.P	18:31-18:32
-hr/pack_owned.pkb	9:4	p	1	-	db:HR.PACK_OWNED.P(X IN NUMBER).X	9:6-9:7
-hr/pack_owned.pkb	10:4	pack_owned.p	1	-	db:HR.PACK_OWNED.P(X IN NUMBER).X	10:17-10:18
-hr/pack_owned.pkb	11:4	hr.pack_owned.p	1	-	db:HR.PACK_OWNED.P(X IN NUMBER).X	11:20-11:21
-hr/pack_owned.pkb	12:4	proc_owned	1	-	db:HR.PROC_OWNED(P IN NUMBER).P	12:15-12:16
-hr/pack_process.pkb	19:4	write_log	1	-	db:HR.PACK_PROCESS.WRITE_LOG(P_MSG IN VARCHAR2)@BODY.P_MSG	19:14-19:17
-hr/pack_process.pkb	29:45	get_event	1	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_ID	29:55-29:58
-hr/pack_process.pkb	29:45	get_event	2	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_OUT	29:60-29:69
-hr/pack_process.pkb	29:45	get_event	3	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_IO	29:71-29:93
-hr/pack_process.pkb	30:4	dbms_sql.parse	1	-	-	30:19-30:22
-hr/pack_process.pkb	30:4	dbms_sql.parse	2	-	-	30:24-30:44
-hr/pack_process.pkb	30:4	dbms_sql.parse	3	-	-	30:46-30:61
-hr/pack_scoped.pkb	9:4	add_entry	1	-	-	9:14-9:15
-hr/pack_scoped.pkb	10:4	check_items.add_entry	1	-	-	10:26-10:27
-hr/pack_scoped.pkb	11:4	pack_scoped.check_items.add_entry	1	-	-	11:38-11:39
-hr/pack_scoped.pkb	12:4	hr.pack_scoped.check_items.add_entry	1	-	-	12:41-12:42
-hr/pack_scoped.pkb	19:4	pack_scoped.recheck.add_reason	1	-	-	19:35-19:36
-hr/pack_scoped.pkb	23:4	pack_scoped.pub	1	-	db:HR.PACK_SCOPED.PUB(P IN NUMBER).P	23:20-23:21
-hr/pack_types.pkb	18:15	ty_point	1	-	-	18:24-18:25
-hr/pack_types.pkb	19:14	pack_calls.t_nums	1	-	-	19:32-19:33
-hr/pack_types.pkb	19:14	pack_calls.t_nums	2	-	-	19:35-19:36
-hr/proc_column_reads.prc	6:89	nvl	1	-	-	6:93-6:105
-hr/proc_column_reads.prc	6:89	nvl	2	-	-	6:107-6:110
-hr/proc_column_reads.prc	12:11	count	1	-	-	12:17-12:18
-hr/proc_column_reads.prc	14:9	count	1	-	-	14:15-14:16
-hr/proc_column_reads.prc	15:9	count	1	-	-	15:15-15:16
-hr/proc_columns.prc	6:9	count	1	-	-	6:15-6:16
-hr/proc_columns.prc	7:9	count	1	-	-	7:15-7:16
-hr/proc_columns.prc	8:9	count	1	-	-	8:15-8:16
-hr/proc_columns.prc	9:9	count	1	-	-	9:15-9:16
-hr/proc_columns.prc	10:9	count	1	-	-	10:15-10:16
-hr/proc_columns.prc	11:60	count	1	-	-	11:66-11:67
-hr/proc_columns.prc	12:9	count	1	-	-	12:15-12:16
-hr/proc_columns.prc	13:9	count	1	-	-	13:15-13:17
-hr/proc_columns.prc	15:9	count	1	-	-	15:15-15:16
-hr/proc_columns.prc	21:9	count	1	-	-	21:15-21:16
-hr/proc_columns.prc	22:9	count	1	-	-	22:15-22:16
-hr/proc_columns.prc	22:69	count	1	-	-	22:75-22:76
-hr/proc_columns.prc	23:9	count	1	-	-	23:15-23:16
-hr/proc_columns.prc	24:9	count	1	-	-	24:15-24:16
-hr/proc_columns.prc	24:36	sys.odcinumberlist	1	-	-	24:55-24:56
-hr/proc_columns.prc	24:90	count	1	-	-	24:96-24:97
-hr/proc_mview.prc	3:9	max	1	-	-	3:13-3:26
-hr/proc_own_objects.prc	5:7	dbms_random.value	1	-	-	5:25-5:26
-hr/proc_own_objects.prc	5:7	dbms_random.value	2	-	-	5:28-5:30
-hr/proc_own_objects.prc	7:11	ty_missing	1	-	-	7:22-7:23
-hr/proc_source_view.prc	4:9	count	1	-	-	4:15-4:16
-hr/proc_source_view.prc	5:9	count	1	-	-	5:15-5:16
-hr/proc_synonym_objects.prc	6:2	dbms_output.put_line	1	-	-	6:23-6:26
-hr/proc_synonym_objects.prc	8:11	xmltype	1	-	-	8:19-8:25
-hr/proc_synonym_objects.prc	9:7	get_env	1	-	-	9:15-9:18
-hr/proc_synonym_objects.prc	11:2	syn_ext_pkg.run	1	-	-	11:18-11:19
-hr/proc_synonym_objects.prc	12:7	syn_calls.f_pub	1	-	db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER).P_X	12:23-12:24
-hr/proc_synonym_objects.prc	13:9	count	1	-	-	13:15-13:16
-hr/proc_synonyms.prc	12:9	count	1	-	-	12:15-12:16
-hr/proc_synonyms.prc	13:9	count	1	-	-	13:15-13:16
-hr/proc_synonyms.prc	14:9	count	1	-	-	14:15-14:16
-hr/proc_synonyms.prc	16:9	count	1	-	-	16:15-16:18
-hr/proc_synonyms.prc	17:9	count	1	-	-	17:15-17:16
-hr/proc_synonyms.prc	18:9	count	1	-	-	18:15-18:16
-hr/proc_synonyms.prc	19:9	count	1	-	-	19:15-19:16
-hr/proc_xmlseq.prc	4:9	count	1	-	-	4:15-4:16
-hr/proc_xmlseq.prc	4:48	extract	1	-	-	4:56-4:61
-hr/proc_xmlseq.prc	4:48	extract	2	-	-	4:63-4:69
-hr/trg_forms.trg	16:2	pack_process.get_event	1	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_ID	16:25-16:30
-hr/trg_forms.trg	16:2	pack_process.get_event	2	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_OUT	16:32-16:44
-hr/trg_forms.trg	16:2	pack_process.get_event	3	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_IO	16:46-16:51
-hr/trg_forms.trg	17:2	pack_external.touch	1	-	-	17:22-17:37
-hr/ty_bag.tpb	8:9	g	1	-	-	8:11-8:12
-hr/ty_bag.tpb	9:9	self.g	1	-	-	9:16-9:17
-hr/ty_bag.tpb	10:17	pack_methods.f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	10:34-10:35
-hr/views.sql	5:37	length	1	-	-	5:44-5:58
-hr/views_lineage.sql	2:23	max	1	-	-	2:27-2:32
-hr/views_lineage.sql	8:22	count	1	-	-	8:28-8:29
-hr/views_lineage.sql	8:38	max	1	-	-	8:42-8:54
-hr/views_lineage.sql	8:111	count	1	-	-	8:117-8:118
-hr/views_lineage.sql	14:69	upper	1	-	-	14:75-14:78
-hr/views_lineage.sql	21:32	upper	1	-	-	21:38-21:43
-scripts/broken_call.sql	6:2	proc_standalone	1	-	db:HR.PROC_STANDALONE(P_ID IN NUMBER).P_ID	6:18-6:19
-scripts/calls.sql	2:2	p_pub	1	-	-	2:8-2:9
-scripts/calls.sql	3:2	pack_calls.p_priv	1	-	-	3:20-3:21
-scripts/calls.sql	4:2	run_job	1	-	-	4:10-4:11
-scripts/calls.sql	4:2	run_job	2	-	-	4:13-4:16
-scripts/calls.sql	4:2	run_job	3	-	-	4:18-4:19
-scripts/calls.sql	4:2	run_job	4	-	-	4:21-4:28
-scripts/calls.sql	7:7	pack_calls.f_pub	1	-	db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER).P_X	7:24-7:26
-scripts/calls_owned.sql	5:2	proc_owned	1	-	db:HR.PROC_OWNED(P IN NUMBER).P	5:13-5:14
-scripts/calls_owned.sql	6:2	hr.proc_owned	1	-	db:HR.PROC_OWNED(P IN NUMBER).P	6:16-6:17
-scripts/calls_owned.sql	7:2	pack_owned.p	1	-	db:HR.PACK_OWNED.P(X IN NUMBER).X	7:15-7:16
-scripts/calls_owned.sql	8:2	hr.pack_owned.p	1	-	db:HR.PACK_OWNED.P(X IN NUMBER).X	8:18-8:19
-scripts/calls_owned.sql	10:7	ty_owned	1	-	-	10:16-10:17
-scripts/calls_owned.sql	11:2	other.proc_external	1	-	db:OTHER.PROC_EXTERNAL(P IN NUMBER).P	11:22-11:23
-scripts/calls_owned.sql	12:2	other.does_not_exist	1	-	-	12:23-12:24
-scripts/calls_owned.sql	13:2	proc_external	1	-	-	13:16-13:17
-scripts/calls_owned.sql	14:2	pack_owned.does_not_exist	1	-	-	14:28-14:29
-scripts/calls_owned2.sql	7:5	pkg_ext.g_tab.exists	1	-	-	7:26-7:27
-scripts/calls_owned2.sql	8:2	other.pack_x.do_it	1	-	-	8:21-8:22
-scripts/load.sql	5:20	sys.odcinumberlist	1	-	-	5:39-5:40
+hr/conditional.sql	29:13	count	1	-	-	29:19-29:20	EXPRESSION	-
+hr/conditional.sql	37:13	count	1	-	-	37:19-37:20	EXPRESSION	-
+hr/conditional.sql	55:44	run_new	1	-	-	55:52-55:53	NUMBER	1
+hr/nested_calls.sql	12:9	md5	1	-	-	12:13-12:14	NAME	P
+hr/nested_calls.sql	22:9	md5	1	-	-	22:13-22:14	NAME	P
+hr/nested_calls.sql	34:9	md5	1	-	-	34:13-34:14	NAME	P
+hr/nested_calls.sql	41:9	md5	1	-	db:HR.MD5(P IN VARCHAR2).P	41:13-41:14	NAME	P
+hr/nested_scopes.sql	6:13	fat	1	-	db:HR.FAT(N IN NUMBER).N	6:17-6:22	EXPRESSION	-
+hr/nested_scopes.sql	23:5	area	1	-	-	23:10-23:11	NUMBER	1
+hr/pack_args.pkb	12:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	12:6-12:10	NUMBER	1234
+hr/pack_args.pkb	13:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	13:6-13:8	NUMBER	-1
+hr/pack_args.pkb	14:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	14:6-14:10	NUMBER	1.5
+hr/pack_args.pkb	15:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	15:6-15:10	NUMBER	1.5
+hr/pack_args.pkb	16:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	16:6-16:9	NUMBER	1000
+hr/pack_args.pkb	17:4	p	1	P_CODE	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	17:16-17:17	NUMBER	7
+hr/pack_args.pkb	17:4	p	2	P_NAME	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	17:29-17:34	STRING	abc
+hr/pack_args.pkb	18:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	18:6-18:7	NUMBER	1
+hr/pack_args.pkb	18:4	p	2	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	18:9-18:16	STRING	it's
+hr/pack_args.pkb	19:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	19:6-19:7	NUMBER	1
+hr/pack_args.pkb	19:4	p	2	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	19:9-19:18	STRING	it's
+hr/pack_args.pkb	20:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	20:6-20:7	NUMBER	1
+hr/pack_args.pkb	20:4	p	2	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	20:9-20:13	STRING	x
+hr/pack_args.pkb	21:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	21:6-21:7	NUMBER	1
+hr/pack_args.pkb	21:4	p	2	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	21:9-21:13	NULL	-
+hr/pack_args.pkb	22:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	22:6-22:7	NUMBER	1
+hr/pack_args.pkb	22:4	p	2	P_FLAG	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_FLAG	22:19-22:23	BOOLEAN	TRUE
+hr/pack_args.pkb	23:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	23:6-23:9	NUMBER	5
+hr/pack_args.pkb	24:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	24:6-24:13	NAME	V_LOCAL
+hr/pack_args.pkb	25:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	25:6-25:10	NAME	P_IN
+hr/pack_args.pkb	26:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	26:6-26:7	NUMBER	1
+hr/pack_args.pkb	26:4	p	2	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	26:9-26:28	NAME	PACK_PROCESS.C_KIND
+hr/pack_args.pkb	27:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	27:6-27:12	NAME	R.CODE
+hr/pack_args.pkb	28:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	28:6-28:11	EXPRESSION	-
+hr/pack_args.pkb	29:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	29:6-29:7	NUMBER	1
+hr/pack_args.pkb	29:4	p	2	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	29:9-29:19	EXPRESSION	-
+hr/pack_args.pkb	30:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	30:6-30:10	EXPRESSION	-
+hr/pack_args.pkb	30:6	f	1	-	db:HR.PACK_ARGS.F(P_X IN NUMBER)@BODY.P_X	30:8-30:9	NUMBER	1
+hr/pack_args.pkb	31:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	31:6-31:7	NUMBER	1
+hr/pack_args.pkb	31:4	p	2	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	31:9-31:25	EXPRESSION	-
+hr/pack_args.pkb	31:9	to_char	1	-	-	31:17-31:24	NAME	SYSDATE
+hr/pack_args.pkb	32:11	nvl	1	-	-	32:15-32:22	EXPRESSION	-
+hr/pack_args.pkb	32:11	nvl	2	-	-	32:24-32:25	NUMBER	0
+hr/pack_args.pkb	32:15	max	1	-	-	32:19-32:21	NAME	ID
+hr/pack_args.pkb	33:29	pack_args.p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	33:41-33:43	BIND	:1
+hr/pack_args.pkb	33:29	pack_args.p	2	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	33:45-33:48	STRING	z
+hr/pack_args.pkb	34:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	34:6-34:10	NUMBER	1
+hr/pack_args.pkb	35:4	p	1	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE	35:6-35:7	NUMBER	1
+hr/pack_args.pkb	35:4	p	2	-	db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_NAME	35:9-35:11	NULL	-
+hr/pack_calls.pkb	22:18	ty_point	1	-	-	22:27-22:28	NUMBER	1
+hr/pack_calls.pkb	26:4	local_p	1	-	-	26:12-26:13	NUMBER	1
+hr/pack_calls.pkb	32:4	pack_process.run_job	1	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_A	32:25-32:26	NUMBER	1
+hr/pack_calls.pkb	32:4	pack_process.run_job	2	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_B	32:28-32:31	STRING	a
+hr/pack_calls.pkb	32:4	pack_process.run_job	3	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_C	32:33-32:34	NUMBER	2
+hr/pack_calls.pkb	32:4	pack_process.run_job	4	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_D	32:36-32:43	NAME	SYSDATE
+hr/pack_calls.pkb	32:4	pack_process.run_job	5	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_E	32:45-32:46	NUMBER	3
+hr/pack_calls.pkb	33:4	pack_process.run_job	1	-	-	33:25-33:26	NUMBER	1
+hr/pack_calls.pkb	33:4	pack_process.run_job	2	-	-	33:28-33:31	STRING	a
+hr/pack_calls.pkb	33:4	pack_process.run_job	3	-	-	33:33-33:34	NUMBER	2
+hr/pack_calls.pkb	33:4	pack_process.run_job	4	-	-	33:36-33:43	NAME	SYSDATE
+hr/pack_calls.pkb	34:4	pack_process.run_job	1	P_A	-	34:32-34:33	NUMBER	1
+hr/pack_calls.pkb	34:4	pack_process.run_job	2	P_B	-	34:42-34:45	STRING	a
+hr/pack_calls.pkb	34:4	pack_process.run_job	3	P_C	-	34:54-34:55	NUMBER	2
+hr/pack_calls.pkb	34:4	pack_process.run_job	4	P_D	-	34:64-34:71	NAME	SYSDATE
+hr/pack_calls.pkb	35:4	pack_process.run_job	1	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_A	35:25-35:26	NUMBER	1
+hr/pack_calls.pkb	35:4	pack_process.run_job	2	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_B	35:28-35:31	STRING	a
+hr/pack_calls.pkb	35:4	pack_process.run_job	3	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_C	35:33-35:34	NUMBER	2
+hr/pack_calls.pkb	35:4	pack_process.run_job	4	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_D	35:36-35:43	NAME	SYSDATE
+hr/pack_calls.pkb	35:4	pack_process.run_job	5	P_E	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER).P_E	35:52-35:53	NUMBER	3
+hr/pack_calls.pkb	36:4	p_pub	1	-	-	36:10-36:11	NUMBER	1
+hr/pack_calls.pkb	37:4	p_priv	1	-	db:HR.PACK_CALLS.P_PRIV(P_X IN NUMBER,P_Y IN VARCHAR2)@BODY.P_X	37:11-37:12	NUMBER	1
+hr/pack_calls.pkb	38:4	pack_calls.p_priv	1	-	db:HR.PACK_CALLS.P_PRIV(P_X IN NUMBER,P_Y IN VARCHAR2)@BODY.P_X	38:22-38:23	NUMBER	1
+hr/pack_calls.pkb	38:4	pack_calls.p_priv	2	P_Y	db:HR.PACK_CALLS.P_PRIV(P_X IN NUMBER,P_Y IN VARCHAR2)@BODY.P_Y	38:32-38:35	STRING	y
+hr/pack_calls.pkb	39:4	p_over	1	-	-	39:11-39:12	NUMBER	1
+hr/pack_calls.pkb	40:4	p_mix	1	-	-	40:10-40:11	NUMBER	1
+hr/pack_calls.pkb	40:4	p_mix	2	-	-	40:13-40:16	STRING	b
+hr/pack_calls.pkb	41:4	proc_standalone	1	-	db:HR.PROC_STANDALONE(P_ID IN NUMBER).P_ID	41:20-41:21	NUMBER	1
+hr/pack_calls.pkb	43:4	hr.proc_standalone	1	P_ID	db:HR.PROC_STANDALONE(P_ID IN NUMBER).P_ID	43:31-43:32	NUMBER	2
+hr/pack_calls.pkb	44:4	dbms_output.put_line	1	-	-	44:25-44:52	EXPRESSION	-
+hr/pack_calls.pkb	44:25	nvl	1	-	-	44:29-44:46	EXPRESSION	-
+hr/pack_calls.pkb	44:25	nvl	2	-	-	44:48-44:51	STRING	y
+hr/pack_calls.pkb	44:29	substr	1	-	-	44:36-44:39	STRING	x
+hr/pack_calls.pkb	44:29	substr	2	-	-	44:41-44:42	NUMBER	1
+hr/pack_calls.pkb	44:29	substr	3	-	-	44:44-44:45	NUMBER	1
+hr/pack_calls.pkb	45:11	f_pub	1	-	db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER).P_X	45:17-45:18	NUMBER	1
+hr/pack_dynamic.pkb	22:29	pack_process.get_event	1	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_ID	22:52-22:53	NUMBER	1
+hr/pack_dynamic.pkb	22:29	pack_process.get_event	2	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_OUT	22:55-22:57	BIND	:O
+hr/pack_dynamic.pkb	22:29	pack_process.get_event	3	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_IO	22:59-22:62	BIND	:IO
+hr/pack_dynamic.pkb	23:29	log_step	1	-	-	23:38-23:41	STRING	x
+hr/pack_dynamic.pkb	25:29	log_step	1	-	-	25:38-25:45	NAME	P_TABLE
+hr/pack_dynamic.pkb	30:4	dbms_sql.parse	1	-	-	30:19-30:27	NAME	V_CURSOR
+hr/pack_dynamic.pkb	30:4	dbms_sql.parse	2	-	-	30:29-30:65	STRING	delete from event_log where id = 4
+hr/pack_dynamic.pkb	30:4	dbms_sql.parse	3	-	-	30:67-30:82	NAME	DBMS_SQL.NATIVE
+hr/pack_json.pkb	15:9	make	1	-	db:HR.PACK_JSON.MAKE(P IN JSON).P	15:14-15:20	EXPRESSION	-
+hr/pack_json.pkb	16:4	f	1	-	-	16:6-16:7	NAME	L
+hr/pack_methods.pkb	12:9	f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	12:13-12:14	NUMBER	1
+hr/pack_methods.pkb	12:21	f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	12:25-12:26	NUMBER	2
+hr/pack_methods.pkb	13:25	f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	13:29-13:30	NUMBER	3
+hr/pack_methods.pkb	14:85	extract	1	-	-	14:93-14:108	EXPRESSION	-
+hr/pack_methods.pkb	14:85	extract	2	-	-	14:110-14:114	STRING	/a
+hr/pack_methods.pkb	14:93	xmltype	1	-	-	14:101-14:107	STRING	<a/>
+hr/pack_methods.pkb	15:62	extract	1	-	-	15:70-15:85	EXPRESSION	-
+hr/pack_methods.pkb	15:62	extract	2	-	-	15:87-15:91	STRING	/a
+hr/pack_methods.pkb	15:70	xmltype	1	-	-	15:78-15:84	STRING	<a/>
+hr/pack_methods.pkb	17:11	pack_methods.f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	17:28-17:29	NUMBER	4
+hr/pack_methods.pkb	18:11	pack_methods.f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	18:28-18:29	NUMBER	5
+hr/pack_nested.pkb	13:11	md5	1	-	-	13:15-13:16	NAME	P
+hr/pack_nested.pkb	18:11	md5_private	1	-	db:HR.PACK_NESTED.MD5_PRIVATE(X IN VARCHAR2)@BODY.X	18:23-18:33	EXPRESSION	-
+hr/pack_nested.pkb	18:23	wrapper	1	-	db:HR.PACK_NESTED.WRAPPER(P IN VARCHAR2)@BODY.P	18:31-18:32	NAME	P
+hr/pack_owned.pkb	9:4	p	1	-	db:HR.PACK_OWNED.P(X IN NUMBER).X	9:6-9:7	NUMBER	1
+hr/pack_owned.pkb	10:4	pack_owned.p	1	-	db:HR.PACK_OWNED.P(X IN NUMBER).X	10:17-10:18	NUMBER	1
+hr/pack_owned.pkb	11:4	hr.pack_owned.p	1	-	db:HR.PACK_OWNED.P(X IN NUMBER).X	11:20-11:21	NUMBER	1
+hr/pack_owned.pkb	12:4	proc_owned	1	-	db:HR.PROC_OWNED(P IN NUMBER).P	12:15-12:16	NUMBER	1
+hr/pack_process.pkb	19:4	write_log	1	-	db:HR.PACK_PROCESS.WRITE_LOG(P_MSG IN VARCHAR2)@BODY.P_MSG	19:14-19:17	STRING	x
+hr/pack_process.pkb	29:45	get_event	1	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_ID	29:55-29:58	NAME	P_A
+hr/pack_process.pkb	29:45	get_event	2	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_OUT	29:60-29:69	NAME	G_COUNTER
+hr/pack_process.pkb	29:45	get_event	3	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_IO	29:71-29:93	NAME	PACK_PROCESS.G_COUNTER
+hr/pack_process.pkb	30:4	dbms_sql.parse	1	-	-	30:19-30:22	NAME	P_A
+hr/pack_process.pkb	30:4	dbms_sql.parse	2	-	-	30:24-30:44	STRING	select 1 from dual
+hr/pack_process.pkb	30:4	dbms_sql.parse	3	-	-	30:46-30:61	NAME	DBMS_SQL.NATIVE
+hr/pack_scoped.pkb	9:4	add_entry	1	-	-	9:14-9:15	NUMBER	1
+hr/pack_scoped.pkb	10:4	check_items.add_entry	1	-	-	10:26-10:27	NUMBER	2
+hr/pack_scoped.pkb	11:4	pack_scoped.check_items.add_entry	1	-	-	11:38-11:39	NUMBER	3
+hr/pack_scoped.pkb	12:4	hr.pack_scoped.check_items.add_entry	1	-	-	12:41-12:42	NUMBER	4
+hr/pack_scoped.pkb	19:4	pack_scoped.recheck.add_reason	1	-	-	19:35-19:36	NUMBER	1
+hr/pack_scoped.pkb	23:4	pack_scoped.pub	1	-	db:HR.PACK_SCOPED.PUB(P IN NUMBER).P	23:20-23:21	NUMBER	1
+hr/pack_types.pkb	18:15	ty_point	1	-	-	18:24-18:25	NUMBER	1
+hr/pack_types.pkb	19:14	pack_calls.t_nums	1	-	-	19:32-19:33	NUMBER	1
+hr/pack_types.pkb	19:14	pack_calls.t_nums	2	-	-	19:35-19:36	NUMBER	2
+hr/proc_column_reads.prc	6:89	nvl	1	-	-	6:93-6:105	NAME	COMPANY_NAME
+hr/proc_column_reads.prc	6:89	nvl	2	-	-	6:107-6:110	STRING	x
+hr/proc_column_reads.prc	12:11	count	1	-	-	12:17-12:18	EXPRESSION	-
+hr/proc_column_reads.prc	14:9	count	1	-	-	14:15-14:16	EXPRESSION	-
+hr/proc_column_reads.prc	15:9	count	1	-	-	15:15-15:16	EXPRESSION	-
+hr/proc_columns.prc	6:9	count	1	-	-	6:15-6:16	EXPRESSION	-
+hr/proc_columns.prc	7:9	count	1	-	-	7:15-7:16	EXPRESSION	-
+hr/proc_columns.prc	8:9	count	1	-	-	8:15-8:16	EXPRESSION	-
+hr/proc_columns.prc	9:9	count	1	-	-	9:15-9:16	EXPRESSION	-
+hr/proc_columns.prc	10:9	count	1	-	-	10:15-10:16	EXPRESSION	-
+hr/proc_columns.prc	11:60	count	1	-	-	11:66-11:67	EXPRESSION	-
+hr/proc_columns.prc	12:9	count	1	-	-	12:15-12:16	EXPRESSION	-
+hr/proc_columns.prc	13:9	count	1	-	-	13:15-13:17	NAME	ID
+hr/proc_columns.prc	15:9	count	1	-	-	15:15-15:16	EXPRESSION	-
+hr/proc_columns.prc	21:9	count	1	-	-	21:15-21:16	EXPRESSION	-
+hr/proc_columns.prc	22:9	count	1	-	-	22:15-22:16	EXPRESSION	-
+hr/proc_columns.prc	22:69	count	1	-	-	22:75-22:76	EXPRESSION	-
+hr/proc_columns.prc	23:9	count	1	-	-	23:15-23:16	EXPRESSION	-
+hr/proc_columns.prc	24:9	count	1	-	-	24:15-24:16	EXPRESSION	-
+hr/proc_columns.prc	24:36	sys.odcinumberlist	1	-	-	24:55-24:56	NUMBER	1
+hr/proc_columns.prc	24:90	count	1	-	-	24:96-24:97	EXPRESSION	-
+hr/proc_mview.prc	3:9	max	1	-	-	3:13-3:26	NAME	COMPANY_LABEL
+hr/proc_own_objects.prc	5:7	dbms_random.value	1	-	-	5:25-5:26	NUMBER	1
+hr/proc_own_objects.prc	5:7	dbms_random.value	2	-	-	5:28-5:30	NUMBER	10
+hr/proc_own_objects.prc	7:11	ty_missing	1	-	-	7:22-7:23	NUMBER	1
+hr/proc_source_view.prc	4:9	count	1	-	-	4:15-4:16	EXPRESSION	-
+hr/proc_source_view.prc	5:9	count	1	-	-	5:15-5:16	EXPRESSION	-
+hr/proc_synonym_objects.prc	6:2	dbms_output.put_line	1	-	-	6:23-6:26	STRING	x
+hr/proc_synonym_objects.prc	8:11	xmltype	1	-	-	8:19-8:25	STRING	<a/>
+hr/proc_synonym_objects.prc	9:7	get_env	1	-	-	9:15-9:18	STRING	X
+hr/proc_synonym_objects.prc	11:2	syn_ext_pkg.run	1	-	-	11:18-11:19	NUMBER	1
+hr/proc_synonym_objects.prc	12:7	syn_calls.f_pub	1	-	db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER).P_X	12:23-12:24	NUMBER	1
+hr/proc_synonym_objects.prc	13:9	count	1	-	-	13:15-13:16	EXPRESSION	-
+hr/proc_synonyms.prc	12:9	count	1	-	-	12:15-12:16	EXPRESSION	-
+hr/proc_synonyms.prc	13:9	count	1	-	-	13:15-13:16	EXPRESSION	-
+hr/proc_synonyms.prc	14:9	count	1	-	-	14:15-14:16	EXPRESSION	-
+hr/proc_synonyms.prc	16:9	count	1	-	-	16:15-16:18	NAME	MSG
+hr/proc_synonyms.prc	17:9	count	1	-	-	17:15-17:16	EXPRESSION	-
+hr/proc_synonyms.prc	18:9	count	1	-	-	18:15-18:16	EXPRESSION	-
+hr/proc_synonyms.prc	19:9	count	1	-	-	19:15-19:16	EXPRESSION	-
+hr/proc_xmlseq.prc	4:9	count	1	-	-	4:15-4:16	EXPRESSION	-
+hr/proc_xmlseq.prc	4:48	extract	1	-	-	4:56-4:61	NAME	P_DOC
+hr/proc_xmlseq.prc	4:48	extract	2	-	-	4:63-4:69	STRING	/a/b
+hr/trg_forms.trg	16:2	pack_process.get_event	1	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_ID	16:25-16:30	NAME	:O.ID
+hr/trg_forms.trg	16:2	pack_process.get_event	2	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_OUT	16:32-16:44	NAME	:N.ST_ACTIVE
+hr/trg_forms.trg	16:2	pack_process.get_event	3	-	db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_IO	16:46-16:51	NAME	:N.ID
+hr/trg_forms.trg	17:2	pack_external.touch	1	-	-	17:22-17:37	NAME	:N.COMPANY_NAME
+hr/ty_bag.tpb	8:9	g	1	-	-	8:11-8:12	NUMBER	1
+hr/ty_bag.tpb	9:9	self.g	1	-	-	9:16-9:17	NUMBER	2
+hr/ty_bag.tpb	10:17	pack_methods.f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	10:34-10:35	NUMBER	1
+hr/views.sql	5:37	length	1	-	-	5:44-5:58	NAME	C.COMPANY_NAME
+hr/views_lineage.sql	2:23	max	1	-	-	2:27-2:32	NAME	E.MSG
+hr/views_lineage.sql	8:22	count	1	-	-	8:28-8:29	EXPRESSION	-
+hr/views_lineage.sql	8:38	max	1	-	-	8:42-8:54	NAME	C.DT_CHANGED
+hr/views_lineage.sql	8:111	count	1	-	-	8:117-8:118	EXPRESSION	-
+hr/views_lineage.sql	14:69	upper	1	-	-	14:75-14:78	STRING	x
+hr/views_lineage.sql	21:32	upper	1	-	-	21:38-21:43	NAME	LABEL
+scripts/broken_call.sql	6:2	proc_standalone	1	-	db:HR.PROC_STANDALONE(P_ID IN NUMBER).P_ID	6:18-6:19	NUMBER	1
+scripts/calls.sql	2:2	p_pub	1	-	-	2:8-2:9	NUMBER	1
+scripts/calls.sql	3:2	pack_calls.p_priv	1	-	-	3:20-3:21	NUMBER	1
+scripts/calls.sql	4:2	run_job	1	-	-	4:10-4:11	NUMBER	1
+scripts/calls.sql	4:2	run_job	2	-	-	4:13-4:16	STRING	a
+scripts/calls.sql	4:2	run_job	3	-	-	4:18-4:19	NUMBER	2
+scripts/calls.sql	4:2	run_job	4	-	-	4:21-4:28	NAME	SYSDATE
+scripts/calls.sql	7:7	pack_calls.f_pub	1	-	db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER).P_X	7:24-7:26	NAME	ID
+scripts/calls_owned.sql	5:2	proc_owned	1	-	db:HR.PROC_OWNED(P IN NUMBER).P	5:13-5:14	NUMBER	1
+scripts/calls_owned.sql	6:2	hr.proc_owned	1	-	db:HR.PROC_OWNED(P IN NUMBER).P	6:16-6:17	NUMBER	1
+scripts/calls_owned.sql	7:2	pack_owned.p	1	-	db:HR.PACK_OWNED.P(X IN NUMBER).X	7:15-7:16	NUMBER	1
+scripts/calls_owned.sql	8:2	hr.pack_owned.p	1	-	db:HR.PACK_OWNED.P(X IN NUMBER).X	8:18-8:19	NUMBER	1
+scripts/calls_owned.sql	10:7	ty_owned	1	-	-	10:16-10:17	NUMBER	1
+scripts/calls_owned.sql	11:2	other.proc_external	1	-	db:OTHER.PROC_EXTERNAL(P IN NUMBER).P	11:22-11:23	NUMBER	1
+scripts/calls_owned.sql	12:2	other.does_not_exist	1	-	-	12:23-12:24	NUMBER	1
+scripts/calls_owned.sql	13:2	proc_external	1	-	-	13:16-13:17	NUMBER	1
+scripts/calls_owned.sql	14:2	pack_owned.does_not_exist	1	-	-	14:28-14:29	NUMBER	1
+scripts/calls_owned2.sql	7:5	pkg_ext.g_tab.exists	1	-	-	7:26-7:27	NUMBER	1
+scripts/calls_owned2.sql	8:2	other.pack_x.do_it	1	-	-	8:21-8:22	NUMBER	1
+scripts/load.sql	5:20	sys.odcinumberlist	1	-	-	5:39-5:40	NUMBER	1
 ## coverage_note
 -	CALL_SCOPE_LEGACY	Calls named like a local value, type or nested subprogram are recognized through the legacy symbol table, a heuristic rather than proof of lexical scope
+hr/pack_args.pkb	LOCAL_ANCHOR	1 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
 hr/pack_dynamic.pkb	SQL_NAME_UNDECIDED	1 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed
 hr/pack_scoped.pkb	LOCAL_ANCHOR	2 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
 hr/pack_types.pkb	LOCAL_ANCHOR	3 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed

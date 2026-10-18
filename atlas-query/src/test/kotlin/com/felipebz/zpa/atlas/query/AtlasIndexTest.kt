@@ -295,6 +295,26 @@ class AtlasIndexTest {
         assertThat(index.file("hr/views_remote.sql").result!!.at(1, 23)).containsExactly("1,23,1,36 db:HR.V_REMOTE_SAME [DEFINITION]")
     }
 
+    private val pCode = "db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE"
+
+    @Test
+    fun `the values passed to a parameter are grouped by kind and value, and a body parameter shows its spec's`() {
+        val groups = index.parameterValues(pCode).result!!
+        assertThat(groups.first()).isEqualTo(ValueGroup("NUMBER", "1", 10))
+        assertThat(groups).contains(ValueGroup("NUMBER", "1.5", 2), ValueGroup("NAME", "R.CODE", 1), ValueGroup("BIND", null, 1), ValueGroup("EXPRESSION", null, 2))
+        assertThat(index.parameterValues(pCode.replace(").P_CODE", ")@BODY.P_CODE")).result).isEqualTo(groups)
+        assertThat(index.parameterValues("db:NO.SUCH").result).isNull()
+    }
+
+    @Test
+    fun `the calls of one value are call occurrences with their argument values`() {
+        val page = index.parameterValueCalls(pCode, "NUMBER", "1.5").result!!
+        assertThat(page.rows.map { it.span.startLine }).containsExactly(14, 15)
+        assertThat(page.rows.first().arguments.single().let { it.valueKind to it.value }).isEqualTo("NUMBER" to "1.5")
+        assertThat(index.parameterValueCalls(pCode, "EXPRESSION", null).result!!.rows.map { it.span.startLine }).containsExactly(28, 30)
+        assertThatThrownBy { index.parameterValueCalls(pCode, "NOPE", null) }.isInstanceOf(InvalidQueryException::class.java)
+    }
+
     @Test
     fun `file gives the names inside the literal of a dynamic statement at their place`() {
         val dynamic = index.file("hr/pack_dynamic.pkb").result!!

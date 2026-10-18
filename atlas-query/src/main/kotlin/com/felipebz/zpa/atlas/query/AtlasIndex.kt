@@ -217,6 +217,56 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
     }
 
     /**
+     * The values passed to the parameter [key]: its bound arguments grouped by value kind and value, most frequent
+     * first. `BIND` and `EXPRESSION` are one group each. A parameter of a body subprogram counts the arguments bound to
+     * its specification's parameter too, where calls bind. Null when there is no such entity.
+     */
+    fun parameterValues(key: String): Answer<List<ValueGroup>?> = read { connection, _ ->
+        val ids = parameterIds(connection, key) ?: return@read null
+        connection.query(
+            """SELECT value_kind, CASE WHEN value_kind IN ('BIND', 'EXPRESSION') THEN NULL ELSE value END AS shown, count(*) AS n
+               FROM call_argument WHERE parameter_entity_id IN (${ids.joinToString(",") { "?" }})
+               GROUP BY value_kind, shown ORDER BY n DESC, value_kind, shown""", ids
+        ) { ValueGroup(it.getString(1), it.getString(2), it.getLong(3)) }
+    }
+
+    /**
+     * The calls that pass [value] (of [valueKind]; ignored for `NULL`, `BIND` and `EXPRESSION`) to the parameter [key],
+     * as [parameterValues] groups them: a page of call occurrences in source order, as "who uses" rows. Null when there
+     * is no such entity.
+     */
+    fun parameterValueCalls(key: String, valueKind: String, value: String?, after: Long? = null, limit: Int = 100): Answer<OccurrencePage?> {
+        if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
+        if (valueKind !in VALUE_KINDS) throw InvalidQueryException("Unknown value kind: $valueKind")
+        val anyValue = valueKind in VALUES_UNSHOWN
+        if (!anyValue && value == null) throw InvalidQueryException("Missing parameter: value")
+        return read { connection, _ ->
+            val ids = parameterIds(connection, key) ?: return@read null
+            val hits = connection.query(
+                """SELECT DISTINCT o.id, o.entity_id, o.roles, o.status FROM call_argument a JOIN occurrence o ON o.id = a.occurrence_id
+                   WHERE a.parameter_entity_id IN (${ids.joinToString(",") { "?" }}) AND a.value_kind = ? AND (? OR a.value = ?)
+                   ORDER BY o.id""", ids + listOf(valueKind, anyValue, value)
+            ) { Hit(it.getLong(1), it.getLong(2), false, false, roles(it.getString(3)), it.getString(4)) }
+            val remaining = hits.filter { after == null || it.id > after }
+            val page = remaining.take(limit)
+            val nextAfter = if (remaining.size > limit) page.last().id else null
+            OccurrencePage(rows(connection, page), nextAfter, hits.size.toLong(),
+                Facets(tally(hits.flatMap { it.roles }), tally(hits.map { it.status })))
+        }
+    }
+
+    /** The parameter [key] and, for a parameter of a body subprogram, the same-named parameter of its specification. */
+    private fun parameterIds(connection: Connection, key: String): List<Long>? {
+        val id = connection.query("SELECT id FROM entity WHERE key = ?", listOf(key)) { it.getLong(1) }.singleOrNull() ?: return null
+        val twins = connection.query(
+            """SELECT s.id FROM entity p JOIN relation r ON r.from_id = p.parent_id AND r.kind = 'IMPLEMENTS'
+               JOIN entity s ON s.parent_id = r.to_id AND s.name = p.name AND s.kind = 'PARAMETER'
+               WHERE p.id = ? AND p.kind = 'PARAMETER'""", listOf(id)
+        ) { it.getLong(1) }
+        return listOf(id) + twins
+    }
+
+    /**
      * The lines around [line] of an indexed file, or null when sources are not available (no root, or no file).
      *
      * @throws InvalidQueryException when [path] is not a file of the index or leaves the sources root
@@ -311,12 +361,14 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         ) { it.getLong(1) to EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1) }
             .groupBy({ it.first }, { it.second })
         val arguments = connection.query(
-            """SELECT a.occurrence_id, a.ordinal, a.label, e.key, e.kind, e.display, e.external, a.start_line, a.start_col, a.end_line, a.end_col
+            """SELECT a.occurrence_id, a.ordinal, a.label, e.key, e.kind, e.display, e.external, a.start_line, a.start_col, a.end_line, a.end_col,
+                      a.value_kind, a.value
                FROM call_argument a LEFT JOIN entity e ON e.id = a.parameter_entity_id WHERE a.occurrence_id IN ($marks) ORDER BY a.occurrence_id, a.ordinal""",
             ids
         ) {
             it.getLong(1) to CallArgument(it.getInt(2), it.getString(3),
-                it.getString(4)?.let { k -> EntitySummary(k, it.getString(5), it.getString(6), it.getInt(7) == 1) }, span(it, 8))
+                it.getString(4)?.let { k -> EntitySummary(k, it.getString(5), it.getString(6), it.getInt(7) == 1) }, span(it, 8),
+                it.getString(12), it.getString(13))
         }.groupBy({ it.first }, { it.second })
         val byId = page.associateBy { it.id }
         return connection.query(
@@ -390,7 +442,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     companion object {
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 10
+        const val SCHEMA_VERSION = 11
 
         /** The relation kinds whose entity page lists the views that read them, and whose readers [Scope.VIEWS] follows. */
         val VIEWED_KINDS = setOf("TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE")
@@ -409,6 +461,10 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             "SQL_MERGE", "SQL_LOCK", "TYPE_USE", "RAISE", "HANDLE", "IMPLICIT",
             "DDL_CREATE", "DDL_ALTER", "DDL_DROP", "DDL_TRUNCATE", "DDL_ANALYZE"
         )
+        val VALUE_KINDS = listOf("STRING", "NUMBER", "NULL", "BOOLEAN", "NAME", "BIND", "EXPRESSION")
+
+        /** The value kinds whose arguments form one group whatever they pass. */
+        private val VALUES_UNSHOWN = setOf("NULL", "BIND", "EXPRESSION")
         val USAGE_ROLES: Set<String> = (ROLES - setOf("DEFINITION", "DECLARATION")).toSet()
         val STATUSES = listOf("RESOLVED", "UNVERIFIED", "AMBIGUOUS", "UNRESOLVED", "EXTERNAL", "DYNAMIC", "PARTIAL_SOURCE")
         val ENTITY_KINDS = listOf(

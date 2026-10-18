@@ -58,6 +58,54 @@ function renderEntity(entity) {
     candidate: t("usage.candidate", { count: u.asCandidate })
   });
   state.implementations = ["PROCEDURE", "FUNCTION", "PACKAGE"].includes(entity.kind);
+  if (entity.kind === "PARAMETER") loadValues();
+}
+
+// ---- values passed to a parameter --------------------------------------------------------------------------------
+
+function valueLabel(group) {
+  const literal = literalText(group.valueKind, group.value);
+  if (literal !== null) return `<span class="mono">${esc(literal)}</span>`;
+  if (group.valueKind === "NAME") return `<span class="mono">${esc(group.value)}</span>`;
+  return `<span class="muted">${esc(t("values.kind." + group.valueKind))}</span>`;
+}
+
+async function loadValues() {
+  const target = document.getElementById("values");
+  const groups = (await api("api/parameter-values", { key })).result;
+  if (groups.length === 0) {
+    target.innerHTML = `<h2>${esc(t("values.title"))}</h2><p class="muted">${esc(t("values.none"))}</p>`;
+    return;
+  }
+  target.innerHTML = `<h2>${esc(t("values.title"))}</h2><table>${groups.map((g, i) =>
+    `<tr><td><span class="badge">${esc(g.valueKind)}</span></td><td>${valueLabel(g)}</td><td>${esc(formatNumber(g.count))}</td>
+     <td><a href="#" data-group="${i}">${esc(t("values.calls"))}</a></td></tr>
+     <tr hidden data-calls="${i}"><td colspan="4"><table><tbody></tbody></table><button hidden>${esc(t("usage.more"))}</button></td></tr>`).join("")}</table>`;
+  target.addEventListener("click", e => {
+    const link = e.target.closest("a[data-group]");
+    if (link) {
+      e.preventDefault();
+      const index = Number(link.dataset.group);
+      const row = target.querySelector(`tr[data-calls="${index}"]`);
+      row.hidden = !row.hidden;
+      if (!row.hidden && !row.dataset.loaded) {
+        row.dataset.loaded = "1";
+        loadValueCalls(groups[index], row, null);
+      }
+      return;
+    }
+    const more = e.target.closest("tr[data-calls] button");
+    if (more) loadValueCalls(groups[Number(more.closest("tr").dataset.calls)], more.closest("tr"), more.dataset.after);
+  });
+}
+
+/** One page of the calls that pass [group]'s value, appended as "who uses" rows. */
+async function loadValueCalls(group, row, after) {
+  const page = (await api("api/parameter-value-calls", { key, kind: group.valueKind, value: group.value, after, limit: 100 })).result;
+  row.querySelector("tbody").insertAdjacentHTML("beforeend", page.rows.map(rowHtml).join(""));
+  const more = row.querySelector("button");
+  more.hidden = page.nextAfter === null;
+  if (page.nextAfter !== null) more.dataset.after = page.nextAfter;
 }
 
 function renderScope() {
@@ -76,9 +124,26 @@ function renderChips(id, counts, selected, attribute, label) {
     `<span class="chip ${selected.has(c.value) ? "on" : ""}" data-${attribute}="${esc(c.value)}">${esc(label ? label(c.value) : c.value)} (${esc(formatNumber(c.count))})</span>`).join("");
 }
 
+/** A literal as it would be written: strings quoted, the others as stored; null for a name, a bind or an expression. */
+function literalText(kind, value) {
+  switch (kind) {
+    case "STRING": return "'" + value.replace(/'/g, "''") + "'";
+    case "NUMBER": case "BOOLEAN": return value;
+    case "NULL": return "NULL";
+    default: return null;
+  }
+}
+
+function argumentText(a) {
+  const literal = literalText(a.valueKind, a.value);
+  const parameter = a.parameter ? a.parameter.display.split(".").pop() : null;
+  // With a literal, the parameter it fills and the value: `I_CD_MENSAGEM => 1234`.
+  if (literal !== null) return esc(a.label ?? (parameter ? "→" + parameter : "?")) + " => " + esc(literal);
+  return (a.label ? esc(a.label) + " => " : "") + (parameter ? "→" + esc(parameter) : "?");
+}
+
 function rowHtml(row) {
-  const args = row.arguments.length === 0 ? "" : `<div class="muted mono">(${row.arguments.map(a =>
-    (a.label ? esc(a.label) + " => " : "") + (a.parameter ? "→" + esc(a.parameter.display.split(".").pop()) : "?")).join(", ")})</div>`;
+  const args = row.arguments.length === 0 ? "" : `<div class="muted mono">(${row.arguments.map(argumentText).join(", ")})</div>`;
   const others = row.viaCandidate ? `<div class="muted">${esc(t("usage.candidates"))} ${row.candidates.map(entityLink).join(", ")}</div>` : "";
   // The view column or view the row was reached through.
   const via = row.viaView ? `<div class="muted">${esc(t("usage.via"))} ${entityLink(row.matched)}</div>` : "";

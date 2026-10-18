@@ -142,6 +142,17 @@ enum class TriggerLevel : StoredEnum {
     STATEMENT
 }
 
+/** What a call argument passes; see `ArgumentValues`. */
+enum class ValueKind : StoredEnum {
+    STRING,
+    NUMBER,
+    NULL,
+    BOOLEAN,
+    NAME,
+    BIND,
+    EXPRESSION
+}
+
 enum class StatementKind : StoredEnum {
     SELECT,
     INSERT,

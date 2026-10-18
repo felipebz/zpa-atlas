@@ -56,6 +56,13 @@ registerMessages("en", {
   "trigger.level.ROW": "for each row",
   "trigger.level.STATEMENT": "statement",
 
+  "values.title": "Values passed",
+  "values.none": "No argument is bound to this parameter.",
+  "values.calls": "show calls",
+  "values.kind.NULL": "NULL",
+  "values.kind.BIND": "a bind variable",
+  "values.kind.EXPRESSION": "an expression",
+
   "usage.title": "Used by",
   "usage.direct": { one: "{count} direct use", other: "{count} direct uses" },
   "usage.candidate": {

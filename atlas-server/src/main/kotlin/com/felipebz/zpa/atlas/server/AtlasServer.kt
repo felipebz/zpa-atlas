@@ -78,6 +78,15 @@ fun Application.atlasModule(index: AtlasIndex) {
                 )
                 if (answer.result == null) call.respond(HttpStatusCode.NotFound, ApiError("Unknown entity")) else call.respond(answer)
             }
+            get("/parameter-values") {
+                val answer = index.parameterValues(call.required("key"))
+                if (answer.result == null) call.respond(HttpStatusCode.NotFound, ApiError("Unknown entity")) else call.respond(answer)
+            }
+            get("/parameter-value-calls") {
+                val answer = index.parameterValueCalls(call.required("key"), call.required("kind"), call.request.queryParameters["value"],
+                    call.long("after"), call.int("limit") ?: 100)
+                if (answer.result == null) call.respond(HttpStatusCode.NotFound, ApiError("Unknown entity")) else call.respond(answer)
+            }
             get("/source") {
                 val answer = index.source(call.required("path"), call.int("line") ?: throw InvalidQueryException("Missing parameter: line"),
                     call.int("context") ?: 3)

@@ -54,6 +54,13 @@ registerMessages("pt", {
   "trigger.level.ROW": "para cada linha",
   "trigger.level.STATEMENT": "comando",
 
+  "values.title": "Valores passados",
+  "values.none": "Nenhum argumento é associado a este parâmetro.",
+  "values.calls": "ver chamadas",
+  "values.kind.NULL": "NULL",
+  "values.kind.BIND": "uma variável de ligação",
+  "values.kind.EXPRESSION": "uma expressão",
+
   "usage.title": "Quem usa",
   "usage.direct": { "=0": "nenhum uso direto", one: "{count} uso direto", other: "{count} usos diretos" },
   "usage.candidate": {

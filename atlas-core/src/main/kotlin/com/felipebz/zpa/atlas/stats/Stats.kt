@@ -43,6 +43,8 @@ object Stats {
                 // PARTIAL_SOURCE in a recovered region); the occurrences inside its text have statements of their own.
                 section(connection, "Dynamic SQL by reason",
                     "SELECT o.reason, count(*) FROM occurrence o JOIN sql_statement s ON s.id = o.statement_id WHERE s.kind = 'DYNAMIC' GROUP BY o.reason ORDER BY o.reason")
+                section(connection, "Call arguments by value kind",
+                    "SELECT value_kind || CASE WHEN parameter_entity_id IS NULL THEN ' unbound' ELSE ' bound' END, count(*) FROM call_argument GROUP BY 1 ORDER BY 1")
                 section(connection, "DDL targets by role and status", """
                     SELECT roles || ' ' || status || ' ' || coalesce(reason, '-'), count(*) FROM occurrence
                     WHERE roles LIKE 'DDL\_%' ESCAPE '\' GROUP BY roles, status, reason ORDER BY roles, status, reason""")

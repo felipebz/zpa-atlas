@@ -98,7 +98,20 @@ enum class Scope { SELF, IMPLEMENTATIONS, CHILDREN, VIEWS }
 data class UnitRef(val kind: String, val name: String)
 
 @Serializable
-data class CallArgument(val ordinal: Int, val label: String?, val parameter: EntitySummary?, val span: Span)
+data class CallArgument(
+    val ordinal: Int,
+    val label: String?,
+    val parameter: EntitySummary?,
+    val span: Span,
+    /** `STRING`, `NUMBER`, `NULL`, `BOOLEAN`, `NAME`, `BIND` or `EXPRESSION`. */
+    val valueKind: String,
+    /** The literal's value, or the name or bind as written; null for `NULL` and `EXPRESSION`. */
+    val value: String?
+)
+
+/** The arguments bound to a parameter that pass the same value: [value] null for `NULL`, `BIND` and `EXPRESSION`. */
+@Serializable
+data class ValueGroup(val valueKind: String, val value: String?, val count: Long)
 
 @Serializable
 data class OccurrenceRow(

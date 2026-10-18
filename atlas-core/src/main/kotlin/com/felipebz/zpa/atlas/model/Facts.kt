@@ -77,7 +77,15 @@ data class OccurrenceFact(
 )
 
 /** One written actual of a call: its 1-based [ordinal], its label when named, and the formal it binds to when proven. */
-data class CallArgumentFact(val ordinal: Int, val label: String?, val parameterKey: String?, val span: SourceSpan)
+data class CallArgumentFact(
+    val ordinal: Int,
+    val label: String?,
+    val parameterKey: String?,
+    val span: SourceSpan,
+    /** What the argument passes, and its value for a literal, a name or a bind. */
+    val valueKind: ValueKind,
+    val value: String?
+)
 
 data class CoverageFact(val kind: String, val message: String)
 
