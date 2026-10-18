@@ -91,12 +91,21 @@ function esc(text) {
   return String(text ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/** `&lang=…` when the page was opened with one, so links keep the language. */
+function langSuffix() {
+  const lang = new URLSearchParams(location.search).get("lang");
+  return lang ? `&lang=${encodeURIComponent(lang)}` : "";
+}
+
 function entityLink(entity) {
   if (!entity) return '<span class="muted">—</span>';
   const ext = entity.external ? ` <span class="badge external">${esc(t("entity.external"))}</span>` : "";
-  const lang = new URLSearchParams(location.search).get("lang");
-  const suffix = lang ? `&lang=${encodeURIComponent(lang)}` : "";
-  return `<a href="entity.html?key=${encodeURIComponent(entity.key)}${suffix}">${esc(entity.display)}</a>${ext}`;
+  return `<a href="entity.html?key=${encodeURIComponent(entity.key)}${langSuffix()}">${esc(entity.display)}</a>${ext}`;
+}
+
+/** A link opening the whole of [path] at [line]. */
+function openFileLink(path, line) {
+  return `<a href="file.html?path=${encodeURIComponent(path)}&line=${line}${langSuffix()}#L${line}">${esc(t("source.open"))}</a>`;
 }
 
 /** Status and reason codes are data, shown as they are; the reason is omitted when it repeats the status. */

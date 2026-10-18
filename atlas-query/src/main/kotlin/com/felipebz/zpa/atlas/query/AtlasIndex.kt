@@ -225,23 +225,71 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         if (line < 1) throw InvalidQueryException("line must be at least 1")
         if (context !in 0..50) throw InvalidQueryException("context must be between 0 and 50")
         return read { connection, _ ->
-            val (sha, encoding) = connection.query("SELECT sha256, encoding FROM source_file WHERE path = ?", listOf(path)) {
-                it.getString(1) to it.getString(2)
-            }.singleOrNull() ?: throw InvalidQueryException("Not a file of the index: $path")
-            val root = sourcesRoot?.toAbsolutePath()?.normalize() ?: return@read null
-            val file = root.resolve(path).normalize()
-            if (!file.startsWith(root)) throw InvalidQueryException("Path leaves the sources root: $path")
-            if (!Files.isRegularFile(file)) return@read null
-            val bytes = Files.readAllBytes(file)
-            // The charset the indexer decoded this file with, so lines and columns match the stored spans.
-            val lines = decode(bytes, encoding).lines()
+            val file = sourceFile(connection, path)
+            val text = readSource(file) ?: return@read null
             val first = (line - context).coerceAtLeast(1)
-            val last = (line + context).coerceAtMost(lines.size)
-            SourceSnippet(path, (first..last).map { SourceLine(it, lines[it - 1]) }, sha256(bytes) != sha)
+            val last = (line + context).coerceAtMost(text.lines.size)
+            SourceSnippet(path, (first..last).map { SourceLine(it, text.lines[it - 1]) }, text.stale)
         }
     }
 
+    /**
+     * The whole of an indexed file with its occurrences at their name spans, or null when sources are not available.
+     * A stale file has no occurrences: their spans would point at the wrong text.
+     *
+     * @throws InvalidQueryException when [path] is not a file of the index or leaves the sources root
+     */
+    fun file(path: String): Answer<FileView?> = read { connection, _ ->
+        val file = sourceFile(connection, path)
+        val text = readSource(file) ?: return@read null
+        if (text.stale) return@read FileView(path, true, text.lines, emptyList(), emptyList())
+        val entityIndexes = LinkedHashMap<Long, Int>()
+        fun indexOf(id: Long) = entityIndexes.getOrPut(id) { entityIndexes.size }
+        val candidates = connection.query(
+            "SELECT c.occurrence_id, c.entity_id FROM occurrence o JOIN occurrence_candidate c ON c.occurrence_id = o.id WHERE o.file_id = ? ORDER BY c.occurrence_id, c.entity_id",
+            listOf(file.id)
+        ) { it.getLong(1) to it.getLong(2) }.groupBy({ it.first }, { it.second })
+        // The name span when it was recorded apart, else the span; read through occurrence_file_line.
+        val occurrences = connection.query(
+            """SELECT o.id, coalesce(o.name_start_line, o.start_line), coalesce(o.name_start_col, o.start_col),
+                      coalesce(o.name_end_line, o.end_line), coalesce(o.name_end_col, o.end_col), o.roles, o.status, o.reason, o.entity_id
+               FROM occurrence o WHERE o.file_id = ? ORDER BY o.start_line, o.id""",
+            listOf(file.id)
+        ) { rs ->
+            val entityId = (rs.getObject(9) as Number?)?.toLong()
+            FileOccurrence(listOf(rs.getInt(2), rs.getInt(3), rs.getInt(4), rs.getInt(5)), roles(rs.getString(6)), rs.getString(7), rs.getString(8),
+                entityId?.let(::indexOf), candidates[rs.getLong(1)].orEmpty().map(::indexOf))
+        }
+        val summaries = HashMap<Long, EntitySummary>()
+        for (chunk in entityIndexes.keys.chunked(500)) {
+            connection.query("SELECT id, key, kind, display, external FROM entity WHERE id IN (${chunk.joinToString(",") { "?" }})", chunk) {
+                it.getLong(1) to EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1)
+            }.forEach { summaries[it.first] = it.second }
+        }
+        FileView(path, false, text.lines, entityIndexes.keys.map { summaries.getValue(it) }, occurrences)
+    }
+
     // ---- internals ----------------------------------------------------------------------------------------------
+
+    private class SourceFile(val id: Long, val path: String, val sha256: String, val encoding: String)
+
+    private class SourceText(val lines: List<String>, val stale: Boolean)
+
+    private fun sourceFile(connection: Connection, path: String): SourceFile =
+        connection.query("SELECT id, sha256, encoding FROM source_file WHERE path = ?", listOf(path)) {
+            SourceFile(it.getLong(1), path, it.getString(2), it.getString(3))
+        }.singleOrNull() ?: throw InvalidQueryException("Not a file of the index: $path")
+
+    /** The lines of [file] under the sources root, or null when there is no root or no such file. */
+    private fun readSource(file: SourceFile): SourceText? {
+        val root = sourcesRoot?.toAbsolutePath()?.normalize() ?: return null
+        val resolved = root.resolve(file.path).normalize()
+        if (!resolved.startsWith(root)) throw InvalidQueryException("Path leaves the sources root: ${file.path}")
+        if (!Files.isRegularFile(resolved)) return null
+        val bytes = Files.readAllBytes(resolved)
+        // The charset the indexer decoded this file with, so lines and columns match the stored spans.
+        return SourceText(decode(bytes, file.encoding).lines(), sha256(bytes) != file.sha256)
+    }
 
     private class Entity(val id: Long, val key: String, val kind: String, val schema: String?, val name: String, val display: String,
                          val external: Boolean, val parentId: Number?)
@@ -342,7 +390,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     companion object {
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 8
+        const val SCHEMA_VERSION = 9
 
         /** The relation kinds whose entity page lists the views that read them, and whose readers [Scope.VIEWS] follows. */
         val VIEWED_KINDS = setOf("TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE")

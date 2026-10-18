@@ -135,6 +135,20 @@ data class SourceLine(val number: Int, val text: String)
 @Serializable
 data class SourceSnippet(val path: String, val lines: List<SourceLine>, val stale: Boolean)
 
+/**
+ * One occurrence of a [FileView], compact: [at] is the span of its name as `[startLine, startCol, endLine, endCol]`
+ * (lines from 1, columns from 0, end exclusive); [entity] and [candidates] are indexes into [FileView.entities].
+ */
+@Serializable
+data class FileOccurrence(val at: List<Int>, val roles: List<String>, val status: String, val reason: String?, val entity: Int?, val candidates: List<Int>)
+
+/**
+ * A whole indexed file: its [lines] and, unless it is [stale] (changed since it was indexed, so spans would point at
+ * the wrong text), its occurrences, with every entity they refer to listed once in [entities].
+ */
+@Serializable
+data class FileView(val path: String, val stale: Boolean, val lines: List<String>, val entities: List<EntitySummary>, val occurrences: List<FileOccurrence>)
+
 /** A request the index cannot answer as asked (an unknown role, a limit out of range, a path outside the index). */
 class InvalidQueryException(message: String) : RuntimeException(message)
 

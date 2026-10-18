@@ -23,6 +23,7 @@ class FixtureGoldenTest {
     private fun dump(database: Path): String = buildString {
         for ((title, sql) in listOf(
             "occurrence" to Fixture.OCCURRENCES,
+            "occurrence_name" to "SELECT f.path, o.start_line || ':' || o.start_col || '-' || o.end_line || ':' || o.end_col, o.written, o.name_start_line || ':' || o.name_start_col || '-' || o.name_end_line || ':' || o.name_end_col FROM occurrence o JOIN source_file f ON f.id = o.file_id WHERE o.name_start_line IS NOT NULL ORDER BY o.id",
             "entity" to "SELECT key, kind, coalesce(schema_name, '-'), name, coalesce((SELECT p.key FROM entity p WHERE p.id = e.parent_id), '-'), display, external FROM entity e ORDER BY id",
             "relation" to "SELECT f.key, r.kind, t.key FROM relation r JOIN entity f ON f.id = r.from_id JOIN entity t ON t.id = r.to_id ORDER BY 1, 2, 3",
             "source_file" to "SELECT path, kind, size_bytes, coalesce(compilation_schema, '-'), parse_status, recovered_regions FROM source_file ORDER BY id",

@@ -48,6 +48,7 @@ class FileExtractor(
     private lateinit var values: PackageValues
     private lateinit var runSchemas: Set<String>
     private var result: FileFacts? = null
+    private var root: AstNode? = null
 
     private val synonyms = SynonymResolver(dictionary)
     private val resolver = RelationResolver(dictionary, synonyms, state.entities, state.relations)
@@ -69,6 +70,7 @@ class FileExtractor(
     }
 
     override fun visitFile(node: AstNode) {
+        root = node
         val scopes = SqlScopes()
         plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, context.symbolTable, projectAnalysis())
         triggers = Triggers(state, resolver, plsql)
@@ -188,7 +190,7 @@ class FileExtractor(
         if (kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY || kind == UnitKind.TRIGGER || (kind == UnitKind.VIEW || kind == UnitKind.MATERIALIZED_VIEW) && entityKey != null) {
             // Package bodies, type bodies, triggers and views are not in the project index; their definition comes from the AST.
             state.occurrences += OccurrenceFact(index, entityKey, null, span, writtenText(unitName ?: node), entityKey,
-                setOf(Role.DEFINITION), status(Status.RESOLVED, partial), Origin.STATIC, null)
+                setOf(Role.DEFINITION), status(Status.RESOLVED, partial), Origin.STATIC, null, nameSpan = unitName?.let(::spanOf))
         }
         val enclosingPackage = if (kind == UnitKind.PACKAGE || kind == UnitKind.PACKAGE_BODY) {
             unitName?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.map { it.tokenOriginalValue }?.takeIf { it.isNotEmpty() }
@@ -323,7 +325,9 @@ class FileExtractor(
     // ---- declarations -------------------------------------------------------------------------------------------
 
     private fun addDeclarationOccurrences() {
-        for (declaration in catalog.occurrencesFor(path)) {
+        val declarations = catalog.occurrencesFor(path)
+        val names = root?.let { declarationNames(it, declarations) }.orEmpty()
+        for (declaration in declarations) {
             val unitIndex = state.units.indices.firstOrNull { state.units[it].span.contains(declaration.span.startLine, declaration.span.startCol) }
             if (unitIndex == null) {
                 state.coverage += CoverageFact("DECLARATION_OUTSIDE_UNIT", "${declaration.entityKey} at line ${declaration.span.startLine} is outside every parsed unit")
@@ -331,7 +335,69 @@ class FileExtractor(
             }
             val unit = state.units[unitIndex]
             state.occurrences += OccurrenceFact(unitIndex, declaration.containerKey ?: unit.entityKey, null, declaration.span, declaration.written,
-                declaration.entityKey, setOf(declaration.role), status(Status.RESOLVED, state.partialUnits[unitIndex]), Origin.STATIC, null)
+                declaration.entityKey, setOf(declaration.role), status(Status.RESOLVED, state.partialUnits[unitIndex]), Origin.STATIC, null,
+                nameSpan = names[declaration])
         }
     }
+
+    /**
+     * The name spans of [declarations], found in the AST: the outermost node with the declaration's span, then its
+     * first `UNIT_NAME` or `IDENTIFIER_NAME` in source order (for a `UNIT_NAME`, the whole name or its last segment),
+     * kept only when its text is the written name. One walk over the file, a node checked only when it starts where a
+     * declaration starts.
+     */
+    private fun declarationNames(root: AstNode, declarations: List<DeclarationOccurrence>): Map<DeclarationOccurrence, SourceSpan> {
+        if (declarations.isEmpty()) return emptyMap()
+        val bySpan = declarations.groupBy { it.span }
+        val starts = declarations.mapTo(HashSet()) { position(it.span.startLine, it.span.startCol) }
+        val found = HashMap<SourceSpan, AstNode>()
+        fun visit(node: AstNode) {
+            if (node.hasToken() && position(node.token.line, node.token.column) in starts) {
+                val span = spanOf(node)
+                if (span in bySpan) found.putIfAbsent(span, node)
+            }
+            for (child in node.children) visit(child)
+        }
+        visit(root)
+        val result = HashMap<DeclarationOccurrence, SourceSpan>()
+        for ((span, node) in found) {
+            val name = firstName(node) ?: continue
+            for (declaration in bySpan.getValue(span)) {
+                matching(name, declaration.written)?.let { result[declaration] = spanOf(it) }
+            }
+        }
+        // A declaration of a region the parser recovered has no node of its span: its first name inside the span.
+        for (declaration in declarations) {
+            if (declaration in result) continue
+            nameWithin(root, declaration.span, declaration.written)?.let { result[declaration] = spanOf(it) }
+        }
+        return result
+    }
+
+    private fun isName(node: AstNode) = node.type == PlSqlGrammar.UNIT_NAME || node.type == PlSqlGrammar.IDENTIFIER_NAME
+
+    private fun firstName(node: AstNode): AstNode? {
+        if (isName(node)) return node
+        for (child in node.children) firstName(child)?.let { return it }
+        return null
+    }
+
+    /** [name] or, for a `UNIT_NAME`, one of its segments (the last first), when its text is [written]. */
+    private fun matching(name: AstNode, written: String): AstNode? {
+        val candidates = if (name.type == PlSqlGrammar.UNIT_NAME) listOf(name) + name.getChildren(PlSqlGrammar.IDENTIFIER_NAME).asReversed() else listOf(name)
+        return candidates.firstOrNull { writtenText(it) == written }
+    }
+
+    /** The first name node inside [span] that is [written], skipping subtrees outside it. */
+    private fun nameWithin(node: AstNode, span: SourceSpan, written: String): AstNode? {
+        if (!node.hasToken()) return null
+        val own = spanOf(node)
+        if (own.endLine < span.startLine || own.endLine == span.startLine && own.endCol <= span.startCol) return null
+        if (own.startLine > span.endLine || own.startLine == span.endLine && own.startCol >= span.endCol) return null
+        if (isName(node) && span.contains(own.startLine, own.startCol)) matching(node, written)?.let { return it }
+        for (child in node.children) nameWithin(child, span, written)?.let { return it }
+        return null
+    }
+
+    private fun position(line: Int, column: Int): Long = line.toLong() shl 32 or column.toLong()
 }

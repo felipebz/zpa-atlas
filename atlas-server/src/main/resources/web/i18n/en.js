@@ -7,6 +7,8 @@ registerMessages("en", {
   "page.search.title": "zpa-atlas",
   "page.entity.title": "zpa-atlas · entity",
   "page.entity.titleWith": "zpa-atlas · {name}",
+  "page.file.title": "zpa-atlas · file",
+  "page.file.titleWith": "zpa-atlas · {path}",
 
   "banner.loading": "loading…",
   "banner.run": "Index of {date} · schema {schema} · metadata {metadata}",
@@ -121,6 +123,17 @@ registerMessages("en", {
 
   "source.show": "show line",
   "source.stale": "The file changed since it was indexed.",
+  "source.open": "open file",
+
+  "file.missingPath": "No file given.",
+  "file.lines": { one: "{count} line", other: "{count} lines" },
+  "file.occurrences": { one: "{count} indexed name", other: "{count} indexed names" },
+  "popover.definition": "Definition",
+  "popover.usedBy": "Who uses",
+  "popover.loading": "loading…",
+  "popover.noDefinition": "No definition in the index.",
+  "popover.candidates": "Candidates:",
+  "popover.noEntity": "Not resolved to an entity.",
   "source.unavailable": "Source unavailable ({error})",
   "error.message": "Error: {error}"
 });

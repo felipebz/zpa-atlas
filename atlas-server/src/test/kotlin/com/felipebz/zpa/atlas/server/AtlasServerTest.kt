@@ -58,7 +58,8 @@ class AtlasServerTest {
             "/api/entities" to mapOf("q" to "exec"),
             "/api/entity" to mapOf("key" to runJob5),
             "/api/occurrences" to mapOf("key" to runJob5, "scope" to "SELF,IMPLEMENTATIONS", "roles" to "CALL"),
-            "/api/source" to mapOf("path" to "hr/pack_calls.pkb", "line" to "32", "context" to "1")
+            "/api/source" to mapOf("path" to "hr/pack_calls.pkb", "line" to "32", "context" to "1"),
+            "/api/file" to mapOf("path" to "hr/pack_calls.pkb")
         )) {
             val response = client.get(path) { parameters.forEach { (k, v) -> parameter(k, v) } }
             assertThat(response.status).describedAs(path).isEqualTo(HttpStatusCode.OK)
@@ -71,6 +72,9 @@ class AtlasServerTest {
         val page = json(client.get("/api/occurrences") { parameter("key", runJob5) }.bodyAsText())["result"]!!.jsonObject
         assertThat(page["rows"]!!.jsonArray.map { it.jsonObject["viaCandidate"]!!.jsonPrimitive.content }).contains("true", "false")
         assertThat(page).containsKeys("nextAfter", "total", "facets")
+        val file = json(client.get("/api/file") { parameter("path", "hr/pack_calls.pkb") }.bodyAsText())["result"]!!.jsonObject
+        assertThat(file["stale"]!!.jsonPrimitive.content).isEqualTo("false")
+        assertThat(file["occurrences"]!!.jsonArray.first().jsonObject).containsOnlyKeys("at", "roles", "status", "reason", "entity", "candidates")
     }
 
     @Test
@@ -81,6 +85,8 @@ class AtlasServerTest {
         assertThat(client.get("/api/occurrences") { parameter("key", runJob5); parameter("status", "NOPE") }.status).isEqualTo(HttpStatusCode.BadRequest)
         assertThat(client.get("/api/occurrences") { parameter("key", runJob5); parameter("scope", "ALL") }.status).isEqualTo(HttpStatusCode.BadRequest)
         assertThat(client.get("/api/source") { parameter("path", "../x.sql"); parameter("line", "1") }.status).isEqualTo(HttpStatusCode.BadRequest)
+        assertThat(client.get("/api/file") { parameter("path", "hr/no_such.sql") }.status).isEqualTo(HttpStatusCode.BadRequest)
+        assertThat(client.get("/api/file").status).isEqualTo(HttpStatusCode.BadRequest)
         assertThat(client.get("/api/entity") { parameter("key", "db:NO.SUCH") }.status).isEqualTo(HttpStatusCode.NotFound)
         assertThat(client.get("/api/occurrences") { parameter("key", "db:NO.SUCH") }.status).isEqualTo(HttpStatusCode.NotFound)
         val error = json(client.get("/api/entity").bodyAsText())
@@ -92,6 +98,7 @@ class AtlasServerTest {
         application { atlasModule(AtlasIndex(temp.resolve("fixture.db"), null)) }
         assertThat(client.get("/api/source") { parameter("path", "hr/proc_standalone.prc"); parameter("line", "1") }.status)
             .isEqualTo(HttpStatusCode.NotFound)
+        assertThat(client.get("/api/file") { parameter("path", "hr/proc_standalone.prc") }.status).isEqualTo(HttpStatusCode.NotFound)
     }
 
     @Test
@@ -106,7 +113,7 @@ class AtlasServerTest {
 
     @Test
     fun `the web pages are served`() = api {
-        for (path in listOf("/", "/entity.html", "/app.css", "/common.js", "/entity.js", "/search.js")) {
+        for (path in listOf("/", "/entity.html", "/file.html", "/app.css", "/common.js", "/entity.js", "/file.js", "/search.js")) {
             val response = client.get(path)
             assertThat(response.status).describedAs(path).isEqualTo(HttpStatusCode.OK)
         }

@@ -23,3 +23,21 @@ h3.file { font-size: 13px; margin: 12px 0 4px; }
 pre.src { background: #f1f3f5; padding: 4px 8px; margin: 2px 0; overflow-x: auto; font-size: 12px; }
 pre.src .hl { background: #fff2a8; }
 .muted { color: #6b7380; }
+main.wide { max-width: none; }
+.warn.inline { border: 1px solid #e8c868; margin: 8px 0; }
+.file-src { background: #f6f7f9; border: 1px solid #e3e6ea; padding: 4px 0; white-space: pre; overflow-x: auto; tab-size: 8; line-height: 18px; }
+.file-src .block { content-visibility: auto; }
+.file-src .ln { display: block; min-height: 18px; }
+.file-src .ln.hl { background: #fff2a8; }
+.file-src .num { display: inline-block; width: 6ch; padding-right: 1ch; margin-right: 1ch; text-align: right; color: #9aa1ab; text-decoration: none; border-right: 1px solid #e3e6ea; user-select: none; }
+.occ { cursor: pointer; }
+.occ.link { color: #1f5fbf; }
+.occ.link:hover { text-decoration: underline; }
+.occ.link.quiet { color: inherit; text-decoration: underline dotted #c08a2a; }
+.occ.none { cursor: help; text-decoration: underline dotted #b9c0ca; }
+.popover { position: absolute; z-index: 10; background: #fff; border: 1px solid #b9c0ca; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .15); padding: 8px 10px; max-width: 560px; font-size: 13px; }
+.popover .occurrence + .occurrence { border-top: 1px solid #e3e6ea; margin-top: 6px; padding-top: 6px; }
+.popover .target { margin: 4px 0 4px 8px; }
+.popover .actions { margin: 2px 0; }
+.popover ul { margin: 2px 0; padding-left: 18px; }
+.popover .label { font-weight: 600; margin-top: 4px; }

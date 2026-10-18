@@ -25,7 +25,7 @@ function renderEntity(entity) {
   document.getElementById("definitions").innerHTML = entity.definitions.length === 0 ? "" :
     `<h2>${esc(t("entity.definitions"))}</h2><table>${entity.definitions.map(d =>
       `<tr><td>${esc(d.roles.map(roleLabel).join(", "))}</td><td class="mono">${esc(d.path)}:${d.span.startLine}:${d.span.startCol}</td>
-       <td>${statusBadge(d.status)}</td><td>${lazySource(d.path, d.span.startLine)}</td></tr>`).join("")}</table>`;
+       <td>${statusBadge(d.status)}</td><td>${openFileLink(d.path, d.span.startLine)} · ${lazySource(d.path, d.span.startLine)}</td></tr>`).join("")}</table>`;
   document.getElementById("overloads").innerHTML = entity.overloads.length <= 1 ? "" :
     `<h2>${esc(t("entity.overloads"))}</h2><ul>${entity.overloads.map(o =>
       `<li>${o.self ? "<b>" + esc(o.entity.display) + "</b>" : entityLink(o.entity)} <span class="badge">${esc(t(o.body ? "entity.overload.body" : "entity.overload.spec"))}</span></li>`).join("")}</ul>`;
@@ -85,7 +85,7 @@ function rowHtml(row) {
   return `<tr><td class="mono">${row.span.startLine}:${row.span.startCol}</td><td>${entityLink(row.container)}
     <div class="muted">${esc(row.unit.kind)} ${esc(row.unit.name)}</div></td>
     <td class="mono">${esc(row.written)}${args}${via}</td><td>${esc(row.roles.map(roleLabel).join(", "))}${row.statementKind ? '<div class="muted">' + esc(row.statementKind) + "</div>" : ""}</td>
-    <td>${statusBadge(row.status, row.reason)}${others}</td><td>${lazySource(row.path, row.span.startLine)}</td></tr>`;
+    <td>${statusBadge(row.status, row.reason)}${others}</td><td>${openFileLink(row.path, row.span.startLine)} · ${lazySource(row.path, row.span.startLine)}</td></tr>`;
 }
 
 function appendRows(rows) {

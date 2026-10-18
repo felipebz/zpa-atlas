@@ -53,7 +53,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         val fileInsert = prepare("INSERT INTO source_file(id, path, kind, sha256, size_bytes, compilation_schema, parse_status, recovered_regions, encoding) VALUES (?,?,?,?,?,?,?,?,?)")
         val unitInsert = prepare("INSERT INTO unit(id, file_id, entity_id, kind, name, start_line, start_col, end_line, end_col, origin_path, origin_line_offset) VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL)")
         val statementInsert = prepare("INSERT INTO sql_statement(id, file_id, unit_id, container_entity_id, kind, start_line, start_col, end_line, end_col, normalized_hash) VALUES (?,?,?,?,?,?,?,?,?,?)")
-        val occurrenceInsert = prepare("INSERT INTO occurrence(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line, end_col, written, entity_id, roles, status, origin, reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        val occurrenceInsert = prepare("INSERT INTO occurrence(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line, end_col, written, entity_id, roles, status, origin, reason, name_start_line, name_start_col, name_end_line, name_end_col) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
         val candidateInsert = prepare("INSERT INTO occurrence_candidate(occurrence_id, entity_id) VALUES (?,?)")
         val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col) VALUES (?,?,?,?,?,?,?,?)")
         val coverageInsert = prepare("INSERT INTO coverage_note(id, file_id, kind, message) VALUES (?,?,?,?)")
@@ -115,6 +115,11 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 occurrenceInsert.setString(13, occurrence.status.name)
                 occurrenceInsert.setString(14, occurrence.origin.name)
                 occurrenceInsert.setNullableString(15, occurrence.reason)
+                val nameSpan = occurrence.nameSpan?.takeIf { it != occurrence.span }
+                occurrenceInsert.setNullableLong(16, nameSpan?.startLine?.toLong())
+                occurrenceInsert.setNullableLong(17, nameSpan?.startCol?.toLong())
+                occurrenceInsert.setNullableLong(18, nameSpan?.endLine?.toLong())
+                occurrenceInsert.setNullableLong(19, nameSpan?.endCol?.toLong())
                 batches.add(occurrenceInsert)
                 for (candidate in occurrence.candidateKeys.map { entityIds.getValue(it) }.distinct().sorted()) {
                     candidateInsert.setLong(1, occurrenceId)
@@ -257,7 +262,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 8
+        const val SCHEMA_VERSION = 9
 
         /** Pending rows (all statements together) after which the batches are executed. */
         private const val FLUSH_ROWS = 20_000
@@ -421,7 +426,12 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 roles TEXT NOT NULL ${rolesCheck()},
                 status TEXT NOT NULL ${check<Status>("status")},
                 origin TEXT NOT NULL ${check<Origin>("origin")},
-                reason TEXT NULL
+                reason TEXT NULL,
+                -- The span of the name, when it is not the span (a definition or declaration spans the whole of it).
+                name_start_line INTEGER NULL,
+                name_start_col INTEGER NULL,
+                name_end_line INTEGER NULL,
+                name_end_col INTEGER NULL
             )""",
             """CREATE TABLE occurrence_candidate (
                 occurrence_id INTEGER NOT NULL REFERENCES occurrence(id),

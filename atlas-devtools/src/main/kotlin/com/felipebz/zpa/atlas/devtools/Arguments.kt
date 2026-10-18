@@ -42,10 +42,13 @@ class CompareArguments {
     var builtins: String = ""
 }
 
-@Parameters(commandNames = ["timings"], commandDescription = "Time the query API for the 5 most used entities of an index and the column with the most view columns over it")
+@Parameters(commandNames = ["timings"], commandDescription = "Time the query API for the 5 most used entities of an index, the column with the most view columns over it and the file with the most occurrences")
 class TimingsArguments {
     @Parameter(description = "<file.db>", required = true)
     var database: List<String> = ArrayList()
+
+    @Parameter(names = ["--sources"], description = "Folder of the indexed sources, for the file view (default: the folder recorded in the index)")
+    var sources: String = ""
 }
 
 @Parameters(commandNames = ["same-rows"], commandDescription = "Check that two indexes have the same rows in every table")

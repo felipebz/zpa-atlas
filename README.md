@@ -15,6 +15,8 @@ browsed in a local web page or queried with SQL, and can optionally be checked a
 - **Which views read a table, and what a view reads.**
 - **Where the value of a view column comes from**: every column its expression reads (`VIEW_BASE` relations, one hop
   per view). "Who uses" a column can follow them through views: the web page's "Through views" toggle.
+- **What a name in a file refers to.** The web page shows a whole file with every indexed name clickable: its entity,
+  status, definitions (spec and body) and who uses it.
 - **Which triggers fire on a table or column**, with timing, level, event and `UPDATE OF` columns.
 - **What could not be resolved, and why.** Every use carries a status and a reason, and each file can carry coverage
   notes.
@@ -150,7 +152,7 @@ The schema can change between versions (the stored version is in `run`), so quer
 - `atlas-core`: parsing with ZPA, extraction, the index writer.
 - `atlas-query`: the read API over an index, and the dependency comparison.
 - `atlas-server`: the web page and its JSON API (`/api/run`, `/api/entities`, `/api/entity`, `/api/occurrences`,
-  `/api/source`).
+  `/api/source`, `/api/file`).
 - `atlas-cli`: the `zpa-atlas` command.
 - `atlas-devtools`: measurement tools.
 

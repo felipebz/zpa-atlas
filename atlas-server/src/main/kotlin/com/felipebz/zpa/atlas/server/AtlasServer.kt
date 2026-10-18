@@ -73,6 +73,10 @@ fun Application.atlasModule(index: AtlasIndex) {
                     call.int("context") ?: 3)
                 if (answer.result == null) call.respond(HttpStatusCode.NotFound, ApiError("Source not available")) else call.respond(answer)
             }
+            get("/file") {
+                val answer = index.file(call.required("path"))
+                if (answer.result == null) call.respond(HttpStatusCode.NotFound, ApiError("Source not available")) else call.respond(answer)
+            }
         }
         staticResources("/", "web", index = "index.html")
     }

@@ -5,14 +5,18 @@
 
 package com.felipebz.zpa.atlas.devtools
 
+import com.felipebz.zpa.atlas.query.Answer
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import com.felipebz.zpa.atlas.query.FileView
 import com.felipebz.zpa.atlas.query.Scope
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 import org.sqlite.SQLiteConfig
 import java.util.Locale
 
 /**
- * `timings`: the query API on the 5 entities with the most non-definition occurrences, and on the column with the most
- * view columns over it.
+ * `timings`: the query API on the 5 entities with the most non-definition occurrences, on the column with the most
+ * view columns over it, and the file view of the file with the most occurrences.
  */
 object Timings {
     fun report(index: AtlasIndex): String = buildString {
@@ -37,7 +41,26 @@ object Timings {
             append(String.format(Locale.ROOT, "  %s (%d view columns): SELF %.1f, SELF,VIEWS %.1f%n", key, count, self, views))
         }
         append('\n')
+        append("Timings of the file with the most occurrences (file view, ms; payload as the server sends it)\n")
+        val busiest = query(index, "SELECT f.path, count(*) AS n FROM occurrence o JOIN source_file f ON f.id = o.file_id GROUP BY f.id ORDER BY n DESC, f.path LIMIT 1").singleOrNull()
+        if (busiest == null) {
+            append("  (none)\n")
+        } else {
+            val (path, count) = busiest
+            var answer: Answer<FileView?>? = null
+            val file = time { answer = index.file(path) }
+            if (answer!!.result == null) {
+                append(String.format(Locale.ROOT, "  %s (%d occurrences): sources not available%n", path, count))
+            } else {
+                val bytes = JSON.encodeToString(serializer<Answer<FileView?>>(), answer!!).toByteArray(Charsets.UTF_8).size
+                append(String.format(Locale.ROOT, "  %s (%d occurrences): file %.1f, %d bytes%n", path, count, file, bytes))
+            }
+        }
+        append('\n')
     }
+
+    // The server's settings, so that the size is the one sent.
+    private val JSON = Json { explicitNulls = true; encodeDefaults = true }
 
     private fun topKeys(index: AtlasIndex): List<Pair<String, Long>> =
         query(index, """SELECT e.key, count(*) AS n FROM occurrence o JOIN entity e ON e.id = o.entity_id

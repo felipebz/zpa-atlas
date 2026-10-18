@@ -68,7 +68,12 @@ data class OccurrenceFact(
     /** For `AMBIGUOUS`: every candidate entity. */
     val candidateKeys: List<String> = emptyList(),
     /** For `CALL`: one per written actual, in written order. */
-    val arguments: List<CallArgumentFact> = emptyList()
+    val arguments: List<CallArgumentFact> = emptyList(),
+    /**
+     * The span of the name [written] comes from, when it is not [span]: a definition or declaration spans the whole
+     * declaration. Null when the name is the span or is not known (a file the parser rejected).
+     */
+    val nameSpan: SourceSpan? = null
 )
 
 /** One written actual of a call: its 1-based [ordinal], its label when named, and the formal it binds to when proven. */

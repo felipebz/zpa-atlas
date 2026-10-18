@@ -56,7 +56,7 @@ class ReservedValuesTest {
                 for (i in 0 until rows) {
                     statement.execute(
                         "INSERT INTO occurrence VALUES (${i + 1}, 1, 1, NULL, 1, 1, 0, 1, 1, 'w', 1, '${roles[i % roles.size]}', " +
-                            "'${Status.entries[i % Status.entries.size].name}', '${Origin.entries[i % Origin.entries.size].name}', NULL)"
+                            "'${Status.entries[i % Status.entries.size].name}', '${Origin.entries[i % Origin.entries.size].name}', NULL, NULL, NULL, NULL, NULL)"
                     )
                 }
                 statement.execute("INSERT INTO occurrence_candidate VALUES (1, 2)")
@@ -74,7 +74,7 @@ class ReservedValuesTest {
                 statement.execute("INSERT INTO source_file VALUES (1, 'f', 'DB_SOURCE', 'h', 0, NULL, 'OK', 0, 'UTF-8')")
                 statement.execute("INSERT INTO unit VALUES (1, 1, NULL, 'PACKAGE', 'u', 1, 0, 1, 1, NULL, NULL)")
                 assertThatThrownBy {
-                    statement.execute("INSERT INTO occurrence VALUES (1, 1, 1, NULL, NULL, 1, 0, 1, 1, 'w', NULL, 'WRITE,BOGUS', 'RESOLVED', 'STATIC', NULL)")
+                    statement.execute("INSERT INTO occurrence VALUES (1, 1, 1, NULL, NULL, 1, 0, 1, 1, 'w', NULL, 'WRITE,BOGUS', 'RESOLVED', 'STATIC', NULL, NULL, NULL, NULL, NULL)")
                 }.isInstanceOf(SQLException::class.java)
             }
         }

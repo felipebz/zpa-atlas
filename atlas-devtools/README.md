@@ -9,7 +9,7 @@ Tools that measure the atlas; they are not part of the published `zpa-atlas` CLI
 atlas-devtools compare-deps --db <file.db> --out <dir> \
   (--oracle-url URL --oracle-user USER --oracle-schemas A,B [--oracle-password-env VAR] | --dependencies deps.csv) \
   [--save-dependencies deps.csv] [--sources <dir>] [--default-owner X] [--builtins file]
-atlas-devtools timings <file.db>
+atlas-devtools timings <file.db> [--sources <dir>]
 atlas-devtools same-rows <first.db> <second.db>
 ```
 
@@ -74,7 +74,8 @@ settings were not read (an older dependencies file, or the view is not readable)
   10.2/11.2 with the most frequent `SYS`/`PUBLIC` rows of `db_only.csv`.
 
 `timings` times the query API (first page with `SELF`, with `IMPLEMENTATIONS,CHILDREN`, and `entity`) for the 5
-entities with the most non-definition occurrences.
+entities with the most non-definition occurrences, and the file view (`/api/file`: time and payload size) of the file
+with the most occurrences, read from `--sources` (default: the folder recorded in the index).
 
 `same-rows` checks that two indexes have the same rows in every table: every column, rows ordered by primary key
 (`rowid` without one); the run timestamps and the acquisition time in `run.metadata_origin` are ignored. It prints one line per table and exits with 3 when anything

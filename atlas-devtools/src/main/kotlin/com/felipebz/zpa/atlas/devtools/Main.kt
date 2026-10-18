@@ -63,9 +63,11 @@ private fun timings(args: TimingsArguments): Int {
     if (args.database.size != 1) throw CliValidationException("timings takes exactly one index file")
     val database = Path.of(args.database.single())
     if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: $database")
-    val index = AtlasIndex(database, null)
-    index.run() // checks the schema version
-    print(Timings.report(index))
+    if (args.sources.isNotBlank() && !Files.isDirectory(Path.of(args.sources))) throw CliValidationException("Sources folder does not exist: ${args.sources}")
+    // Also checks the schema version.
+    val recorded = AtlasIndex(database, null).run().result.sourcesRoot
+    val sources = Path.of(args.sources.ifBlank { recorded })
+    print(Timings.report(AtlasIndex(database, sources)))
     return 0
 }
 

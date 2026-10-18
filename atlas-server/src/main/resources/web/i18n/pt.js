@@ -5,6 +5,8 @@ registerMessages("pt", {
   "page.search.title": "zpa-atlas",
   "page.entity.title": "zpa-atlas · entidade",
   "page.entity.titleWith": "zpa-atlas · {name}",
+  "page.file.title": "zpa-atlas · arquivo",
+  "page.file.titleWith": "zpa-atlas · {path}",
 
   "banner.loading": "carregando…",
   "banner.run": "Índice de {date} · schema {schema} · metadados {metadata}",
@@ -119,6 +121,17 @@ registerMessages("pt", {
 
   "source.show": "ver linha",
   "source.stale": "O arquivo mudou desde a indexação.",
+  "source.open": "abrir arquivo",
+
+  "file.missingPath": "Nenhum arquivo informado.",
+  "file.lines": { one: "{count} linha", other: "{count} linhas" },
+  "file.occurrences": { one: "{count} nome indexado", other: "{count} nomes indexados" },
+  "popover.definition": "Definição",
+  "popover.usedBy": "Quem usa",
+  "popover.loading": "carregando…",
+  "popover.noDefinition": "Nenhuma definição no índice.",
+  "popover.candidates": "Candidatos:",
+  "popover.noEntity": "Não resolvido para uma entidade.",
   "source.unavailable": "Fonte indisponível ({error})",
   "error.message": "Erro: {error}"
 });

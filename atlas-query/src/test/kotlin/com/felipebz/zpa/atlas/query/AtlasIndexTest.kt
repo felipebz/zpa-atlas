@@ -280,6 +280,54 @@ class AtlasIndexTest {
         assertThatThrownBy { index.source("hr/nao_indexado.sql", 1) }.isInstanceOf(InvalidQueryException::class.java)
     }
 
+    private fun FileView.at(line: Int, col: Int) =
+        occurrences.filter { it.at[0] == line && it.at[1] == col }.map { "${it.at.joinToString(",")} ${it.entity?.let { e -> entities[e].key }} ${it.roles}" }
+
+    @Test
+    fun `file gives the name span of a definition, its parameters and a view`() {
+        val calls = index.file("hr/pack_calls.pkb").result!!
+        assertThat(calls.stale).isFalse()
+        assertThat(calls.lines[9]).isEqualTo("  procedure p_mix(p_a number, p_b varchar2, p_c date) is begin null; end;")
+        val pMix = "db:HR.PACK_CALLS.P_MIX(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN DATE)@BODY"
+        assertThat(calls.at(10, 12)).containsExactly("10,12,10,17 $pMix [DEFINITION]")
+        assertThat(calls.at(10, 18)).containsExactly("10,18,10,21 $pMix.P_A [DEFINITION]")
+        assertThat(index.file("hr/views_remote.sql").result!!.at(1, 23)).containsExactly("1,23,1,36 db:HR.V_REMOTE_SAME [DEFINITION]")
+    }
+
+    @Test
+    fun `file keeps a qualified read over the column definition inside it`() {
+        val mview = index.file("hr/mv_company.sql").result!!
+        assertThat(mview.at(2, 9)).containsExactly("2,9,2,13 db:HR.COMPANY.ID [READ]")
+        assertThat(mview.at(2, 11)).containsExactly("2,11,2,13 db:HR.MV_COMPANY_LOG.ID [DEFINITION]")
+    }
+
+    @Test
+    fun `file gives the candidates of an ambiguous call as entity indexes`() {
+        val calls = index.file("hr/pack_calls.pkb").result!!
+        val ambiguous = calls.occurrences.single { it.at[0] == 33 && it.status == "AMBIGUOUS" }
+        assertThat(ambiguous.at).containsExactly(33, 4, 33, 24)
+        assertThat(ambiguous.entity).isNull()
+        assertThat(ambiguous.candidates.map { calls.entities[it].key }).containsExactly(runJob4, runJob5)
+        // Every entity is listed once.
+        assertThat(calls.entities.map { it.key }).doesNotHaveDuplicates()
+    }
+
+    @Test
+    fun `file of a changed file has its lines and no occurrences, and other paths are rejected`() {
+        val copy = temp.resolve("file-sources")
+        Fixture.sources.toFile().copyRecursively(copy.toFile())
+        Files.writeString(copy.resolve("hr/pack_calls.pkb"), "changed\n")
+        val edited = AtlasIndex(db, copy).file("hr/pack_calls.pkb").result!!
+        assertThat(edited.stale).isTrue()
+        assertThat(edited.lines.first()).isEqualTo("changed")
+        assertThat(edited.occurrences).isEmpty()
+        assertThat(edited.entities).isEmpty()
+
+        assertThat(AtlasIndex(db, null).file("hr/pack_calls.pkb").result).isNull()
+        assertThatThrownBy { index.file("../hr/pack_calls.pkb") }.isInstanceOf(InvalidQueryException::class.java)
+        assertThatThrownBy { index.file("hr/nao_indexado.sql") }.isInstanceOf(InvalidQueryException::class.java)
+    }
+
     @Test
     fun `a file with another schema version is refused`() {
         val other = temp.resolve("other.db")
