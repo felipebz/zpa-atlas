@@ -756,8 +756,11 @@ class FileExtractor(
      * Names the legacy symbol table binds to a local value or type are not calls; a nested subprogram is
      * `LOCAL_SUBPROGRAM` (local subprograms are not entities).
      */
-    private fun callSite(node: AstNode, context: Context, statementId: Int?) {
+    private fun callSite(node: AstNode, context: Context, statementId: Int?, statement: Statement? = null) {
         val isMethodCall = node.type == PlSqlGrammar.METHOD_CALL
+        // `v(1).l.exists(1)`, `t_val('x').path(null)`: a method of the value before the dot, not a schema-level name.
+        // The calls in its arguments are separate METHOD_CALL nodes, visited on their own.
+        if (isMethodCall && node.previousSiblingOrNull?.type == PlSqlPunctuator.DOT) return
         val callee = if (isMethodCall) node.firstChild else node
         val kind = if (!isMethodCall || node.parent.type == PlSqlGrammar.CALL_STATEMENT) ProjectCallKind.PROCEDURE else ProjectCallKind.FUNCTION
         val actuals = if (isMethodCall) node.getFirstChildOrNull(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT).orEmpty() else emptyList()
@@ -774,6 +777,9 @@ class FileExtractor(
             val named = children.size >= 3 && children[1].tokenValue == "=>"
             Triple(if (named) children[0].tokenOriginalValue else null, if (named) children.last() else argument, argument)
         }
+        // A name resolved below may add external entities; a method of an SQL value takes them back.
+        val entityMark = entities.size
+        val relationMark = relations.size
         val outcome = when {
             // A type of the package specification is a constructor; local values, cursors and types are not calls, a
             // variable or cursor of the package specification (in its own file) is a member.
@@ -791,6 +797,19 @@ class FileExtractor(
             return
         }
         if (outcome !is CallOutcome.Call || symbol?.kind == Symbol.Kind.VARIABLE || symbol?.kind == Symbol.Kind.CURSOR) return
+        // In SQL, `alias.col.method()`, `alias.method()` or `schema.t.col.method()` whose qualifier names a source of the
+        // statement is a method of a column or row value: no call, no entity, the column read. A call the project knows
+        // still wins: Oracle runs `pk.f()` even with an alias `pk`.
+        if (statement != null && segments.size >= 2 && outcome.status == Status.UNRESOLVED) {
+            val resolvedEntities = entities.size
+            val resolvedRelations = relations.size
+            if (qualifiedColumn(statement, callee, segments, method = true)) {
+                // Only what the call resolution added; the column read's own entities stay.
+                entities.subList(entityMark, resolvedEntities).clear()
+                relations.subList(relationMark, resolvedRelations).clear()
+                return
+            }
+        }
         if (outcome.status == Status.RESOLVED) {
             arguments.forEachIndexed { index, (_, expression, _) -> outcome.modes[index + 1]?.let { argumentModes[expression] = it } }
         }
@@ -1242,8 +1261,11 @@ class FileExtractor(
         /** The columns (`n:NAME`, `p:POSITION`) of each query whose lineage is being followed, to stop at recursive `WITH` names. */
         val following = IdentityHashMap<AstNode, MutableSet<String>>()
 
-        fun occurrence(node: AstNode, entityKey: String?, roles: Set<Role>, status: Status, reason: String?, candidates: List<String> = emptyList()) {
-            val fact = OccurrenceFact(context.unitIndex, context.container, id, spanOf(node), writtenText(node), entityKey,
+        fun occurrence(
+            node: AstNode, entityKey: String?, roles: Set<Role>, status: Status, reason: String?, candidates: List<String> = emptyList(),
+            span: SourceSpan = spanOf(node), written: String = writtenText(node)
+        ) {
+            val fact = OccurrenceFact(context.unitIndex, context.container, id, span, written, entityKey,
                 roles, status(status, context.partial), Origin.STATIC, reason, candidates)
             occurrences += fact
             if (roles == COLUMN_READ) columnReads.getOrPut(node) { ArrayList() } += fact
@@ -1334,7 +1356,7 @@ class FileExtractor(
             target(statement, reference, setOf(Role.SQL_SELECT), null)
         }
         // The PL/SQL compiler resolves the function names of static SQL, so they follow the PL/SQL rules.
-        root.getDescendants(PlSqlGrammar.METHOD_CALL).forEach { callSite(it, context, id) }
+        root.getDescendants(PlSqlGrammar.METHOD_CALL).forEach { callSite(it, context, id, statement) }
         root.getDescendants(*KEYWORD_FUNCTIONS).forEach { sqlFunctionKeyword(it.firstChild, context, id) }
         // `CAST(… AS t)` and the other datatypes of the statement.
         root.getDescendants(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE).forEach { typeUse(it, context, id) }
@@ -1484,9 +1506,20 @@ class FileExtractor(
      * A complete source that lacks the column does not capture it: the same qualifier in an enclosing scope is tried,
      * then the PL/SQL name (a record of an enclosing cursor loop named like the alias); only when PL/SQL finds nothing
      * either is it a read of the missing column of the innermost source.
+     *
+     * With [method], [name] is the callee of a method call on the column (`q.col.method(…)`): its last segment is the
+     * method, and the read spans `q.col` only; there is no PL/SQL fallback (the call already resolved to nothing).
      */
-    private fun qualifiedColumn(statement: Statement, name: AstNode, segments: List<String>): Boolean {
-        val names = segments.map { normalizeIdentifier(it) }
+    private fun qualifiedColumn(statement: Statement, name: AstNode, segments: List<String>, method: Boolean = false): Boolean {
+        val names = segments.map { normalizeIdentifier(it) }.let { if (method) it.dropLast(1) else it }
+        fun readAt(target: Target, column: String, columnIndex: Int) {
+            if (!method) return read(statement, name, target, column)
+            val parts = name.children.filter { it.type != PlSqlPunctuator.DOT }
+            val last = parts[columnIndex]
+            val text = name.children.takeWhile { it !== last }.joinToString("") { writtenText(it) } + writtenText(last)
+            read(statement, name, target, column, spanOf(parts.first(), last), text)
+        }
+        var lackingIndex = 0
         var lacking: Pair<Target, String>? = null
         var scope = sqlScope(name)
         scopes@ while (scope != null) {
@@ -1501,16 +1534,24 @@ class FileExtractor(
                 val column = names.getOrNull(columnIndex) ?: return true
                 if (column in SQL_PSEUDOCOLUMNS || source.target == null) return true
                 if (resolver.hasColumn(source.target.resolved, column) == false) {
-                    if (lacking == null) lacking = source.target to column
+                    if (lacking == null) {
+                        lacking = source.target to column
+                        lackingIndex = columnIndex
+                    }
                     scope = sqlScope(current)
                     continue@scopes
                 }
-                read(statement, name, source.target, column)
+                readAt(source.target, column, columnIndex)
                 return true
             }
             scope = sqlScope(current)
         }
         val (target, column) = lacking ?: return isSqlQualified(name, segments)
+        if (method) {
+            val first = name.firstChild
+            if ((first as? SemanticAstNode)?.symbol == null) readAt(target, column, lackingIndex)
+            return true
+        }
         val before = occurrences.size
         valueReference(name, statement.context, statement.id, sql = false)
         val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild
@@ -1558,9 +1599,9 @@ class FileExtractor(
         valueReference(name, statement.context, statement.id, sql = false)
     }
 
-    private fun read(statement: Statement, name: AstNode, target: Target, column: String) {
+    private fun read(statement: Statement, name: AstNode, target: Target, column: String, span: SourceSpan = spanOf(name), written: String = writtenText(name)) {
         val resolved = resolver.resolveColumn(target.resolved, column)
-        statement.occurrence(name, resolved.entityKey, COLUMN_READ, resolved.status, resolved.reason)
+        statement.occurrence(name, resolved.entityKey, COLUMN_READ, resolved.status, resolved.reason, span = span, written = written)
     }
 
     /**

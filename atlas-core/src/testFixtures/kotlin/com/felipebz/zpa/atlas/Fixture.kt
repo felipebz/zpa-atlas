@@ -98,6 +98,8 @@ object Fixture {
             DictionarySynonym("PUBLIC", "XMLSEQUENCE", "SYS", "XMLSEQUENCE", "OPERATOR"),
             DictionarySynonym("PUBLIC", "GET_ENV", "SYS", "GET_ENV_FN", "FUNCTION"),
             DictionarySynonym("PUBLIC", "DBMS_DB_VERSION", "SYS", "DBMS_DB_VERSION", "PACKAGE"),
+            // A public function named like a method called on a value (`f(x).path(…)`).
+            DictionarySynonym("PUBLIC", "PATH", "XDB", "PATH", "FUNCTION"),
             DictionarySynonym("PUBLIC", "SYN_SEQ", "SYS", "GLOBAL_SEQ", "SEQUENCE"),
             // Private synonyms of HR: a package of another schema, and a project package.
             DictionarySynonym("HR", "SYN_EXT_PKG", "OTHER", "EXT_PKG", "PACKAGE"),
