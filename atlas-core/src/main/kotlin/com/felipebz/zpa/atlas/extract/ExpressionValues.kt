@@ -69,7 +69,9 @@ object ExpressionValues {
      */
     private fun name(node: AstNode): ExpressionValue {
         val parts = if (node.type == PlSqlGrammar.MEMBER_EXPRESSION) node.children else listOf(node)
-        if (parts.any { it.type != PlSqlGrammar.VARIABLE_NAME && it.type != PlSqlGrammar.IDENTIFIER_NAME && it.type != PlSqlPunctuator.DOT }) return EXPRESSION
+        // A name through a database link keeps its link: `SEQ_REQ.NEXTVAL@FAR`.
+        if (parts.any { it.type != PlSqlGrammar.VARIABLE_NAME && it.type != PlSqlGrammar.IDENTIFIER_NAME && it.type != PlSqlPunctuator.DOT &&
+                it.type != PlSqlPunctuator.REMOTE }) return EXPRESSION
         val bind = parts.first().hasDirectChildren(PlSqlGrammar.HOST_AND_INDICATOR_VARIABLE)
         val text = tokensOf(node).joinToString("") { if (it.type is PlSqlPunctuator) it.originalValue else normalizeIdentifier(it.originalValue) }
         return ExpressionValue(if (bind && parts.size == 1) ValueKind.BIND else ValueKind.NAME, text)

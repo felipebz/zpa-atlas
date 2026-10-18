@@ -171,6 +171,38 @@ internal class PlSqlNames(
     }
 
     /**
+     * A name through a database link without parentheses: Oracle rejects a remote package variable or cursor
+     * (PLS-00512), so it is a remote sequence (`[s.]seq.NEXTVAL@l`, a `READ` of `db:[S.]SEQ@L` at the sequence's name)
+     * or a remote function called without parentheses (the `CALL` of [remoteCall]). Never looked up. Nothing for a part
+     * of a remote source of the statement (`t.col@l` with `t@l` in `FROM`), a write, an attribute (`%`) or four segments
+     * or more: Oracle rejects those, or they are not a program.
+     */
+    private fun remoteValue(name: AstNode, remote: RemoteName, context: Context, statementId: Int?) {
+        if (name.hasDirectChildren(PlSqlPunctuator.MOD)) return
+        val (names, link) = remote
+        if (statementId != null && scopes.isSqlQualified(name, names)) return
+        if (Role.WRITE in valueRoles(name, names)) return
+        val sequence = names.size in 2..3 && names.last() in PSEUDOCOLUMNS
+        when {
+            sequence -> {
+                val schema = if (names.size == 3) names[0] else null
+                val sequenceName = names[names.size - 2]
+                val key = "db:" + listOfNotNull(schema, sequenceName).joinToString(".") + "@" + link
+                state.entities += EntityFact(key, EntityKind.SEQUENCE, schema, "$sequenceName@$link", null, key.removePrefix("db:"),
+                    external = true, precedence = Precedence.MENTIONED)
+                // The span is the sequence's name, before `.NEXTVAL`, as for a local sequence; the link is in the key.
+                val children = name.children
+                val remoteAt = children.indexOfFirst { it.type == PlSqlPunctuator.REMOTE }
+                val lastDot = children.subList(0, remoteAt).indexOfLast { it.type == PlSqlPunctuator.DOT }
+                val parts = children.subList(0, lastDot)
+                state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(parts.first(), parts.last()),
+                    parts.joinToString("") { writtenText(it) }, key, setOf(Role.READ), status(Status.EXTERNAL, context.partial), context.origin, "DB_LINK")
+            }
+            names.size in 1..3 -> remoteCall(name, remote, ProjectCallKind.FUNCTION, emptyList(), context, statementId)
+        }
+    }
+
+    /**
      * Whether [node] is the outermost plain name of an expression: not a segment of a longer name, not the callee of a
      * call (handled by [callSite]), not the member after a call (`pkg.g_tab(i).f`).
      */
@@ -189,6 +221,10 @@ internal class PlSqlNames(
      */
     fun valueReference(name: AstNode, context: Context, statementId: Int?, sql: Boolean) {
         if (context.hasHoles(name)) return
+        remoteName(name)?.let {
+            remoteValue(name, it, context, statementId)
+            return
+        }
         val attribute = name.type == PlSqlGrammar.MEMBER_EXPRESSION && name.hasDirectChildren(PlSqlPunctuator.MOD)
         val parts = if (attribute) name.children.takeWhile { it.type != PlSqlPunctuator.MOD } else listOf(name)
         val segments = (if (attribute) attributeName(name, parts) else nameSegments(name)) ?: return

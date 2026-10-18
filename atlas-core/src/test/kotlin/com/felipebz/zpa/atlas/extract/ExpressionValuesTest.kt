@@ -29,6 +29,13 @@ class ExpressionValuesTest {
     }
 
     @Test
+    fun `a name through a database link keeps its link`() {
+        assertThat(of("seq.nextval@l")).isEqualTo(ExpressionValue(ValueKind.NAME, "SEQ.NEXTVAL@L"))
+        assertThat(of("s.seq.nextval@l.example.com")).isEqualTo(ExpressionValue(ValueKind.NAME, "S.SEQ.NEXTVAL@L.EXAMPLE.COM"))
+        assertThat(of("pkg.f@l")).isEqualTo(ExpressionValue(ValueKind.NAME, "PKG.F@L"))
+    }
+
+    @Test
     fun `an empty character literal passes NULL`() {
         for (empty in listOf("''", "n''", "q'[]'", "nq'{}'")) assertThat(of(empty)).describedAs(empty).isEqualTo(ExpressionValue(ValueKind.NULL, null))
         assertThat(of("' '")).isEqualTo(ExpressionValue(ValueKind.STRING, " "))

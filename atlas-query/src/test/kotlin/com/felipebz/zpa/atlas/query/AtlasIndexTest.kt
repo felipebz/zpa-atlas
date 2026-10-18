@@ -331,10 +331,10 @@ class AtlasIndexTest {
     @Test
     fun `a function called through a database link lists its call sites with their argument values`() {
         val page = index.occurrences("db:NEXT_REQ@FAR").result!!
-        assertThat(page.rows.map { "${it.span.startLine} ${it.status} ${it.reason} ${it.arguments.map { a -> a.valueKind + " " + a.value }}" })
+        assertThat(page.rows.filter { it.path == "hr/remote_calls.prc" }.map { "${it.span.startLine} ${it.status} ${it.reason} ${it.arguments.map { a -> a.valueKind + " " + a.value }}" })
             .containsExactly("7 EXTERNAL DB_LINK [NUMBER 4]", "8 EXTERNAL DB_LINK [NUMBER 5]")
         val pack = index.entity("db:~.PACK_REQ@FAR.EXAMPLE.COM").result!!
-        assertThat(pack.children.map { it.key }).containsExactly("db:~.PACK_REQ@FAR.EXAMPLE.COM.CLOSE_REQ")
+        assertThat(pack.children.map { it.key }).containsExactlyInAnyOrder("db:~.PACK_REQ@FAR.EXAMPLE.COM.CLOSE_REQ", "db:~.PACK_REQ@FAR.EXAMPLE.COM.GET_MAX")
     }
 
     @Test

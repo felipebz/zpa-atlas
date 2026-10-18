@@ -324,7 +324,9 @@ class DependencyComparisonTest {
         assertThat(remote.matched.map { "${it.unit.name} ${it.reference.referencedOwner}.${it.reference.referencedName}@${it.reference.referencedLink}" })
             .containsExactlyInAnyOrder("PK_REMOTE DESENV.REMOTE_REQ@FAR.EXAMPLE.COM",
                 // A call through a link: the package by name, the schema-level program through the `DESENV.NOTIFY_REQ` reading.
-                "PK_REMOTE_CALLS DESENV.PACK_REQ@FAR.EXAMPLE.COM", "PK_REMOTE_CALLS DESENV.NOTIFY_REQ@FAR.EXAMPLE.COM")
+                "PK_REMOTE_CALLS DESENV.PACK_REQ@FAR.EXAMPLE.COM", "PK_REMOTE_CALLS DESENV.NOTIFY_REQ@FAR.EXAMPLE.COM",
+                // Without parentheses: a remote sequence and a remote function.
+                "PK_REMOTE_NAMES DESENV.PACK_REQ@FAR.EXAMPLE.COM", "PK_REMOTE_NAMES DESENV.SEQ_REQ@FAR.EXAMPLE.COM")
         assertThat(remote.databaseOnly).isEmpty()
         assertThat(remote.indexOnly).isEmpty()
     }
