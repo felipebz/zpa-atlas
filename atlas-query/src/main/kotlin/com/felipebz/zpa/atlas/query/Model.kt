@@ -133,8 +133,14 @@ data class OccurrenceRow(
     val unit: UnitRef,
     val statementKind: String?,
     val candidates: List<EntitySummary>,
-    val arguments: List<CallArgument>
+    val arguments: List<CallArgument>,
+    /** For a column write: the value written, one per row of its statement. */
+    val values: List<WrittenValue>
 )
+
+/** The value a column write writes in [row] of its statement; [value] as for [CallArgument.value]. */
+@Serializable
+data class WrittenValue(val row: Int, val valueKind: String, val value: String?)
 
 @Serializable
 data class Facets(val byRole: List<Count>, val byStatus: List<Count>)

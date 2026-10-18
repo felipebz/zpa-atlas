@@ -58,10 +58,12 @@ function renderEntity(entity) {
     candidate: t("usage.candidate", { count: u.asCandidate })
   });
   state.implementations = ["PROCEDURE", "FUNCTION", "PACKAGE"].includes(entity.kind);
-  if (entity.kind === "PARAMETER") loadValues();
+  // What a parameter is passed and what a column is written: the same groups, from different rows.
+  if (entity.kind === "PARAMETER") loadValues("values.title.passed");
+  if (entity.kind === "COLUMN") loadValues("values.title.written");
 }
 
-// ---- values passed to a parameter --------------------------------------------------------------------------------
+// ---- values passed to a parameter or written to a column ----------------------------------------------------------
 
 function valueLabel(group) {
   const literal = literalText(group.valueKind, group.value);
@@ -70,16 +72,16 @@ function valueLabel(group) {
   return `<span class="muted">${esc(t("values.kind." + group.valueKind))}</span>`;
 }
 
-async function loadValues() {
+async function loadValues(title) {
   const target = document.getElementById("values");
-  const groups = (await api("api/parameter-values", { key })).result;
+  const groups = (await api("api/values", { key })).result;
   if (groups.length === 0) {
-    target.innerHTML = `<h2>${esc(t("values.title"))}</h2><p class="muted">${esc(t("values.none"))}</p>`;
+    target.innerHTML = `<h2>${esc(t(title))}</h2><p class="muted">${esc(t("values.none"))}</p>`;
     return;
   }
-  target.innerHTML = `<h2>${esc(t("values.title"))}</h2><table>${groups.map((g, i) =>
+  target.innerHTML = `<h2>${esc(t(title))}</h2><table>${groups.map((g, i) =>
     `<tr><td><span class="badge">${esc(g.valueKind)}</span></td><td>${valueLabel(g)}</td><td>${esc(formatNumber(g.count))}</td>
-     <td><a href="#" data-group="${i}">${esc(t("values.calls"))}</a></td></tr>
+     <td><a href="#" data-group="${i}">${esc(t("values.sites"))}</a></td></tr>
      <tr hidden data-calls="${i}"><td colspan="4"><table><tbody></tbody></table><button hidden>${esc(t("usage.more"))}</button></td></tr>`).join("")}</table>`;
   target.addEventListener("click", e => {
     const link = e.target.closest("a[data-group]");
@@ -90,18 +92,18 @@ async function loadValues() {
       row.hidden = !row.hidden;
       if (!row.hidden && !row.dataset.loaded) {
         row.dataset.loaded = "1";
-        loadValueCalls(groups[index], row, null);
+        loadValueSites(groups[index], row, null);
       }
       return;
     }
     const more = e.target.closest("tr[data-calls] button");
-    if (more) loadValueCalls(groups[Number(more.closest("tr").dataset.calls)], more.closest("tr"), more.dataset.after);
+    if (more) loadValueSites(groups[Number(more.closest("tr").dataset.calls)], more.closest("tr"), more.dataset.after);
   });
 }
 
-/** One page of the calls that pass [group]'s value, appended as "who uses" rows. */
-async function loadValueCalls(group, row, after) {
-  const page = (await api("api/parameter-value-calls", { key, kind: group.valueKind, value: group.value, after, limit: 100 })).result;
+/** One page of the calls or writes that give [group]'s value, appended as "who uses" rows. */
+async function loadValueSites(group, row, after) {
+  const page = (await api("api/value-sites", { key, kind: group.valueKind, value: group.value, after, limit: 100 })).result;
   row.querySelector("tbody").insertAdjacentHTML("beforeend", page.rows.map(rowHtml).join(""));
   const more = row.querySelector("button");
   more.hidden = page.nextAfter === null;
@@ -130,6 +132,7 @@ function literalText(kind, value) {
     case "STRING": return "'" + value.replace(/'/g, "''") + "'";
     case "NUMBER": case "BOOLEAN": return value;
     case "NULL": return "NULL";
+    case "DEFAULT": return "DEFAULT";
     default: return null;
   }
 }
@@ -144,12 +147,15 @@ function argumentText(a) {
 
 function rowHtml(row) {
   const args = row.arguments.length === 0 ? "" : `<div class="muted mono">(${row.arguments.map(argumentText).join(", ")})</div>`;
+  // A column write with literal values: `= 'S'`, one per row of a multi-row insert.
+  const literals = row.values.map(v => literalText(v.valueKind, v.value)).filter(v => v !== null);
+  const written = literals.length === 0 ? "" : `<div class="muted mono">= ${esc(literals.join(", "))}</div>`;
   const others = row.viaCandidate ? `<div class="muted">${esc(t("usage.candidates"))} ${row.candidates.map(entityLink).join(", ")}</div>` : "";
   // The view column or view the row was reached through.
   const via = row.viaView ? `<div class="muted">${esc(t("usage.via"))} ${entityLink(row.matched)}</div>` : "";
   return `<tr><td class="mono">${row.span.startLine}:${row.span.startCol}</td><td>${entityLink(row.container)}
     <div class="muted">${esc(row.unit.kind)} ${esc(row.unit.name)}</div></td>
-    <td class="mono">${esc(row.written)}${args}${via}</td><td>${esc(row.roles.map(roleLabel).join(", "))}${row.statementKind ? '<div class="muted">' + esc(row.statementKind) + "</div>" : ""}</td>
+    <td class="mono">${esc(row.written)}${args}${written}${via}</td><td>${esc(row.roles.map(roleLabel).join(", "))}${row.statementKind ? '<div class="muted">' + esc(row.statementKind) + "</div>" : ""}</td>
     <td>${statusBadge(row.status, row.reason)}${others}</td><td>${openFileLink(row.path, row.span.startLine)} · ${lazySource(row.path, row.span.startLine)}</td></tr>`;
 }
 

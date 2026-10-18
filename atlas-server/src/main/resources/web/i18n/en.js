@@ -56,9 +56,10 @@ registerMessages("en", {
   "trigger.level.ROW": "for each row",
   "trigger.level.STATEMENT": "statement",
 
-  "values.title": "Values passed",
-  "values.none": "No argument is bound to this parameter.",
-  "values.calls": "show calls",
+  "values.title.passed": "Values passed",
+  "values.title.written": "Values written",
+  "values.none": "No value is recorded.",
+  "values.sites": "show sites",
   "values.kind.NULL": "NULL",
   "values.kind.BIND": "a bind variable",
   "values.kind.EXPRESSION": "an expression",

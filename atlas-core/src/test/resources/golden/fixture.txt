@@ -933,6 +933,61 @@ hr/proc_view_chain.prc	5:25-5:35	v_lin_join	db:HR.V_LIN_JOIN	SQL_SELECT	RESOLVED
 hr/proc_view_chain.prc	5:42-5:44	id	db:HR.V_LIN_JOIN.ID	READ	RESOLVED	-	db:HR.PROC_VIEW_CHAIN()	SELECT
 hr/proc_view_chain.prc	6:9-6:21	company_name	db:HR.V_LIN_JOIN.COMPANY_NAME	READ	RESOLVED	-	db:HR.PROC_VIEW_CHAIN()	SELECT
 hr/proc_view_chain.prc	6:34-6:44	v_lin_join	db:HR.V_LIN_JOIN	SQL_SELECT	RESOLVED	-	db:HR.PROC_VIEW_CHAIN()	SELECT
+hr/proc_writes.prc	1:0-20:4	proc_writes	db:HR.PROC_WRITES()	DEFINITION	RESOLVED	-	db:HR.PROC_WRITES()	-
+hr/proc_writes.prc	2:4-2:11	company	db:HR.COMPANY	TYPE_USE	RESOLVED	-	db:HR.PROC_WRITES()	-
+hr/proc_writes.prc	4:9-4:16	company	db:HR.COMPANY	SQL_UPDATE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	4:21-4:30	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_UPDATE,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	4:38-4:48	dt_changed	db:HR.COMPANY.DT_CHANGED	SQL_UPDATE,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	4:65-4:67	id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	5:9-5:16	company	db:HR.COMPANY	SQL_UPDATE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	5:21-5:30	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_UPDATE,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	6:9-6:16	company	db:HR.COMPANY	SQL_UPDATE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	6:21-6:30	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_UPDATE,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	7:9-7:16	company	db:HR.COMPANY	SQL_UPDATE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	7:22-7:31	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_UPDATE,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	7:33-7:45	company_name	db:HR.COMPANY.COMPANY_NAME	SQL_UPDATE,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	8:9-8:16	company	db:HR.COMPANY	SQL_UPDATE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	8:21-8:33	company_name	db:HR.COMPANY.COMPANY_NAME	SQL_UPDATE,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	8:36-8:48	company_name	db:HR.COMPANY.COMPANY_NAME	READ	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	9:14-9:21	company	db:HR.COMPANY	SQL_INSERT	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	9:23-9:25	id	db:HR.COMPANY.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	9:27-9:36	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	10:14-10:21	company	db:HR.COMPANY	SQL_INSERT	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	10:14-10:21	company	db:HR.COMPANY.COMPANY_NAME	IMPLICIT,SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	10:14-10:21	company	db:HR.COMPANY.DT_CHANGED	IMPLICIT,SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	10:14-10:21	company	db:HR.COMPANY.ID	IMPLICIT,SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	10:14-10:21	company	db:HR.COMPANY.ST_ACTIVE	IMPLICIT,SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	11:14-11:21	company	db:HR.COMPANY	SQL_INSERT	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	11:23-11:25	id	db:HR.COMPANY.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	11:27-11:36	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	11:45-11:47	id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	11:58-11:65	company	db:HR.COMPANY	SQL_SELECT	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	12:14-12:21	company	db:HR.COMPANY	SQL_INSERT	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	12:23-12:25	id	db:HR.COMPANY.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	12:27-12:36	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	12:45-12:47	id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	12:49-12:58	st_active	db:HR.COMPANY.ST_ACTIVE	READ	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	12:64-12:71	company	db:HR.COMPANY	SQL_SELECT	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	13:14-13:21	company	db:HR.COMPANY	SQL_INSERT	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	13:23-13:25	id	db:HR.COMPANY.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	13:27-13:36	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	14:14-14:21	company	db:HR.COMPANY	SQL_INSERT	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	14:14-14:21	company	db:HR.COMPANY.COMPANY_NAME	IMPLICIT,SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	14:14-14:21	company	db:HR.COMPANY.DT_CHANGED	IMPLICIT,SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	14:14-14:21	company	db:HR.COMPANY.ID	IMPLICIT,SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	14:14-14:21	company	db:HR.COMPANY.ST_ACTIVE	IMPLICIT,SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	15:13-15:20	company	db:HR.COMPANY	SQL_INSERT,SQL_MERGE,SQL_UPDATE	RESOLVED	-	db:HR.PROC_WRITES()	MERGE
+hr/proc_writes.prc	15:59-15:63	c.id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.PROC_WRITES()	MERGE
+hr/proc_writes.prc	16:33-16:42	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_UPDATE,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	MERGE
+hr/proc_writes.prc	17:34-17:36	id	db:HR.COMPANY.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	MERGE
+hr/proc_writes.prc	17:38-17:47	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	MERGE
+hr/proc_writes.prc	18:20-18:72	EXECUTE IMMEDIATE	-		DYNAMIC	PARSED	db:HR.PROC_WRITES()	DYNAMIC
+hr/proc_writes.prc	18:28-18:35	company	db:HR.COMPANY	SQL_UPDATE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	18:40-18:49	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_UPDATE,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	18:64-18:66	id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.PROC_WRITES()	UPDATE
+hr/proc_writes.prc	19:14-19:21	company	db:HR.COMPANY	SQL_INSERT	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	19:23-19:25	id	db:HR.COMPANY.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
+hr/proc_writes.prc	19:27-19:36	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PROC_WRITES()	INSERT
 hr/proc_xmlseq.prc	1:0-5:16	proc_xmlseq	db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	DEFINITION	RESOLVED	-	db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	-
 hr/proc_xmlseq.prc	1:40-1:53	p_doc	db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE).P_DOC	DEFINITION	RESOLVED	-	db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	-
 hr/proc_xmlseq.prc	1:46-1:53	xmltype	db:SYS.XMLTYPE	TYPE_USE	UNRESOLVED	NOT_IN_PROJECT	db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	-
@@ -1558,6 +1613,7 @@ hr/proc_synonym_objects.prc	17:0-17:91	concat_agg	17:27-17:37
 hr/proc_synonym_objects.prc	17:38-17:48	p	17:38-17:39
 hr/proc_synonyms.prc	1:0-20:18	proc_synonyms	1:28-1:41
 hr/proc_view_chain.prc	1:0-7:4	proc_view_chain	1:28-1:43
+hr/proc_writes.prc	1:0-20:4	proc_writes	1:28-1:39
 hr/proc_xmlseq.prc	1:0-5:16	proc_xmlseq	1:28-1:39
 hr/proc_xmlseq.prc	1:40-1:53	p_doc	1:40-1:45
 hr/trg_company_bu.trg	1:0-9:4	trg_company_bu	1:26-1:40
@@ -1666,6 +1722,9 @@ hr/pack_dynamic.pkb	28:47-28:50	msg	DYNAMIC_LITERAL
 hr/pack_dynamic.pkb	30:42-30:51	event_log	DYNAMIC_LITERAL
 hr/pack_dynamic.pkb	30:58-30:60	id	DYNAMIC_LITERAL
 hr/pack_process.pkb	28:35-28:42	company	DYNAMIC_LITERAL
+hr/proc_writes.prc	18:28-18:35	company	DYNAMIC_LITERAL
+hr/proc_writes.prc	18:40-18:49	st_active	DYNAMIC_LITERAL
+hr/proc_writes.prc	18:64-18:66	id	DYNAMIC_LITERAL
 hr/trg_dynamic.trg	5:28-5:35	company	DYNAMIC_LITERAL
 hr/trg_dynamic.trg	5:40-5:49	st_active	DYNAMIC_LITERAL
 hr/trg_dynamic.trg	5:73-5:75	id	DYNAMIC_LITERAL
@@ -1967,6 +2026,7 @@ db:HR.PROC_STANDALONE(P_ID IN NUMBER).P_ID	PARAMETER	HR	P_ID	db:HR.PROC_STANDALO
 db:HR.PROC_SYNONYMS()	PROCEDURE	HR	PROC_SYNONYMS	-	HR.PROC_SYNONYMS()	0
 db:HR.PROC_SYNONYM_OBJECTS()	PROCEDURE	HR	PROC_SYNONYM_OBJECTS	-	HR.PROC_SYNONYM_OBJECTS()	0
 db:HR.PROC_VIEW_CHAIN()	PROCEDURE	HR	PROC_VIEW_CHAIN	-	HR.PROC_VIEW_CHAIN()	0
+db:HR.PROC_WRITES()	PROCEDURE	HR	PROC_WRITES	-	HR.PROC_WRITES()	0
 db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	PROCEDURE	HR	PROC_XMLSEQ	-	HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	0
 db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE).P_DOC	PARAMETER	HR	P_DOC	db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	HR.PROC_XMLSEQ(P_DOC IN XMLTYPE).P_DOC	0
 db:HR.SEND_QUEUE	TABLE	HR	SEND_QUEUE	-	HR.SEND_QUEUE	0
@@ -2654,6 +2714,7 @@ hr/proc_standalone.prc	DB_SOURCE	356	HR	OK	0
 hr/proc_synonym_objects.prc	DB_SOURCE	568	HR	OK	0
 hr/proc_synonyms.prc	DB_SOURCE	997	HR	OK	0
 hr/proc_view_chain.prc	DB_SOURCE	242	HR	OK	0
+hr/proc_writes.prc	DB_SOURCE	1067	HR	OK	0
 hr/proc_xmlseq.prc	DB_SOURCE	169	HR	OK	0
 hr/trg_company_bu.trg	DB_SOURCE	278	HR	OK	0
 hr/trg_dynamic.trg	DB_SOURCE	171	HR	OK	0
@@ -2737,6 +2798,7 @@ hr/proc_synonym_objects.prc	PROCEDURE	PROC_SYNONYM_OBJECTS	db:HR.PROC_SYNONYM_OB
 hr/proc_synonym_objects.prc	FUNCTION	CONCAT_AGG	db:HR.CONCAT_AGG(P IN VARCHAR2)	17:0-17:91
 hr/proc_synonyms.prc	PROCEDURE	PROC_SYNONYMS	db:HR.PROC_SYNONYMS()	1:0-20:18
 hr/proc_view_chain.prc	PROCEDURE	PROC_VIEW_CHAIN	db:HR.PROC_VIEW_CHAIN()	1:0-7:4
+hr/proc_writes.prc	PROCEDURE	PROC_WRITES	db:HR.PROC_WRITES()	1:0-20:4
 hr/proc_xmlseq.prc	PROCEDURE	PROC_XMLSEQ	db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	1:0-5:16
 hr/trg_company_bu.trg	TRIGGER	TRG_COMPANY_BU	db:HR.TRG_COMPANY_BU	1:0-9:4
 hr/trg_dynamic.trg	TRIGGER	TRG_DYNAMIC	db:HR.TRG_DYNAMIC	1:0-6:4
@@ -3002,6 +3064,21 @@ hr/proc_synonyms.prc	SELECT	db:HR.PROC_SYNONYMS()	19:2-19:40
 hr/proc_view_chain.prc	SELECT	db:HR.PROC_VIEW_CHAIN()	4:2-4:48
 hr/proc_view_chain.prc	SELECT	db:HR.PROC_VIEW_CHAIN()	5:2-5:48
 hr/proc_view_chain.prc	SELECT	db:HR.PROC_VIEW_CHAIN()	6:2-6:61
+hr/proc_writes.prc	UPDATE	db:HR.PROC_WRITES()	4:2-4:71
+hr/proc_writes.prc	UPDATE	db:HR.PROC_WRITES()	5:2-5:37
+hr/proc_writes.prc	UPDATE	db:HR.PROC_WRITES()	6:2-6:35
+hr/proc_writes.prc	UPDATE	db:HR.PROC_WRITES()	7:2-7:76
+hr/proc_writes.prc	UPDATE	db:HR.PROC_WRITES()	8:2-8:55
+hr/proc_writes.prc	INSERT	db:HR.PROC_WRITES()	9:2-9:53
+hr/proc_writes.prc	INSERT	db:HR.PROC_WRITES()	10:2-10:51
+hr/proc_writes.prc	INSERT	db:HR.PROC_WRITES()	11:2-11:65
+hr/proc_writes.prc	INSERT	db:HR.PROC_WRITES()	12:2-12:101
+hr/proc_writes.prc	INSERT	db:HR.PROC_WRITES()	13:2-13:57
+hr/proc_writes.prc	INSERT	db:HR.PROC_WRITES()	14:2-14:30
+hr/proc_writes.prc	MERGE	db:HR.PROC_WRITES()	15:2-17:67
+hr/proc_writes.prc	DYNAMIC	db:HR.PROC_WRITES()	18:2-18:81
+hr/proc_writes.prc	UPDATE	db:HR.PROC_WRITES()	18:21-18:71
+hr/proc_writes.prc	INSERT	db:HR.PROC_WRITES()	19:2-19:63
 hr/proc_xmlseq.prc	SELECT	db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE)	4:2-4:72
 hr/trg_company_bu.trg	INSERT	db:HR.TRG_COMPANY_BU	7:2-7:56
 hr/trg_company_bu.trg	INSERT	db:HR.TRG_COMPANY_BU	8:2-8:51
@@ -3286,13 +3363,99 @@ scripts/calls_owned.sql	14:2	pack_owned.does_not_exist	1	-	-	14:28-14:29	NUMBER	
 scripts/calls_owned2.sql	7:5	pkg_ext.g_tab.exists	1	-	-	7:26-7:27	NUMBER	1
 scripts/calls_owned2.sql	8:2	other.pack_x.do_it	1	-	-	8:21-8:22	NUMBER	1
 scripts/load.sql	5:20	sys.odcinumberlist	1	-	-	5:39-5:40	NUMBER	1
+## written_value
+hr/conditional.sql	40:25	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	A	40:37-40:40
+hr/pack_dynamic.pkb	18:42	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	N	18:54-18:57
+hr/pack_dynamic.pkb	27:10	company_name	db:HR.COMPANY.COMPANY_NAME	1	STRING	x	27:25-27:28
+hr/pack_process.pkb	4:27	id	db:HR.EVENT_LOG.ID	1	NUMBER	1	4:44-4:45
+hr/pack_process.pkb	4:31	msg	db:HR.EVENT_LOG.MSG	1	NAME	P_MSG	4:47-4:52
+hr/pack_process.pkb	4:186	id	db:HR.EVENT_LOG.ID	1	NAME	SEQ_EVENT.NEXTVAL	4:203-4:220
+hr/pack_process.pkb	4:190	msg	db:HR.EVENT_LOG.MSG	1	NAME	PACK_PROCESS.C_KIND	4:222-4:241
+hr/pack_process.pkb	10:23	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	S	10:35-10:38
+hr/pack_process.pkb	11:25	e.st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	N	11:39-11:42
+hr/pack_process.pkb	12:25	x.st_active	-	1	STRING	N	12:39-12:42
+hr/pack_process.pkb	13:24	company_name	db:HR.COMPANY.COMPANY_NAME	1	STRING	a	13:59-13:62
+hr/pack_process.pkb	13:38	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	b	13:64-13:67
+hr/pack_process.pkb	15:23	missing_column	db:HR.COMPANY.MISSING_COLUMN	1	NUMBER	1	15:40-15:41
+hr/pack_process.pkb	17:35	d.st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	S	17:49-17:52
+hr/pack_process.pkb	18:36	id	db:HR.COMPANY.ID	1	NAME	S.ID	18:59-18:63
+hr/pack_process.pkb	18:40	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	N	18:65-18:68
+hr/pack_process.pkb	25:16	send_queue	db:HR.SEND_QUEUE.ID	1	NAME	P_A	25:35-25:38
+hr/pack_process.pkb	25:16	send_queue	db:HR.SEND_QUEUE.PAYLOAD	1	NAME	P_B	25:45-25:48
+hr/pack_process.pkb	25:16	send_queue	db:HR.SEND_QUEUE.RECORD_TYPE	1	STRING	J	25:40-25:43
+hr/pack_process.pkb	26:28	id	db:HR.SEND_QUEUE.ID	1	NUMBER	1	26:53-26:54
+hr/pack_process.pkb	26:32	record_type	db:HR.SEND_QUEUE.RECORD_TYPE	1	STRING	J	26:56-26:59
+hr/pack_process.pkb	27:31	id	db:HR.SEND_QUEUE.ID	1	NUMBER	1	27:36-27:37
+hr/pack_process.pkb	27:39	record_type	db:HR.SEND_QUEUE.RECORD_TYPE	1	STRING	J	27:53-27:56
+hr/proc_column_reads.prc	10:34	id	db:HR.COMPANY.ID	1	NAME	ID	10:60-10:62
+hr/proc_column_reads.prc	10:38	company_name	db:HR.COMPANY.COMPANY_NAME	1	NAME	PAYLOAD	10:64-10:71
+hr/proc_columns.prc	17:21	company_name	db:HR.COMPANY.COMPANY_NAME	1	NAME	MSG	17:36-17:39
+hr/proc_columns.prc	17:41	st_active	db:HR.COMPANY.ST_ACTIVE	1	NAME	COMPANY_NAME	17:53-17:65
+hr/proc_columns.prc	18:25	id	db:HR.EVENT_LOG.ID	1	NAME	V	18:42-18:43
+hr/proc_columns.prc	18:29	msg	db:HR.EVENT_LOG.MSG	1	NAME	FN_ONE	18:45-18:51
+hr/proc_columns.prc	19:25	id	db:HR.EVENT_LOG.ID	1	NAME	ID	19:41-19:43
+hr/proc_columns.prc	19:29	msg	db:HR.EVENT_LOG.MSG	1	NAME	COMPANY_NAME	19:45-19:57
+hr/proc_columns.prc	20:88	company_name	db:HR.COMPANY.COMPANY_NAME	1	NAME	RECORD_TYPE	20:103-20:114
+hr/proc_columns.prc	20:167	id	db:HR.COMPANY.ID	1	NAME	S.ID	20:193-20:197
+hr/proc_columns.prc	20:171	company_name	db:HR.COMPANY.COMPANY_NAME	1	NAME	PAYLOAD	20:199-20:206
+hr/proc_synonyms.prc	15:25	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	N	15:37-15:40
+hr/proc_writes.prc	4:21	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	N	4:33-4:36
+hr/proc_writes.prc	4:38	dt_changed	db:HR.COMPANY.DT_CHANGED	1	NAME	SYSDATE	4:51-4:58
+hr/proc_writes.prc	5:21	st_active	db:HR.COMPANY.ST_ACTIVE	1	NULL	-	5:33-5:37
+hr/proc_writes.prc	6:21	st_active	db:HR.COMPANY.ST_ACTIVE	1	NULL	-	6:33-6:35
+hr/proc_writes.prc	7:22	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	S	7:57-7:60
+hr/proc_writes.prc	7:33	company_name	db:HR.COMPANY.COMPANY_NAME	1	STRING	x	7:62-7:65
+hr/proc_writes.prc	8:21	company_name	db:HR.COMPANY.COMPANY_NAME	1	EXPRESSION	-	8:36-8:55
+hr/proc_writes.prc	9:23	id	db:HR.COMPANY.ID	1	NUMBER	1	9:46-9:47
+hr/proc_writes.prc	9:27	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	S	9:49-9:52
+hr/proc_writes.prc	10:14	company	db:HR.COMPANY.COMPANY_NAME	1	STRING	b	10:38-10:41
+hr/proc_writes.prc	10:14	company	db:HR.COMPANY.DT_CHANGED	1	NAME	SYSDATE	10:43-10:50
+hr/proc_writes.prc	10:14	company	db:HR.COMPANY.ID	1	NUMBER	2	10:30-10:31
+hr/proc_writes.prc	10:14	company	db:HR.COMPANY.ST_ACTIVE	1	STRING	S	10:33-10:36
+hr/proc_writes.prc	11:23	id	db:HR.COMPANY.ID	1	NAME	ID	11:45-11:47
+hr/proc_writes.prc	11:27	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	N	11:49-11:52
+hr/proc_writes.prc	13:23	id	db:HR.COMPANY.ID	1	NUMBER	3	13:46-13:47
+hr/proc_writes.prc	13:27	st_active	db:HR.COMPANY.ST_ACTIVE	1	DEFAULT	-	13:49-13:56
+hr/proc_writes.prc	16:33	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	S	16:45-16:48
+hr/proc_writes.prc	17:34	id	db:HR.COMPANY.ID	1	NAME	S.ID	17:57-17:61
+hr/proc_writes.prc	17:38	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	N	17:63-17:66
+hr/proc_writes.prc	18:40	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	X	18:52-18:55
+hr/proc_writes.prc	19:23	id	db:HR.COMPANY.ID	1	NUMBER	4	19:46-19:47
+hr/proc_writes.prc	19:27	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	P	19:49-19:52
+hr/trg_company_bu.trg	7:25	id	db:HR.EVENT_LOG.ID	1	NUMBER	2	7:42-7:43
+hr/trg_company_bu.trg	7:29	msg	db:HR.EVENT_LOG.MSG	1	NAME	:OLD.ROWID	7:45-7:55
+hr/trg_company_bu.trg	8:25	id	db:HR.EVENT_LOG.ID	1	NUMBER	1	8:42-8:43
+hr/trg_company_bu.trg	8:29	msg	db:HR.EVENT_LOG.MSG	1	STRING	upd	8:45-8:50
+hr/trg_dynamic.trg	5:40	st_active	db:HR.COMPANY.ST_ACTIVE	1	NAME	:NEW.ST_ACTIVE	5:52-5:66
+hr/trg_forms.trg	18:25	id	db:HR.EVENT_LOG.ID	1	NAME	:N.ID	18:42-18:47
+hr/trg_forms.trg	18:29	msg	db:HR.EVENT_LOG.MSG	1	NAME	:O.COMPANY_NAME	18:49-18:64
+hr/trg_forms.trg	36:23	id	db:HR.COMPANY.ID	1	NAME	:NEW.ID	36:49-36:56
+hr/trg_forms.trg	36:27	company_name	db:HR.COMPANY.COMPANY_NAME	1	NAME	:NEW.COMPANY_NAME	36:58-36:75
+scripts/broken.sql	3:21	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	X	3:33-3:36
+scripts/broken.sql	6:19	company_name	db:HR.COMPANY.COMPANY_NAME	1	STRING	y	6:34-6:37
+scripts/broken_call.sql	3:21	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	X	3:33-3:36
+scripts/load.sql	1:12	hr.company	db:HR.COMPANY.COMPANY_NAME	1	STRING	x	1:39-1:42
+scripts/load.sql	1:12	hr.company	db:HR.COMPANY.DT_CHANGED	1	NAME	SYSDATE	1:44-1:51
+scripts/load.sql	1:12	hr.company	db:HR.COMPANY.ID	1	NUMBER	1	1:31-1:32
+scripts/load.sql	1:12	hr.company	db:HR.COMPANY.ST_ACTIVE	1	STRING	S	1:34-1:37
+scripts/load.sql	2:27	id	db:HR.EVENT_LOG.ID	1	NUMBER	1	2:44-2:45
+scripts/load.sql	2:31	msg	db:HR.EVENT_LOG.MSG	1	STRING	a	2:47-2:50
+scripts/load.sql	2:69	id	db:HR.SEND_QUEUE.ID	1	NUMBER	2	2:94-2:95
+scripts/load.sql	2:73	record_type	db:HR.SEND_QUEUE.RECORD_TYPE	1	STRING	J	2:97-2:100
+scripts/load.sql	3:34	event_log	db:HR.EVENT_LOG.ID	1	NUMBER	3	3:52-3:53
+scripts/load.sql	3:34	event_log	db:HR.EVENT_LOG.MSG	1	STRING	b	3:55-3:58
+scripts/load.sql	6:26	st_active	db:COMPANY@REMOTE.ST_ACTIVE	1	STRING	S	6:38-6:41
+scripts/load.sql	11:20	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	S	11:41-11:44
 ## coverage_note
 -	CALL_SCOPE_LEGACY	Calls named like a local value, type or nested subprogram are recognized through the legacy symbol table, a heuristic rather than proof of lexical scope
 hr/pack_args.pkb	LOCAL_ANCHOR	1 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
 hr/pack_dynamic.pkb	SQL_NAME_UNDECIDED	1 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed
+hr/pack_process.pkb	WRITE_VALUE_UNKNOWN	4 column write(s) without a value: SET ROW
 hr/pack_scoped.pkb	LOCAL_ANCHOR	2 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
 hr/pack_types.pkb	LOCAL_ANCHOR	3 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
 hr/proc_columns.prc	SQL_NAME_UNDECIDED	5 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed
+hr/proc_writes.prc	WRITE_VALUE_UNKNOWN	2 column write(s) without a value: set operator or *
+hr/proc_writes.prc	WRITE_VALUE_UNKNOWN	4 column write(s) without a value: record
 hr/proc_xmlseq.prc	SQL_NAME_UNDECIDED	1 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed
 hr/trg_forms.trg	TRIGGER_COLUMN_UNRESOLVED	db:HR.TRG_COMPANY_FORMS: UPDATE OF column NO_SUCH_COL is not a column of the trigger's relation
 hr/views.sql	VIEW_COLUMN_UNMATCHED	db:HR.V_COMPANY_CALC: column LEGACY_COL has no site in the CREATE VIEW text
@@ -3302,6 +3465,7 @@ hr/views_star.sql	VIEW_LINEAGE_UNKNOWN	db:HR.V_PARTIAL: column EXTRA comes from 
 hr/views_star.sql	VIEW_LINEAGE_UNKNOWN	db:HR.V_PARTIAL: column ID comes from a source whose columns cannot be followed
 hr/views_star.sql	VIEW_LINEAGE_UNKNOWN	db:HR.V_TABLE_FN: column COL_A comes from a source whose columns cannot be followed
 hr/views_star.sql	VIEW_LINEAGE_UNKNOWN	db:HR.V_TABLE_FN: column COL_B comes from a source whose columns cannot be followed
+scripts/load.sql	WRITE_VALUE_UNKNOWN	1 column write(s) without a value: columns not complete
 ## trigger_event
 db:HR.TRG_AREA_CHECK	BEFORE	ROW	INSERT	-
 db:HR.TRG_COMPANY_BU	BEFORE	ROW	UPDATE	-

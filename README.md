@@ -12,6 +12,8 @@ browsed in a local web page or queried with SQL, and can optionally be checked a
 - **Which values a parameter receives.** Each call argument records what it passes (a string, number, boolean or
   `NULL` literal with its value, a name, a bind or an expression); a parameter's page groups the values passed to it,
   e.g. who calls a procedure with message `1234`.
+- **Which values a column is written.** Each `INSERT`, `UPDATE` and `MERGE` column write records the value it writes,
+  classified the same way (plus `DEFAULT`); a column's page groups them, e.g. who sets a status column to `'S'`.
 - **Who reads or writes a table or column**, including `INSERT`/`UPDATE`/`MERGE` column lists, `select *` expansions
   and trigger `:new.col` assignments. Example: "who writes `HR.COMPANY.DT_CHANGED`" lists trigger `TRG_COMPANY_BU`.
 - **Where something is defined**, including package and type bodies, triggers, views and the columns of a view.
@@ -173,7 +175,7 @@ The schema can change between versions (the stored version is in `run`), so quer
 - `atlas-core`: parsing with ZPA, extraction, the index writer.
 - `atlas-query`: the read API over an index, and the dependency comparison.
 - `atlas-server`: the web page and its JSON API (`/api/run`, `/api/entities`, `/api/entity`, `/api/occurrences`,
-  `/api/source`, `/api/file`, `/api/parameter-values`, `/api/parameter-value-calls`).
+  `/api/source`, `/api/file`, `/api/values`, `/api/value-sites`).
 - `atlas-cli`: the `zpa-atlas` command.
 - `atlas-devtools`: measurement tools.
 

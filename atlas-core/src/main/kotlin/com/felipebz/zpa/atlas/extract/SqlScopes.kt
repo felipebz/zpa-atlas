@@ -35,12 +35,31 @@ internal class Statement(val root: AstNode, val context: Context, val id: Int, p
     /** The columns (`n:NAME`, `p:POSITION`) of each query whose lineage is being followed, to stop at recursive `WITH` names. */
     val following = IdentityHashMap<AstNode, MutableSet<String>>()
 
+    /**
+     * The values a column write writes: the expressions of [values] for one column, classified, one per row; none,
+     * counted under their reason, when the statement gives none.
+     */
+    fun writtenValues(values: ColumnValues, position: Int): List<WrittenValueFact> = when (values) {
+        is ColumnValues.Rows -> values.of(position).mapIndexed { index, node ->
+            val value = ExpressionValues.of(node, context::hasHoles)
+            WrittenValueFact(index + 1, value.kind, value.value, spanOf(node))
+        }
+        is ColumnValues.None -> {
+            unvalued(values.reason)
+            emptyList()
+        }
+    }
+
+    fun unvalued(reason: String) {
+        state.unvaluedWrites.merge(reason, 1, Int::plus)
+    }
+
     fun occurrence(
         node: AstNode, entityKey: String?, roles: Set<Role>, status: Status, reason: String?, candidates: List<String> = emptyList(),
-        span: SourceSpan = spanOf(node), written: String = writtenText(node)
+        span: SourceSpan = spanOf(node), written: String = writtenText(node), values: List<WrittenValueFact> = emptyList()
     ) {
         val fact = OccurrenceFact(context.unitIndex, context.container, id, span, written, entityKey,
-            roles, status(status, context.partial), context.origin, reason, candidates)
+            roles, status(status, context.partial), context.origin, reason, candidates, writtenValues = values)
         state.occurrences += fact
         if (roles == COLUMN_READ) columnReads.getOrPut(node) { ArrayList() } += fact
     }

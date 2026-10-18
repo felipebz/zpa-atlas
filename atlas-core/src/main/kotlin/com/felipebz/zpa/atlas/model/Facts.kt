@@ -73,8 +73,13 @@ data class OccurrenceFact(
      * The span of the name [written] comes from, when it is not [span]: a definition or declaration spans the whole
      * declaration. Null when the name is the span or is not known (a file the parser rejected).
      */
-    val nameSpan: SourceSpan? = null
+    val nameSpan: SourceSpan? = null,
+    /** For a column write: the value written, one per row of the statement (several for a multi-row `INSERT`). */
+    val writtenValues: List<WrittenValueFact> = emptyList()
 )
+
+/** The value a column write writes in row [row] of its statement, classified as call arguments are. */
+data class WrittenValueFact(val row: Int, val valueKind: ValueKind, val value: String?, val span: SourceSpan)
 
 /** One written actual of a call: its 1-based [ordinal], its label when named, and the formal it binds to when proven. */
 data class CallArgumentFact(

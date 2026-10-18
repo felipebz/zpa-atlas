@@ -45,6 +45,12 @@ object Stats {
                     "SELECT o.reason, count(*) FROM occurrence o JOIN sql_statement s ON s.id = o.statement_id WHERE s.kind = 'DYNAMIC' GROUP BY o.reason ORDER BY o.reason")
                 section(connection, "Call arguments by value kind",
                     "SELECT value_kind || CASE WHEN parameter_entity_id IS NULL THEN ' unbound' ELSE ' bound' END, count(*) FROM call_argument GROUP BY 1 ORDER BY 1")
+                // The kinds of the values written, then the column writes without one, by the reason the files counted.
+                section(connection, "Column writes by value kind", """
+                    SELECT value_kind, count(*) FROM written_value GROUP BY value_kind
+                    UNION ALL
+                    SELECT 'no value: ' || substr(message, instr(message, ': ') + 2), sum(CAST(substr(message, 1, instr(message, ' ') - 1) AS INTEGER))
+                    FROM coverage_note WHERE kind = 'WRITE_VALUE_UNKNOWN' GROUP BY 1 ORDER BY 1""")
                 section(connection, "DDL targets by role and status", """
                     SELECT roles || ' ' || status || ' ' || coalesce(reason, '-'), count(*) FROM occurrence
                     WHERE roles LIKE 'DDL\_%' ESCAPE '\' GROUP BY roles, status, reason ORDER BY roles, status, reason""")

@@ -63,8 +63,8 @@ class AtlasServerTest {
             "/api/occurrences" to mapOf("key" to runJob5, "scope" to "SELF,IMPLEMENTATIONS", "roles" to "CALL"),
             "/api/source" to mapOf("path" to "hr/pack_calls.pkb", "line" to "32", "context" to "1"),
             "/api/file" to mapOf("path" to "hr/pack_calls.pkb"),
-            "/api/parameter-values" to mapOf("key" to "db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE"),
-            "/api/parameter-value-calls" to mapOf("key" to "db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE", "kind" to "NUMBER", "value" to "1.5")
+            "/api/values" to mapOf("key" to "db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE"),
+            "/api/value-sites" to mapOf("key" to "db:HR.PACK_ARGS.P(P_CODE IN NUMBER,P_NAME IN VARCHAR2,P_FLAG IN BOOLEAN).P_CODE", "kind" to "NUMBER", "value" to "1.5")
         )) {
             val response = client.get(path) { parameters.forEach { (k, v) -> parameter(k, v) } }
             assertThat(response.status).describedAs(path).isEqualTo(HttpStatusCode.OK)

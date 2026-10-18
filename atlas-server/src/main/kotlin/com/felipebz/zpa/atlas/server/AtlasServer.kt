@@ -78,12 +78,12 @@ fun Application.atlasModule(index: AtlasIndex) {
                 )
                 if (answer.result == null) call.respond(HttpStatusCode.NotFound, ApiError("Unknown entity")) else call.respond(answer)
             }
-            get("/parameter-values") {
-                val answer = index.parameterValues(call.required("key"))
+            get("/values") {
+                val answer = index.values(call.required("key"))
                 if (answer.result == null) call.respond(HttpStatusCode.NotFound, ApiError("Unknown entity")) else call.respond(answer)
             }
-            get("/parameter-value-calls") {
-                val answer = index.parameterValueCalls(call.required("key"), call.required("kind"), call.request.queryParameters["value"],
+            get("/value-sites") {
+                val answer = index.valueSites(call.required("key"), call.required("kind"), call.request.queryParameters["value"],
                     call.long("after"), call.int("limit") ?: 100)
                 if (answer.result == null) call.respond(HttpStatusCode.NotFound, ApiError("Unknown entity")) else call.respond(answer)
             }

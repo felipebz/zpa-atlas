@@ -37,6 +37,9 @@ internal class FileState {
     /** Unqualified names in static SQL that may be a column of a source with unknown columns: counted, not indexed. */
     var undecidedSqlNames = 0
 
+    /** Column writes with no value, by reason ([WrittenValues]). */
+    val unvaluedWrites = sortedMapOf<String, Int>()
+
     /** Modes of the formals that resolved calls bind their actual expressions to, for the roles of the values passed. */
     val argumentModes = IdentityHashMap<AstNode, ProjectParameterMode>()
 

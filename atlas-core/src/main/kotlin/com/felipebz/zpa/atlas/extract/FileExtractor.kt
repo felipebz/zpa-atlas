@@ -134,6 +134,9 @@ class FileExtractor(
         if (state.localTypeReferences > 0) {
             state.coverage += CoverageFact("LOCAL_ANCHOR", "${state.localTypeReferences} datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed")
         }
+        for ((reason, count) in state.unvaluedWrites) {
+            state.coverage += CoverageFact("WRITE_VALUE_UNKNOWN", "$count column write(s) without a value: $reason")
+        }
         if (state.undecidedSqlNames > 0) {
             state.coverage += CoverageFact("SQL_NAME_UNDECIDED", "${state.undecidedSqlNames} unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed")
         }

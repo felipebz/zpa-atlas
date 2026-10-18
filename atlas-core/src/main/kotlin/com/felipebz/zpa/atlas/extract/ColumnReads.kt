@@ -386,13 +386,18 @@ internal class ColumnReads(
      * Every column written or read without being named (`INSERT` without a column list, `SET ROW`, `*`): by dictionary
      * position, at [at] (the target's range for writes).
      */
-    fun implicitColumns(statement: Statement, target: Target, roles: Set<Role>, at: AstNode = target.reference) {
+    fun implicitColumns(statement: Statement, target: Target, roles: Set<Role>, at: AstNode = target.reference, written: WriteSource? = null) {
         val relation = target.resolved.relation
         if (relation != null && relation.isColumnsComplete) {
-            for (field in relation.rowFields) {
-                statement.occurrence(at, target.resolved.entityKey + "." + field.name.exact(), roles, Status.RESOLVED, null)
+            // A write pairs its values with the columns in the relation's order.
+            val values = written?.forColumns(relation.rowFields.size)
+            relation.rowFields.forEachIndexed { position, field ->
+                statement.occurrence(at, target.resolved.entityKey + "." + field.name.exact(), roles, Status.RESOLVED, null,
+                    values = values?.let { statement.writtenValues(it, position) }.orEmpty())
             }
         } else {
+            // No value without the relation's columns, unless the statement has none to give anyway (`SET ROW`, a record).
+            if (written != null) statement.unvalued((written as? WriteSource.None)?.reason ?: WrittenValues.COLUMNS_INCOMPLETE)
             val status = when (target.resolved.status) {
                 Status.EXTERNAL, Status.UNRESOLVED -> target.resolved.status
                 else -> Status.UNVERIFIED

@@ -217,35 +217,34 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
     }
 
     /**
-     * The values passed to the parameter [key]: its bound arguments grouped by value kind and value, most frequent
-     * first. `BIND` and `EXPRESSION` are one group each. A parameter of a body subprogram counts the arguments bound to
-     * its specification's parameter too, where calls bind. Null when there is no such entity.
+     * The values an entity receives: for a `PARAMETER`, the arguments bound to it (and, for a parameter of a body
+     * subprogram, to the same-named parameter of its specification, where calls bind); for a `COLUMN`, the values its
+     * writes write. Grouped by value kind and value, most frequent first; `BIND` and `EXPRESSION` are one group each.
+     * Empty for any other kind; null when there is no such entity.
      */
-    fun parameterValues(key: String): Answer<List<ValueGroup>?> = read { connection, _ ->
-        val ids = parameterIds(connection, key) ?: return@read null
+    fun values(key: String): Answer<List<ValueGroup>?> = read { connection, _ ->
+        val source = valueSource(connection, key) ?: return@read null
         connection.query(
             """SELECT value_kind, CASE WHEN value_kind IN ('BIND', 'EXPRESSION') THEN NULL ELSE value END AS shown, count(*) AS n
-               FROM call_argument WHERE parameter_entity_id IN (${ids.joinToString(",") { "?" }})
-               GROUP BY value_kind, shown ORDER BY n DESC, value_kind, shown""", ids
+               FROM (${source.sql}) GROUP BY value_kind, shown ORDER BY n DESC, value_kind, shown""", source.parameters
         ) { ValueGroup(it.getString(1), it.getString(2), it.getLong(3)) }
     }
 
     /**
-     * The calls that pass [value] (of [valueKind]; ignored for `NULL`, `BIND` and `EXPRESSION`) to the parameter [key],
-     * as [parameterValues] groups them: a page of call occurrences in source order, as "who uses" rows. Null when there
-     * is no such entity.
+     * The calls or writes that give [key] the value [value] (of [valueKind]; ignored for `NULL`, `BIND`, `EXPRESSION` and
+     * `DEFAULT`), as [values] groups them: a page of occurrences in source order, as "who uses" rows. Null when there is
+     * no such entity.
      */
-    fun parameterValueCalls(key: String, valueKind: String, value: String?, after: Long? = null, limit: Int = 100): Answer<OccurrencePage?> {
+    fun valueSites(key: String, valueKind: String, value: String?, after: Long? = null, limit: Int = 100): Answer<OccurrencePage?> {
         if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
         if (valueKind !in VALUE_KINDS) throw InvalidQueryException("Unknown value kind: $valueKind")
         val anyValue = valueKind in VALUES_UNSHOWN
         if (!anyValue && value == null) throw InvalidQueryException("Missing parameter: value")
         return read { connection, _ ->
-            val ids = parameterIds(connection, key) ?: return@read null
+            val source = valueSource(connection, key) ?: return@read null
             val hits = connection.query(
-                """SELECT DISTINCT o.id, o.entity_id, o.roles, o.status FROM call_argument a JOIN occurrence o ON o.id = a.occurrence_id
-                   WHERE a.parameter_entity_id IN (${ids.joinToString(",") { "?" }}) AND a.value_kind = ? AND (? OR a.value = ?)
-                   ORDER BY o.id""", ids + listOf(valueKind, anyValue, value)
+                """SELECT DISTINCT o.id, o.entity_id, o.roles, o.status FROM (${source.sql}) v JOIN occurrence o ON o.id = v.occurrence_id
+                   WHERE v.value_kind = ? AND (? OR v.value = ?) ORDER BY o.id""", source.parameters + listOf(valueKind, anyValue, value)
             ) { Hit(it.getLong(1), it.getLong(2), false, false, roles(it.getString(3)), it.getString(4)) }
             val remaining = hits.filter { after == null || it.id > after }
             val page = remaining.take(limit)
@@ -255,15 +254,27 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         }
     }
 
-    /** The parameter [key] and, for a parameter of a body subprogram, the same-named parameter of its specification. */
-    private fun parameterIds(connection: Connection, key: String): List<Long>? {
-        val id = connection.query("SELECT id FROM entity WHERE key = ?", listOf(key)) { it.getLong(1) }.singleOrNull() ?: return null
-        val twins = connection.query(
-            """SELECT s.id FROM entity p JOIN relation r ON r.from_id = p.parent_id AND r.kind = 'IMPLEMENTS'
-               JOIN entity s ON s.parent_id = r.to_id AND s.name = p.name AND s.kind = 'PARAMETER'
-               WHERE p.id = ? AND p.kind = 'PARAMETER'""", listOf(id)
-        ) { it.getLong(1) }
-        return listOf(id) + twins
+    /** The rows `(occurrence_id, value_kind, value)` of the values [values] reads for an entity. */
+    private class ValueSource(val sql: String, val parameters: List<Any?>)
+
+    /** The values of the entity [key] by its kind; null when there is no such entity. */
+    private fun valueSource(connection: Connection, key: String): ValueSource? {
+        val (id, kind) = connection.query("SELECT id, kind FROM entity WHERE key = ?", listOf(key)) { it.getLong(1) to it.getString(2) }.singleOrNull() ?: return null
+        return when (kind) {
+            "PARAMETER" -> {
+                val twins = connection.query(
+                    """SELECT s.id FROM entity p JOIN relation r ON r.from_id = p.parent_id AND r.kind = 'IMPLEMENTS'
+                       JOIN entity s ON s.parent_id = r.to_id AND s.name = p.name AND s.kind = 'PARAMETER'
+                       WHERE p.id = ?""", listOf(id)
+                ) { it.getLong(1) }
+                val ids = listOf(id) + twins
+                ValueSource("SELECT occurrence_id, value_kind, value FROM call_argument WHERE parameter_entity_id IN (${ids.joinToString(",") { "?" }})", ids)
+            }
+            "COLUMN" -> ValueSource(
+                "SELECT w.occurrence_id, w.value_kind, w.value FROM written_value w JOIN occurrence c ON c.id = w.occurrence_id WHERE c.entity_id = ?", listOf(id)
+            )
+            else -> ValueSource("SELECT occurrence_id, value_kind, value FROM call_argument WHERE 0", emptyList())
+        }
     }
 
     /**
@@ -370,6 +381,9 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
                 it.getString(4)?.let { k -> EntitySummary(k, it.getString(5), it.getString(6), it.getInt(7) == 1) }, span(it, 8),
                 it.getString(12), it.getString(13))
         }.groupBy({ it.first }, { it.second })
+        val written = connection.query(
+            "SELECT occurrence_id, row_number, value_kind, value FROM written_value WHERE occurrence_id IN ($marks) ORDER BY occurrence_id, row_number", ids
+        ) { it.getLong(1) to WrittenValue(it.getInt(2), it.getString(3), it.getString(4)) }.groupBy({ it.first }, { it.second })
         val byId = page.associateBy { it.id }
         return connection.query(
             """SELECT o.id, f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.written, o.roles, o.status, o.reason, o.origin,
@@ -386,7 +400,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             OccurrenceRow(
                 id, rs.getString(2), span(rs, 3), rs.getString(7), roles(rs.getString(8)), rs.getString(9), rs.getString(10), rs.getString(11),
                 entityOf(hit.matched)!!, hit.viaCandidate, hit.viaView, null, null, UnitRef(rs.getString(14), rs.getString(15)), rs.getString(16),
-                candidates[id].orEmpty(), arguments[id].orEmpty()
+                candidates[id].orEmpty(), arguments[id].orEmpty(), written[id].orEmpty()
             ).let { it.copy(entity = entityOf(entityId), container = entityOf(containerId)) }
         }
     }
@@ -442,7 +456,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     companion object {
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 11
+        const val SCHEMA_VERSION = 12
 
         /** The relation kinds whose entity page lists the views that read them, and whose readers [Scope.VIEWS] follows. */
         val VIEWED_KINDS = setOf("TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE")
@@ -461,10 +475,10 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             "SQL_MERGE", "SQL_LOCK", "TYPE_USE", "RAISE", "HANDLE", "IMPLICIT",
             "DDL_CREATE", "DDL_ALTER", "DDL_DROP", "DDL_TRUNCATE", "DDL_ANALYZE"
         )
-        val VALUE_KINDS = listOf("STRING", "NUMBER", "NULL", "BOOLEAN", "NAME", "BIND", "EXPRESSION")
+        val VALUE_KINDS = listOf("STRING", "NUMBER", "NULL", "BOOLEAN", "NAME", "BIND", "EXPRESSION", "DEFAULT")
 
         /** The value kinds whose arguments form one group whatever they pass. */
-        private val VALUES_UNSHOWN = setOf("NULL", "BIND", "EXPRESSION")
+        private val VALUES_UNSHOWN = setOf("NULL", "BIND", "EXPRESSION", "DEFAULT")
         val USAGE_ROLES: Set<String> = (ROLES - setOf("DEFINITION", "DECLARATION")).toSet()
         val STATUSES = listOf("RESOLVED", "UNVERIFIED", "AMBIGUOUS", "UNRESOLVED", "EXTERNAL", "DYNAMIC", "PARTIAL_SOURCE")
         val ENTITY_KINDS = listOf(

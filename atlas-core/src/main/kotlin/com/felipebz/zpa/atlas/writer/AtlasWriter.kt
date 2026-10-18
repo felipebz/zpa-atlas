@@ -55,9 +55,10 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         val statementInsert = prepare("INSERT INTO sql_statement(id, file_id, unit_id, container_entity_id, kind, start_line, start_col, end_line, end_col, normalized_hash) VALUES (?,?,?,?,?,?,?,?,?,?)")
         val occurrenceInsert = prepare("INSERT INTO occurrence(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line, end_col, written, entity_id, roles, status, origin, reason, name_start_line, name_start_col, name_end_line, name_end_col) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
         val candidateInsert = prepare("INSERT INTO occurrence_candidate(occurrence_id, entity_id) VALUES (?,?)")
+        val writtenValueInsert = prepare("INSERT INTO written_value(occurrence_id, row_number, value_kind, value, start_line, start_col, end_line, end_col) VALUES (?,?,?,?,?,?,?,?)")
         val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col, value_kind, value) VALUES (?,?,?,?,?,?,?,?,?,?)")
         val coverageInsert = prepare("INSERT INTO coverage_note(id, file_id, kind, message) VALUES (?,?,?,?)")
-        val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, coverageInsert)
+        val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert)
 
         var unitId = 0L
         var statementId = 0L
@@ -135,6 +136,14 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                     argumentInsert.setString(9, argument.valueKind.name)
                     argumentInsert.setNullableString(10, argument.value)
                     batches.add(argumentInsert)
+                }
+                for (written in occurrence.writtenValues) {
+                    writtenValueInsert.setLong(1, occurrenceId)
+                    writtenValueInsert.setInt(2, written.row)
+                    writtenValueInsert.setString(3, written.valueKind.name)
+                    writtenValueInsert.setNullableString(4, written.value)
+                    writtenValueInsert.setSpan(5, written.span)
+                    batches.add(writtenValueInsert)
                 }
             }
             // At a file boundary, so that the rows of one file go out together.
@@ -264,7 +273,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 11
+        const val SCHEMA_VERSION = 12
 
         /** Pending rows (all statements together) after which the batches are executed. */
         private const val FLUSH_ROWS = 20_000
@@ -453,6 +462,18 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 -- The literal's value (a decoded string, a canonical number), the name or bind as written; null otherwise.
                 value TEXT NULL,
                 PRIMARY KEY (occurrence_id, ordinal)
+            )""",
+            // The value a column write writes, one per row of its statement; classified as call_argument values are.
+            """CREATE TABLE written_value (
+                occurrence_id INTEGER NOT NULL REFERENCES occurrence(id),
+                row_number INTEGER NOT NULL,
+                value_kind TEXT NOT NULL ${check<ValueKind>("value_kind")},
+                value TEXT NULL,
+                start_line INTEGER NOT NULL,
+                start_col INTEGER NOT NULL,
+                end_line INTEGER NOT NULL,
+                end_col INTEGER NOT NULL,
+                PRIMARY KEY (occurrence_id, row_number)
             )""",
             """CREATE TABLE coverage_note (
                 id INTEGER PRIMARY KEY,

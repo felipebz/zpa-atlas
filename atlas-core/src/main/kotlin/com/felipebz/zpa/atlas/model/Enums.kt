@@ -142,7 +142,7 @@ enum class TriggerLevel : StoredEnum {
     STATEMENT
 }
 
-/** What a call argument passes; see `ArgumentValues`. */
+/** What a call argument passes or a column write writes; see `ExpressionValues`. `DEFAULT` is only written. */
 enum class ValueKind : StoredEnum {
     STRING,
     NUMBER,
@@ -150,7 +150,8 @@ enum class ValueKind : StoredEnum {
     BOOLEAN,
     NAME,
     BIND,
-    EXPRESSION
+    EXPRESSION,
+    DEFAULT
 }
 
 enum class StatementKind : StoredEnum {

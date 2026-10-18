@@ -32,6 +32,7 @@ class FixtureGoldenTest {
             "sql_statement" to "SELECT f.path, s.kind, coalesce(e.key, '-'), s.start_line || ':' || s.start_col || '-' || s.end_line || ':' || s.end_col FROM sql_statement s JOIN source_file f ON f.id = s.file_id LEFT JOIN entity e ON e.id = s.container_entity_id ORDER BY s.id",
             "occurrence_candidate" to "SELECT f.path, o.start_line || ':' || o.start_col, o.written, e.key FROM occurrence_candidate c JOIN occurrence o ON o.id = c.occurrence_id JOIN source_file f ON f.id = o.file_id JOIN entity e ON e.id = c.entity_id ORDER BY c.occurrence_id, c.entity_id",
             "call_argument" to "SELECT f.path, o.start_line || ':' || o.start_col, o.written, a.ordinal, coalesce(a.label, '-'), coalesce(e.key, '-'), a.start_line || ':' || a.start_col || '-' || a.end_line || ':' || a.end_col, a.value_kind, coalesce(a.value, '-') FROM call_argument a JOIN occurrence o ON o.id = a.occurrence_id JOIN source_file f ON f.id = o.file_id LEFT JOIN entity e ON e.id = a.parameter_entity_id ORDER BY a.occurrence_id, a.ordinal",
+            "written_value" to "SELECT f.path, o.start_line || ':' || o.start_col, o.written, coalesce(e.key, '-'), v.row_number, v.value_kind, coalesce(v.value, '-'), v.start_line || ':' || v.start_col || '-' || v.end_line || ':' || v.end_col FROM written_value v JOIN occurrence o ON o.id = v.occurrence_id JOIN source_file f ON f.id = o.file_id LEFT JOIN entity e ON e.id = o.entity_id ORDER BY v.occurrence_id, v.row_number",
             "coverage_note" to "SELECT coalesce(f.path, '-'), c.kind, c.message FROM coverage_note c LEFT JOIN source_file f ON f.id = c.file_id ORDER BY c.id",
             "trigger_event" to "SELECT t.key, e.timing, coalesce(e.level, '-'), e.event, coalesce(c.key, '-') FROM trigger_event e JOIN entity t ON t.id = e.trigger_id LEFT JOIN entity c ON c.id = e.column_id ORDER BY t.key, e.event, e.timing, c.key"
         )) {
@@ -116,7 +117,7 @@ class FixtureGoldenTest {
                 "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_ddl.pkb", "hr/pack_ddl.pks", "hr/pack_dynamic.pkb", "hr/pack_dynamic.pks", "hr/pack_inline.sql", "hr/pack_json.pkb", "hr/pack_json.pks", "hr/pack_methods.pkb", "hr/pack_methods.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
                 "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_mview.prc", "hr/proc_own_objects.prc",
                 "hr/proc_source_view.prc",
-                "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_view_chain.prc", "hr/proc_xmlseq.prc", "hr/trg_company_bu.trg", "hr/trg_dynamic.trg",
+                "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_view_chain.prc", "hr/proc_writes.prc", "hr/proc_xmlseq.prc", "hr/trg_company_bu.trg", "hr/trg_dynamic.trg",
                 "hr/trg_forms.trg", "hr/trg_syn_company.trg", "hr/ty_bag.tpb", "hr/ty_bag.typ", "hr/ty_num_list.typ", "hr/ty_point.typ", "hr/ty_shapes.typ", "hr/views.sql", "hr/views_lineage.sql", "hr/views_remote.sql", "hr/views_star.sql",
                 "scripts/broken.sql", "scripts/broken_call.sql")
     }

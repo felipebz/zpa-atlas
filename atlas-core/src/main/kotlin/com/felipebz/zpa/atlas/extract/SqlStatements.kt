@@ -64,10 +64,17 @@ internal class SqlStatements(
                 val target = target(statement, reference, setOf(Role.SQL_INSERT), alias) ?: continue
                 val columns = clause.getFirstChildOrNull(DmlGrammar.INSERT_COLUMNS)
                 val setClause = clause.nextSiblingOrNull?.takeIf { it.type == DmlGrammar.INSERT_SET_CLAUSE }
+                // Each INTO with its own VALUES, else the query of the insert.
+                val source = clause.nextSiblingOrNull?.takeIf { it.type == DmlGrammar.VALUES_CLAUSE }?.let { WrittenValues.valuesClause(it) }
+                    ?: WriteSource.Query(WrittenValues.insertQuery(clause))
                 when {
-                    columns != null -> columns.children.filter { !isPunctuation(it) }.forEach { column(statement, it, target, Role.SQL_INSERT) }
+                    columns != null -> {
+                        val listed = columns.children.filter { !isPunctuation(it) }
+                        val values = source.forColumns(listed.size)
+                        listed.forEachIndexed { position, it -> column(statement, it, target, Role.SQL_INSERT, statement.writtenValues(values, position)) }
+                    }
                     setClause != null -> setClause.getChildren(DmlGrammar.UPDATE_COLUMN).forEach { setColumn(statement, it, target, Role.SQL_INSERT, allowRow = false) }
-                    else -> columnReads.implicitColumns(statement, target, setOf(Role.SQL_INSERT, Role.WRITE, Role.IMPLICIT))
+                    else -> columnReads.implicitColumns(statement, target, setOf(Role.SQL_INSERT, Role.WRITE, Role.IMPLICIT), written = source)
                 }
             }
             StatementKind.MERGE -> {
@@ -92,8 +99,13 @@ internal class SqlStatements(
                             val start = children.indexOfFirst { it.type == PlSqlKeyword.INSERT }
                             val end = children.indexOfFirst { it.type == PlSqlKeyword.VALUES }
                             val columns = children.subList(start + 1, end).filter { !isPunctuation(it) }
-                            if (columns.isEmpty()) columnReads.implicitColumns(statement, target, setOf(Role.SQL_INSERT, Role.WRITE, Role.IMPLICIT))
-                            else columns.forEach { column(statement, it, target, Role.SQL_INSERT) }
+                            val source = WrittenValues.mergeValues(insert)
+                            if (columns.isEmpty()) {
+                                columnReads.implicitColumns(statement, target, setOf(Role.SQL_INSERT, Role.WRITE, Role.IMPLICIT), written = source)
+                            } else {
+                                val values = source.forColumns(columns.size)
+                                columns.forEachIndexed { position, it -> column(statement, it, target, Role.SQL_INSERT, statement.writtenValues(values, position)) }
+                            }
                         }
                     }
                 }
@@ -150,16 +162,30 @@ internal class SqlStatements(
         while (left.type == PlSqlGrammar.BRACKED_EXPRESSION) {
             left = left.children.singleOrNull { !isPunctuation(it) } ?: break
         }
+        val right = WrittenValues.setValue(updateColumn)
         when {
-            left.type == PlSqlGrammar.MULTIPLE_VALUE_EXPRESSION ->
-                left.children.filter { !isPunctuation(it) }.forEach { column(statement, it, target, role) }
+            left.type == PlSqlGrammar.MULTIPLE_VALUE_EXPRESSION -> {
+                // `SET (a, b) = (SELECT x, y …)`: the select list by position.
+                val columns = left.children.filter { !isPunctuation(it) }
+                val values = WriteSource.Query(right).forColumns(columns.size)
+                columns.forEachIndexed { position, it -> column(statement, it, target, role, statement.writtenValues(values, position)) }
+            }
             allowRow && left.type == PlSqlGrammar.VARIABLE_NAME && left.tokenOriginalValue.uppercase() == "ROW" ->
-                columnReads.implicitColumns(statement, target, setOf(role, Role.WRITE, Role.IMPLICIT))
-            else -> column(statement, left, target, role)
+                columnReads.implicitColumns(statement, target, setOf(role, Role.WRITE, Role.IMPLICIT), written = WriteSource.None(WrittenValues.SET_ROW))
+            else -> {
+                // `SET (col) = (SELECT x …)` is one column and a query; `SET col = expr` the expression.
+                val query = right?.let { WrittenValues.subquery(it) }
+                val values = when {
+                    right == null -> ColumnValues.None(WrittenValues.COUNT_MISMATCH)
+                    query != null && left !== updateColumn.firstChild -> WriteSource.Query(query).forColumns(1)
+                    else -> ColumnValues.Rows(listOf(listOf(right)))
+                }
+                column(statement, left, target, role, statement.writtenValues(values, 0))
+            }
         }
     }
 
-    private fun column(statement: Statement, node: AstNode, target: Target, role: Role) {
+    private fun column(statement: Statement, node: AstNode, target: Target, role: Role, values: List<WrittenValueFact>) {
         if (statement.context.hasHoles(node)) return
         val parts = node.children.filter { it.type != PlSqlPunctuator.DOT }.ifEmpty { listOf(node) }
         if (parts.any { it.type is PlSqlPunctuator || tokensOf(it).size != 1 }) {
@@ -170,10 +196,10 @@ internal class SqlStatements(
         val qualifier = segments.dropLast(1)
         val roles = setOf(role, Role.WRITE)
         if (qualifier.isNotEmpty() && !scopes.qualifierMatches(qualifier, target)) {
-            statement.occurrence(node, null, roles, Status.UNRESOLVED, "QUALIFIER_MISMATCH")
+            statement.occurrence(node, null, roles, Status.UNRESOLVED, "QUALIFIER_MISMATCH", values = values)
             return
         }
         val resolved = resolver.resolveColumn(target.resolved, segments.last())
-        statement.occurrence(node, resolved.entityKey, roles, resolved.status, resolved.reason)
+        statement.occurrence(node, resolved.entityKey, roles, resolved.status, resolved.reason, values = values)
     }
 }

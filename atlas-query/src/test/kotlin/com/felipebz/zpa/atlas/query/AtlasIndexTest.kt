@@ -299,20 +299,30 @@ class AtlasIndexTest {
 
     @Test
     fun `the values passed to a parameter are grouped by kind and value, and a body parameter shows its spec's`() {
-        val groups = index.parameterValues(pCode).result!!
+        val groups = index.values(pCode).result!!
         assertThat(groups.first()).isEqualTo(ValueGroup("NUMBER", "1", 10))
         assertThat(groups).contains(ValueGroup("NUMBER", "1.5", 2), ValueGroup("NAME", "R.CODE", 1), ValueGroup("BIND", null, 1), ValueGroup("EXPRESSION", null, 2))
-        assertThat(index.parameterValues(pCode.replace(").P_CODE", ")@BODY.P_CODE")).result).isEqualTo(groups)
-        assertThat(index.parameterValues("db:NO.SUCH").result).isNull()
+        assertThat(index.values(pCode.replace(").P_CODE", ")@BODY.P_CODE")).result).isEqualTo(groups)
+        assertThat(index.values("db:NO.SUCH").result).isNull()
     }
 
     @Test
     fun `the calls of one value are call occurrences with their argument values`() {
-        val page = index.parameterValueCalls(pCode, "NUMBER", "1.5").result!!
+        val page = index.valueSites(pCode, "NUMBER", "1.5").result!!
         assertThat(page.rows.map { it.span.startLine }).containsExactly(14, 15)
         assertThat(page.rows.first().arguments.single().let { it.valueKind to it.value }).isEqualTo("NUMBER" to "1.5")
-        assertThat(index.parameterValueCalls(pCode, "EXPRESSION", null).result!!.rows.map { it.span.startLine }).containsExactly(28, 30)
-        assertThatThrownBy { index.parameterValueCalls(pCode, "NOPE", null) }.isInstanceOf(InvalidQueryException::class.java)
+        assertThat(index.valueSites(pCode, "EXPRESSION", null).result!!.rows.map { it.span.startLine }).containsExactly(28, 30)
+        assertThatThrownBy { index.valueSites(pCode, "NOPE", null) }.isInstanceOf(InvalidQueryException::class.java)
+    }
+
+    @Test
+    fun `the values written to a column are grouped like the values passed, and open their write sites`() {
+        val groups = index.values("db:HR.COMPANY.ST_ACTIVE").result!!
+        assertThat(groups.take(5)).containsExactly(ValueGroup("STRING", "S", 8), ValueGroup("STRING", "N", 7), ValueGroup("STRING", "X", 3), ValueGroup("NULL", null, 2), ValueGroup("DEFAULT", null, 1))
+        val sites = index.valueSites("db:HR.COMPANY.ST_ACTIVE", "STRING", "S").result!!
+        assertThat(sites.rows.filter { it.path == "hr/proc_writes.prc" }.map { it.span.startLine }).containsExactly(7, 9, 10, 16)
+        assertThat(sites.rows.first { it.path == "hr/proc_writes.prc" }.values.single().let { it.valueKind to it.value }).isEqualTo("STRING" to "S")
+        assertThat(index.values("db:HR.COMPANY").result).isEmpty()
     }
 
     @Test
