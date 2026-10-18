@@ -52,7 +52,7 @@ class SynonymResolver(private val dictionary: AtlasDictionary) {
     }
 
     companion object {
-        val RELATIONS = setOf("TABLE", "VIEW")
+        val RELATIONS = setOf("TABLE", "VIEW", "MATERIALIZED VIEW")
         val PACKAGES_AND_TYPES = setOf("PACKAGE", "TYPE")
 
         /** One-segment calls: an operator (`XMLSEQUENCE`) is called like a function. */

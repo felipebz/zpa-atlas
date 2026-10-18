@@ -1,7 +1,7 @@
 "use strict";
 
 // The entity kinds the index produces: the stored codes, shown through the catalog.
-const KINDS = ["TABLE", "VIEW", "OBJECT_TABLE", "COLUMN", "SEQUENCE", "TRIGGER", "PACKAGE", "PROCEDURE", "FUNCTION", "PARAMETER",
+const KINDS = ["TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "COLUMN", "SEQUENCE", "TRIGGER", "PACKAGE", "PROCEDURE", "FUNCTION", "PARAMETER",
   "TYPE", "RECORD_FIELD", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "EXCEPTION", "CURSOR", "UNKNOWN_RELATION"];
 
 const kindSelect = document.getElementById("kind");

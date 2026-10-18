@@ -173,11 +173,11 @@ class FileExtractor(
                 entityKey = key
                 trigger = key?.let { triggers.trigger(node, it, schema) }
             }
-            PlSqlGrammar.CREATE_VIEW, PlSqlGrammar.CREATE_MATERIALIZED_VIEW -> UnitKind.VIEW.also {
+            PlSqlGrammar.CREATE_VIEW, PlSqlGrammar.CREATE_MATERIALIZED_VIEW -> (if (node.type == PlSqlGrammar.CREATE_VIEW) UnitKind.VIEW else UnitKind.MATERIALIZED_VIEW).also {
                 // The dictionary's view, else a VIEW entity from the source, which wins over the UNKNOWN_RELATION that a
                 // reference to it creates with the same key.
                 val relation = dictionaryView(written, schema)
-                val key = relation?.let { RelationResolver.dictionaryKey(it) } ?: sourceObject(written, EntityKind.VIEW)
+                val key = relation?.let { RelationResolver.dictionaryKey(it) } ?: sourceObject(written, if (node.type == PlSqlGrammar.CREATE_VIEW) EntityKind.VIEW else EntityKind.MATERIALIZED_VIEW)
                 entityKey = key
                 if (key != null) view = ViewScope(key, relation, node, node.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION))
             }
@@ -185,7 +185,7 @@ class FileExtractor(
             else -> UnitKind.SQL_STATEMENT
         }
         val index = state.addUnit(UnitFact(kind, displayName, entityKey, span, schema), partial)
-        if (kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY || kind == UnitKind.TRIGGER || kind == UnitKind.VIEW && entityKey != null) {
+        if (kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY || kind == UnitKind.TRIGGER || (kind == UnitKind.VIEW || kind == UnitKind.MATERIALIZED_VIEW) && entityKey != null) {
             // Package bodies, type bodies, triggers and views are not in the project index; their definition comes from the AST.
             state.occurrences += OccurrenceFact(index, entityKey, null, span, writtenText(unitName ?: node), entityKey,
                 setOf(Role.DEFINITION), status(Status.RESOLVED, partial), Origin.STATIC, null)

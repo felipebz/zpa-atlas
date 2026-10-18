@@ -14,6 +14,7 @@ import com.felipebz.zpa.atlas.model.EntityKind
 enum class DictionaryRelationKind(val entityKind: EntityKind) {
     TABLE(EntityKind.TABLE),
     VIEW(EntityKind.VIEW),
+    MATERIALIZED_VIEW(EntityKind.MATERIALIZED_VIEW),
     OBJECT_TABLE(EntityKind.OBJECT_TABLE)
 }
 
@@ -59,10 +60,10 @@ class AtlasDictionary(
     fun objectType(schema: String, name: String): String? = objects[schema]?.get(name)
 
     /**
-     * The kind of [relation]: the enumerated kind, else a `VIEW` when the dictionary's object types say so (the
-     * `OBJECT_TYPE` of the read schemas, or the target type of a synonym that reaches it), else `OBJECT_TABLE` when it
-     * has a row object type, else `TABLE`. A materialized view also has a `TABLE` row of the same name, which the
-     * loader keeps: it stays a `TABLE`.
+     * The kind of [relation]: the enumerated kind, else a `VIEW` or `MATERIALIZED_VIEW` when the dictionary's object
+     * types say so (the `OBJECT_TYPE` of the read schemas, or the target type of a synonym that reaches it), else
+     * `OBJECT_TABLE` when it has a row object type, else `TABLE`. A materialized view also has a `TABLE` row of the same
+     * name; the loader keeps the `MATERIALIZED VIEW` one.
      */
     fun kindOf(relation: ProjectExternalRelation): DictionaryRelationKind {
         kinds[relation.schema to relation.name]?.let { return it }
@@ -70,6 +71,7 @@ class AtlasDictionary(
         val type = objectType(schema, name) ?: synonymTargetTypes[schema to name]
         return when {
             type == "VIEW" -> DictionaryRelationKind.VIEW
+            type == "MATERIALIZED VIEW" -> DictionaryRelationKind.MATERIALIZED_VIEW
             relation.rowObjectType.isPresent -> DictionaryRelationKind.OBJECT_TABLE
             else -> DictionaryRelationKind.TABLE
         }

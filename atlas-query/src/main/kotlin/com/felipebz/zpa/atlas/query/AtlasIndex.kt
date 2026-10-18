@@ -97,7 +97,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             row.key, row.kind, row.schema, row.name, row.display, row.external, parent, children, relations, definitions, overloads,
             UsageSummary(tally(usages.flatMap { roles(it.first) }), tally(usages.map { it.second }), asCandidate),
             triggerEvents(connection, row.id, row.kind, row.parentId?.toLong()),
-            if (row.kind == "VIEW") viewReads(connection, row.id) else emptyList(),
+            if (row.kind in VIEW_KINDS) viewReads(connection, row.id) else emptyList(),
             if (row.kind in VIEWED_KINDS) viewsReading(connection, row.id) else emptyList(),
             if (row.kind == "COLUMN") viewBase(connection, row.id, outgoing = true) else emptyList(),
             if (row.kind == "COLUMN") viewBase(connection, row.id, outgoing = false) else emptyList()
@@ -121,7 +121,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     private fun viewsReading(connection: Connection, relationId: Long): List<EntitySummary> = connection.query(
         """SELECT DISTINCT v.key, v.kind, v.display, v.external FROM occurrence o JOIN entity v ON v.id = o.container_entity_id
-           WHERE o.entity_id = ? AND v.kind = 'VIEW' AND (',' || o.roles || ',') LIKE '%,SQL_SELECT,%' ORDER BY v.key""", listOf(relationId), ::entitySummary
+           WHERE o.entity_id = ? AND v.kind IN ($VIEW_KINDS_SQL) AND (',' || o.roles || ',') LIKE '%,SQL_SELECT,%' ORDER BY v.key""", listOf(relationId), ::entitySummary
     )
 
     /** The trigger events [EntityDetail.triggerEvents] lists for an entity of [kind]. */
@@ -135,7 +135,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         }
         return when (kind) {
             "TRIGGER" -> connection.query("$select WHERE e.trigger_id = ?$order", listOf(id), map)
-            "TABLE", "VIEW", "OBJECT_TABLE", "UNKNOWN_RELATION" -> connection.query(
+            "TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "UNKNOWN_RELATION" -> connection.query(
                 "$select WHERE e.trigger_id IN (SELECT from_id FROM relation WHERE kind = 'TRIGGER_ON' AND to_id = ?)$order", listOf(id), map)
             // UPDATE OF this column, or an UPDATE without column list of a trigger on the column's relation. A NULL column
             // is also an unresolved UPDATE OF column: a trigger with a resolved one has a column list.
@@ -189,7 +189,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
                        UNION SELECT r.from_id FROM viewed v JOIN relation r ON r.to_id = v.id WHERE ? AND r.kind = 'VIEW_BASE'
                        UNION SELECT o.container_entity_id FROM viewed v JOIN entity t ON t.id = v.id
                          JOIN occurrence o ON o.entity_id = v.id JOIN entity w ON w.id = o.container_entity_id
-                         WHERE ? AND t.kind IN ($VIEWED_KINDS_SQL) AND w.kind = 'VIEW' AND (',' || o.roles || ',') LIKE '%,SQL_SELECT,%'),
+                         WHERE ? AND t.kind IN ($VIEWED_KINDS_SQL) AND w.kind IN ($VIEW_KINDS_SQL) AND (',' || o.roles || ',') LIKE '%,SQL_SELECT,%'),
                      hits(oid, matched, via_candidate) AS (
                        SELECT o.id, o.entity_id, 0 FROM occurrence o WHERE o.entity_id IN (SELECT id FROM viewed)
                        UNION ALL
@@ -342,10 +342,14 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     companion object {
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 7
+        const val SCHEMA_VERSION = 8
 
         /** The relation kinds whose entity page lists the views that read them, and whose readers [Scope.VIEWS] follows. */
-        val VIEWED_KINDS = setOf("TABLE", "VIEW", "OBJECT_TABLE")
+        val VIEWED_KINDS = setOf("TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE")
+
+        /** The kinds whose query is read like a view's: the "views reading a relation" and [Scope.VIEWS] count them. */
+        val VIEW_KINDS = setOf("VIEW", "MATERIALIZED_VIEW")
+        private val VIEW_KINDS_SQL = VIEW_KINDS.joinToString { "'$it'" }
         private val VIEWED_KINDS_SQL = VIEWED_KINDS.joinToString { "'$it'" }
 
         /** Decodes an indexed file with the charset recorded for it (`source_file.encoding`); a leading BOM is dropped. */
@@ -359,7 +363,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         val USAGE_ROLES: Set<String> = (ROLES - setOf("DEFINITION", "DECLARATION")).toSet()
         val STATUSES = listOf("RESOLVED", "UNVERIFIED", "AMBIGUOUS", "UNRESOLVED", "EXTERNAL", "DYNAMIC", "PARTIAL_SOURCE")
         val ENTITY_KINDS = listOf(
-            "SCHEMA", "TABLE", "VIEW", "OBJECT_TABLE", "COLUMN", "SYNONYM", "SEQUENCE", "TRIGGER", "PACKAGE", "PROCEDURE",
+            "SCHEMA", "TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "COLUMN", "SYNONYM", "SEQUENCE", "TRIGGER", "PACKAGE", "PROCEDURE",
             "FUNCTION", "PARAMETER", "TYPE", "RECORD_FIELD", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "EXCEPTION", "CURSOR",
             "LOCAL_VARIABLE", "LOCAL_CONSTANT", "LABEL", "FORMS_MODULE", "FORMS_BLOCK", "FORMS_ITEM", "FORMS_TRIGGER",
             "FORMS_PROGRAM_UNIT", "FORMS_LIBRARY", "UNKNOWN_RELATION"

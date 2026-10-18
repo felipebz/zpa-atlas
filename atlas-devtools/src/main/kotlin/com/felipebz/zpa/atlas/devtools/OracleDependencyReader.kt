@@ -34,7 +34,7 @@ import java.util.logging.Logger
 object OracleDependencyReader {
     private val LOG = Logger.getLogger(OracleDependencyReader::class.java.name)
 
-    private const val OBJECT_TYPES = "'PACKAGE','PACKAGE BODY','PROCEDURE','FUNCTION','TRIGGER','TYPE','TYPE BODY','VIEW'"
+    private const val OBJECT_TYPES = "'PACKAGE','PACKAGE BODY','PROCEDURE','FUNCTION','TRIGGER','TYPE','TYPE BODY','VIEW','MATERIALIZED VIEW'"
 
     fun read(settings: OracleSettings, driversDirectory: Path?): DatabaseDependencies {
         val owners = settings.schemas

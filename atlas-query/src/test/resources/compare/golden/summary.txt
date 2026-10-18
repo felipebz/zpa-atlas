@@ -1,7 +1,7 @@
 compare-deps summary
 
 Units
-  mapped to database objects: 97
+  mapped to database objects: 99
   scripts and anonymous blocks (not compared): 27, with 46 edge occurrence(s)
   units without ALL_OBJECTS row (not compared): 86, with 108 index edge(s)
   database objects without unit in the index: 2
@@ -10,38 +10,39 @@ Conditional compilation
   database version: index (none), database 23.0 (DATABASE)
   WARNING: the index was built without a database version setting; the database is 23.0
   flags: index (none)
-  compared PL/SQL units: same flags 10, different flags 1, without settings row 0
+  compared PL/SQL units: same flags 11, different flags 1, without settings row 0
     HR.PACK_CALLS PACKAGE BODY: debug:true
 
 Source
   SAME: 1
   DIFFERS: 1
   WRAPPED: 0
-  NO_STORED_SOURCE: 95
+  NO_STORED_SOURCE: 97
   UNAVAILABLE: 0
     HR.TRG_COMPANY_BU TRIGGER: first difference at stored line 5
 
 Edges
-  database: 26
-  index: 32
-  matched: 14 (exact 11, by name 0, synonym 3)
+  database: 31
+  index: 35
+  matched: 17 (exact 14, by name 0, synonym 3)
   matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 6)
 
-Match rate (matched / (database - BUILTIN - NON_EXISTENT))
-  overall: 58.3% (14/24)
-  overall, names in the text: 77.8% (14/18)
+Match rate (matched / (database - BUILTIN - NON_EXISTENT - MVIEW_CONTAINER))
+  overall: 63.0% (17/27)
+  overall, names in the text: 81.0% (17/21)
   FUNCTION: 0.0% (0/1); names in the text 0.0% (0/1)
   PACKAGE: 100.0% (4/4); names in the text 100.0% (4/4)
   PROCEDURE: 100.0% (1/1); names in the text 100.0% (1/1)
   SYNONYM: 100.0% (3/3); names in the text 100.0% (3/3)
-  TABLE: 40.0% (4/10); names in the text 57.1% (4/7)
+  TABLE: 50.0% (6/12); names in the text 66.7% (6/9)
   TYPE: 33.3% (1/3); names in the text 100.0% (1/1)
-  VIEW: 50.0% (1/2); names in the text 100.0% (1/1)
+  VIEW: 66.7% (2/3); names in the text 100.0% (2/2)
 
-Database only: 12
-  BUILTIN: 1
+Database only: 14
+  BUILTIN: 2
   REMOTE: 1
   NON_EXISTENT: 1
+  MVIEW_CONTAINER: 1
   SOURCE_DIFFERS: 1
   TRANSITIVE: 2
   NAME_NOT_IN_TEXT: 4

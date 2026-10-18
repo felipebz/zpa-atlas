@@ -145,7 +145,7 @@ class AtlasIndexTest {
         assertThat(keys(index.entity("db:HR.V_ACTIVE_COMPANY").result!!.reads)).containsExactly("db:HR.COMPANY")
         assertThat(keys(index.entity("db:HR.V_LOG_UNION").result!!.reads)).containsExactly("db:HR.EVENT_LOG", "db:HR.SEND_QUEUE")
         assertThat(keys(index.entity("db:HR.V_COMPANY_NAMES").result!!.reads)).containsExactly("db:HR.V_COMPANY_LIST")
-        assertThat(keys(index.entity("db:HR.V_COMPANY_LIST").result!!.views)).containsExactly("db:HR.V_COMPANY_NAMES")
+        assertThat(keys(index.entity("db:HR.V_COMPANY_LIST").result!!.views)).containsExactly("db:HR.MV_COMPANY_LOG", "db:HR.V_COMPANY_NAMES")
         // A procedure reading the table is not a view over it.
         assertThat(keys(index.entity("db:HR.EVENT_LOG").result!!.views)).containsExactly(
             "db:HR.V_INLINE_NESTED", "db:HR.V_INLINE_UNION", "db:HR.V_LIN_JOIN", "db:HR.V_LIN_SCALAR", "db:HR.V_LIN_UNION",
@@ -204,6 +204,15 @@ class AtlasIndexTest {
         )
         assertThat(page.rows).anyMatch { it.matched.key == "db:HR.COMPANY" && !it.viaView }
         assertThat(index.occurrences("db:HR.COMPANY", scope = setOf(Scope.CHILDREN), limit = 500).result!!.rows).noneMatch { it.viaView }
+    }
+
+    @Test
+    fun `a materialized view counts as a view reading its base relations, and its readers are reached through it`() {
+        assertThat(index.entity("db:HR.COMPANY").result!!.views.map { it.key }).contains("db:HR.MV_COMPANY_LOG")
+        assertThat(index.entity("db:HR.MV_COMPANY_LOG").result!!.reads.map { it.key }).containsExactly("db:HR.COMPANY", "db:HR.V_COMPANY_LIST")
+        val rows = index.occurrences("db:HR.COMPANY", scope = setOf(Scope.VIEWS), limit = 500).result!!.rows.filter { it.path == "hr/proc_mview.prc" }
+        assertThat(rows.map { "${it.span.startLine}:${it.span.startCol} ${it.matched.key} ${it.viaView}" })
+            .containsExactly("3:40 db:HR.MV_COMPANY_LOG true")
     }
 
     @Test

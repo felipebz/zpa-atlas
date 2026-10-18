@@ -33,6 +33,7 @@ enum class UnitKind(val reserved: Boolean = false) : StoredEnum {
     TYPE,
     TYPE_BODY,
     VIEW,
+    MATERIALIZED_VIEW,
     ANONYMOUS_BLOCK,
     SQL_STATEMENT,
 
@@ -46,6 +47,7 @@ enum class EntityKind(val reserved: Boolean = false) : StoredEnum {
     SCHEMA(reserved = true),
     TABLE,
     VIEW,
+    MATERIALIZED_VIEW,
     OBJECT_TABLE,
     COLUMN,
     SYNONYM,

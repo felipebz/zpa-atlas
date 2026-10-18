@@ -257,7 +257,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 7
+        const val SCHEMA_VERSION = 8
 
         /** Pending rows (all statements together) after which the batches are executed. */
         private const val FLUSH_ROWS = 20_000

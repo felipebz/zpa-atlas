@@ -74,6 +74,7 @@ registerMessages("pt", {
   "kind.SCHEMA": "schema",
   "kind.TABLE": "tabela",
   "kind.VIEW": "view",
+  "kind.MATERIALIZED_VIEW": "view materializada",
   "kind.OBJECT_TABLE": "tabela de objetos",
   "kind.COLUMN": "coluna",
   "kind.SYNONYM": "sinônimo",

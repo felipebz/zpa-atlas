@@ -47,7 +47,7 @@ object Stats {
                     UNION ALL SELECT '2 base columns', count(*) FROM base WHERE n = 2
                     UNION ALL SELECT '3 or more base columns', count(*) FROM base WHERE n >= 3
                     UNION ALL SELECT 'no base column, no note', count(*) FROM entity c JOIN entity v ON v.id = c.parent_id
-                    WHERE c.kind = 'COLUMN' AND v.kind = 'VIEW'
+                    WHERE c.kind = 'COLUMN' AND v.kind IN ('VIEW', 'MATERIALIZED_VIEW')
                       AND EXISTS (SELECT 1 FROM occurrence o WHERE o.entity_id = c.id AND (',' || o.roles || ',') LIKE '%,DEFINITION,%')
                       AND c.id NOT IN (SELECT from_id FROM base)
                       AND v.key || ': column ' || substr(c.key, length(v.key) + 2) || ' ' NOT IN (
@@ -60,7 +60,7 @@ object Stats {
                 section(connection, "Top 20 relations by writers", """
                     SELECT e.key, count(DISTINCT coalesce(o.container_entity_id, -o.unit_id)) AS writers
                     FROM occurrence o JOIN entity e ON e.id = o.entity_id
-                    WHERE e.kind IN ('TABLE', 'VIEW', 'OBJECT_TABLE', 'UNKNOWN_RELATION')
+                    WHERE e.kind IN ('TABLE', 'VIEW', 'MATERIALIZED_VIEW', 'OBJECT_TABLE', 'UNKNOWN_RELATION')
                       AND (o.roles LIKE '%SQL_INSERT%' OR o.roles LIKE '%SQL_UPDATE%' OR o.roles LIKE '%SQL_DELETE%' OR o.roles LIKE '%SQL_MERGE%')
                     GROUP BY e.key ORDER BY writers DESC, e.key LIMIT 20""")
                 section(connection, "Column reads by status and reason", """

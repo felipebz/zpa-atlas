@@ -21,6 +21,8 @@ begin
        'TABLE',
        'TYPE'
      )
+       -- A materialized view's container table goes with it.
+       and not (object_type = 'TABLE' and object_name in (select mview_name from user_mviews))
      order by case object_type
        when 'MATERIALIZED VIEW' then 1
        when 'VIEW' then 2

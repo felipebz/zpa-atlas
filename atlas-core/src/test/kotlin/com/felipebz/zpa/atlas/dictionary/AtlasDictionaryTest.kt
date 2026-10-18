@@ -9,6 +9,7 @@ import com.felipebz.zpa.api.project.ProjectExternalColumn
 import com.felipebz.zpa.api.project.ProjectExternalDatatype
 import com.felipebz.zpa.api.project.ProjectExternalMetadata
 import com.felipebz.zpa.api.project.ProjectExternalRelation
+import com.felipebz.zpa.atlas.extract.SynonymResolver
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -22,9 +23,10 @@ class AtlasDictionaryTest {
         ProjectExternalMetadata.none(), setOf("APP"),
         synonyms = listOf(
             DictionarySynonym("APP", "SYN_REMOTE_VIEW", "OTHER", "REMOTE_VIEW", "VIEW"),
-            DictionarySynonym("APP", "SYN_REMOTE_TABLE", "OTHER", "REMOTE_TABLE", "TABLE")
+            DictionarySynonym("APP", "SYN_REMOTE_TABLE", "OTHER", "REMOTE_TABLE", "TABLE"),
+            DictionarySynonym("APP", "SYN_REMOTE_MVIEW", "OTHER", "REMOTE_MVIEW", "MATERIALIZED VIEW")
         ),
-        objects = mapOf("APP" to mapOf("ORDERS" to "TABLE", "V_ORDERS" to "VIEW", "MV_ORDERS" to "TABLE"))
+        objects = mapOf("APP" to mapOf("ORDERS" to "TABLE", "V_ORDERS" to "VIEW", "MV_ORDERS" to "MATERIALIZED VIEW"))
     )
 
     @Test
@@ -46,7 +48,14 @@ class AtlasDictionaryTest {
     }
 
     @Test
-    fun `a materialized view keeps the TABLE row the loader keeps`() {
-        assertThat(dictionary.kindOf(relation("APP", "MV_ORDERS"))).isEqualTo(DictionaryRelationKind.TABLE)
+    fun `a materialized view is a MATERIALIZED_VIEW through its object type`() {
+        assertThat(dictionary.kindOf(relation("APP", "MV_ORDERS"))).isEqualTo(DictionaryRelationKind.MATERIALIZED_VIEW)
+    }
+
+    @Test
+    fun `a synonym to a materialized view reaches it as a relation`() {
+        assertThat(dictionary.kindOf(relation("OTHER", "REMOTE_MVIEW"))).isEqualTo(DictionaryRelationKind.MATERIALIZED_VIEW)
+        val target = SynonymResolver(dictionary).follow("SYN_REMOTE_MVIEW", "APP", SynonymResolver.RELATIONS)
+        assertThat(target?.let { "${it.owner}.${it.name}" }).isEqualTo("OTHER.REMOTE_MVIEW")
     }
 }

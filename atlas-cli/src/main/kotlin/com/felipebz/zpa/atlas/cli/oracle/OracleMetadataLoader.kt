@@ -10,6 +10,7 @@ import com.felipebz.zpa.atlas.cli.CliExecutionException
 import com.felipebz.zpa.atlas.cli.CliValidationException
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
+import com.felipebz.zpa.atlas.extract.SynonymResolver
 import com.felipebz.zpa.oracle.metadata.OracleMetadataAcquisition
 import com.felipebz.zpa.oracle.metadata.OracleMetadataException
 import com.felipebz.zpa.oracle.metadata.OracleMetadataResult
@@ -51,7 +52,7 @@ object OracleMetadataLoader {
   SELECT s.owner, s.synonym_name, s.table_owner, s.table_name,
          (SELECT MIN(o.object_type) FROM all_objects o
            WHERE o.owner = s.table_owner AND o.object_name = s.table_name
-             AND o.object_type IN ('TABLE', 'VIEW', 'SYNONYM', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE', 'OPERATOR', 'SEQUENCE')) object_type
+             AND o.object_type IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW', 'SYNONYM', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE', 'OPERATOR', 'SEQUENCE')) object_type
     FROM all_synonyms s
    WHERE s.owner IN (%s)
      AND s.db_link IS NULL)
@@ -62,11 +63,12 @@ object OracleMetadataLoader {
 
     /**
      * The names in the namespace of schema objects Oracle searches before public synonyms. An evolved type has several
-     * rows: one per name is kept.
+     * rows: one per name is kept. A materialized view has a `MATERIALIZED VIEW` and a `TABLE` row of the same name:
+     * `MIN` keeps the first (`'MATERIALIZED VIEW' < 'TABLE'`), here and for synonym targets.
      */
     private const val OBJECTS_SQL = """SELECT owner, object_name, MIN(object_type) FROM all_objects
  WHERE owner IN (%s)
-   AND object_type IN ('TABLE', 'VIEW', 'SYNONYM', 'SEQUENCE', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE', 'OPERATOR')
+   AND object_type IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW', 'SYNONYM', 'SEQUENCE', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE', 'OPERATOR')
  GROUP BY owner, object_name"""
 
     /**
@@ -184,7 +186,7 @@ object OracleMetadataLoader {
     private fun synonymTargets(named: List<DictionarySynonym>, all: List<DictionarySynonym>, requestedSchemas: Set<String>): Set<Pair<String, String>> {
         val table = AtlasDictionary.lookupOnly(ProjectExternalMetadata.none(), emptySet(), all)
         return named.mapNotNullTo(LinkedHashSet()) { synonym ->
-            table.synonymChain(synonym.owner, synonym.name)?.last()?.takeIf { it.targetType == "TABLE" || it.targetType == "VIEW" }
+            table.synonymChain(synonym.owner, synonym.name)?.last()?.takeIf { it.targetType in SynonymResolver.RELATIONS }
                 ?.let { it.targetOwner to it.targetName }
         }.filterTo(LinkedHashSet()) { it.first !in requestedSchemas }
     }

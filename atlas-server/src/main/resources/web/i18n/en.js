@@ -76,6 +76,7 @@ registerMessages("en", {
   "kind.SCHEMA": "schema",
   "kind.TABLE": "table",
   "kind.VIEW": "view",
+  "kind.MATERIALIZED_VIEW": "materialized view",
   "kind.OBJECT_TABLE": "object table",
   "kind.COLUMN": "column",
   "kind.SYNONYM": "synonym",

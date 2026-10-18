@@ -328,6 +328,15 @@ class DependencyComparisonTest {
     }
 
     @Test
+    fun `a materialized view is mapped to its object, matched as a TABLE, and its container table is expected`() {
+        val mview = DbObjectId("HR", "MV_COMPANY_LOG", "MATERIALIZED VIEW")
+        assertThat(result.units.single { it.unit == mview }.databaseStatus).isEqualTo("VALID")
+        assertThat(result.matched.filter { it.unit == mview || it.unit.name == "PROC_MVIEW" }.map { "${it.unit.name} ${it.reference.referencedName} ${it.reference.referencedType}" })
+            .containsExactlyInAnyOrder("MV_COMPANY_LOG COMPANY TABLE", "MV_COMPANY_LOG V_COMPANY_LIST VIEW", "PROC_MVIEW MV_COMPANY_LOG TABLE")
+        assertThat(result.databaseOnly.filter { it.unit == mview }.map { "${it.dbClass} ${it.reference.referencedName}" }).containsExactly("MVIEW_CONTAINER MV_COMPANY_LOG")
+    }
+
+    @Test
     fun `names in text skip comments and string literals`() {
         val names = PlSqlText.names("select x from t_a -- t_b\n/* t_c */ where y = 'T_D' and z = q'[T_E]' and \"Mixed\" = 1")
         assertThat(names).contains("SELECT", "X", "T_A", "Y", "Z", "Mixed").doesNotContain("T_B", "T_C", "T_D", "T_E")

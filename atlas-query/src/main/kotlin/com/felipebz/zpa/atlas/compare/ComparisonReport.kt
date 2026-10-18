@@ -42,7 +42,7 @@ object ComparisonReport {
             "synonym ${r.matched.count { it.matchClass == "SYNONYM" }})")
         line("  matched only through collapsed AMBIGUOUS calls: ${r.matched.count { it.collapsedOnly }} (collapsed occurrences: ${r.collapsedOccurrences})")
         line()
-        line("Match rate (matched / (database - BUILTIN - NON_EXISTENT))")
+        line("Match rate (matched / (database - BUILTIN - NON_EXISTENT - MVIEW_CONTAINER))")
         line("  overall: ${rate(r.matched.size, db - expected)}")
         // The same ratio without the rows whose name the unit's text does not contain (TRANSITIVE, NAME_NOT_IN_TEXT).
         val unnamed = r.databaseOnly.count { it.dbClass in NOT_IN_TEXT_CLASSES }
@@ -137,11 +137,11 @@ object ComparisonReport {
         if (denominator <= 0) "n/a ($numerator/$denominator)" else String.format(Locale.ROOT, "%.1f%% (%d/%d)", 100.0 * numerator / denominator, numerator, denominator)
 
     val DB_CLASSES = listOf(
-        "BUILTIN", "REMOTE", "NON_EXISTENT", "SOURCE_DIFFERS", "TRANSITIVE", "NAME_NOT_IN_TEXT", "UNRESOLVED_IN_INDEX",
+        "BUILTIN", "REMOTE", "NON_EXISTENT", "MVIEW_CONTAINER", "SOURCE_DIFFERS", "TRANSITIVE", "NAME_NOT_IN_TEXT", "UNRESOLVED_IN_INDEX",
         "RESOLVED_ELSEWHERE", "GUESSED_ELSEWHERE", "NOT_EXTRACTED"
     )
     /** Database-only classes left out of the match-rate denominator. */
-    val EXPECTED_CLASSES = setOf("BUILTIN", "NON_EXISTENT")
+    val EXPECTED_CLASSES = setOf("BUILTIN", "NON_EXISTENT", "MVIEW_CONTAINER")
 
     /** Database-only classes whose name the unit's text does not contain: also left out of the "names in the text" rates. */
     val NOT_IN_TEXT_CLASSES = setOf("TRANSITIVE", "NAME_NOT_IN_TEXT")

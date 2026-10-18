@@ -443,6 +443,9 @@ class DependencyComparison(
                 dep.referencedOwner in BUILTIN_OWNERS && dep.referencedName in builtins -> "BUILTIN" to ""
                 dep.referencedLink != null -> "REMOTE" to ""
                 dep.referencedType == "NON-EXISTENT" -> "NON_EXISTENT" to ""
+                // A materialized view depends on its own container table, a `TABLE` of the same owner and name.
+                dep.type == "MATERIALIZED VIEW" && dep.referencedOwner == dep.owner && dep.referencedName == dep.name &&
+                    dep.referencedType == "TABLE" -> "MVIEW_CONTAINER" to ""
                 sourceStatus[obj]?.first == SourceStatus.DIFFERS -> "SOURCE_DIFFERS" to ""
                 path != null -> "TRANSITIVE" to "via ${path.first} (${path.second})"
                 nameNotInText -> "NAME_NOT_IN_TEXT" to ""
@@ -485,7 +488,7 @@ class DependencyComparison(
             indexOnly.sortedWith(compareBy({ it.indexClass }, { it.unit }, { it.target })),
             collapsed, database.sourceReadable, root != null, builtins, triggerColumns(connection, mapped.filter { it.type == "TRIGGER" && it in dbObjects }.toSet(),
                 sourceStatus.filterValues { it.first == SourceStatus.DIFFERS }.keys),
-            conditionalCompilation(run[2], run[3], run[4], compared.filter { it.type != "VIEW" })
+            conditionalCompilation(run[2], run[3], run[4], compared.filter { it.type != "VIEW" && it.type != "MATERIALIZED VIEW" })
         )
     }
 
@@ -621,11 +624,14 @@ class DependencyComparison(
         /** Unit kinds that are database objects, with their `ALL_OBJECTS.OBJECT_TYPE`. */
         val OBJECT_TYPES = mapOf(
             "PACKAGE" to "PACKAGE", "PACKAGE_BODY" to "PACKAGE BODY", "PROCEDURE" to "PROCEDURE", "FUNCTION" to "FUNCTION",
-            "TRIGGER" to "TRIGGER", "TYPE" to "TYPE", "TYPE_BODY" to "TYPE BODY", "VIEW" to "VIEW"
+            "TRIGGER" to "TRIGGER", "TYPE" to "TYPE", "TYPE_BODY" to "TYPE BODY", "VIEW" to "VIEW",
+            "MATERIALIZED_VIEW" to "MATERIALIZED VIEW"
         )
 
         private val ENTITY_TYPES = mapOf(
-            "TABLE" to "TABLE", "VIEW" to "VIEW", "OBJECT_TABLE" to "TABLE", "PACKAGE" to "PACKAGE", "PROCEDURE" to "PROCEDURE",
+            "TABLE" to "TABLE", "VIEW" to "VIEW",
+            // Oracle records a reference to a materialized view as one to its container table.
+            "MATERIALIZED_VIEW" to "TABLE", "OBJECT_TABLE" to "TABLE", "PACKAGE" to "PACKAGE", "PROCEDURE" to "PROCEDURE",
             "FUNCTION" to "FUNCTION", "TYPE" to "TYPE", "SEQUENCE" to "SEQUENCE", "TRIGGER" to "TRIGGER"
         )
 

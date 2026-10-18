@@ -1,4 +1,6 @@
 match,owner,name,type,ref_owner,ref_name,ref_type,ref_link,collapsed_only,locations
+EXACT,HR,MV_COMPANY_LOG,MATERIALIZED VIEW,HR,COMPANY,TABLE,,false,hr/mv_company.sql:2 hr/mv_company.sql:3
+EXACT,HR,MV_COMPANY_LOG,MATERIALIZED VIEW,HR,V_COMPANY_LIST,VIEW,,false,hr/mv_company.sql:2 hr/mv_company.sql:3
 EXACT,HR,PACK_CALLS,PACKAGE BODY,HR,PACK_CALLS,PACKAGE,,false,hr/pack_calls.pkb:1 hr/pack_calls.pkb:21 hr/pack_calls.pkb:30 hr/pack_calls.pkb:31 hr/pack_calls.pkb:36 hr/pack_calls.pkb:37 hr/pack_calls.pkb:38 hr/pack_calls.pkb:39 hr/pack_calls.pkb:40 hr/pack_calls.pkb:45
 EXACT,HR,PACK_CALLS,PACKAGE BODY,HR,PACK_PROCESS,PACKAGE,,false,hr/pack_calls.pkb:32 hr/pack_calls.pkb:33 hr/pack_calls.pkb:34 hr/pack_calls.pkb:35
 EXACT,HR,PACK_CALLS,PACKAGE BODY,HR,PROC_STANDALONE,PROCEDURE,,false,hr/pack_calls.pkb:41 hr/pack_calls.pkb:43
@@ -6,6 +8,7 @@ EXACT,HR,PACK_CALLS,PACKAGE BODY,HR,TY_POINT,TYPE,,false,hr/pack_calls.pkb:22
 SYNONYM,HR,PACK_CALLS,PACKAGE BODY,PUBLIC,DBMS_OUTPUT,SYNONYM,,false,hr/pack_calls.pkb:44
 EXACT,HR,PACK_PROCESS,PACKAGE BODY,HR,COMPANY,TABLE,,false,hr/pack_process.pkb:8 hr/pack_process.pkb:10 hr/pack_process.pkb:11 hr/pack_process.pkb:12 hr/pack_process.pkb:13 hr/pack_process.pkb:14 hr/pack_process.pkb:15 hr/pack_process.pkb:16 hr/pack_process.pkb:17 hr/pack_process.pkb:18
 EXACT,HR,PACK_PROCESS,PACKAGE BODY,HR,PACK_PROCESS,PACKAGE,,false,hr/pack_process.pkb:1 hr/pack_process.pkb:4 hr/pack_process.pkb:8 hr/pack_process.pkb:19 hr/pack_process.pkb:25 hr/pack_process.pkb:26 hr/pack_process.pkb:27 hr/pack_process.pkb:28 hr/pack_process.pkb:29 hr/pack_process.pkb:30 hr/pack_process.pkb:31
+EXACT,HR,PROC_MVIEW,PROCEDURE,HR,MV_COMPANY_LOG,TABLE,,false,hr/proc_mview.prc:3
 SYNONYM,HR,PROC_SYNONYMS,PROCEDURE,HR,SYN_COMPANY,SYNONYM,,false,hr/proc_synonyms.prc:13 hr/proc_synonyms.prc:14 hr/proc_synonyms.prc:15
 SYNONYM,HR,PROC_SYNONYMS,PROCEDURE,PUBLIC,USER_TABLES,SYNONYM,,false,hr/proc_synonyms.prc:3 hr/proc_synonyms.prc:4 hr/proc_synonyms.prc:7 hr/proc_synonyms.prc:8 hr/proc_synonyms.prc:9 hr/proc_synonyms.prc:10 hr/proc_synonyms.prc:11
 EXACT,HR,TRG_COMPANY_FORMS,TRIGGER,HR,COMPANY,TABLE,,false,hr/trg_forms.trg:1 hr/trg_forms.trg:5 hr/trg_forms.trg:8 hr/trg_forms.trg:10 hr/trg_forms.trg:11 hr/trg_forms.trg:12 hr/trg_forms.trg:14 hr/trg_forms.trg:16 hr/trg_forms.trg:17 hr/trg_forms.trg:18

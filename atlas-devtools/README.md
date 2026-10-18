@@ -17,8 +17,11 @@ atlas-devtools same-rows <first.db> <second.db>
 
 Compares the index, projected to object level, with `ALL_DEPENDENCIES` and classifies every difference. It prints a
 summary (counts and top-20 name lists only, safe to share) and writes `units.csv`, `matched.csv`, `db_only.csv`,
-`index_only.csv` and `trigger_columns.csv` to `--out`. The match rate is `matched / (database - BUILTIN - NON_EXISTENT)`: `NON-EXISTENT` rows are
-never matched, they record an object that does not exist.
+`index_only.csv` and `trigger_columns.csv` to `--out`. The match rate is
+`matched / (database - BUILTIN - NON_EXISTENT - MVIEW_CONTAINER)`: `NON-EXISTENT` rows are never matched, they record an
+object that does not exist, and `MVIEW_CONTAINER` is the row of a materialized view on its own container table (the
+`TABLE` of the same owner and name). A materialized view unit is compared as its `MATERIALIZED VIEW` object; a reference
+to it is recorded by Oracle, and projected by the index, as its `TABLE`.
 
 The "Trigger columns" section compares `ALL_TRIGGER_COLS` with the index per trigger, column and facet, for the
 triggers that are units of the index and have an `ALL_OBJECTS` row: `LIST` (`COLUMN_LIST = 'YES'` against the
