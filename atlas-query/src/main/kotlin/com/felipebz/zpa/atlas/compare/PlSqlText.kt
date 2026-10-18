@@ -162,8 +162,9 @@ object PlSqlText {
      *
      * Oracle stores a select-list `*` expanded: `*` as `"A","B"` and `q.*` as `q."A",q."B"` (quoted names, commas
      * without blanks). A file star therefore consumes, on the stored side, the run of items of that form: quoted names
-     * for `*`, names qualified by the same qualifier for `q.*`. A stored `*` (a view that does not compile) matches
-     * itself. A quoted column written right after a star (`*, "X"`) is consumed by the star too, so such a view compares
+     * for `*`, names qualified by the same qualifier for `q.*`. Oracle expands only the stars of the view's own select
+     * list: a star of a subquery (an inline view, `EXISTS`, `IN`) and the star of a view that does not compile stay
+     * as written, so a stored `*`, or a stored `q.*` with the same qualifier, matches the file star itself. A quoted column written right after a star (`*, "X"`) is consumed by the star too, so such a view compares
      * as different: an accepted false difference.
      */
     fun viewDifference(fileText: String, storedText: String): Int? {
@@ -177,7 +178,7 @@ object PlSqlText {
         var s = 0
         while (f < file.size && s < stored.size) {
             val star = selectStar(file, f)
-            if (star != null && !(stored[s].kind == Kind.SYMBOL && stored[s].text == "*")) {
+            if (star != null && !storedStar(stored, s, star.second)) {
                 val end = expansionEnd(stored, s, star.second) ?: return lineOf(s)
                 f = star.first
                 s = end
@@ -188,6 +189,14 @@ object PlSqlText {
             s++
         }
         return if (f == file.size && s == stored.size) null else lineOf(s)
+    }
+
+    /** Whether the stored text keeps the star at [i] as written: `*`, or `q.*` with [qualifier]. */
+    private fun storedStar(tokens: List<Token>, i: Int, qualifier: String?): Boolean {
+        val t = tokens[i]
+        if (qualifier == null) return t.kind == Kind.SYMBOL && t.text == "*"
+        return t.kind != Kind.SYMBOL && t.kind != Kind.LITERAL && t.name == qualifier &&
+            tokens.getOrNull(i + 1)?.text == "." && tokens.getOrNull(i + 2)?.let { it.kind == Kind.SYMBOL && it.text == "*" } == true
     }
 
     private fun same(a: Token, b: Token): Boolean = when {

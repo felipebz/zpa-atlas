@@ -270,6 +270,16 @@ class DependencyComparisonTest {
         // A view that does not compile keeps its star; a view whose star source is gone keeps the old expansion.
         same("create force view v_force as select * from missing_t", "select * from missing_t")
         same("create view v_gone as select * from t3", "select \"A\",\"B\" from t3")
+        // Stars outside the view's own select list stay as written (26ai), and an expanded one still matches.
+        val nested = "select a.x from t a left join (select pf.*, row_number() over (partition by pf.k order by pf.d) rn from p pf) b on b.k = a.k"
+        same("create view v1 as $nested", nested)
+        same("create view v1 as $nested", nested.replace("pf.*", "pf.\"K\",pf.\"D\""))
+        same("create view v2 as select a.x from t a left join (select * from p) b on b.k = a.k", "select a.x from t a left join (select * from p) b on b.k = a.k")
+        same("create view v3 as select a.x from t a where exists (select * from u)", "select a.x from t a where exists (select * from u)")
+        same("create view v4 as select a.x from t a where x in (select * from u)", "select a.x from t a where x in (select * from u)")
+        same("create view v5 as select x from (select * from p)", "select x from (select * from p)")
+        // A stored `q.*` with another qualifier is a difference.
+        assertThat(PlSqlText.viewDifference("create view v1 as $nested", nested.replace("select pf.*", "select px.*"))).isEqualTo(1)
         // A column list: only the query is compared.
         same("create or replace view hr.v (a, b) as select id, x from t1", "select id, x from t1")
 
