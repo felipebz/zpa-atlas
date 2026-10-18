@@ -229,7 +229,10 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
             return when (reference.kind) {
                 ProjectTypeReference.Kind.NAMED -> name
                 ProjectTypeReference.Kind.REF -> "REF $name"
-                ProjectTypeReference.Kind.ANCHORED -> name + if (reference.anchor.get() == ProjectTypeReference.Anchor.ROWTYPE) "%ROWTYPE" else "%TYPE"
+                // A remote anchor keeps its link, spelled as remote relation keys spell it: `T.C@FAR.EXAMPLE.COM%TYPE`.
+                ProjectTypeReference.Kind.ANCHORED -> name +
+                    reference.link.map { link -> "@" + link.segments.joinToString(".") { normalizeIdentifier(it.originalSpelling) } }.orElse("") +
+                    if (reference.anchor.get() == ProjectTypeReference.Anchor.ROWTYPE) "%ROWTYPE" else "%TYPE"
             }
         }
 
