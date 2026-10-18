@@ -53,6 +53,14 @@ class FixtureGoldenTest {
     }
 
     @Test
+    fun `a DDL role is the only role of its occurrence, on a DDL statement row`() {
+        val ddl = "(',' || o.roles || ',') LIKE '%,DDL\\_%' ESCAPE '\\'"
+        assertThat(Fixture.query(db, "SELECT count(*) FROM occurrence o WHERE $ddl").single().toInt()).isGreaterThan(0)
+        assertThat(Fixture.query(db, "SELECT o.roles FROM occurrence o WHERE $ddl AND o.roles LIKE '%,%'")).isEmpty()
+        assertThat(Fixture.query(db, "SELECT o.written FROM occurrence o LEFT JOIN sql_statement s ON s.id = o.statement_id WHERE $ddl AND coalesce(s.kind, '-') <> 'DDL'")).isEmpty()
+    }
+
+    @Test
     fun `no placeholder of a dynamic text becomes a name`() {
         assertThat(Fixture.query(db, "SELECT count(*) FROM occurrence WHERE origin = 'DYNAMIC_LITERAL'").single().toInt()).isGreaterThan(0)
         assertThat(Fixture.query(db, "SELECT written FROM occurrence WHERE written LIKE '%ZPA$%'")).isEmpty()
@@ -105,7 +113,7 @@ class FixtureGoldenTest {
             .containsExactly("db:HR.COMPANY", "db:~.COMPANY", "db:~.PACK_PROCESS")
         assertThat(Fixture.query(noSchema, "SELECT f.path FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE c.kind = 'SCHEMA_UNKNOWN' ORDER BY 1"))
             .containsExactly("hr/conditional.sql", "hr/fn_company_name.fun", "hr/json_holder.typ", "hr/json_type.typ", "hr/mv_company.sql", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/pack_calls.pkb", "hr/pack_calls.pks",
-                "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_dynamic.pkb", "hr/pack_dynamic.pks", "hr/pack_inline.sql", "hr/pack_json.pkb", "hr/pack_json.pks", "hr/pack_methods.pkb", "hr/pack_methods.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
+                "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_ddl.pkb", "hr/pack_ddl.pks", "hr/pack_dynamic.pkb", "hr/pack_dynamic.pks", "hr/pack_inline.sql", "hr/pack_json.pkb", "hr/pack_json.pks", "hr/pack_methods.pkb", "hr/pack_methods.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
                 "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_mview.prc", "hr/proc_own_objects.prc",
                 "hr/proc_source_view.prc",
                 "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_view_chain.prc", "hr/proc_xmlseq.prc", "hr/trg_company_bu.trg", "hr/trg_dynamic.trg",

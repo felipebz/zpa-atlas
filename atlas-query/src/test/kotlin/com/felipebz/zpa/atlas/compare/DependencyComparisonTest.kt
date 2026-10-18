@@ -355,6 +355,22 @@ class DependencyComparisonTest {
     }
 
     @Test
+    fun `a static DDL statement in a script adds no script edge occurrence`() {
+        fun scriptEdges(name: String, script: String): Int {
+            val corpus = temp.resolve(name).also { Files.createDirectories(it) }
+            Files.writeString(corpus.resolve("script.sql"), script)
+            val db = temp.resolve("$name.db")
+            Indexer().index(IndexOptions(corpus, db, compilationSchema = "HR", dictionary = AtlasDictionary.NONE, threads = 1))
+            val facts = DatabaseDependencies.read(java.io.StringReader("kind,owner,name,type,c1,c2,c3,c4\n"))
+            return DependencyComparison(db, facts, corpus).compare().scriptEdges
+        }
+        val dml = "select id from company;\n"
+        val plain = scriptEdges("dml-only", dml)
+        assertThat(plain).isGreaterThan(0)
+        assertThat(scriptEdges("dml-and-ddl", dml + "truncate table company;\ndrop table event_log;\nalter table company enable constraint pk;\n")).isEqualTo(plain)
+    }
+
+    @Test
     fun `names in text skip comments and string literals`() {
         val names = PlSqlText.names("select x from t_a -- t_b\n/* t_c */ where y = 'T_D' and z = q'[T_E]' and \"Mixed\" = 1")
         assertThat(names).contains("SELECT", "X", "T_A", "Y", "Z", "Mixed").doesNotContain("T_B", "T_C", "T_D", "T_E")

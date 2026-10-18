@@ -76,6 +76,18 @@ class PackageValues(private val snapshot: ProjectSnapshot, private val catalog: 
             }
         }
 
+    /**
+     * The schema-level declarations of the project (packages and their bodies, types, standalone subprograms,
+     * sequences) named by [written] under its first spelling that names any.
+     */
+    fun schemaObjects(written: List<String>, unitSchema: String?): List<ProjectDeclarationView> {
+        for (names in nameSpellings(written, unitSchema)) {
+            val found = snapshot.findDeclarations(qualifiedName(names)).declarations.filter { it.kind in SCHEMA_OBJECTS }
+            if (found.isNotEmpty()) return found
+        }
+        return emptyList()
+    }
+
     /** The project sequence named by [written] under some spelling, as an entity key, or null. */
     fun sequence(written: List<String>, unitSchema: String?): String? {
         for (names in nameSpellings(written, unitSchema)) {
@@ -85,3 +97,8 @@ class PackageValues(private val snapshot: ProjectSnapshot, private val catalog: 
         return null
     }
 }
+
+private val SCHEMA_OBJECTS = setOf(
+    ProjectDeclarationKind.PACKAGE, ProjectDeclarationKind.PACKAGE_BODY, ProjectDeclarationKind.STANDALONE_TYPE,
+    ProjectDeclarationKind.STANDALONE_PROCEDURE, ProjectDeclarationKind.STANDALONE_FUNCTION, ProjectDeclarationKind.SEQUENCE
+)

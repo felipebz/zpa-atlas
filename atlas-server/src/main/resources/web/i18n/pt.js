@@ -118,6 +118,11 @@ registerMessages("pt", {
   "role.RAISE": "lançamento",
   "role.HANDLE": "tratamento",
   "role.IMPLICIT": "implícito",
+  "role.DDL_CREATE": "criação (DDL)",
+  "role.DDL_ALTER": "alteração (DDL)",
+  "role.DDL_DROP": "exclusão (DDL)",
+  "role.DDL_TRUNCATE": "truncamento (DDL)",
+  "role.DDL_ANALYZE": "análise (DDL)",
 
   "source.show": "ver linha",
   "source.stale": "O arquivo mudou desde a indexação.",

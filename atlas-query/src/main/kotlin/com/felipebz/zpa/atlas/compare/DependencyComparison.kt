@@ -268,6 +268,8 @@ class DependencyComparison(
             val status = rs.getString(4)
             val location = Location(rs.getString(6), rs.getInt(7))
             val roles = rs.getString(9).split(',').filter { it.isNotEmpty() }.toSet()
+            // Oracle records no dependency for DDL: the object a DDL statement acts on is neither an edge nor evidence.
+            if (roles.isNotEmpty() && roles.all { it.startsWith("DDL_") }) return@forEach
             val obj = unit.obj
             // A call the project does not know still names an (external) entity: `db:~.DBMS_OUTPUT.PUT_LINE`, `db:SYS.X`.
             val edgeStatus = status in EDGE_STATUSES || (status == "UNRESOLVED" && rs.getString(8) == "NOT_IN_PROJECT")

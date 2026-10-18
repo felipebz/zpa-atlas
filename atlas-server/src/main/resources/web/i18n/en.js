@@ -120,6 +120,11 @@ registerMessages("en", {
   "role.RAISE": "raise",
   "role.HANDLE": "handle",
   "role.IMPLICIT": "implicit",
+  "role.DDL_CREATE": "create (DDL)",
+  "role.DDL_ALTER": "alter (DDL)",
+  "role.DDL_DROP": "drop (DDL)",
+  "role.DDL_TRUNCATE": "truncate (DDL)",
+  "role.DDL_ANALYZE": "analyze (DDL)",
 
   "source.show": "show line",
   "source.stale": "The file changed since it was indexed.",

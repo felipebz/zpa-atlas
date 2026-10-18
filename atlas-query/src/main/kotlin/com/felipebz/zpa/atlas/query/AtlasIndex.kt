@@ -390,7 +390,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     companion object {
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 9
+        const val SCHEMA_VERSION = 10
 
         /** The relation kinds whose entity page lists the views that read them, and whose readers [Scope.VIEWS] follows. */
         val VIEWED_KINDS = setOf("TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE")
@@ -406,7 +406,8 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
         val ROLES = listOf(
             "DEFINITION", "DECLARATION", "READ", "WRITE", "CALL", "SQL_SELECT", "SQL_INSERT", "SQL_UPDATE", "SQL_DELETE",
-            "SQL_MERGE", "SQL_LOCK", "TYPE_USE", "RAISE", "HANDLE", "IMPLICIT"
+            "SQL_MERGE", "SQL_LOCK", "TYPE_USE", "RAISE", "HANDLE", "IMPLICIT",
+            "DDL_CREATE", "DDL_ALTER", "DDL_DROP", "DDL_TRUNCATE", "DDL_ANALYZE"
         )
         val USAGE_ROLES: Set<String> = (ROLES - setOf("DEFINITION", "DECLARATION")).toSet()
         val STATUSES = listOf("RESOLVED", "UNVERIFIED", "AMBIGUOUS", "UNRESOLVED", "EXTERNAL", "DYNAMIC", "PARTIAL_SOURCE")

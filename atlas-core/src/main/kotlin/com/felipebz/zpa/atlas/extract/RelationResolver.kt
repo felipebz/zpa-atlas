@@ -9,6 +9,7 @@ import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectIdentifier
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.dictionary.DictionaryRelationKind
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.model.*
 
@@ -72,6 +73,22 @@ class RelationResolver(
         if (lookup.status != ProjectExternalLookup.Status.FOUND && schema != AtlasDictionary.PUBLIC) {
             val publicAllowed = written.schema == null && lookup.status == ProjectExternalLookup.Status.RELATION_NOT_FOUND
             synonyms.follow(written.name, schema, SynonymResolver.RELATIONS, publicAllowed)?.let { return relation(it.owner, it.name) }
+        }
+        return relation(schema, written.name, lookup)
+    }
+
+    /**
+     * The relation a DDL statement names (`DROP TABLE`, `TRUNCATE TABLE`): Oracle does not follow a synonym there, so
+     * neither does this. Null when the name is an object of another kind: a dictionary relation whose kind is not one of
+     * [kinds], or a name whose `OBJECT_TYPE` is not one of [objectTypes]. Otherwise as [resolve] answers a relation.
+     */
+    fun resolveOwn(written: WrittenRelation, unitSchema: String?, kinds: Set<DictionaryRelationKind>, objectTypes: Set<String>): ResolvedRelation? {
+        val schema = written.schema ?: unitSchema ?: return resolve(written, null)
+        val lookup = dictionary.metadata.findRelation(identifier(schema), identifier(written.name))
+        if (lookup.status == ProjectExternalLookup.Status.FOUND) {
+            if (dictionary.kindOf(lookup.relation.get()) !in kinds) return null
+        } else if (dictionary.objectType(schema, written.name).let { it != null && it !in objectTypes }) {
+            return null
         }
         return relation(schema, written.name, lookup)
     }
@@ -159,10 +176,16 @@ class RelationResolver(
 
         /** The synonym entity (schema `PUBLIC` for a public one) and its `SYNONYM_FOR` relation to the next hop. */
         fun addDictionarySynonym(synonym: DictionarySynonym, entities: MutableList<EntityFact>, relations: MutableList<RelationFact>) {
+            val entity = synonymEntity(synonym)
+            entities += entity
+            relations += RelationFact(entity.key, RelationKind.SYNONYM_FOR, dbKey(synonym.targetOwner, synonym.targetName))
+        }
+
+        /** The entity of a dictionary synonym: `db:OWNER.NAME`, owner `PUBLIC` for a public one. */
+        fun synonymEntity(synonym: DictionarySynonym): EntityFact {
             val key = dbKey(synonym.owner, synonym.name)
-            entities += EntityFact(key, EntityKind.SYNONYM, synonym.owner, synonym.name, null, "${synonym.owner}.${synonym.name}",
+            return EntityFact(key, EntityKind.SYNONYM, synonym.owner, synonym.name, null, "${synonym.owner}.${synonym.name}",
                 external = false, precedence = Precedence.DICTIONARY)
-            relations += RelationFact(key, RelationKind.SYNONYM_FOR, dbKey(synonym.targetOwner, synonym.targetName))
         }
 
         /** The relation entity of the dictionary with all its columns (`CONTAINS`). */

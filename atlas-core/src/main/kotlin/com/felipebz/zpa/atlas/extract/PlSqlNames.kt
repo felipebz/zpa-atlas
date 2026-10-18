@@ -495,26 +495,33 @@ internal class PlSqlNames(
         val nameParts = children.subList(0, lastDot)
         val text = nameParts.joinToString("") { writtenText(it) }
         val span = spanOf(nameParts.first(), nameParts.last())
+        val (key, status) = sequenceEntity(written, context.schema, followSynonym = true)
+        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, span, text, key,
+            setOf(Role.READ), status(status, context.partial), context.origin, null)
+    }
+
+    /**
+     * The sequence [written] names, as `seq.nextval` finds it: the project sequence (`RESOLVED`), else an external
+     * `SEQUENCE` entity, `db:S.SEQ` when `S` is a schema of the run and `db:~.…` otherwise (`UNVERIFIED`). With
+     * [followSynonym], a one-segment name the project does not declare may be a synonym of the sequence; a DDL
+     * statement names the sequence itself.
+     */
+    fun sequenceEntity(written: List<String>, schema: String?, followSynonym: Boolean): Pair<String, Status> {
         // A sequence the project does not declare may be named by a synonym: `syn_seq.nextval` reads the target.
-        val target = if (values.sequence(written, context.schema) == null && written.size == 1) {
-            synonyms.follow(normalizeIdentifier(written[0]), context.schema, SynonymResolver.SEQUENCES)
+        val target = if (followSynonym && values.sequence(written, schema) == null && written.size == 1) {
+            synonyms.follow(normalizeIdentifier(written[0]), schema, SynonymResolver.SEQUENCES)
         } else {
             null
         }
         val resolvedName = target?.let { SynonymResolver.written(it, emptyList()) } ?: written
-        val declared = values.sequence(resolvedName, context.schema)
-        val (key, status) = if (declared != null) {
-            declared to Status.RESOLVED
-        } else {
-            val names = resolvedName.map { normalizeIdentifier(it) }
-            val schemaQualified = names.size == 2 && (names[0] in runSchemas || target != null)
-            val key = if (schemaQualified) dbKey(names[0], names[1]) else dbKey(UNKNOWN_SCHEMA, *names.toTypedArray())
-            state.entities += EntityFact(key, EntityKind.SEQUENCE, if (schemaQualified) names[0] else null, names.last(), null, key.removePrefix("db:"),
-                external = true, precedence = Precedence.MENTIONED)
-            key to Status.UNVERIFIED
-        }
-        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, span, text, key,
-            setOf(Role.READ), status(status, context.partial), context.origin, null)
+        val declared = values.sequence(resolvedName, schema)
+        if (declared != null) return declared to Status.RESOLVED
+        val names = resolvedName.map { normalizeIdentifier(it) }
+        val schemaQualified = names.size == 2 && (names[0] in runSchemas || target != null)
+        val key = if (schemaQualified) dbKey(names[0], names[1]) else dbKey(UNKNOWN_SCHEMA, *names.toTypedArray())
+        state.entities += EntityFact(key, EntityKind.SEQUENCE, if (schemaQualified) names[0] else null, names.last(), null, key.removePrefix("db:"),
+            external = true, precedence = Precedence.MENTIONED)
+        return key to Status.UNVERIFIED
     }
 
     /**

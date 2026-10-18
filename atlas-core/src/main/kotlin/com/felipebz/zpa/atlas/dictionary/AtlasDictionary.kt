@@ -53,6 +53,9 @@ class AtlasDictionary(
     /** The `OBJECT_TYPE` of the synonym targets, which may lie in schemas whose namespace was not read. */
     private val synonymTargetTypes = synonyms.associate { (it.targetOwner to it.targetName) to it.targetType }
 
+    /** The synonym `owner.name` itself (owner `PUBLIC` for a public one), or null. */
+    fun synonym(owner: String, name: String): DictionarySynonym? = synonymsByName[owner to name]
+
     /** Whether the object names of [schema] were read: only then is a name it lacks known to be absent. */
     fun knowsObjects(schema: String): Boolean = schema in objects
 

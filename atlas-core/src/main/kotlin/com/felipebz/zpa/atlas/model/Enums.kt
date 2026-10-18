@@ -104,7 +104,12 @@ enum class Role(val reserved: Boolean = false) : StoredEnum {
     TYPE_USE,
     RAISE,
     HANDLE,
-    IMPLICIT
+    IMPLICIT,
+    DDL_CREATE,
+    DDL_ALTER,
+    DDL_DROP,
+    DDL_TRUNCATE,
+    DDL_ANALYZE
 }
 
 enum class Status(val reserved: Boolean = false) : StoredEnum {
@@ -144,7 +149,8 @@ enum class StatementKind : StoredEnum {
     DELETE,
     MERGE,
     LOCK,
-    DYNAMIC
+    DYNAMIC,
+    DDL
 }
 
 /** The `occurrence.roles` text: the sorted, comma-separated role names. */

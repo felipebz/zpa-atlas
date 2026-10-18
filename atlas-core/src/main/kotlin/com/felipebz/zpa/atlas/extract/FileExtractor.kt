@@ -59,6 +59,7 @@ class FileExtractor(
     private lateinit var typeReferences: TypeReferences
     private lateinit var sql: SqlStatements
     private lateinit var lineage: ViewLineage
+    private lateinit var ddl: DdlTargets
 
     override fun init() {
         val snapshot = projectAnalysis().snapshot
@@ -78,6 +79,7 @@ class FileExtractor(
         val columnReads = ColumnReads(state, resolver, scopes, plsql)
         sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads)
         lineage = ViewLineage(state, scopes, columnReads, plsql)
+        ddl = DdlTargets(path, state, dictionary, resolver, values, catalog, plsql)
         var inRecovered = false
         for (child in node.children) {
             when (child.type) {
@@ -238,6 +240,8 @@ class FileExtractor(
         // A conditional compilation run is a trivia of the next token: read once, by the outermost node that token starts.
         node.token?.let { if (node.parentOrNull?.token !== it) plsql.conditionNames(it, context) }
         var current = context
+        // The object a DDL statement acts on; the walk goes on inside it (the query of CREATE TABLE … AS SELECT).
+        if (ddl.isDdl(node)) ddl.statement(node, context)
         when (node.type) {
             PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION,
             PlSqlGrammar.CREATE_PROCEDURE, PlSqlGrammar.CREATE_FUNCTION -> subprogramAt(node)?.let { current = context.inside(it) }
