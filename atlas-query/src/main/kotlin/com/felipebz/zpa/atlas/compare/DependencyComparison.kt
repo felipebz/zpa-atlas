@@ -352,6 +352,8 @@ class DependencyComparison(
             sourceStatus[obj] = when {
                 !database.sourceReadable || text == null -> SourceStatus.UNAVAILABLE to null
                 db == null -> SourceStatus.NO_STORED_SOURCE to null
+                // ALL_VIEWS.TEXT: the query only, with the stars expanded.
+                obj.type == "VIEW" -> PlSqlText.viewDifference(text, db)?.let { SourceStatus.DIFFERS to it } ?: (SourceStatus.SAME to null)
                 PlSqlText.isWrapped(db) -> SourceStatus.WRAPPED to null
                 else -> PlSqlText.firstDifference(text, db)?.let { SourceStatus.DIFFERS to it } ?: (SourceStatus.SAME to null)
             }

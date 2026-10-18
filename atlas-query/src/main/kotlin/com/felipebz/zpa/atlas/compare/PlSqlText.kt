@@ -12,14 +12,18 @@ import java.util.Locale
  * string literals (including `q'[...]'`) and quoted identifiers, which the token stream of the ZPA lexer also does.
  */
 object PlSqlText {
-    enum class Kind { WORD, QUOTED, SYMBOL }
+    enum class Kind { WORD, QUOTED, SYMBOL, LITERAL }
 
     data class Token(val kind: Kind, val text: String, val start: Int, val end: Int) {
         /** Oracle identity of a name: unquoted upper-cased, quoted kept. */
         val name: String get() = if (kind == Kind.QUOTED) text.substring(1, text.length - 1) else text.uppercase(Locale.ROOT)
     }
 
-    fun tokens(text: String): List<Token> {
+    /** Names and symbols, without comments, string literals and numbers. */
+    fun tokens(text: String): List<Token> = tokens(text, literals = false)
+
+    /** With [literals], string literals (`'…'`, `n'…'`, `q'[…]'`) and numbers are [Kind.LITERAL] tokens instead of skipped. */
+    private fun tokens(text: String, literals: Boolean): List<Token> {
         val tokens = ArrayList<Token>()
         var i = 0
         val n = text.length
@@ -34,9 +38,15 @@ object PlSqlText {
                 }
                 (c == 'q' || c == 'Q' || ((c == 'n' || c == 'N') && i + 1 < n && (text[i + 1] == 'q' || text[i + 1] == 'Q'))) &&
                     quoteStart(text, i) != null -> {
+                    val start = i
                     i = skipQQuote(text, quoteStart(text, i)!!)
+                    if (literals) tokens += Token(Kind.LITERAL, text.substring(start, i), start, i)
                 }
-                c == '\'' -> i = skipString(text, i)
+                c == '\'' -> {
+                    val start = i
+                    i = skipString(text, i)
+                    if (literals) tokens += Token(Kind.LITERAL, text.substring(start, i), start, i)
+                }
                 c == '"' -> {
                     val close = text.indexOf('"', i + 1)
                     val end = if (close < 0) n else close + 1
@@ -49,11 +59,16 @@ object PlSqlText {
                     // N'text' is a string literal, not the word N.
                     if (i - start == 1 && (c == 'n' || c == 'N') && i < n && text[i] == '\'') {
                         i = skipString(text, i)
+                        if (literals) tokens += Token(Kind.LITERAL, text.substring(start, i), start, i)
                     } else {
                         tokens += Token(Kind.WORD, text.substring(start, i), start, i)
                     }
                 }
-                c.isDigit() -> { while (i < n && (text[i].isLetterOrDigit() || text[i] == '.')) i++ }
+                c.isDigit() -> {
+                    val start = i
+                    while (i < n && (text[i].isLetterOrDigit() || text[i] == '.')) i++
+                    if (literals) tokens += Token(Kind.LITERAL, text.substring(start, i), start, i)
+                }
                 else -> { tokens += Token(Kind.SYMBOL, c.toString(), i, i + 1); i++ }
             }
         }
@@ -136,4 +151,99 @@ object PlSqlText {
         }
         return null
     }
+
+    /**
+     * Compares the query of a view's file text (a `CREATE VIEW`) with its `ALL_VIEWS.TEXT`: null when they are the
+     * same, else the 1-based line of the stored text where the first differing token is.
+     *
+     * The file query is the text after the `AS` that follows the view name and its column list, without the final `;`
+     * or `/`, and without the name of a `WITH CHECK OPTION CONSTRAINT x` (Oracle stores the clause without it). Tokens
+     * are compared ignoring whitespace and comments: names as Oracle identities, literals and symbols exactly.
+     *
+     * Oracle stores a select-list `*` expanded: `*` as `"A","B"` and `q.*` as `q."A",q."B"` (quoted names, commas
+     * without blanks). A file star therefore consumes, on the stored side, the run of items of that form: quoted names
+     * for `*`, names qualified by the same qualifier for `q.*`. A stored `*` (a view that does not compile) matches
+     * itself. A quoted column written right after a star (`*, "X"`) is consumed by the star too, so such a view compares
+     * as different: an accepted false difference.
+     */
+    fun viewDifference(fileText: String, storedText: String): Int? {
+        val file = viewQuery(tokens(fileText, literals = true))
+        val stored = tokens(storedText, literals = true)
+        fun lineOf(index: Int): Int {
+            val offset = stored.getOrNull(index)?.start ?: storedText.trimEnd().length
+            return storedText.substring(0, offset).count { it == '\n' } + 1
+        }
+        var f = 0
+        var s = 0
+        while (f < file.size && s < stored.size) {
+            val star = selectStar(file, f)
+            if (star != null && !(stored[s].kind == Kind.SYMBOL && stored[s].text == "*")) {
+                val end = expansionEnd(stored, s, star.second) ?: return lineOf(s)
+                f = star.first
+                s = end
+                continue
+            }
+            if (!same(file[f], stored[s])) return lineOf(s)
+            f++
+            s++
+        }
+        return if (f == file.size && s == stored.size) null else lineOf(s)
+    }
+
+    private fun same(a: Token, b: Token): Boolean = when {
+        a.kind == Kind.LITERAL || b.kind == Kind.LITERAL || a.kind == Kind.SYMBOL || b.kind == Kind.SYMBOL -> a.kind == b.kind && a.text == b.text
+        else -> a.name == b.name
+    }
+
+    /** The tokens of the query of a `CREATE VIEW`: after the `AS` that follows the name and the column list. */
+    private fun viewQuery(tokens: List<Token>): List<Token> {
+        var i = 0
+        while (i < tokens.size && tokens[i].kind == Kind.WORD && tokens[i].name in HEADER_WORDS) i++
+        var depth = 0
+        while (i < tokens.size) {
+            val t = tokens[i]
+            if (t.kind == Kind.SYMBOL && t.text == "(") depth++
+            if (t.kind == Kind.SYMBOL && t.text == ")") depth--
+            i++
+            if (depth == 0 && t.kind == Kind.WORD && t.name == "AS") break
+        }
+        var query = tokens.subList(minOf(i, tokens.size), tokens.size)
+        while (query.isNotEmpty() && query.last().kind == Kind.SYMBOL && (query.last().text == ";" || query.last().text == "/")) query = query.dropLast(1)
+        val n = query.size
+        if (n >= 5 && query[n - 2].kind == Kind.WORD && query[n - 2].name == "CONSTRAINT" && query[n - 3].name == "OPTION" && query[n - 4].name == "CHECK") {
+            query = query.dropLast(2)
+        }
+        return query
+    }
+
+    /**
+     * A select-list star of the file at [i]: `*` or `q.*` after `SELECT`, `DISTINCT`, `UNIQUE`, `ALL` or a comma, and
+     * before a comma or `FROM`. Returns the index after it and its qualifier (null for `*`), or null.
+     */
+    private fun selectStar(tokens: List<Token>, i: Int): Pair<Int, String?>? {
+        fun isStar(t: Token?) = t != null && t.kind == Kind.SYMBOL && t.text == "*"
+        fun opensItem(t: Token?) = t != null && (t.kind == Kind.SYMBOL && t.text == "," || t.kind == Kind.WORD && t.name in SELECT_OPENERS)
+        fun closesItem(t: Token?) = t != null && (t.kind == Kind.SYMBOL && t.text == "," || t.kind == Kind.WORD && t.name == "FROM")
+        val t = tokens[i]
+        if (isStar(t) && opensItem(tokens.getOrNull(i - 1)) && closesItem(tokens.getOrNull(i + 1))) return i + 1 to null
+        if (t.kind != Kind.SYMBOL && tokens.getOrNull(i + 1)?.text == "." && isStar(tokens.getOrNull(i + 2)) &&
+            opensItem(tokens.getOrNull(i - 1)) && closesItem(tokens.getOrNull(i + 3))) return i + 3 to t.name
+        return null
+    }
+
+    /** The end of a stored star expansion starting at [i]: `"A","B"`, or `q."A",q."B"` for [qualifier]; null when there is none. */
+    private fun expansionEnd(tokens: List<Token>, i: Int, qualifier: String?): Int? {
+        fun item(at: Int): Int? = if (qualifier == null) {
+            at.takeIf { tokens.getOrNull(it)?.kind == Kind.QUOTED && tokens.getOrNull(it + 1)?.text != "." }?.plus(1)
+        } else {
+            val q = tokens.getOrNull(at)
+            at.takeIf { q != null && q.kind != Kind.SYMBOL && q.kind != Kind.LITERAL && q.name == qualifier &&
+                tokens.getOrNull(at + 1)?.text == "." && tokens.getOrNull(at + 2)?.kind == Kind.QUOTED }?.plus(3)
+        }
+        var end = item(i) ?: return null
+        while (tokens.getOrNull(end)?.text == ",") end = item(end + 1) ?: break
+        return end
+    }
+
+    private val SELECT_OPENERS = setOf("SELECT", "DISTINCT", "UNIQUE", "ALL")
 }

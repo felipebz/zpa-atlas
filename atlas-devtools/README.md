@@ -42,6 +42,10 @@ settings were not read (an older dependencies file, or the view is not readable)
 - With `--oracle-*` it reads `ALL_DEPENDENCIES`, `ALL_OBJECTS`, `ALL_SOURCE`, `ALL_TRIGGER_COLS`, `ALL_PLSQL_OBJECT_SETTINGS`
   (`PLSQL_DEBUG`, `PLSQL_CCFLAGS`) and the database version of the `--oracle-schemas` owners
   (`--oracle-relations` is rejected). Only the seven `ALL_DEPENDENCIES` columns that exist on 10.2 are read.
+- Views have no `ALL_SOURCE` rows: their stored text comes from `ALL_VIEWS.TEXT` and is kept as `SRC` rows of type
+  `VIEW`. A view's query (after `AS`) is compared with it token by token, ignoring blanks and comments, with each
+  select-list `*` matching the column list Oracle stores in its place. A dependencies file without `VIEW` rows leaves
+  views `NO_STORED_SOURCE`; so does an unreadable `ALL_VIEWS` (with a warning).
 - `--save-dependencies deps.csv` also writes what was read; `--dependencies deps.csv` re-runs offline from that file.
   Format: UTF-8 CSV with the header `kind,owner,name,type,c1,c2,c3,c4` and one row per fact:
   `META,source_readable,true|false`, `META,ccflags_readable,true|false` (optional: without it the flags are not

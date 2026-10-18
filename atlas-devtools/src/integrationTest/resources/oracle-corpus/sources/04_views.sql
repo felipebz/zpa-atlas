@@ -12,3 +12,7 @@ create view v_order_union as
 create view v_big_totals as
   select t.id, t.total from v_order_totals t where t.total > 100
 /
+create view v_order_star as
+  -- every column of the order
+  select o.*, c.name from t_order o join t_customer c on c.id = o.customer_id
+/

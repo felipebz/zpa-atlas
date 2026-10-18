@@ -93,6 +93,9 @@ class OracleCompareIT {
                 assertThat(classes(out.resolve("db_only.csv"))).isEqualTo(EXPECTED_DB_ONLY)
                 assertThat(classes(out.resolve("index_only.csv"))).isEqualTo(EXPECTED_INDEX_ONLY)
                 assertThat(classes(out.resolve("matched.csv"))).isEqualTo(EXPECTED_MATCHED)
+                // Views compare with ALL_VIEWS.TEXT, stars included (V_ORDER_STAR): every view's text is the same.
+                assertThat(Csv.parse(Files.readString(out.resolve("units.csv"))).drop(1).filter { it[2] == "VIEW" }.map { "${it[1]} ${it[5]}" })
+                    .hasSize(6).allMatch { it.endsWith(" SAME") }
                 // The only differences: the columns Oracle lists for the trigger compiled with debug, and the columns of
                 // the trigger that does not compile, which Oracle lists with usage NONE.
                 assertThat(Files.readAllLines(out.resolve("trigger_columns.csv")).drop(1).map { it.substringBeforeLast(',') }).containsExactlyInAnyOrder(
@@ -182,14 +185,15 @@ class OracleCompareIT {
         // the target. DBMS_RANDOM is a package of the schema the sources lack: P_OWN_RANDOM's call matches it exactly,
         // not the public synonym of the same name. TY_CIRCLE depends on its supertype, its body on TY_CIRCLE, and
         // P_XMLSEQ on the public synonym XMLSEQUENCE and its operator SYS.XMLSEQUENCE (Oracle records both).
-        // P_CC_VERSION depends on T_CC_AFTER19, PK_CC_FLAGS, and on DBMS_DB_VERSION through its public synonym.
+        // P_CC_VERSION depends on T_CC_AFTER19, PK_CC_FLAGS, and on DBMS_DB_VERSION through its public synonym; V_ORDER_STAR
+        // on T_ORDER and T_CUSTOMER.
         val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 34, "SOURCE_DIFFERS" to 1)
         val EXPECTED_INDEX_ONLY = mapOf("SOURCE_DIFFERS" to 1)
-        val EXPECTED_MATCHED = mapOf("EXACT" to 36, "SYNONYM" to 10)
+        val EXPECTED_MATCHED = mapOf("EXACT" to 38, "SYNONYM" to 10)
 
         val DEBUG_TRIGGERS = listOf("TRG_ORDER_DEBUG")
 
-        /** V_OPEN_ORDERS 3, V_ORDER_TOTALS 3, V_ORDER_PAIRS 2, V_ORDER_UNION 2, V_BIG_TOTALS 2. */
-        const val VIEW_COLUMN_DEFINITIONS = 12
+        /** V_OPEN_ORDERS 3, V_ORDER_TOTALS 3, V_ORDER_PAIRS 2, V_ORDER_UNION 2, V_BIG_TOTALS 2, V_ORDER_STAR 5. */
+        const val VIEW_COLUMN_DEFINITIONS = 17
     }
 }

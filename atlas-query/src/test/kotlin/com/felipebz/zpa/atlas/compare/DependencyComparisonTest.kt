@@ -254,6 +254,57 @@ class DependencyComparisonTest {
     }
 
     @Test
+    fun `a view's query compares with ALL_VIEWS TEXT, stars matching their stored expansion`() {
+        fun same(file: String, stored: String) = assertThat(PlSqlText.viewDifference(file, stored)).describedAs(file).isNull()
+        // The forms Oracle stores (26ai): `*` as `"A","B"`, `q.*` as `q."A",q."B"`, quoted, without blanks.
+        same("create view v_star as select * from t1;", "select \"ID\",\"X\",\"MixCase\" from t1")
+        same("create view v_q as select t.* from t1 t\n/", "select t.\"ID\",t.\"X\",t.\"MixCase\" from t1 t")
+        same("create view v_join_q as select a.*, b.y from t1 a join t2 b on b.k = a.id", "select a.\"ID\",a.\"X\",a.\"MixCase\", b.y from t1 a join t2 b on b.k = a.id")
+        same("create view v_join_star as select * from t1 a join t2 b on b.k = a.id", "select \"ID\",\"X\",\"MixCase\",\"K\",\"Y\" from t1 a join t2 b on b.k = a.id")
+        same("create view v_inline as select * from (select id, x from t1)", "select \"ID\",\"X\" from (select id, x from t1)")
+        same("create view v_with as with w as (select k from t2) select * from w", "with w as (select k from t2) select \"K\" from w")
+        // Leading comment and blanks dropped by Oracle, case and inner comments as written; `WITH READ ONLY` kept,
+        // `WITH CHECK OPTION` kept without its constraint name.
+        same("create view v_ro\n  as\n  -- a comment\n  SELECT Id, X /* c2 */ from t1 with read only;", "SELECT Id, X /* c2 */ from t1 with read only")
+        same("create view v_co as select id from t1 where id > 0 with check option constraint v_co_ck", "select id from t1 where id > 0 with check option ")
+        // A view that does not compile keeps its star; a view whose star source is gone keeps the old expansion.
+        same("create force view v_force as select * from missing_t", "select * from missing_t")
+        same("create view v_gone as select * from t3", "select \"A\",\"B\" from t3")
+        // A column list: only the query is compared.
+        same("create or replace view hr.v (a, b) as select id, x from t1", "select id, x from t1")
+
+        val stored = "select id,\n  'A' code\n  from t1\n  where x = 1"
+        assertThat(PlSqlText.viewDifference("create view v as select id, 'B' code from t1 where x = 1", stored)).isEqualTo(2)
+        assertThat(PlSqlText.viewDifference("create view v as select id, 'A' code from t1 where y = 1", stored)).isEqualTo(4)
+        assertThat(PlSqlText.viewDifference("create view v as select id, 'A' code from t1 join t2 on t2.k = t1.id where x = 1", stored)).isEqualTo(4)
+        assertThat(PlSqlText.viewDifference("create view v as select id, 'A' code from t1 where x = 1 and 2 = 2", stored)).isEqualTo(4)
+        // A quoted column right after a star is taken by the star's expansion: a known false difference.
+        assertThat(PlSqlText.viewDifference("create view v as select *, \"Z\" from t1", "select \"ID\",\"X\", \"Z\" from t1")).isEqualTo(1)
+    }
+
+    @Test
+    fun `views compare with their stored text, and a file without view rows keeps them without stored source`() {
+        val corpus = Path.of("src/test/resources/compare/views-corpus")
+        val index = temp.resolve("views.db")
+        Indexer().index(IndexOptions(corpus, index, compilationSchema = "HR", dictionary = AtlasDictionary.NONE, threads = 1))
+        val text = Files.readString(Path.of("src/test/resources/compare/views-dependencies.csv"))
+        val facts = DatabaseDependencies.read(StringReader(text))
+        // The multi-line view text round-trips through the SRC rows.
+        val written = StringWriter().also { facts.write(it) }.toString()
+        assertThat(DatabaseDependencies.read(StringReader(written))).isEqualTo(facts)
+        assertThat(facts.sources.filter { it.name == "V_DIFF" }.joinToString("") { it.text }).isEqualTo("select id\n    from t_c")
+        val result = DependencyComparison(index, facts, corpus).compare()
+        fun status(name: String) = result.units.single { it.unit.name == name }.let { "${it.sourceStatus} ${it.firstDifferentLine}" }
+        assertThat(status("V_SAME")).isEqualTo("SAME null")
+        assertThat(status("V_DIFF")).isEqualTo("DIFFERS 2")
+        assertThat(result.indexOnly.map { "${it.unit.name} ${it.target.name} ${it.indexClass}" }).containsExactly("V_DIFF T_B SOURCE_DIFFERS")
+
+        val old = facts.copy(sources = facts.sources.filter { it.type != "VIEW" })
+        val oldResult = DependencyComparison(index, old, corpus).compare()
+        assertThat(oldResult.units.filter { it.unit.type == "VIEW" }.map { it.sourceStatus }.distinct()).containsExactly(SourceStatus.NO_STORED_SOURCE)
+    }
+
+    @Test
     fun `names in text skip comments and string literals`() {
         val names = PlSqlText.names("select x from t_a -- t_b\n/* t_c */ where y = 'T_D' and z = q'[T_E]' and \"Mixed\" = 1")
         assertThat(names).contains("SELECT", "X", "T_A", "Y", "Z", "Mixed").doesNotContain("T_B", "T_C", "T_D", "T_E")

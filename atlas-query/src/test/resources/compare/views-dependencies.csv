@@ -1,0 +1,15 @@
+kind,owner,name,type,c1,c2,c3,c4
+META,source_readable,true,,,,,
+OBJ,HR,T_A,TABLE,VALID,,,
+OBJ,HR,T_B,TABLE,VALID,,,
+OBJ,HR,T_C,TABLE,VALID,,,
+OBJ,HR,V_DIFF,VIEW,VALID,,,
+OBJ,HR,V_SAME,VIEW,VALID,,,
+DEP,HR,V_DIFF,VIEW,HR,T_C,TABLE,
+DEP,HR,V_SAME,VIEW,HR,T_A,TABLE,
+SRC,HR,V_DIFF,VIEW,1,"select id
+",,
+SRC,HR,V_DIFF,VIEW,2,"    from t_c",,
+SRC,HR,V_SAME,VIEW,1,"select t.""ID"",t.""X"", 'x' tag
+",,
+SRC,HR,V_SAME,VIEW,2,"    from t_a t",,
