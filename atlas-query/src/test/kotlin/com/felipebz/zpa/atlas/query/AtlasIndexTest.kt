@@ -329,6 +329,15 @@ class AtlasIndexTest {
     }
 
     @Test
+    fun `a function called through a database link lists its call sites with their argument values`() {
+        val page = index.occurrences("db:NEXT_REQ@FAR").result!!
+        assertThat(page.rows.map { "${it.span.startLine} ${it.status} ${it.reason} ${it.arguments.map { a -> a.valueKind + " " + a.value }}" })
+            .containsExactly("7 EXTERNAL DB_LINK [NUMBER 4]", "8 EXTERNAL DB_LINK [NUMBER 5]")
+        val pack = index.entity("db:~.PACK_REQ@FAR.EXAMPLE.COM").result!!
+        assertThat(pack.children.map { it.key }).containsExactly("db:~.PACK_REQ@FAR.EXAMPLE.COM.CLOSE_REQ")
+    }
+
+    @Test
     fun `file gives the names inside the literal of a dynamic statement at their place`() {
         val dynamic = index.file("hr/pack_dynamic.pkb").result!!
         assertThat(dynamic.at(10, 35)).containsExactly("10,35,10,42 db:HR.COMPANY [SQL_DELETE]")

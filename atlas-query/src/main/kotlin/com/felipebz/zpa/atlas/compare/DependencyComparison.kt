@@ -232,10 +232,21 @@ class DependencyComparison(
             val row = entities.getValue(id)
             val root = project(id)
             if (!row.key.startsWith("db:~.") || row.kind == "COLUMN") return root to emptySet()
+            var rootRow = row
+            while (rootRow.parent != null) rootRow = entities.getValue(rootRow.parent)
+            if (rootRow !== row) {
+                // The first segment and the link come from the root entity's name (`PACK_REQ@FAR.EXAMPLE.COM`), the
+                // member from the key after the root's: a link may hold dots, so the key is never split to find it.
+                val (first, link) = rootRow.name.split('@', limit = 2).let { it[0] to it.getOrNull(1) }
+                val member = row.key.removePrefix(rootRow.key + ".").substringBefore('.')
+                val target = if (root.name == first && root.byName) root else Target(null, first, null, link)
+                return target to setOf(first to member)
+            }
+            // A key without parent (`db:~.A.B.X`): its segments, none of them linked.
             val segments = row.key.removePrefix("db:~.").split('.')
             val (first, link) = segments[0].split('@', limit = 2).let { it[0] to it.getOrNull(1) }
             val target = if (root.name == first && root.byName) root else Target(null, first, null, link)
-            val readings = if (segments.size >= 2) setOf(first to segments[1].substringBefore('@')) else emptySet()
+            val readings = if (segments.size >= 2 && link == null) setOf(first to segments[1]) else emptySet()
             return target to readings
         }
 

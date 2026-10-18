@@ -64,18 +64,10 @@ internal class TypeReferences(
      */
     private fun remoteAnchor(node: AstNode, context: Context, statementId: Int?): Boolean {
         val name = node.firstChild
-        if (name.type != PlSqlGrammar.MEMBER_EXPRESSION) return false
-        val children = name.children
-        val remote = children.indexOfFirst { it.type == PlSqlPunctuator.REMOTE }
-        if (remote < 0) return false
-        val local = children.subList(0, remote).filter { it.type != PlSqlPunctuator.DOT }
-        if (local.any { it.type is PlSqlPunctuator || tokensOf(it).size != 1 }) return false
-        val segments = local.map { normalizeIdentifier(it.tokenOriginalValue) }
-        val link = children.subList(remote + 1, children.size).filter { it.type == PlSqlGrammar.IDENTIFIER_NAME }
-            .joinToString(".") { normalizeIdentifier(it.tokenOriginalValue) }
+        val (segments, link) = remoteName(name) ?: return false
         val rowType = node.lastChild.type == PlSqlKeyword.ROWTYPE
         val relationNames = if (rowType) segments else segments.dropLast(1)
-        if (link.isEmpty() || relationNames.size !in 1..2) return false
+        if (relationNames.size !in 1..2) return false
         val relation = resolver.resolve(WrittenRelation(relationNames.getOrNull(relationNames.size - 2), relationNames.last(), link), context.schema)
         val (key, status, reason) = if (rowType) {
             Triple(relation.entityKey, relation.status, relation.reason)

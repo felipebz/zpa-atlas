@@ -62,6 +62,10 @@ internal class PlSqlNames(
         if (context.hasHoles(callee)) return
         val kind = if (!isMethodCall || node.parent.type == PlSqlGrammar.CALL_STATEMENT) ProjectCallKind.PROCEDURE else ProjectCallKind.FUNCTION
         val actuals = if (isMethodCall) node.getFirstChildOrNull(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT).orEmpty() else emptyList()
+        remoteName(callee)?.takeIf { it.segments.size in 1..3 }?.let {
+            remoteCall(callee, it, kind, actuals, context, statementId)
+            return
+        }
         val segments = nameSegments(callee) ?: run {
             state.coverage += CoverageFact("CALL_NOT_A_NAME", "Call at line ${callee.tokenLine} has a callee that is not a plain name")
             return
@@ -131,6 +135,39 @@ internal class PlSqlNames(
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), outcome.entityKey,
             setOf(Role.CALL), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys, argumentFacts)
+    }
+
+    /**
+     * A call through a database link (`p@l(…)`, `pkg.p@l(…)`, `s.pkg.p@l(…)`): never resolved, the project cannot know
+     * the remote code. Keyed as remote relations are: `db:P@L`; `db:~.A@L.B` under package `db:~.A@L` (`A` a package
+     * or a schema on the remote side); `db:S.A@L.B` under `db:S.A@L`. `EXTERNAL`, reason `DB_LINK`, its arguments
+     * recorded with their values and no formal.
+     */
+    private fun remoteCall(callee: AstNode, remote: RemoteName, kind: ProjectCallKind, actuals: List<AstNode>, context: Context, statementId: Int?) {
+        val (names, link) = remote
+        val calledKind = if (kind == ProjectCallKind.PROCEDURE) EntityKind.PROCEDURE else EntityKind.FUNCTION
+        fun entity(key: String, entityKind: EntityKind, schema: String?, name: String, parent: String?) {
+            state.entities += EntityFact(key, entityKind, schema, name, parent, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
+            if (parent != null) state.relations += RelationFact(parent, RelationKind.CONTAINS, key)
+        }
+        val key = if (names.size == 1) {
+            "db:${names[0]}@$link".also { entity(it, calledKind, null, "${names[0]}@$link", null) }
+        } else {
+            val schema = if (names.size == 3) names[0] else null
+            val owner = names[names.size - 2]
+            val parent = dbKey(schema ?: UNKNOWN_SCHEMA, "$owner@$link")
+            entity(parent, EntityKind.PACKAGE, schema, "$owner@$link", null)
+            "$parent.${names.last()}".also { entity(it, calledKind, schema, names.last(), parent) }
+        }
+        val arguments = actuals.mapIndexed { index, argument ->
+            val children = argument.children
+            val named = children.size >= 3 && children[1].tokenValue == "=>"
+            val expression = if (named) children.last() else argument
+            val value = ExpressionValues.of(expression, context::hasHoles)
+            CallArgumentFact(index + 1, if (named) normalizeIdentifier(children[0].tokenOriginalValue) else null, null, spanOf(expression), value.kind, value.value)
+        }
+        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), key,
+            setOf(Role.CALL), status(Status.EXTERNAL, context.partial), context.origin, "DB_LINK", emptyList(), arguments)
     }
 
     /**

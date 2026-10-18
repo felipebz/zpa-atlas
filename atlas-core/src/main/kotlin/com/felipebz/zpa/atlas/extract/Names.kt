@@ -8,6 +8,8 @@ package com.felipebz.zpa.atlas.extract
 import com.felipebz.flr.api.AstNode
 import com.felipebz.flr.api.GenericTokenType
 import com.felipebz.flr.api.Token
+import com.felipebz.zpa.api.PlSqlGrammar
+import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.PlSqlTokenType
 import com.felipebz.zpa.api.project.ProjectIdentifier
 import com.felipebz.zpa.atlas.model.SourceSpan
@@ -61,3 +63,23 @@ fun sha256(bytes: ByteArray): String =
     MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
 fun sha256(text: String): String = sha256(text.toByteArray(Charsets.UTF_8))
+
+/** A dotted name behind a database link: its normalized [segments] before `@`, and the normalized [link] joined by `.`. */
+data class RemoteName(val segments: List<String>, val link: String)
+
+/**
+ * The name and link of `a.b@link.domain` as zpa parses it (a `MEMBER_EXPRESSION` with the name segments, a `REMOTE`
+ * token, then the link's names), or null when [name] has no link or a segment before `@` is not a plain name.
+ */
+fun remoteName(name: AstNode): RemoteName? {
+    if (name.type != PlSqlGrammar.MEMBER_EXPRESSION) return null
+    val children = name.children
+    val remote = children.indexOfFirst { it.type == PlSqlPunctuator.REMOTE }
+    if (remote < 0) return null
+    val local = children.subList(0, remote).filter { it.type != PlSqlPunctuator.DOT }
+    if (local.isEmpty() || local.any { it.type is PlSqlPunctuator || tokensOf(it).size != 1 }) return null
+    val link = children.subList(remote + 1, children.size).filter { it.type == PlSqlGrammar.IDENTIFIER_NAME }
+        .joinToString(".") { normalizeIdentifier(it.tokenOriginalValue) }
+    if (link.isEmpty()) return null
+    return RemoteName(local.map { normalizeIdentifier(it.tokenOriginalValue) }, link)
+}
