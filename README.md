@@ -81,7 +81,7 @@ Vocabulary used by the web page and `stats`:
 
 Run from the repository root.
 
-1. **Requirements:** JDK 21 (pinned in `.java-version`).
+1. **Requirements:** JDK 25 (pinned in `.java-version`).
 2. **Build the CLI:**
    ```sh
    ./gradlew :atlas-cli:installDist

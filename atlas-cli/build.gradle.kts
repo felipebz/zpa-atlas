@@ -5,7 +5,7 @@ plugins {
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(25))
     }
 }
 
@@ -30,6 +30,8 @@ dependencies {
 application {
     mainClass.set("com.felipebz.zpa.atlas.cli.MainKt")
     applicationName = "zpa-atlas"
+    // sqlite-jdbc loads its native library: allowed explicitly, as JDK 24+ warns about it
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
 tasks.test {

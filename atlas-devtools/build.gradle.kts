@@ -5,7 +5,7 @@ plugins {
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(25))
     }
 }
 
@@ -33,6 +33,8 @@ tasks.test {
 application {
     mainClass.set("com.felipebz.zpa.atlas.devtools.MainKt")
     applicationName = "atlas-devtools"
+    // sqlite-jdbc loads its native library: allowed explicitly, as JDK 24+ warns about it
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
 // Oracle-backed tests: never part of `check`/`build`; they need a database (see README.md).
