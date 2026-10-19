@@ -365,7 +365,7 @@ class AtlasIndexTest {
         val entity = index.entity(runJob5).result!!
         assertThat(entity.children.map { it.entity.name }).containsExactly("P_A", "P_B", "P_C", "P_D", "P_E")
         assertThat(entity.relations.single { it.kind == "IMPLEMENTS" }.entity.let { it.key to it.name }).isEqualTo("$runJob5@BODY" to "RUN_JOB")
-        assertThat(index.searchEntities("notify_req").result!!.map { it.display to it.name }).contains("NOTIFY_REQ@FAR" to "NOTIFY_REQ@FAR")
+        assertThat(index.searchEntities("notify_req").result.map { it.display to it.name }).contains("NOTIFY_REQ@FAR" to "NOTIFY_REQ@FAR")
         assertThat(index.entity("db:~.PACK_REQ@FAR.EXAMPLE.COM").result!!.children.map { it.entity.name }).contains("GET_MAX")
         val pack = index.entity("db:HR.PACK_PROCESS").result!!
         assertThat(pack.children.first { it.entity.key == runJob5 }.usages)

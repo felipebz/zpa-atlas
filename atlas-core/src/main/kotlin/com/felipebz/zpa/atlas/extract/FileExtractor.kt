@@ -241,7 +241,8 @@ class FileExtractor(
 
     private fun walk(node: AstNode, context: Context) {
         // A conditional compilation run is a trivia of the next token: read once, by the outermost node that token starts.
-        node.token?.let { if (node.parentOrNull?.token !== it) plsql.conditionNames(it, context) }
+        val token = node.token
+        if (node.parentOrNull?.token !== token) plsql.conditionNames(token, context)
         var current = context
         // The object a DDL statement acts on; the walk goes on inside it (the query of CREATE TABLE … AS SELECT).
         if (ddl.isDdl(node)) ddl.statement(node, context)

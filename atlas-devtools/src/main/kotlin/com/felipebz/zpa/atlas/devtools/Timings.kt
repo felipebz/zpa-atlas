@@ -52,7 +52,7 @@ object Timings {
             if (answer!!.result == null) {
                 append(String.format(Locale.ROOT, "  %s (%d occurrences): sources not available%n", path, count))
             } else {
-                val bytes = JSON.encodeToString(serializer<Answer<FileView?>>(), answer!!).toByteArray(Charsets.UTF_8)
+                val bytes = JSON.encodeToString(serializer<Answer<FileView?>>(), answer).toByteArray(Charsets.UTF_8)
                 var gzipped = 0
                 val gzip = time { gzipped = gzip(bytes).size }
                 append(String.format(Locale.ROOT, "  %s (%d occurrences): file %.1f, %d bytes, gzip %d bytes in %.1f ms%n", path, count, file, bytes.size, gzipped, gzip))
