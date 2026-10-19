@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.flr.api.AstNode
+import com.felipebz.flr.api.AstNodeType
 import com.felipebz.flr.api.GenericTokenType
 import com.felipebz.flr.api.Token
 import com.felipebz.zpa.api.PlSqlGrammar
@@ -18,6 +19,9 @@ import java.util.Locale
 
 /** Placeholder schema used in keys when a declaration has neither a written owner nor a compilation schema. */
 const val UNKNOWN_SCHEMA = "~"
+
+/** The datatypes that name a type or an anchor: their name is a `TYPE_USE`, never a value or a column. */
+val NAMED_DATATYPES = arrayOf<AstNodeType>(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE, PlSqlGrammar.REF_DATATYPE)
 
 /** Oracle identifier identity, as `OracleIdentifier`: unquoted is upper-cased, quoted keeps its contents. */
 fun normalizeIdentifier(spelling: String): String =

@@ -25,14 +25,16 @@ internal class TypeReferences(
     private val jsonBuiltIn: Boolean
 ) {
     /**
-     * One `TYPE_USE` occurrence for the name of an `ANCHORED_DATATYPE` (`name%TYPE`, `name%ROWTYPE`) or a
-     * `CUSTOM_DATATYPE`. A one-segment name is a `VARIABLE_NAME`, a longer one a `MEMBER_EXPRESSION`. A first segment
+     * One `TYPE_USE` occurrence for the name of an `ANCHORED_DATATYPE` (`name%TYPE`, `name%ROWTYPE`), a
+     * `CUSTOM_DATATYPE` or a `REF_DATATYPE` (the name after `REF`, which the span leaves out). A one-segment name is a
+     * `VARIABLE_NAME`, a longer one a `MEMBER_EXPRESSION`. A REF CURSOR type of an enclosing block is local only for a
+     * `CUSTOM_DATATYPE`. A first segment
      * the legacy table binds to a local declaration is counted (`LOCAL_ANCHOR`), not indexed; built-ins give nothing.
      * A binding to the declaration the datatype belongs to is ignored: `comentario comentario.texto%type` names the
      * table, the item is not visible in its own declaration.
      */
     fun typeUse(node: AstNode, context: Context, statementId: Int?) {
-        val name = node.firstChild
+        val name = if (node.type == PlSqlGrammar.REF_DATATYPE) node.lastChild else node.firstChild
         if (context.hasHoles(node)) return
         if (node.type == PlSqlGrammar.ANCHORED_DATATYPE && remoteAnchor(node, context, statementId)) return
         val segments = plsql.nameSegments(name) ?: run {

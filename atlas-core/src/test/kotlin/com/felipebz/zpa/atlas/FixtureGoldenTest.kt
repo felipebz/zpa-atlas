@@ -87,6 +87,27 @@ class FixtureGoldenTest {
     }
 
     @Test
+    fun `the name after REF is a type use in every position, and no type name in TREAT or IS OF is a column`() {
+        val refs = occurrences().filter { it.startsWith("hr/ty_refs.sql\t") }.map { it.split('\t') }
+        val typeUses = refs.filter { it[4] == "TYPE_USE" }.map { "${it[1]} ${it[3]}" }
+        assertThat(typeUses).contains(
+            "1:59-1:67 db:HR.TY_SHAPE", "1:79-1:90 db:HR.TY_SHAPE",   // object type attributes, unqualified and qualified
+            "3:53-3:61 db:HR.TY_SHAPE",                                // table of ref
+            "15:12-15:20 db:HR.TY_SHAPE",                              // package variable
+            "16:34-16:42 db:HR.TY_SHAPE", "17:30-17:38 db:HR.TY_SHAPE",  // record field, index by element
+            "18:31-18:39 db:HR.TY_SHAPE", "18:52-18:60 db:HR.TY_SHAPE",  // parameter, return type
+            "30:14-30:23 db:HR.TY_CIRCLE",                             // local variable
+            "37:32-37:41 db:HR.TY_CIRCLE",                             // treat(p as ref t) in PL/SQL
+            "41:30-41:39 db:HR.TY_CIRCLE"                              // treat(p as ref t) in static SQL
+        )
+        assertThat(refs.filter { it[4] == "READ" }.map { it[3] }).containsExactly("db:HR.COMPANY.ID")
+        assertThat(Fixture.query(db, "SELECT key FROM entity WHERE kind = 'COLUMN' AND name IN ('TY_CIRCLE', 'TY_SHAPE')")).isEmpty()
+        // `ref t@lnk` and `t@lnk` get the same coverage.
+        assertThat(Fixture.query(db, "SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE f.path = 'hr/ty_refs.sql' ORDER BY 1"))
+            .containsExactly("Datatype at line 31 is not a plain name", "Datatype at line 32 is not a plain name")
+    }
+
+    @Test
     fun `without a dictionary an insert without column list writes one occurrence with unknown columns`() {
         val bare = Fixture.index(temp.resolve("bare.db"), dictionary = AtlasDictionary.NONE)
         assertThat(occurrences(bare).filter { it.startsWith("scripts/load.sql\t1:") }).containsExactly(
@@ -118,7 +139,7 @@ class FixtureGoldenTest {
                 "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_mview.prc", "hr/proc_own_objects.prc",
                 "hr/proc_source_view.prc",
                 "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_view_chain.prc", "hr/proc_view_writes.prc", "hr/proc_writes.prc", "hr/proc_xmlseq.prc", "hr/remote_calls.prc", "hr/remote_names.prc", "hr/trg_company_bu.trg", "hr/trg_company_values.trg", "hr/trg_dynamic.trg",
-                "hr/trg_forms.trg", "hr/trg_syn_company.trg", "hr/ty_bag.tpb", "hr/ty_bag.typ", "hr/ty_num_list.typ", "hr/ty_point.typ", "hr/ty_shapes.typ", "hr/view_ioi.sql", "hr/views.sql", "hr/views_lineage.sql", "hr/views_remote.sql", "hr/views_star.sql",
+                "hr/trg_forms.trg", "hr/trg_syn_company.trg", "hr/ty_bag.tpb", "hr/ty_bag.typ", "hr/ty_num_list.typ", "hr/ty_point.typ", "hr/ty_refs.sql", "hr/ty_shapes.typ", "hr/view_ioi.sql", "hr/views.sql", "hr/views_lineage.sql", "hr/views_remote.sql", "hr/views_star.sql",
                 "scripts/broken.sql", "scripts/broken_call.sql")
     }
 

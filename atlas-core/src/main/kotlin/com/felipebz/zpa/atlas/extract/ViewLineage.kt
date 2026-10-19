@@ -232,7 +232,7 @@ internal class ViewLineage(
                 for (read in reads) if (read.entityKey != null && read.status in LINEAGE_STATUSES) result += read.entityKey
                 return
             }
-            if (node.type == PlSqlGrammar.ANCHORED_DATATYPE || node.type == PlSqlGrammar.CUSTOM_DATATYPE) return
+            if (node.type in NAMED_DATATYPES) return
             if ((node.type == PlSqlGrammar.VARIABLE_NAME || node.type == PlSqlGrammar.MEMBER_EXPRESSION) && plsql.isValueName(node) && plsql.nameSegments(node) != null) {
                 val followed = nameLineage(statement, node)
                 if (followed == null) known = false else result += followed

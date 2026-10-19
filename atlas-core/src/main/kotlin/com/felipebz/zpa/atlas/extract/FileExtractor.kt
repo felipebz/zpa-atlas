@@ -272,7 +272,7 @@ class FileExtractor(
             PlSqlGrammar.CALL_STATEMENT -> node.children.firstOrNull { it.type != PlSqlGrammar.LABELS && it.type != PlSqlPunctuator.SEMICOLON }
                 ?.takeIf { it.type != PlSqlGrammar.METHOD_CALL }
                 ?.let { plsql.callSite(it, context, null) }
-            PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE -> {
+            in NAMED_DATATYPES -> {
                 innerConditionNames(node, context)
                 typeReferences.typeUse(node, context, null)
                 return

@@ -124,12 +124,12 @@ internal class SqlStatements(
         }
         root.getDescendants(*KEYWORD_FUNCTIONS).forEach { typeReferences.sqlFunctionKeyword(it.firstChild, context, id) }
         // `CAST(… AS t)` and the other datatypes of the statement.
-        root.getDescendants(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE).forEach { typeReferences.typeUse(it, context, id) }
+        root.getDescendants(*NAMED_DATATYPES).forEach { typeReferences.typeUse(it, context, id) }
         root.getDescendants(PlSqlGrammar.JSON_DATATYPE).forEach { typeReferences.jsonTypeUse(it, context, id) }
         // Names: correlation columns of a trigger; INTO targets are PL/SQL values; every other name is a column read when
         // an SQL scope captures it.
         root.getDescendants(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION)
-            .filter { plsql.isValueName(it) && it.getFirstAncestorOrNull(PlSqlGrammar.ANCHORED_DATATYPE, PlSqlGrammar.CUSTOM_DATATYPE) == null }
+            .filter { plsql.isValueName(it) && it.getFirstAncestorOrNull(*NAMED_DATATYPES) == null }
             .filterNot { triggers.correlationColumn(it, context, id) }
             .forEach { if (it.getFirstAncestorOrNull(DmlGrammar.INTO_CLAUSE) != null) plsql.valueReference(it, context, id, sql = false) else columnReads.sqlName(statement, it) }
         root.getDescendants(DmlGrammar.SELECT_COLUMN).forEach { columnReads.selectStar(statement, it) }

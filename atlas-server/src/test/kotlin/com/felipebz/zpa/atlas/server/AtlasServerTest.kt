@@ -110,9 +110,10 @@ class AtlasServerTest {
         assertThat(java.util.zip.GZIPInputStream(raw.inputStream()).readBytes()).isEqualTo(plainBytes)
         assertThat(raw.size).isLessThan(plainBytes.size)
 
-        val run = client.get("/api/run") { header(HttpHeaders.AcceptEncoding, "gzip") }
-        assertThat(run.bodyAsBytes().size.toLong()).isLessThan(COMPRESSION_MINIMUM_BYTES)
-        assertThat(run.headers[HttpHeaders.ContentEncoding]).isNull()
+        val small = client.get("/api/entity") { parameter("key", "db:HR.TY_SHAPE_REFS") }
+        assertThat(small.bodyAsBytes().size.toLong()).isLessThan(COMPRESSION_MINIMUM_BYTES)
+        val smallGzip = client.get("/api/entity") { parameter("key", "db:HR.TY_SHAPE_REFS"); header(HttpHeaders.AcceptEncoding, "gzip") }
+        assertThat(smallGzip.headers[HttpHeaders.ContentEncoding]).isNull()
     }
 
     @Test
