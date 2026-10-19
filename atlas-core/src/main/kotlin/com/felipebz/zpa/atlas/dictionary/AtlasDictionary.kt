@@ -30,10 +30,9 @@ data class DictionarySynonym(val owner: String, val name: String, val targetOwne
  * The Oracle dictionary as the indexer sees it: the [metadata] used for every lookup, the relations it can enumerate,
  * and the [synonyms] of relations, packages, types, subprograms and sequences (zpa leaves synonyms to its consumers).
  *
- * [ProjectExternalMetadata] has no public way to list its relations, and it does not record whether a relation is a
- * table or a view (see the report). When [relations] is not [enumerable] (an [OracleMetadataAcquisition] result), a
- * relation becomes an entity only when code names it, and its kind is inferred from the only public signal
- * ([ProjectExternalRelation.rowObjectType]): `OBJECT_TABLE`, else `TABLE`.
+ * [ProjectExternalMetadata] has no public way to list its relations. When [relations] is not [enumerable] (an
+ * [OracleMetadataAcquisition] result), a relation becomes an entity only when code names it, and its kind comes from
+ * [kindOf].
  */
 class AtlasDictionary(
     val metadata: ProjectExternalMetadata,
@@ -64,9 +63,10 @@ class AtlasDictionary(
 
     /**
      * The kind of [relation]: the enumerated kind, else a `VIEW` or `MATERIALIZED_VIEW` when the dictionary's object
-     * types say so (the `OBJECT_TYPE` of the read schemas, or the target type of a synonym that reaches it), else
-     * `OBJECT_TABLE` when it has a row object type, else `TABLE`. A materialized view also has a `TABLE` row of the same
-     * name; the loader keeps the `MATERIALIZED VIEW` one.
+     * types say so (the `OBJECT_TYPE` of the read schemas, or the target type of a synonym that reaches it), else `VIEW`
+     * for a relation read from `ALL_VIEWS` ([ProjectExternalRelation.isView], with or without a row type), else
+     * `OBJECT_TABLE` when it has a row object type, else `TABLE`. A materialized view is not in `ALL_VIEWS`, and it also
+     * has a `TABLE` row of the same name; the loader keeps the `MATERIALIZED VIEW` one.
      */
     fun kindOf(relation: ProjectExternalRelation): DictionaryRelationKind {
         kinds[relation.schema to relation.name]?.let { return it }
@@ -75,6 +75,7 @@ class AtlasDictionary(
         return when {
             type == "VIEW" -> DictionaryRelationKind.VIEW
             type == "MATERIALIZED VIEW" -> DictionaryRelationKind.MATERIALIZED_VIEW
+            relation.isView -> DictionaryRelationKind.VIEW
             relation.rowObjectType.isPresent -> DictionaryRelationKind.OBJECT_TABLE
             else -> DictionaryRelationKind.TABLE
         }

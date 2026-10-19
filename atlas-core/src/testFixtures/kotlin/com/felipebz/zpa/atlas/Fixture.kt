@@ -33,10 +33,13 @@ object Fixture {
         rowType: String? = null
     ): DictionaryRelation {
         val fields = columns.mapIndexed { i, c -> ProjectExternalColumn.of(c, i + 1, null) }
-        val relation = if (rowType == null) {
-            ProjectExternalRelation.of(schema, name, complete, fields)
-        } else {
-            ProjectExternalRelation.objectTable(schema, name, ProjectExternalDatatype.of(rowType.substringAfter('.'), rowType.substringBefore('.'), null, null, null, null), complete, fields)
+        val type = rowType?.let { ProjectExternalDatatype.of(it.substringAfter('.'), it.substringBefore('.'), null, null, null, null) }
+        val view = kind == DictionaryRelationKind.VIEW
+        val relation = when {
+            view && type != null -> ProjectExternalRelation.objectView(schema, name, type, complete, fields)
+            view -> ProjectExternalRelation.view(schema, name, complete, fields)
+            type != null -> ProjectExternalRelation.objectTable(schema, name, type, complete, fields)
+            else -> ProjectExternalRelation.of(schema, name, complete, fields)
         }
         return DictionaryRelation(relation, kind)
     }

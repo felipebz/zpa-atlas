@@ -47,6 +47,27 @@ class AtlasDictionaryTest {
         assertThat(dictionary.kindOf(ProjectExternalRelation.objectTable("OTHER", "UNLISTED_OBJECTS", ProjectExternalDatatype.of("TY_ROW", "OTHER", null, null, null, null), true, columns))).isEqualTo(DictionaryRelationKind.OBJECT_TABLE)
     }
 
+    private val rowType = ProjectExternalDatatype.of("TY_ROW", "OTHER", null, null, null, null)
+    private val objectView = ProjectExternalRelation.objectView("OTHER", "OBJ_V", rowType, true, columns)
+    private val plainView = ProjectExternalRelation.view("OTHER", "PLAIN_V", true, columns)
+    private val objectTable = ProjectExternalRelation.objectTable("OTHER", "OBJ_T", rowType, true, columns)
+
+    @Test
+    fun `without the namespace a relation read from ALL_VIEWS is a VIEW, with or without a row type`() {
+        assertThat(listOf(objectView, plainView, objectTable).map { dictionary.kindOf(it) })
+            .containsExactly(DictionaryRelationKind.VIEW, DictionaryRelationKind.VIEW, DictionaryRelationKind.OBJECT_TABLE)
+    }
+
+    @Test
+    fun `with the namespace read its object type comes first`() {
+        val read = AtlasDictionary.lookupOnly(
+            ProjectExternalMetadata.none(), setOf("OTHER"),
+            objects = mapOf("OTHER" to mapOf("OBJ_V" to "MATERIALIZED VIEW", "PLAIN_V" to "VIEW", "OBJ_T" to "TABLE"))
+        )
+        assertThat(listOf(objectView, plainView, objectTable).map { read.kindOf(it) })
+            .containsExactly(DictionaryRelationKind.MATERIALIZED_VIEW, DictionaryRelationKind.VIEW, DictionaryRelationKind.OBJECT_TABLE)
+    }
+
     @Test
     fun `a materialized view is a MATERIALIZED_VIEW through its object type`() {
         assertThat(dictionary.kindOf(relation("APP", "MV_ORDERS"))).isEqualTo(DictionaryRelationKind.MATERIALIZED_VIEW)
