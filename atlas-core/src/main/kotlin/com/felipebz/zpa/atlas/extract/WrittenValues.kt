@@ -70,6 +70,7 @@ internal sealed interface WriteSource {
 /** How the values written to columns are found in a DML statement, and the reasons a column write has none. */
 internal object WrittenValues {
     const val SET_ROW = "SET ROW"
+    const val SET_VALUE = "SET VALUE"
     const val RECORD = "record"
     const val SET_OR_STAR = "set operator or *"
     const val COUNT_MISMATCH = "count mismatch"

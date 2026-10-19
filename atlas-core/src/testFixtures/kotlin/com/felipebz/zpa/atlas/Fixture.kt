@@ -71,6 +71,11 @@ object Fixture {
             relation("V_LIN_SHORT", "A", "EXTRA", "B", kind = DictionaryRelationKind.VIEW),
             relation("V_LIN_WITH_STAR", "ID", "MSG", kind = DictionaryRelationKind.VIEW),
             relation("V_LIN_RECURSIVE", "N", kind = DictionaryRelationKind.VIEW),
+            // The object table of hr/shape_tab.sql, a table with a REF column, and the views of hr/proc_objects.prc.
+            relation("SHAPE_TAB", "ID", kind = DictionaryRelationKind.OBJECT_TABLE),
+            relation("SHAPE_HOLDER", "ID", "S", "X"),
+            relation("V_SHAPES", "SREF", "SVAL", "ID", kind = DictionaryRelationKind.VIEW),
+            relation("V_SHAPE_REFS", "SREF", kind = DictionaryRelationKind.VIEW),
             relation("V_LIN_FN", "COL_A", kind = DictionaryRelationKind.VIEW),
             relation("V_LIN_JOIN", "ID", "COMPANY_NAME", "MSG", kind = DictionaryRelationKind.VIEW),
             relation("V_CHAIN1", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),

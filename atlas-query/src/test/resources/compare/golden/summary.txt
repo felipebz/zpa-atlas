@@ -1,9 +1,9 @@
 compare-deps summary
 
 Units
-  mapped to database objects: 121
-  scripts and anonymous blocks (not compared): 31, with 46 edge occurrence(s)
-  units without ALL_OBJECTS row (not compared): 104, with 144 index edge(s)
+  mapped to database objects: 124
+  scripts and anonymous blocks (not compared): 33, with 47 edge occurrence(s)
+  units without ALL_OBJECTS row (not compared): 107, with 153 index edge(s)
   database objects without unit in the index: 2
 
 Conditional compilation
@@ -18,7 +18,7 @@ Source
   DIFFERS: 2
   WRAPPED: 0
   REWRITTEN: 0
-  NO_STORED_SOURCE: 116
+  NO_STORED_SOURCE: 119
   UNAVAILABLE: 0
     HR.TRG_COMPANY_BU TRIGGER: first difference at stored line 5
     HR.V_REMOTE_DIFFERS VIEW: first difference at stored line 1

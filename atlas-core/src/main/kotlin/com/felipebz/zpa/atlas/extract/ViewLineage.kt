@@ -233,6 +233,19 @@ internal class ViewLineage(
                 return
             }
             if (node.type in NAMED_DATATYPES) return
+            // `REF(x)` has no base column; `VALUE(x)` has every column of the relation, when the dictionary lists them.
+            columnReads.correlationCall(statement, node)?.let { (function, source) ->
+                if (function == "VALUE") {
+                    val relation = source.target?.resolved?.relation?.takeIf { it.isColumnsComplete }
+                    if (relation == null) known = false
+                    else relation.rowFields.forEach { result += source.target.resolved.entityKey + "." + it.name.exact() }
+                }
+                return
+            }
+            if (makeRefRelation(node) != null) {
+                node.getFirstChild(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT)?.drop(1)?.forEach(::visit)
+                return
+            }
             if ((node.type == PlSqlGrammar.VARIABLE_NAME || node.type == PlSqlGrammar.MEMBER_EXPRESSION) && plsql.isValueName(node) && plsql.nameSegments(node) != null) {
                 val followed = nameLineage(statement, node)
                 if (followed == null) known = false else result += followed

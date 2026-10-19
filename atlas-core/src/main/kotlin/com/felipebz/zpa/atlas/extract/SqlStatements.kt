@@ -121,6 +121,8 @@ internal class SqlStatements(
         // The PL/SQL compiler resolves the function names of static SQL, so they follow the PL/SQL rules.
         root.getDescendants(PlSqlGrammar.METHOD_CALL).forEach { call ->
             plsql.callSite(call, context, id) { callee, segments -> columnReads.qualifiedColumn(statement, callee, segments, method = true) }
+            columnReads.correlationValue(statement, call)
+            makeRefRelation(call)?.let { makeRef(statement, it) }
         }
         root.getDescendants(*KEYWORD_FUNCTIONS).forEach { typeReferences.sqlFunctionKeyword(it.firstChild, context, id) }
         // `CAST(… AS t)` and the other datatypes of the statement.
@@ -130,6 +132,7 @@ internal class SqlStatements(
         // an SQL scope captures it.
         root.getDescendants(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION)
             .filter { plsql.isValueName(it) && it.getFirstAncestorOrNull(*NAMED_DATATYPES) == null }
+            .filterNot { columnReads.isCorrelationArgument(statement, it) || isMakeRefRelation(it) }
             .filterNot { triggers.correlationColumn(it, context, id) }
             .forEach { if (it.getFirstAncestorOrNull(DmlGrammar.INTO_CLAUSE) != null) plsql.valueReference(it, context, id, sql = false) else columnReads.sqlName(statement, it) }
         root.getDescendants(DmlGrammar.SELECT_COLUMN).forEach { columnReads.selectStar(statement, it) }
@@ -137,6 +140,22 @@ internal class SqlStatements(
     }
 
     private fun isPunctuation(node: AstNode) = node.type is PlSqlPunctuator
+
+    /**
+     * The relation `MAKE_REF(t, key…)` names, resolved as a `FROM` reference. It builds a reference without reading the
+     * relation: `TYPE_USE`, never an SQL role.
+     */
+    private fun makeRef(statement: Statement, name: AstNode) {
+        if (statement.context.hasHoles(name)) return
+        val segments = plsql.nameSegments(name)?.map { normalizeIdentifier(it) } ?: return
+        val resolved = resolver.resolve(WrittenRelation(segments.getOrNull(segments.size - 2), segments.last(), null), statement.context.schema)
+        statement.occurrence(name, resolved.entityKey, setOf(Role.TYPE_USE), resolved.status, resolved.reason)
+    }
+
+    private fun isMakeRefRelation(name: AstNode): Boolean {
+        val call = name.parentOrNull?.parentOrNull?.parentOrNull ?: return false
+        return name.parentOrNull?.type == PlSqlGrammar.ARGUMENT && makeRefRelation(call) === name
+    }
 
     private fun subqueryTarget(node: AstNode) {
         state.coverage += CoverageFact("DML_SUBQUERY_TARGET", "DML on an inline view or collection at line ${node.tokenLine}: its base relation is not a write target")
@@ -172,6 +191,8 @@ internal class SqlStatements(
             }
             allowRow && left.type == PlSqlGrammar.VARIABLE_NAME && left.tokenOriginalValue.uppercase() == "ROW" ->
                 columnReads.implicitColumns(statement, target, setOf(role, Role.WRITE, Role.IMPLICIT), written = WriteSource.None(WrittenValues.SET_ROW))
+            allowRow && columnReads.correlationCall(statement, left)?.let { (function, source) -> function == "VALUE" && source.target === target } == true ->
+                columnReads.implicitColumns(statement, target, setOf(role, Role.WRITE, Role.IMPLICIT), written = WriteSource.None(WrittenValues.SET_VALUE))
             else -> {
                 // `SET (col) = (SELECT x …)` is one column and a query; `SET col = expr` the expression.
                 val query = right?.let { WrittenValues.subquery(it) }

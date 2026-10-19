@@ -87,6 +87,38 @@ class FixtureGoldenTest {
     }
 
     @Test
+    fun `the alias in REF and VALUE is never a column, VALUE reads and SET VALUE writes every column`() {
+        fun objects(database: Path) = occurrences(database).filter { it.startsWith("hr/proc_objects.prc\t") }.map { it.split('\t') }
+        for (database in listOf(db, Fixture.index(temp.resolve("objects-bare.db"), dictionary = AtlasDictionary.NONE))) {
+            assertThat(objects(database).filter { it[4].contains("READ") }.map { it[3] }).noneMatch { it.endsWith(".X") || it.endsWith(".T") }
+            assertThat(Fixture.query(database, "SELECT key FROM entity WHERE kind = 'COLUMN' AND key IN ('db:HR.SHAPE_TAB.X', 'db:HR.SHAPE_TAB.S', 'db:HR.SHAPE_HOLDER.H')")).isEmpty()
+        }
+        val rows = objects(db)
+        // value(x) reads the row; ref(x) reads nothing; the correlated ref(x) and the join with SHAPE_HOLDER.X stay aliases.
+        assertThat(rows.filter { it[4] == "IMPLICIT,READ" }.map { "${it[1]} ${it[2]} ${it[3]}" })
+            .containsExactly("6:17-6:25 value(x) db:HR.SHAPE_TAB.ID", "7:48-7:56 value(s) db:HR.SHAPE_TAB.ID", "19:55-19:63 value(x) db:HR.SHAPE_TAB.ID")
+        assertThat(rows.filter { it[4] == "IMPLICIT,SQL_UPDATE,WRITE" }.map { "${it[1]} ${it[3]}" }).containsExactly("13:9-13:18 db:HR.SHAPE_TAB.ID")
+        assertThat(rows.filter { it[4] == "READ" && it[1].startsWith("12:") }.map { it[3] }).containsExactly("db:HR.SHAPE_HOLDER.S", "db:HR.SHAPE_HOLDER.ID")
+        val notes = Fixture.query(db, "SELECT c.kind || ' ' || c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE f.path = 'hr/proc_objects.prc' ORDER BY 1")
+        assertThat(notes).noneMatch { it.startsWith("COLUMN_EXPRESSION") }
+        // Only the PL/SQL parameters inside TABLE(…) stay undecided, not the aliases of the table functions.
+        assertThat(notes).contains("SQL_NAME_UNDECIDED 2 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed")
+    }
+
+    @Test
+    fun `MAKE_REF names its relation as a type use, and a view column has the lineage of VALUE but not of REF`() {
+        val makeRefs = occurrences().filter { it.startsWith("hr/proc_objects.prc\t") }.map { it.split('\t') }
+            .filter { it[4] == "TYPE_USE" && it[3].let { key -> key.endsWith(".SHAPE_TAB") || key.endsWith(".MISSING_OBJ_TAB") } }
+        assertThat(makeRefs.map { "${it[2]} ${it[3]} ${it[5]}" }).containsExactly(
+            "shape_tab db:HR.SHAPE_TAB RESOLVED", "hr.shape_tab db:HR.SHAPE_TAB RESOLVED", "missing_obj_tab db:HR.MISSING_OBJ_TAB UNRESOLVED",
+            "shape_tab db:HR.SHAPE_TAB RESOLVED"
+        )
+        assertThat(Fixture.query(db, "SELECT key FROM entity WHERE kind = 'COLUMN' AND name IN ('SHAPE_TAB', 'MISSING_OBJ_TAB')")).isEmpty()
+        assertThat(Fixture.query(db, """SELECT v.name || ' ' || b.key FROM relation r JOIN entity v ON v.id = r.from_id JOIN entity b ON b.id = r.to_id
+            WHERE r.kind = 'VIEW_BASE' AND v.key LIKE 'db:HR.V_SHAPES.%' ORDER BY 1""")).containsExactly("ID db:HR.SHAPE_TAB.ID", "SVAL db:HR.SHAPE_TAB.ID")
+    }
+
+    @Test
     fun `the name after REF is a type use in every position, and no type name in TREAT or IS OF is a column`() {
         val refs = occurrences().filter { it.startsWith("hr/ty_refs.sql\t") }.map { it.split('\t') }
         val typeUses = refs.filter { it[4] == "TYPE_USE" }.map { "${it[1]} ${it[3]}" }
@@ -136,7 +168,7 @@ class FixtureGoldenTest {
         assertThat(Fixture.query(noSchema, "SELECT f.path FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE c.kind = 'SCHEMA_UNKNOWN' ORDER BY 1"))
             .containsExactly("hr/conditional.sql", "hr/fn_company_name.fun", "hr/json_holder.typ", "hr/json_type.typ", "hr/mv_company.sql", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/pack_args.pkb", "hr/pack_args.pks", "hr/pack_calls.pkb", "hr/pack_calls.pks",
                 "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_ddl.pkb", "hr/pack_ddl.pks", "hr/pack_dynamic.pkb", "hr/pack_dynamic.pks", "hr/pack_inline.sql", "hr/pack_json.pkb", "hr/pack_json.pks", "hr/pack_methods.pkb", "hr/pack_methods.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
-                "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_mview.prc", "hr/proc_own_objects.prc",
+                "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_mview.prc", "hr/proc_objects.prc", "hr/proc_own_objects.prc",
                 "hr/proc_source_view.prc",
                 "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_view_chain.prc", "hr/proc_view_writes.prc", "hr/proc_writes.prc", "hr/proc_xmlseq.prc", "hr/remote_calls.prc", "hr/remote_names.prc", "hr/trg_company_bu.trg", "hr/trg_company_values.trg", "hr/trg_dynamic.trg",
                 "hr/trg_forms.trg", "hr/trg_syn_company.trg", "hr/ty_bag.tpb", "hr/ty_bag.typ", "hr/ty_num_list.typ", "hr/ty_point.typ", "hr/ty_refs.sql", "hr/ty_shapes.typ", "hr/view_ioi.sql", "hr/views.sql", "hr/views_lineage.sql", "hr/views_remote.sql", "hr/views_star.sql",
