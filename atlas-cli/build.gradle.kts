@@ -43,7 +43,7 @@ tasks.test {
  * license and where its source code is, read from the Maven POMs (parents followed for inherited licenses and URLs).
  * ZPA and FLR are LGPL-3.0-or-later: their entries point to `licenses/LGPL-3.0.txt`.
  */
-val thirdPartyNotice by tasks.registering {
+val thirdPartyNotice = tasks.register("thirdPartyNotice") {
     description = "Writes THIRD-PARTY.md, the license of every JAR in the distribution's lib/ directory."
     val runtime = configurations.runtimeClasspath
     val jar = tasks.jar.flatMap { it.archiveFileName }
@@ -51,11 +51,14 @@ val thirdPartyNotice by tasks.registering {
     inputs.files(runtime)
     inputs.property("jar", jar)
     outputs.file(output)
+    // Taken at configuration time: Task.project is deprecated at execution time.
+    val configurations = project.configurations
+    val dependencies = project.dependencies
     doLast {
         class Pom(val name: String?, val url: String?, val scm: String?, val licenses: List<Pair<String, String?>>, val parent: String?)
 
         fun pom(coordinates: String): Pom {
-            val file = project.configurations.detachedConfiguration(project.dependencies.create("$coordinates@pom"))
+            val file = configurations.detachedConfiguration(dependencies.create("$coordinates@pom"))
                 .apply { isTransitive = false }.singleFile
             val root = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file).documentElement
             fun children(node: org.w3c.dom.Node, name: String) =

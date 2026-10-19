@@ -38,7 +38,7 @@ application {
 }
 
 // Oracle-backed tests: never part of `check`/`build`; they need a database (see README.md).
-val integrationTest by sourceSets.creating {
+val integrationTest = sourceSets.create("integrationTest") {
     compileClasspath += sourceSets.main.get().output + configurations.runtimeClasspath.get()
     runtimeClasspath += output + compileClasspath
 }
