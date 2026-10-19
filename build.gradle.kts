@@ -1,10 +1,7 @@
-import com.hierynomus.gradle.license.tasks.LicenseCheck
-import com.hierynomus.gradle.license.tasks.LicenseFormat
-
 plugins {
     kotlin("jvm") version "2.4.21" apply false
     kotlin("plugin.serialization") version "2.4.21" apply false
-    id("com.github.hierynomus.license") version "0.16.1" apply false
+    id("com.diffplug.spotless") version "8.10.4" apply false
 }
 
 allprojects {
@@ -29,17 +26,13 @@ allprojects {
 }
 
 subprojects {
-    apply(plugin = "com.github.hierynomus.license")
+    apply(plugin = "com.diffplug.spotless")
 
-    tasks.withType<LicenseFormat>().configureEach {
-        header = File(this.project.rootDir, "LICENSE_HEADER")
-        include("**/*.kt")
-        mapping("kt", "DOUBLESLASH_STYLE")
-    }
-
-    tasks.withType<LicenseCheck>().configureEach {
-        header = File(this.project.rootDir, "LICENSE_HEADER")
-        include("**/*.kt")
-        mapping("kt", "DOUBLESLASH_STYLE")
+    configure<com.diffplug.gradle.spotless.SpotlessExtension> {
+        kotlin {
+            target("src/**/*.kt")
+            val lines = rootProject.file("LICENSE_HEADER").readLines().filter { it.isNotBlank() }
+            licenseHeader(lines.joinToString("", prefix = "//\n", postfix = "//\n\n") { "// $it\n" })
+        }
     }
 }
