@@ -9,10 +9,21 @@ SYNONYM,HR,PACK_CALLS,PACKAGE BODY,PUBLIC,DBMS_OUTPUT,SYNONYM,,false,hr/pack_cal
 EXACT,HR,PACK_PROCESS,PACKAGE BODY,HR,COMPANY,TABLE,,false,hr/pack_process.pkb:8 hr/pack_process.pkb:10 hr/pack_process.pkb:11 hr/pack_process.pkb:12 hr/pack_process.pkb:13 hr/pack_process.pkb:14 hr/pack_process.pkb:15 hr/pack_process.pkb:16 hr/pack_process.pkb:17 hr/pack_process.pkb:18
 EXACT,HR,PACK_PROCESS,PACKAGE BODY,HR,PACK_PROCESS,PACKAGE,,false,hr/pack_process.pkb:1 hr/pack_process.pkb:4 hr/pack_process.pkb:8 hr/pack_process.pkb:19 hr/pack_process.pkb:25 hr/pack_process.pkb:26 hr/pack_process.pkb:27 hr/pack_process.pkb:28 hr/pack_process.pkb:29 hr/pack_process.pkb:30 hr/pack_process.pkb:31
 EXACT,HR,PROC_MVIEW,PROCEDURE,HR,MV_COMPANY_LOG,TABLE,,false,hr/proc_mview.prc:3
+EXACT,HR,PROC_OBJECT_VIEW_REF,PROCEDURE,HR,V_SHAPE_OBJ,VIEW,,false,hr/object_views.sql:7
 SYNONYM,HR,PROC_SYNONYMS,PROCEDURE,HR,SYN_COMPANY,SYNONYM,,false,hr/proc_synonyms.prc:13 hr/proc_synonyms.prc:14 hr/proc_synonyms.prc:15
 SYNONYM,HR,PROC_SYNONYMS,PROCEDURE,PUBLIC,USER_TABLES,SYNONYM,,false,hr/proc_synonyms.prc:3 hr/proc_synonyms.prc:4 hr/proc_synonyms.prc:7 hr/proc_synonyms.prc:8 hr/proc_synonyms.prc:9 hr/proc_synonyms.prc:10 hr/proc_synonyms.prc:11
+EXACT,HR,PROC_TABLE_REF,PROCEDURE,HR,SHAPE_TAB,TABLE,,false,hr/object_views.sql:13
 EXACT,HR,TRG_COMPANY_FORMS,TRIGGER,HR,COMPANY,TABLE,,false,hr/trg_forms.trg:1 hr/trg_forms.trg:5 hr/trg_forms.trg:8 hr/trg_forms.trg:10 hr/trg_forms.trg:11 hr/trg_forms.trg:12 hr/trg_forms.trg:14 hr/trg_forms.trg:16 hr/trg_forms.trg:17 hr/trg_forms.trg:18
 EXACT,HR,TRG_COMPANY_FORMS,TRIGGER,HR,EVENT_LOG,TABLE,,false,hr/trg_forms.trg:18
 EXACT,HR,TRG_COMPANY_FORMS,TRIGGER,HR,PACK_PROCESS,PACKAGE,,false,hr/trg_forms.trg:16
 EXACT,HR,TRG_V_COMPANY_IOI,TRIGGER,HR,COMPANY,TABLE,,false,hr/trg_forms.trg:36
 EXACT,HR,TRG_V_COMPANY_IOI,TRIGGER,HR,V_COMPANY,VIEW,,false,hr/trg_forms.trg:32 hr/trg_forms.trg:36
+EXACT,HR,V_CIRCLE_OBJ,VIEW,HR,COMPANY,TABLE,,false,hr/object_views.sql:2
+EXACT,HR,V_CIRCLE_OBJ,VIEW,HR,TY_CIRCLE,TYPE,,false,hr/object_views.sql:2
+EXACT,HR,V_CIRCLE_OBJ,VIEW,HR,V_SHAPE_OBJ,VIEW,,false,hr/object_views.sql:2
+EXACT,HR,V_OBJ_REFS,VIEW,HR,COMPANY,TABLE,,false,hr/object_views.sql:3
+EXACT,HR,V_OBJ_REFS,VIEW,HR,TY_SHAPE,TYPE,,false,hr/object_views.sql:3
+EXACT,HR,V_SHAPE_OBJ,VIEW,HR,COMPANY,TABLE,,false,hr/object_views.sql:1
+EXACT,HR,V_SHAPE_OBJ,VIEW,HR,TY_SHAPE,TYPE,,false,hr/object_views.sql:1
+EXACT,HR,V_SHAPE_REFS,VIEW,HR,SHAPE_HOLDER,TABLE,,false,hr/proc_objects.prc:20
+EXACT,HR,V_SHAPE_REFS,VIEW,HR,TY_SHAPE,TYPE,,false,hr/proc_objects.prc:20

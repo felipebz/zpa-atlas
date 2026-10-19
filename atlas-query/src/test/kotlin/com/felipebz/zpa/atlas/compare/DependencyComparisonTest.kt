@@ -106,6 +106,21 @@ class DependencyComparisonTest {
     }
 
     @Test
+    fun `a view's MAKE_REF matches the row type and has its relation edge in its own class, object views match their type and superview`() {
+        fun matched(unit: String) = result.matched.filter { it.unit.name == unit }.map { "${it.reference.referencedName} ${it.reference.referencedType}" }
+        assertThat(matched("V_SHAPE_REFS")).containsExactlyInAnyOrder("SHAPE_HOLDER TABLE", "TY_SHAPE TYPE")
+        assertThat(matched("V_OBJ_REFS")).containsExactlyInAnyOrder("COMPANY TABLE", "TY_SHAPE TYPE")
+        assertThat(result.indexOnly.filter { it.indexClass == "VIEW_MAKE_REF" }.map { "${it.unit.name} ${it.target.name}" })
+            .containsExactlyInAnyOrder("V_SHAPE_REFS SHAPE_TAB", "V_OBJ_REFS V_SHAPE_OBJ")
+        // A procedure's MAKE_REF depends on the relation, not on its row type.
+        assertThat(matched("PROC_TABLE_REF")).containsExactly("SHAPE_TAB TABLE")
+        assertThat(matched("PROC_OBJECT_VIEW_REF")).containsExactly("V_SHAPE_OBJ VIEW")
+        assertThat(matched("V_SHAPE_OBJ")).containsExactlyInAnyOrder("COMPANY TABLE", "TY_SHAPE TYPE")
+        assertThat(matched("V_CIRCLE_OBJ")).containsExactlyInAnyOrder("COMPANY TABLE", "TY_CIRCLE TYPE", "V_SHAPE_OBJ VIEW")
+        assertThat(result.indexOnly.filter { it.unit.name in setOf("PROC_TABLE_REF", "PROC_OBJECT_VIEW_REF", "V_SHAPE_OBJ", "V_CIRCLE_OBJ") }).isEmpty()
+    }
+
+    @Test
     fun `every class is hit at least once`() {
         assertThat((result.databaseOnly + external.databaseOnly).map { it.dbClass }.toSet()).containsExactlyInAnyOrderElementsOf(ComparisonReport.DB_CLASSES)
         assertThat(result.indexOnly.map { it.indexClass }.toSet()).containsExactlyInAnyOrderElementsOf(ComparisonReport.INDEX_CLASSES)

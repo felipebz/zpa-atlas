@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas
 
 import com.felipebz.zpa.api.project.ProjectExternalColumn
+import com.felipebz.zpa.api.project.ProjectExternalDatatype
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionaryRelation
@@ -28,12 +29,17 @@ object Fixture {
     val sources: Path = Path.of(System.getProperty("atlas.fixture") ?: error("System property atlas.fixture is not set"))
 
     private fun relation(
-        name: String, vararg columns: String, kind: DictionaryRelationKind = DictionaryRelationKind.TABLE, schema: String = "HR", complete: Boolean = true
-    ) =
-        DictionaryRelation(
-            ProjectExternalRelation.of(schema, name, complete, columns.mapIndexed { i, c -> ProjectExternalColumn.of(c, i + 1, null) }),
-            kind
-        )
+        name: String, vararg columns: String, kind: DictionaryRelationKind = DictionaryRelationKind.TABLE, schema: String = "HR", complete: Boolean = true,
+        rowType: String? = null
+    ): DictionaryRelation {
+        val fields = columns.mapIndexed { i, c -> ProjectExternalColumn.of(c, i + 1, null) }
+        val relation = if (rowType == null) {
+            ProjectExternalRelation.of(schema, name, complete, fields)
+        } else {
+            ProjectExternalRelation.objectTable(schema, name, ProjectExternalDatatype.of(rowType.substringAfter('.'), rowType.substringBefore('.'), null, null, null, null), complete, fields)
+        }
+        return DictionaryRelation(relation, kind)
+    }
 
     val dictionary: AtlasDictionary = AtlasDictionary.of(
         "fixture", listOf("HR"),
@@ -72,10 +78,14 @@ object Fixture {
             relation("V_LIN_WITH_STAR", "ID", "MSG", kind = DictionaryRelationKind.VIEW),
             relation("V_LIN_RECURSIVE", "N", kind = DictionaryRelationKind.VIEW),
             // The object table of hr/shape_tab.sql, a table with a REF column, and the views of hr/proc_objects.prc.
-            relation("SHAPE_TAB", "ID", kind = DictionaryRelationKind.OBJECT_TABLE),
+            relation("SHAPE_TAB", "ID", kind = DictionaryRelationKind.OBJECT_TABLE, rowType = "HR.TY_SHAPE"),
             relation("SHAPE_HOLDER", "ID", "S", "X"),
             relation("V_SHAPES", "SREF", "SVAL", "ID", kind = DictionaryRelationKind.VIEW),
             relation("V_SHAPE_REFS", "SREF", kind = DictionaryRelationKind.VIEW),
+            // The object views of hr/object_views.sql, with the row types the dictionary gives them.
+            relation("V_SHAPE_OBJ", "ID", kind = DictionaryRelationKind.VIEW, rowType = "HR.TY_SHAPE"),
+            relation("V_CIRCLE_OBJ", "ID", "R", kind = DictionaryRelationKind.VIEW, rowType = "HR.TY_CIRCLE"),
+            relation("V_OBJ_REFS", "SREF", kind = DictionaryRelationKind.VIEW),
             relation("V_LIN_FN", "COL_A", kind = DictionaryRelationKind.VIEW),
             relation("V_LIN_JOIN", "ID", "COMPANY_NAME", "MSG", kind = DictionaryRelationKind.VIEW),
             relation("V_CHAIN1", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),

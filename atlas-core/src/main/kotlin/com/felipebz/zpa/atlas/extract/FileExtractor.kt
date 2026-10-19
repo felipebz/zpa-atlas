@@ -286,7 +286,10 @@ class FileExtractor(
             } else if (plsql.isValueName(node) && !triggers.correlationColumn(node, context, null)) {
                 plsql.valueReference(node, context, null, sql = false)
             }
-            PlSqlGrammar.UNIT_NAME -> if (typeReferences.isSupertype(node)) typeReferences.supertypeUse(node, context)
+            PlSqlGrammar.UNIT_NAME -> when {
+                typeReferences.isSupertype(node) || typeReferences.isObjectRelationType(node) -> typeReferences.supertypeUse(node, context)
+                typeReferences.isSuperview(node) -> typeReferences.superviewUse(node, context)
+            }
             // In a PL/SQL expression (static SQL is handled with its statement).
             in KEYWORD_FUNCTIONS -> typeReferences.sqlFunctionKeyword(node.firstChild, context, null)
         }

@@ -6,11 +6,13 @@
 package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.flr.api.AstNode
+import com.felipebz.zpa.api.DdlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.SingleRowSqlFunctionsGrammar
 import com.felipebz.zpa.api.project.ProjectCallKind
+import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.squid.SemanticAstNode
 import com.felipebz.zpa.api.symbols.Symbol
 import com.felipebz.zpa.atlas.model.*
@@ -106,17 +108,46 @@ internal class TypeReferences(
     fun isSupertype(node: AstNode): Boolean =
         node.previousSiblingOrNull?.type == PlSqlKeyword.UNDER && node.parentOrNull?.type == PlSqlGrammar.OBJECT_TYPE_DEFINITION
 
-    /** `UNDER s`: a `TYPE_USE` of the supertype. */
+    /** The type of `CREATE TABLE … OF t` or `CREATE VIEW … OF t`. */
+    fun isObjectRelationType(node: AstNode): Boolean =
+        node.previousSiblingOrNull?.type == PlSqlKeyword.OF &&
+            (node.parentOrNull?.type == DdlGrammar.OBJECT_TABLE_CLAUSE || node.parentOrNull?.type == PlSqlGrammar.OBJECT_VIEW_CLAUSE)
+
+    /** The superview of `CREATE VIEW … OF t UNDER v`. */
+    fun isSuperview(node: AstNode): Boolean =
+        node.previousSiblingOrNull?.type == PlSqlKeyword.UNDER && node.parentOrNull?.type == PlSqlGrammar.OBJECT_VIEW_CLAUSE
+
+    /** `UNDER s`, or the type of an object table or view: a `TYPE_USE` of the type. */
     fun supertypeUse(name: AstNode, context: Context) {
         val segments = name.getChildren(PlSqlGrammar.IDENTIFIER_NAME).map { it.tokenOriginalValue }.ifEmpty { return }
         typeUseOf(name, segments, context)
     }
 
-    private fun typeUseOf(name: AstNode, segments: List<String>, context: Context, parsedAsBuiltIn: Boolean = false, statementId: Int? = null) {
+    /** The superview of an object view: a `TYPE_USE` of the relation, named but not read. */
+    fun superviewUse(name: AstNode, context: Context) {
+        if (context.hasHoles(name)) return
+        val segments = name.getChildren(PlSqlGrammar.IDENTIFIER_NAME).map { normalizeIdentifier(it.tokenOriginalValue) }
+        if (segments.size !in 1..2) return
+        val resolved = resolver.resolve(WrittenRelation(segments.getOrNull(segments.size - 2), segments.last(), null), context.schema)
+        state.occurrences += OccurrenceFact(context.unitIndex, context.container, null, spanOf(name), writtenText(name), resolved.entityKey,
+            setOf(Role.TYPE_USE), status(resolved.status, context.partial), context.origin, resolved.reason)
+    }
+
+    /** The row type the dictionary gives an object table or object view, used without being written: at [name]. */
+    fun rowTypeUse(name: AstNode, relation: ProjectExternalRelation, context: Context, statementId: Int?) {
+        val type = relation.rowObjectType.orElse(null) ?: return
+        val segments = listOfNotNull(type.typeOwner.orElse(null)?.exact(), type.name).map { "\"$it\"" }
+        typeUseOf(name, segments, context, statementId = statementId, roles = IMPLICIT_TYPE_USE)
+    }
+
+    private fun typeUseOf(
+        name: AstNode, segments: List<String>, context: Context, parsedAsBuiltIn: Boolean = false, statementId: Int? = null,
+        roles: Set<Role> = TYPE_USE
+    ) {
         if (context.hasHoles(name)) return
         val outcome = types.named(segments, context.schema, context.enclosingPackage, parsedAsBuiltIn) ?: return
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
-            setOf(Role.TYPE_USE), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys)
+            roles, status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys)
     }
 
     /**
@@ -156,3 +187,7 @@ internal class TypeReferences(
         return false
     }
 }
+
+private val TYPE_USE = setOf(Role.TYPE_USE)
+
+private val IMPLICIT_TYPE_USE = setOf(Role.IMPLICIT, Role.TYPE_USE)

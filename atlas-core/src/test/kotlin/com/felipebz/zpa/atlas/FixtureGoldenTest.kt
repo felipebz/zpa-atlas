@@ -106,6 +106,26 @@ class FixtureGoldenTest {
     }
 
     @Test
+    fun `the type of an object table or view is a type use, a subview names its superview, a view's MAKE_REF uses the row type`() {
+        fun uses(database: Path, path: String) = occurrences(database).filter { it.startsWith("$path\t") }.map { it.split('\t') }
+            .filter { it[4].endsWith("TYPE_USE") }.map { "${it[1]} ${it[2]} ${it[3]} ${it[4]}" }
+        assertThat(uses(db, "hr/shape_tab.sql")).contains("1:26-1:34 ty_shape db:HR.TY_SHAPE TYPE_USE")
+        assertThat(uses(db, "hr/object_views.sql")).contains(
+            "1:38-1:46 ty_shape db:HR.TY_SHAPE TYPE_USE",
+            "2:39-2:48 ty_circle db:HR.TY_CIRCLE TYPE_USE", "2:55-2:66 v_shape_obj db:HR.V_SHAPE_OBJ TYPE_USE",
+            // In a view, MAKE_REF also uses the row type the dictionary gives the relation; in a procedure it does not.
+            "3:53-3:64 v_shape_obj db:HR.V_SHAPE_OBJ TYPE_USE", "3:53-3:64 v_shape_obj db:HR.TY_SHAPE IMPLICIT,TYPE_USE"
+        )
+        assertThat(uses(db, "hr/object_views.sql")).noneMatch { it.endsWith("IMPLICIT,TYPE_USE") && !it.startsWith("3:") }
+        assertThat(uses(db, "hr/proc_objects.prc")).contains(
+            "20:55-20:64 shape_tab db:HR.SHAPE_TAB TYPE_USE", "20:55-20:64 shape_tab db:HR.TY_SHAPE IMPLICIT,TYPE_USE"
+        )
+        // Without the dictionary there is no row type: only the relation's use.
+        val bare = Fixture.index(temp.resolve("objects-types-bare.db"), dictionary = AtlasDictionary.NONE)
+        assertThat(uses(bare, "hr/proc_objects.prc").filter { it.startsWith("20:") }).containsExactly("20:55-20:64 shape_tab db:HR.SHAPE_TAB TYPE_USE")
+    }
+
+    @Test
     fun `MAKE_REF names its relation as a type use, and a view column has the lineage of VALUE but not of REF`() {
         val makeRefs = occurrences().filter { it.startsWith("hr/proc_objects.prc\t") }.map { it.split('\t') }
             .filter { it[4] == "TYPE_USE" && it[3].let { key -> key.endsWith(".SHAPE_TAB") || key.endsWith(".MISSING_OBJ_TAB") } }
@@ -166,7 +186,7 @@ class FixtureGoldenTest {
         assertThat(Fixture.query(noSchema, "SELECT key FROM entity WHERE key IN ('db:~.PACK_PROCESS', 'db:~.COMPANY', 'db:HR.COMPANY') ORDER BY key"))
             .containsExactly("db:HR.COMPANY", "db:~.COMPANY", "db:~.PACK_PROCESS")
         assertThat(Fixture.query(noSchema, "SELECT f.path FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE c.kind = 'SCHEMA_UNKNOWN' ORDER BY 1"))
-            .containsExactly("hr/conditional.sql", "hr/fn_company_name.fun", "hr/json_holder.typ", "hr/json_type.typ", "hr/mv_company.sql", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/pack_args.pkb", "hr/pack_args.pks", "hr/pack_calls.pkb", "hr/pack_calls.pks",
+            .containsExactly("hr/conditional.sql", "hr/fn_company_name.fun", "hr/json_holder.typ", "hr/json_type.typ", "hr/mv_company.sql", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/object_views.sql", "hr/pack_args.pkb", "hr/pack_args.pks", "hr/pack_calls.pkb", "hr/pack_calls.pks",
                 "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_ddl.pkb", "hr/pack_ddl.pks", "hr/pack_dynamic.pkb", "hr/pack_dynamic.pks", "hr/pack_inline.sql", "hr/pack_json.pkb", "hr/pack_json.pks", "hr/pack_methods.pkb", "hr/pack_methods.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
                 "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_mview.prc", "hr/proc_objects.prc", "hr/proc_own_objects.prc",
                 "hr/proc_source_view.prc",

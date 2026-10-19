@@ -146,7 +146,7 @@ object ComparisonReport {
     /** Database-only classes whose name the unit's text does not contain: also left out of the "names in the text" rates. */
     val NOT_IN_TEXT_CLASSES = setOf("TRANSITIVE", "NAME_NOT_IN_TEXT")
 
-    val INDEX_CLASSES = listOf("VIEW_REMOTE", "SOURCE_DIFFERS", "UNIT_INVALID", "BY_NAME_ONLY", "INDEX_ONLY")
+    val INDEX_CLASSES = listOf("VIEW_REMOTE", "VIEW_MAKE_REF", "SOURCE_DIFFERS", "UNIT_INVALID", "BY_NAME_ONLY", "INDEX_ONLY")
 
     private fun unit(u: DbObjectId) = listOf(u.owner, u.name, u.type)
     private fun ref(d: DbDependency) = listOf(d.referencedOwner ?: "", d.referencedName, d.referencedType, d.referencedLink ?: "")

@@ -171,6 +171,8 @@ class DependencyComparison(
         val readings = HashSet<Pair<String, String>>()
         var fromCollapsedOnly = true
         var fromByName = false
+        /** Every occurrence behind the edge only names its target (`TYPE_USE`). */
+        var typeUseOnly = true
     }
 
     private class Projected(val owner: String?, val name: String, val type: String?, val link: String?)
@@ -263,12 +265,16 @@ class DependencyComparison(
         var collapsed = 0
 
         fun isSelf(unit: DbObjectId, target: Target) = target.owner == unit.owner && target.name == unit.name && target.type == unit.type
-        fun addEdge(unit: DbObjectId, target: Target, location: Location, collapsedSource: Boolean, readings: Set<Pair<String, String>> = emptySet()) {
+        fun addEdge(
+            unit: DbObjectId, target: Target, location: Location, collapsedSource: Boolean, readings: Set<Pair<String, String>> = emptySet(),
+            roles: Set<String> = emptySet()
+        ) {
             if (isSelf(unit, target)) return
             val edge = edges.getOrPut(unit) { HashMap() }.getOrPut(target) { IndexEdge(target) }
             edge.locations += location
             edge.readings += readings
             if (!collapsedSource) edge.fromCollapsedOnly = false
+            if (roles != setOf("TYPE_USE")) edge.typeUseOnly = false
         }
 
         val candidates = connection.query("SELECT occurrence_id, entity_id FROM occurrence_candidate") { it.getLong(1) to it.getLong(2) }
@@ -304,14 +310,14 @@ class DependencyComparison(
             if (edgeStatus && entityId != null) {
                 val (projected, readings) = projectOccurrence(entityId)
                 target = projected
-                addEdge(obj, projected, location, false, readings)
+                addEdge(obj, projected, location, false, readings, roles)
             } else if (status == "AMBIGUOUS") {
                 val roots = candidates[rs.getLong(1)].orEmpty().map { project(it) }.toSet()
                 if (roots.size == 1) {
                     collapsed++
                     target = roots.single()
                     effectiveStatus = "COLLAPSED"
-                    addEdge(obj, target, location, true)
+                    addEdge(obj, target, location, true, roles = roles)
                 }
             }
             evidence.getOrPut(obj) { ArrayList() } += Evidence(segments(rs.getString(5)), effectiveStatus, target, location, roles)
@@ -485,6 +491,8 @@ class DependencyComparison(
                 val indexClass = when {
                     // Oracle records no dependency of a view on a remote object, whatever the view's text.
                     obj.type == "VIEW" && edge.target.link != null -> "VIEW_REMOTE"
+                    // A view's MAKE_REF depends on the row type, not on the relation (verified on Oracle 26ai).
+                    obj.type == "VIEW" && edge.typeUseOnly && edge.target.type in RELATION_TYPES -> "VIEW_MAKE_REF"
                     sourceStatus[obj]?.first == SourceStatus.DIFFERS -> "SOURCE_DIFFERS"
                     dbObjects[obj]?.status == "INVALID" -> "UNIT_INVALID"
                     edge.target.byName -> "BY_NAME_ONLY"

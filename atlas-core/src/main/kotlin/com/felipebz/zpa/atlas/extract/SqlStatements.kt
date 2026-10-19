@@ -150,6 +150,10 @@ internal class SqlStatements(
         val segments = plsql.nameSegments(name)?.map { normalizeIdentifier(it) } ?: return
         val resolved = resolver.resolve(WrittenRelation(segments.getOrNull(segments.size - 2), segments.last(), null), statement.context.schema)
         statement.occurrence(name, resolved.entityKey, setOf(Role.TYPE_USE), resolved.status, resolved.reason)
+        // A view depends on the row type instead (verified on Oracle 26ai); a procedure on the relation only.
+        if (state.units[statement.context.unitIndex].kind == UnitKind.VIEW) {
+            resolved.relation?.let { typeReferences.rowTypeUse(name, it, statement.context, statement.id) }
+        }
     }
 
     private fun isMakeRefRelation(name: AstNode): Boolean {
