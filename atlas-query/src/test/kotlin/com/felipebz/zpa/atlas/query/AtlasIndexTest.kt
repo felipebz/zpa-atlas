@@ -107,14 +107,14 @@ class AtlasIndexTest {
         val rows = index.occurrences(body, scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS)).result!!.rows
         assertThat(rows.map { it.path to it.statementKind })
             .containsExactly("hr/pack_calls.pkb" to "SELECT", "hr/proc_synonym_objects.prc" to null, "scripts/calls.sql" to "SELECT")
-        assertThat(rows).allMatch { it.matched.key == "db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER)" && it.arguments.single().parameter != null }
+        assertThat(rows).allMatch { it.matched!!.key == "db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER)" && it.arguments.single().parameter != null }
     }
 
     @Test
     fun `CHILDREN scope on a table includes its column writes`() {
         val rows = index.occurrences("db:HR.COMPANY", roles = setOf("WRITE"), scope = setOf(Scope.CHILDREN)).result!!.rows
-        assertThat(rows.map { it.matched.key }).contains("db:HR.COMPANY.ST_ACTIVE", "db:HR.COMPANY.COMPANY_NAME")
-        assertThat(index.occurrences("db:HR.COMPANY", roles = setOf("WRITE")).result!!.rows).allMatch { it.matched.key == "db:HR.COMPANY" }
+        assertThat(rows.map { it.matched!!.key }).contains("db:HR.COMPANY.ST_ACTIVE", "db:HR.COMPANY.COMPANY_NAME")
+        assertThat(index.occurrences("db:HR.COMPANY", roles = setOf("WRITE")).result!!.rows).allMatch { it.matched!!.key == "db:HR.COMPANY" }
     }
 
     @Test
@@ -190,7 +190,7 @@ class AtlasIndexTest {
         val chain = viewed.rows.single { it.path == "hr/proc_view_chain.prc" && it.span.startLine == 4 }
         assertThat(chain.written).isEqualTo("label")
         assertThat(chain.viaView).isTrue()
-        assertThat(chain.matched.key).isEqualTo("db:HR.V_CHAIN2.LABEL")
+        assertThat(chain.matched!!.key).isEqualTo("db:HR.V_CHAIN2.LABEL")
         // Rows hit directly are the same, and not marked.
         assertThat(viewed.rows.filter { !it.viaView }).isEqualTo(self.rows)
         assertThat(viewed.total).isGreaterThan(self.total)
@@ -202,7 +202,7 @@ class AtlasIndexTest {
         assertThat(page.nextAfter).isNull()
         val rows = page.rows.filter { it.path == "hr/proc_view_chain.prc" }
         // V_LIN_JOIN.MSG (5:9) comes from EVENT_LOG.MSG: CHILDREN does not apply to the views VIEWS adds.
-        assertThat(rows.map { "${it.span.startLine}:${it.span.startCol} ${it.matched.key} ${it.viaView}" }).containsExactly(
+        assertThat(rows.map { "${it.span.startLine}:${it.span.startCol} ${it.matched!!.key} ${it.viaView}" }).containsExactly(
             "4:9 db:HR.V_CHAIN2.LABEL true",
             "4:27 db:HR.V_CHAIN2 true",
             "4:42 db:HR.V_CHAIN2.ID true",
@@ -211,7 +211,7 @@ class AtlasIndexTest {
             "6:9 db:HR.V_LIN_JOIN.COMPANY_NAME true",
             "6:34 db:HR.V_LIN_JOIN true"
         )
-        assertThat(page.rows).anyMatch { it.matched.key == "db:HR.COMPANY" && !it.viaView }
+        assertThat(page.rows).anyMatch { it.matched!!.key == "db:HR.COMPANY" && !it.viaView }
         assertThat(index.occurrences("db:HR.COMPANY", scope = setOf(Scope.CHILDREN), limit = 500).result!!.rows).noneMatch { it.viaView }
     }
 
@@ -220,7 +220,7 @@ class AtlasIndexTest {
         assertThat(index.entity("db:HR.COMPANY").result!!.views.map { it.key }).contains("db:HR.MV_COMPANY_LOG")
         assertThat(index.entity("db:HR.MV_COMPANY_LOG").result!!.reads.map { it.key }).containsExactly("db:HR.COMPANY", "db:HR.V_COMPANY_LIST")
         val rows = index.occurrences("db:HR.COMPANY", scope = setOf(Scope.VIEWS), limit = 500).result!!.rows.filter { it.path == "hr/proc_mview.prc" }
-        assertThat(rows.map { "${it.span.startLine}:${it.span.startCol} ${it.matched.key} ${it.viaView}" })
+        assertThat(rows.map { "${it.span.startLine}:${it.span.startCol} ${it.matched!!.key} ${it.viaView}" })
             .containsExactly("3:40 db:HR.MV_COMPANY_LOG true")
     }
 

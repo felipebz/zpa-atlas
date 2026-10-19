@@ -8,6 +8,7 @@
 body { font-family: system-ui, "Segoe UI", Arial, sans-serif; margin: 0; color: var(--fg); background: var(--bg); font-size: 14px; }
 header.top { background: var(--brand); color: #fff; padding: 8px var(--page); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 header.top a { color: #fff; font-weight: 600; text-decoration: none; }
+header.top a.nav { font-weight: 400; }
 header.top .run { font-size: 12px; opacity: .85; margin-left: auto; }
 header.top form.find input { width: 320px; max-width: 100%; padding: 3px 6px; font-size: 13px; }
 .warn { background: #fff4d6; border-bottom: 1px solid #e8c868; padding: 6px var(--page); font-size: 13px; }
@@ -104,3 +105,62 @@ ul.cols li { break-inside: avoid; }
 .popover .actions { margin: 2px 0; }
 .popover ul { margin: 2px 0; padding-left: 18px; }
 .popover .label { font-weight: 600; margin-top: 4px; }
+
+/* Query: three filters and the buttons in front, the rest folded. Every control has the same height. */
+.query-page { --control: 32px; }
+form.query [hidden] { display: none !important; }
+form.query input[type=text], form.query select, form.query .box > .picked, form.query details.boxed > summary, form.query .buttons button {
+  height: var(--control); box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface);
+  font-size: 14px; color: var(--fg); }
+form.query input[type=text] { width: 100%; padding: 0 8px; }
+form.query select { width: 100%; padding: 0 6px; }
+form.query .label, form.query .field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+form.query .label { margin-bottom: 2px; }
+form.query .front { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(12rem, 16rem) auto; gap: 10px 16px; align-items: start; }
+form.query .front > * { min-width: 0; }
+form.query .box > .picked { display: flex; align-items: center; gap: 6px; padding: 0 4px 0 8px; overflow: hidden; }
+form.query .picked .pick-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+form.query .picked .badge { flex: none; margin: 0; }
+form.query .inside { display: block; margin-top: 6px; white-space: nowrap; }
+form.query .kept { margin-top: 4px; }
+form.query details.boxed { position: relative; }
+form.query details.boxed > summary { display: flex; align-items: center; padding: 0 8px; cursor: pointer; overflow: hidden; white-space: nowrap;
+  text-overflow: ellipsis; list-style: none; }
+form.query details.boxed > summary::-webkit-details-marker { display: none; }
+form.query details.boxed > summary::after { content: "▾"; margin-left: auto; padding-left: 6px; color: var(--muted); }
+form.query details.boxed > .opts { position: absolute; z-index: 10; left: 0; top: calc(var(--control) + 2px); width: max(100%, 22rem); max-width: 90vw;
+  padding: 8px 10px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .15); }
+form.query .buttons { display: flex; gap: 12px; align-items: center; white-space: nowrap; }
+form.query .buttons button { padding: 0 16px; cursor: pointer; }
+form.query details.more { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+form.query details.more > summary { cursor: pointer; font-weight: 600; }
+form.query .groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 16px 24px; margin-top: 10px; }
+form.query .group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+details.pick > summary { cursor: pointer; }
+details.pick .opts { display: flex; flex-wrap: wrap; gap: 2px 12px; padding: 4px 0 0 12px; font-size: 13px; }
+.suggest { position: relative; }
+ul.suggestions { position: absolute; z-index: 10; left: 0; right: 0; top: calc(var(--control) + 20px); margin: 0; padding: 0; list-style: none;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .15);
+  max-height: 60vh; overflow-y: auto; }
+ul.suggestions li { padding: 5px 8px; cursor: pointer; font-size: 13px; }
+ul.suggestions li.active, ul.suggestions li[data-index]:hover { background: var(--surface-2); }
+.chip button.x, .picked button.x { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; }
+@media (max-width: 700px) {
+  form.query .front { grid-template-columns: minmax(0, 1fr); }
+  form.query .actions > .label { display: none; }
+  form.query .inside { white-space: normal; }
+}
+#answer { margin-top: var(--gap); }
+#answer .mode { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-bottom: 10px; }
+.facet { margin: 2px 0; }
+button.chip.more { font: inherit; font-size: 12px; }
+td.num, th.num { text-align: right; white-space: nowrap; width: 1%; }
+/* The list rows of the query page: location and roles fixed, the name takes the rest. */
+.query-page table.uses col.c-at { width: 6.5em; }
+.query-page table.uses col.c-what { width: auto; }
+.query-page table.uses col.c-role { width: 22em; }
+.query-page table.uses col.c-status { width: 12em; }
+@media (max-width: 700px) {
+  .query-page table.uses col.c-role { width: 9em; }
+  .query-page table.uses col.c-status { width: 8em; }
+}

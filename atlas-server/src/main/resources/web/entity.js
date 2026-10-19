@@ -194,77 +194,6 @@ document.getElementById("header").addEventListener("click", async e => {
   setTimeout(() => { button.textContent = t("entity.copyKey"); }, 1500);
 });
 
-// ---- "who uses", grouped by the program that uses the entity --------------------------------------------------------
-
-/**
- * A "who uses" table: every row under a header naming the program it is in (its container, else its unit) and its
- * file. The groups and their columns are shared across [append] calls, so later pages fill the same groups.
- */
-function usesBlock() {
-  const element = document.createElement("div");
-  element.className = "scroll";
-  element.hidden = true;
-  element.innerHTML = `<table class="uses"><colgroup><col class="c-at"><col class="c-what"><col class="c-role"><col class="c-status"><col class="c-toggle"></colgroup></table>`;
-  const table = element.firstElementChild;
-  const groups = new Map();
-  return {
-    element,
-    append(rows) {
-      for (const row of rows) {
-        const groupKey = row.path + "|" + (row.container?.key ?? row.unit.kind + " " + row.unit.name);
-        let tbody = groups.get(groupKey);
-        if (!tbody) {
-          tbody = document.createElement("tbody");
-          tbody.innerHTML = groupHeaderHtml(row);
-          table.appendChild(tbody);
-          groups.set(groupKey, tbody);
-        }
-        tbody.insertAdjacentHTML("beforeend", useRowHtml(row));
-      }
-      if (rows.length) element.hidden = false;
-    }
-  };
-}
-
-function groupHeaderHtml(row) {
-  const program = row.container ? entityLink(row.container) : `<span class="muted">${esc(row.unit.kind)} ${esc(row.unit.name)}</span>`;
-  return `<tr class="group"><th colspan="5">${program} <span class="muted">·</span>
-    <a class="mono muted" href="file.html?path=${encodeURIComponent(row.path)}${langSuffix()}">${esc(row.path)}</a></th></tr>`;
-}
-
-function useRowHtml(row) {
-  // A column write with literal values: `= 'S'`, one per row of a multi-row insert.
-  const literals = row.values.map(v => literalText(v.valueKind, v.value)).filter(v => v !== null);
-  const written = literals.length === 0 ? "" : `<div class="muted mono">= ${esc(literals.join(", "))}</div>`;
-  // The view column or view the row was reached through.
-  const via = row.viaView ? `<div class="muted">${esc(t("usage.via"))} ${entityLink(row.matched)}</div>` : "";
-  const others = row.viaCandidate
-    ? `<div class="muted">${esc(t("usage.candidates"))} ${row.candidates.map(c => entityLink(c)).join(", ")}</div>` : "";
-  const statement = row.statementKind && !row.roles.includes("SQL_" + row.statementKind)
-    ? ` <span class="muted">${esc(row.statementKind)}</span>` : "";
-  return `<tr data-path="${esc(row.path)}" data-line="${row.span.startLine}"><td>${lineLink(row.path, row.span.startLine, row.span.startCol)}</td>
-    <td><span class="mono">${esc(row.written)}</span>${argumentsHtml(row.arguments)}${written}${via}${others}</td>
-    <td>${esc(row.roles.map(roleLabel).join(", "))}${statement}</td>
-    <td>${row.status === "RESOLVED" ? "" : statusBadge(row.status, row.reason)}</td>
-    <td><button class="snip" title="${esc(t("source.show"))}">▸</button></td></tr>`;
-}
-
-// The source around a "who uses" row, opened under it and closed by the same button.
-document.addEventListener("click", e => {
-  const button = e.target.closest("button.snip");
-  if (!button) return;
-  const row = button.closest("tr");
-  const next = row.nextElementSibling;
-  if (next?.classList.contains("snippet")) {
-    next.remove();
-    button.textContent = "▸";
-    return;
-  }
-  row.insertAdjacentHTML("afterend", `<tr class="snippet"><td colspan="5"><div></div></td></tr>`);
-  sourceLine(row.dataset.path, Number(row.dataset.line), row.nextElementSibling.querySelector("div"), 2);
-  button.textContent = "▾";
-});
-
 // ---- values passed to a parameter or written to a column ----------------------------------------------------------
 
 const VALUES_SHOWN = 20;
@@ -341,20 +270,6 @@ function renderScope() {
   document.getElementById("scope").innerHTML = state.scopes.length === 0 ? "" : esc(t("usage.scope")) + " " + state.scopes.map(toggle).join("");
 }
 
-function renderChips(id, counts, selected, attribute, label) {
-  const target = document.getElementById(id);
-  // A single value filters nothing; it shows only when it is selected.
-  if (counts.length <= 1 && selected.size === 0) {
-    target.innerHTML = "";
-    return;
-  }
-  // A selected value stays visible (count 0) even when the other filter leaves it out of the facet.
-  const listed = new Set(counts.map(c => c.value));
-  counts = counts.concat([...selected].filter(v => !listed.has(v)).map(v => ({ value: v, count: 0 })));
-  target.innerHTML = counts.map(c =>
-    `<span class="chip ${selected.has(c.value) ? "on" : ""}" data-${attribute}="${esc(c.value)}">${esc(label ? label(c.value) : c.value)} (${esc(formatNumber(c.count))})</span>`).join("");
-}
-
 async function loadUsages(reset) {
   if (reset) {
     state.after = null;
@@ -397,6 +312,13 @@ async function loadUsages(reset) {
       : t("usage.own", { own: state.own });
     document.querySelector('#sections a[data-section="usage"] .count').textContent = formatNumber(page.total);
   }
+  // The query has no filter for spec and body or for uses through views: it covers the entity and, with members, its contents.
+  const open = document.getElementById("openQuery");
+  open.href = queryHref({
+    entity: key, inside: state.children ? "true" : "", roles: [...(state.roles.size ? state.roles : USAGE_ROLES)].join(","),
+    statuses: [...state.statuses].join(",")
+  });
+  open.title = t(state.children ? "query.open.withContents" : "query.open.entityOnly");
   state.after = page.nextAfter;
   document.getElementById("more").hidden = page.nextAfter === null;
 }

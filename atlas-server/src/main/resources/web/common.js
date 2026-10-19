@@ -75,10 +75,17 @@ async function initI18n() {
   }
   for (const element of document.querySelectorAll("[data-i18n]")) element.textContent = t(element.dataset.i18n);
   for (const element of document.querySelectorAll("[data-i18n-placeholder]")) element.placeholder = t(element.dataset.i18nPlaceholder);
+  for (const element of document.querySelectorAll("[data-i18n-title]")) {
+    element.title = t(element.dataset.i18nTitle);
+    element.setAttribute("aria-label", element.title);
+  }
   const lang = new URLSearchParams(location.search).get("lang");
   for (const input of document.querySelectorAll("form.find input[name=lang]")) {
     if (lang) input.value = lang;
     else input.remove();
+  }
+  if (lang) {
+    for (const link of document.querySelectorAll("a[data-keep-lang]")) link.href += (link.href.includes("?") ? "&" : "?") + "lang=" + encodeURIComponent(lang);
   }
 }
 
@@ -97,6 +104,16 @@ async function api(path, params) {
 
 function esc(text) {
   return String(text ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/** The query page with [params] (empty values left out), keeping the language. */
+function queryHref(params) {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== null && v !== undefined && v !== "") search.set(k, v);
+  const lang = new URLSearchParams(location.search).get("lang");
+  if (lang) search.set("lang", lang);
+  const text = search.toString();
+  return "query.html" + (text ? "?" + text : "");
 }
 
 /** `&lang=…` when the page was opened with one, so links keep the language. */
@@ -249,13 +266,22 @@ function qualifierHtml(text) {
 
 /**
  * An entity's name as HTML, with the full display as its tooltip: the qualifier muted with parameter names only
- * (left out with [relative], under its parent), the name, its signature, and a "body" badge for a body or a member
- * of a body (left out with [noBadge] for the entity itself, where the list already says spec or body). [signature]
- * is `"names"` (`RUN_JOB(P_A, P_B)`, the default: overloads stay apart) or `"full"` (every mode and type).
+ * (left out with [relative], under its parent; with [within], an entity, only the part below that entity, or none for
+ * the entity itself or its body), the name, its signature, and a "body" badge for a body or a member of a body (left
+ * out with [noBadge] for the entity itself, where the list already says spec or body). [signature] is `"names"`
+ * (`RUN_JOB(P_A, P_B)`, the default: overloads stay apart) or `"full"` (every mode and type).
  */
 function nameHtml(entity, options) {
   const parts = displayParts(entity.display, entity.name);
-  const qualifier = parts.shortQualifier && !options?.relative ? `<span class="qualifier">${qualifierHtml(parts.shortQualifier)}</span>` : "";
+  let shortQualifier = parts.shortQualifier;
+  if (options?.within) {
+    const withoutBody = text => text.replace(/@BODY(?=[#.]|$)/g, "");
+    const base = withoutBody(options.within.display);
+    const qualifier = withoutBody(parts.qualifier);
+    if (withoutBody(entity.display) === base) shortQualifier = "";
+    else if (qualifier.startsWith(base + ".")) shortQualifier = parameterNamesOnly(qualifier.slice(base.length + 1));
+  }
+  const qualifier = shortQualifier && !options?.relative ? `<span class="qualifier">${qualifierHtml(shortQualifier)}</span>` : "";
   let text;
   if (options?.signature === "full" || parts.params === null) {
     text = options?.signature === "full" ? parts.text : parts.base;
@@ -337,6 +363,13 @@ function storedLabel(prefix, name) {
   return label === key ? name : label;
 }
 
+/** Every role the index stores. */
+const ROLES = ["DEFINITION", "DECLARATION", "READ", "WRITE", "CALL", "SQL_SELECT", "SQL_INSERT", "SQL_UPDATE", "SQL_DELETE", "SQL_MERGE",
+  "SQL_LOCK", "TYPE_USE", "RAISE", "HANDLE", "IMPLICIT", "DDL_CREATE", "DDL_ALTER", "DDL_DROP", "DDL_TRUNCATE", "DDL_ANALYZE"];
+
+/** The roles "who uses" lists by default: every role but where the entity is defined or declared. */
+const USAGE_ROLES = ROLES.filter(r => r !== "DEFINITION" && r !== "DECLARATION");
+
 /** A role as shown. */
 const roleLabel = role => storedLabel("role", role);
 
@@ -380,4 +413,95 @@ async function sourceLine(path, line, target, context) {
   } catch (e) {
     target.innerHTML = `<span class="muted">${esc(t("source.unavailable", { error: e.message }))}</span>`;
   }
+}
+
+// ---- "who uses" rows, grouped by the program they are in ----------------------------------------------------------
+
+/**
+ * A "who uses" table: every row under a header naming the program it is in (its container, else its unit) and its
+ * file. The groups and their columns are shared across [append] calls, so later pages fill the same groups. With
+ * `options.entity`, each row also names the entity it hit.
+ */
+function usesBlock(options) {
+  const element = document.createElement("div");
+  element.className = "scroll";
+  element.hidden = true;
+  element.innerHTML = `<table class="uses"><colgroup><col class="c-at"><col class="c-what"><col class="c-role"><col class="c-status"><col class="c-toggle"></colgroup></table>`;
+  const table = element.firstElementChild;
+  const groups = new Map();
+  return {
+    element,
+    append(rows) {
+      for (const row of rows) {
+        const groupKey = row.path + "|" + (row.container?.key ?? row.unit.kind + " " + row.unit.name);
+        let tbody = groups.get(groupKey);
+        if (!tbody) {
+          tbody = document.createElement("tbody");
+          tbody.innerHTML = groupHeaderHtml(row);
+          table.appendChild(tbody);
+          groups.set(groupKey, tbody);
+        }
+        tbody.insertAdjacentHTML("beforeend", useRowHtml(row, options));
+      }
+      if (rows.length) element.hidden = false;
+    }
+  };
+}
+
+function groupHeaderHtml(row) {
+  const program = row.container ? entityLink(row.container) : `<span class="muted">${esc(row.unit.kind)} ${esc(row.unit.name)}</span>`;
+  return `<tr class="group"><th colspan="5">${program} <span class="muted">·</span>
+    <a class="mono muted" href="file.html?path=${encodeURIComponent(row.path)}${langSuffix()}">${esc(row.path)}</a></th></tr>`;
+}
+
+function useRowHtml(row, options) {
+  // A column write with literal values: `= 'S'`, one per row of a multi-row insert.
+  const literals = row.values.map(v => literalText(v.valueKind, v.value)).filter(v => v !== null);
+  const written = literals.length === 0 ? "" : `<div class="muted mono">= ${esc(literals.join(", "))}</div>`;
+  // The view column or view the row was reached through.
+  const via = row.viaView ? `<div class="muted">${esc(t("usage.via"))} ${entityLink(row.matched)}</div>` : "";
+  const hit = options?.entity && !row.viaCandidate ? `<div>${entityLink(row.matched)}</div>` : "";
+  const others = row.viaCandidate
+    ? `<div class="muted">${esc(t("usage.candidates"))} ${row.candidates.map(c => entityLink(c)).join(", ")}</div>` : "";
+  const statement = row.statementKind && !row.roles.includes("SQL_" + row.statementKind)
+    ? ` <span class="muted">${esc(row.statementKind)}</span>` : "";
+  return `<tr data-path="${esc(row.path)}" data-line="${row.span.startLine}"><td>${lineLink(row.path, row.span.startLine, row.span.startCol)}</td>
+    <td><span class="mono">${esc(row.written)}</span>${hit}${argumentsHtml(row.arguments)}${written}${via}${others}</td>
+    <td>${esc(row.roles.map(roleLabel).join(", "))}${statement}</td>
+    <td>${row.status === "RESOLVED" ? "" : statusBadge(row.status, row.reason)}</td>
+    <td><button class="snip" title="${esc(t("source.show"))}">▸</button></td></tr>`;
+}
+
+// The source around a "who uses" row, opened under it and closed by the same button.
+document.addEventListener("click", e => {
+  const button = e.target.closest("button.snip");
+  if (!button) return;
+  const row = button.closest("tr");
+  const next = row.nextElementSibling;
+  if (next?.classList.contains("snippet")) {
+    next.remove();
+    button.textContent = "▸";
+    return;
+  }
+  row.insertAdjacentHTML("afterend", `<tr class="snippet"><td colspan="5"><div></div></td></tr>`);
+  sourceLine(row.dataset.path, Number(row.dataset.line), row.nextElementSibling.querySelector("div"), 2);
+  button.textContent = "▾";
+});
+
+/**
+ * Facet chips into the element [id]: one per counted value, `data-<attribute>` holding the value, the [selected]
+ * ones on.
+ */
+function renderChips(id, counts, selected, attribute, label) {
+  const target = document.getElementById(id);
+  // A single value filters nothing; it shows only when it is selected.
+  if (counts.length <= 1 && selected.size === 0) {
+    target.innerHTML = "";
+    return;
+  }
+  // A selected value stays visible (count 0) even when the other filter leaves it out of the facet.
+  const listed = new Set(counts.map(c => c.value));
+  counts = counts.concat([...selected].filter(v => !listed.has(v)).map(v => ({ value: v, count: 0 })));
+  target.innerHTML = counts.map(c =>
+    `<span class="chip ${selected.has(c.value) ? "on" : ""}" data-${attribute}="${esc(c.value)}">${esc(label ? label(c.value) : c.value)} (${esc(formatNumber(c.count))})</span>`).join("");
 }

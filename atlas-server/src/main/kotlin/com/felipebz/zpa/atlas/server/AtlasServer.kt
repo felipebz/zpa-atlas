@@ -6,7 +6,10 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import com.felipebz.zpa.atlas.query.GroupDimension
 import com.felipebz.zpa.atlas.query.InvalidQueryException
+import com.felipebz.zpa.atlas.query.OccurrenceQuery
+import com.felipebz.zpa.atlas.query.QueryTimeoutException
 import com.felipebz.zpa.atlas.query.SchemaMismatchException
 import com.felipebz.zpa.atlas.query.Scope
 import io.ktor.http.HttpStatusCode
@@ -49,6 +52,7 @@ fun Application.atlasModule(index: AtlasIndex) {
     }
     install(StatusPages) {
         exception<InvalidQueryException> { call, e -> call.respond(HttpStatusCode.BadRequest, ApiError(e.message ?: "Bad request")) }
+        exception<QueryTimeoutException> { call, e -> call.respond(HttpStatusCode.BadRequest, ApiError(e.message ?: "The query took too long")) }
         exception<SchemaMismatchException> { call, e -> call.respond(HttpStatusCode.ServiceUnavailable, ApiError(e.message ?: "Schema mismatch")) }
     }
     routing {
@@ -78,6 +82,16 @@ fun Application.atlasModule(index: AtlasIndex) {
                 )
                 if (answer.result == null) call.respond(HttpStatusCode.NotFound, ApiError("Unknown entity")) else call.respond(answer)
             }
+            get("/query") {
+                call.respond(index.queryOccurrences(call.occurrenceQuery(), call.long("after"), call.int("limit") ?: 100, call.boolean("summary") ?: true))
+            }
+            get("/query/summary") { call.respond(index.querySummary(call.occurrenceQuery())) }
+            get("/query/groups") {
+                val dimensions = (call.list("groupBy") ?: throw InvalidQueryException("Missing parameter: groupBy")).map { value ->
+                    GroupDimension.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown groupBy dimension: $value")
+                }
+                call.respond(index.groupOccurrences(call.occurrenceQuery(), dimensions, call.int("limit") ?: 100))
+            }
             get("/values") {
                 val answer = index.values(call.required("key"))
                 if (answer.result == null) call.respond(HttpStatusCode.NotFound, ApiError("Unknown entity")) else call.respond(answer)
@@ -106,6 +120,32 @@ private fun ApplicationCall.optional(name: String): String? = request.queryParam
 private fun ApplicationCall.required(name: String): String = optional(name) ?: throw InvalidQueryException("Missing parameter: $name")
 
 private fun ApplicationCall.list(name: String): List<String>? = optional(name)?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
+
+private fun ApplicationCall.boolean(name: String): Boolean? =
+    optional(name)?.let { it.toBooleanStrictOrNull() ?: throw InvalidQueryException("$name must be true or false") }
+
+/** The filters of `/api/query…`; every parameter is optional, lists are comma-separated. */
+private fun ApplicationCall.occurrenceQuery() = OccurrenceQuery(
+    entity = optional("entity"),
+    inside = boolean("inside") ?: false,
+    entityKinds = list("entityKinds").orEmpty().toSet(),
+    name = optional("name"),
+    schema = optional("schema"),
+    external = boolean("external"),
+    container = optional("container"),
+    containerName = optional("containerName"),
+    containerInside = boolean("containerInside") ?: true,
+    unitKinds = list("unitKinds").orEmpty().toSet(),
+    path = optional("path"),
+    roles = list("roles").orEmpty().toSet(),
+    statuses = list("statuses").orEmpty().toSet(),
+    reasons = list("reasons").orEmpty().toSet(),
+    origins = list("origins").orEmpty().toSet(),
+    statementKinds = list("statementKinds").orEmpty().toSet(),
+    valueKind = optional("valueKind"),
+    value = optional("value"),
+    candidates = boolean("candidates") ?: true
+)
 
 private fun ApplicationCall.int(name: String): Int? =
     optional(name)?.let { it.toIntOrNull() ?: throw InvalidQueryException("$name must be an integer") }

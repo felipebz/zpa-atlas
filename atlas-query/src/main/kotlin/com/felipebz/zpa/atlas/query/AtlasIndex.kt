@@ -5,21 +5,26 @@
 
 package com.felipebz.zpa.atlas.query
 
+import org.sqlite.ProgressHandler
 import org.sqlite.SQLiteConfig
+import org.sqlite.SQLiteErrorCode
+import org.sqlite.SQLiteException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.sql.Connection
 import java.sql.PreparedStatement
 import java.sql.ResultSet
+import java.time.Duration
 
 /**
  * Read-only queries over one index file. No connection is kept: each call opens a read-only connection and closes it,
  * so the indexer can replace the file between requests (on Windows a move fails while the file is open).
  *
  * @param sourcesRoot the folder the indexed paths are relative to, or null when sources are not available
+ * @param queryTimeout how long an occurrence query may run before it is interrupted ([QueryTimeoutException])
  */
-class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
+class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTimeout: Duration = DEFAULT_QUERY_TIMEOUT) {
 
     fun run(): Answer<RunSummary> = read { connection, _ ->
         val (version, root, started) = connection.query("SELECT schema_version, sources_root, started_at FROM run") {
@@ -57,31 +62,18 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             ) { SearchHit(it.getString(1), it.getString(2), it.getString(3), it.getInt(4) == 1, it.getLong(5), it.getString(6)) }
 
             if (segments.size == 1) return@read search("", "e.name LIKE ? ESCAPE '\\'", listOf("${escapeLike(text)}%"))
-            val structural = if (segments.size > 4 || segments.any { it.isEmpty() }) {
+            val structural = if (segments.size > OccurrenceQuerySql.MAX_SEGMENTS || segments.any { it.isEmpty() }) {
                 emptyList()
             } else {
-                val last = segments.size - 1
-                val joins = (1..last).joinToString(" ") { k -> "LEFT JOIN entity a$k ON a$k.id = ${alias(k - 1)}.parent_id" }
-                val conditions = mutableListOf("e.name LIKE ? ESCAPE '\\'")
-                val parameters = mutableListOf<Any?>("${escapeLike(segments[last])}%")
-                for (k in 1..last) {
-                    val segment = segments[last - k]
-                    if (k < last) {
-                        conditions += "a$k.name = ? COLLATE NOCASE"
-                        parameters += segment
-                    } else {
-                        conditions += "(a$k.name = ? COLLATE NOCASE OR (a$k.id IS NULL AND ${alias(k - 1)}.schema_name = ? COLLATE NOCASE))"
-                        parameters.addAll(listOf(segment, segment))
-                    }
+                // The last segment is a name prefix, the others name the parents exactly.
+                val (joins, match, parameters) = OccurrenceQuerySql.parentChain("e", segments) { column, segment, last ->
+                    if (last) "$column LIKE ? ESCAPE '\\'" to listOf("${escapeLike(segment)}%") else "$column = ? COLLATE NOCASE" to listOf(segment)
                 }
-                search(joins, conditions.joinToString(" AND "), parameters)
+                search(joins, match, parameters)
             }
             structural.ifEmpty { search("", "e.display LIKE ? ESCAPE '\\'", listOf("%${escapeLike(text)}%")) }
         }
     }
-
-    /** The alias of the [k]th entity up the parent chain in [searchEntities]: `e` itself, then `a1`, `a2`… */
-    private fun alias(k: Int) = if (k == 0) "e" else "a$k"
 
     fun entity(key: String): Answer<EntityDetail?> = read { connection, _ ->
         val row = connection.query(
@@ -372,6 +364,230 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         FileView(path, false, text.lines, entityIndexes.keys.map { summaries.getValue(it) }, occurrences)
     }
 
+    // ---- the occurrence query -----------------------------------------------------------------------------------
+
+    /**
+     * A page of the occurrences that [query] matches, in occurrence id order (source order), filtered and paged in SQL.
+     * With [summary], [OccurrencePage.total] and the facets count the whole matching set; unlike "who uses", every
+     * facet counts with every filter applied, its own included. Without it, total is -1 and the facets are empty:
+     * [querySummary] gives them in a request of its own.
+     */
+    fun queryOccurrences(query: OccurrenceQuery, after: Long? = null, limit: Int = 100, summary: Boolean = true): Answer<OccurrencePage> {
+        if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
+        validate(query)
+        return read(timed = true) { connection, _ ->
+            val sql = sql(connection, query)
+            val found = connection.query(
+                """${sql.with}
+                   SELECT o.id, ${sql.matched}, ${sql.via}, o.roles, o.status FROM ${sql.from}
+                   ${sql.where("o.id > ?")} ORDER BY o.id LIMIT ?""",
+                sql.parameters + listOf(after ?: 0L, limit + 1)
+            ) { Hit(it.getLong(1), (it.getObject(2) as Number?)?.toLong(), it.getInt(3) == 1, false, roles(it.getString(4)), it.getString(5)) }
+            val page = found.take(limit)
+            val nextAfter = if (found.size > limit) page.last().id else null
+            val (total, facets) = if (summary) summary(connection, sql) else -1L to Facets(emptyList(), emptyList())
+            OccurrencePage(rows(connection, page), nextAfter, total, facets)
+        }
+    }
+
+    /** The number of occurrences [query] matches and its facets, as [queryOccurrences] with summary gives them. */
+    fun querySummary(query: OccurrenceQuery): Answer<QuerySummary> {
+        validate(query)
+        return read(timed = true) { connection, _ ->
+            val (total, facets) = summary(connection, sql(connection, query))
+            QuerySummary(total, facets)
+        }
+    }
+
+    /**
+     * The occurrences [query] matches, grouped by one to three [dimensions] and counted; the first [limit] groups by
+     * count, descending, then by their values. `ROLE` counts an occurrence once under each of its roles that passes the
+     * roles filter; `VALUE` groups the matching value rows (an occurrence counts once in each of its values' groups,
+     * `BIND` and `EXPRESSION` one group each). `ENTITY` is the matched entity: the candidate for an occurrence matched
+     * through one, null for an occurrence without entity.
+     */
+    fun groupOccurrences(query: OccurrenceQuery, dimensions: List<GroupDimension>, limit: Int = 100): Answer<GroupPage> {
+        if (dimensions.size !in 1..3) throw InvalidQueryException("groupBy takes one to three dimensions")
+        if (dimensions.toSet().size != dimensions.size) throw InvalidQueryException("A groupBy dimension is repeated")
+        if (limit !in 1..1000) throw InvalidQueryException("limit must be between 1 and 1000")
+        validate(query)
+        return read(timed = true) { connection, _ ->
+            val sql = sql(connection, query)
+            val joins = ArrayList<String>()
+            val joinParameters = ArrayList<Any?>()
+            val valueRows = GroupDimension.VALUE in dimensions
+            if (GroupDimension.ENTITY in dimensions || GroupDimension.ENTITY_KIND in dimensions) joins += "LEFT JOIN entity me ON me.id = ${sql.matched}"
+            if (GroupDimension.CONTAINER in dimensions) joins += "LEFT JOIN entity ce ON ce.id = o.container_entity_id"
+            if (GroupDimension.UNIT in dimensions) joins += "JOIN unit un ON un.id = o.unit_id JOIN source_file uf ON uf.id = un.file_id"
+            if (GroupDimension.FILE in dimensions) joins += "JOIN source_file fi ON fi.id = o.file_id"
+            if (GroupDimension.STATEMENT_KIND in dimensions) joins += "LEFT JOIN sql_statement st ON st.id = o.statement_id"
+            if (valueRows) {
+                // The value rows of the occurrence, those of the value filter only when there is one.
+                val (condition, valueParameters) =
+                    if (query.valueKind != null || query.value != null) sql.valueCondition(query.valueKind, query.value) else "1" to emptyList()
+                joins += """JOIN (SELECT occurrence_id, value_kind, CASE WHEN value_kind IN ('BIND', 'EXPRESSION') THEN NULL ELSE value END AS shown
+                                  FROM written_value WHERE $condition
+                                  UNION ALL
+                                  SELECT occurrence_id, value_kind, CASE WHEN value_kind IN ('BIND', 'EXPRESSION') THEN NULL ELSE value END
+                                  FROM call_argument WHERE $condition) va ON va.occurrence_id = o.id"""
+                joinParameters.addAll(valueParameters + valueParameters)
+            }
+            if (GroupDimension.ROLE in dimensions) {
+                // Roles are stored as one text: an occurrence joins once each of its roles the roles filter keeps.
+                val kept = ROLES.filter { query.roles.isEmpty() || it in query.roles }
+                sql.addCte("role_list(role) AS (VALUES ${kept.joinToString(", ") { "(?)" }})", kept)
+                joins += "JOIN role_list rl ON instr(',' || o.roles || ',', ',' || rl.role || ',') > 0"
+            }
+            // Per dimension: the grouped expressions, then the expression that orders by its value.
+            val grouped = dimensions.map { dimension ->
+                when (dimension) {
+                    GroupDimension.ENTITY -> listOf(sql.matched) to "me.key"
+                    GroupDimension.ENTITY_KIND -> listOf("me.kind") to "me.kind"
+                    GroupDimension.CONTAINER -> listOf("o.container_entity_id") to "ce.key"
+                    GroupDimension.UNIT -> listOf("o.unit_id") to "uf.path || ' ' || un.name"
+                    GroupDimension.FILE -> listOf("o.file_id") to "fi.path"
+                    GroupDimension.ROLE -> listOf("rl.role") to "rl.role"
+                    GroupDimension.STATUS -> listOf("o.status") to "o.status"
+                    GroupDimension.REASON -> listOf("o.reason") to "o.reason"
+                    GroupDimension.ORIGIN -> listOf("o.origin") to "o.origin"
+                    GroupDimension.STATEMENT_KIND -> listOf("st.kind") to "st.kind"
+                    GroupDimension.VALUE -> listOf("va.value_kind", "va.shown") to "va.value_kind || ' ' || coalesce(va.shown, '')"
+                }
+            }
+            val columns = grouped.flatMap { it.first }
+            val orders = grouped.map { it.second }
+            val count = if (valueRows) "count(DISTINCT o.id)" else "count(*)"
+            val select = "SELECT ${columns.joinToString()}, ${orders.joinToString()}, $count AS n FROM ${sql.from} ${joins.joinToString(" ")} ${sql.where()} GROUP BY ${columns.joinToString()}"
+            val width = columns.size
+            fun raw(rs: ResultSet): RawGroup = RawGroup((1..width).map { rs.getObject(it) }, rs.getLong(width + orders.size + 1))
+            var totalGroups = 0L
+            val rawGroups = connection.query(
+                "${sql.with} SELECT *, count(*) OVER () FROM ($select) ORDER BY n DESC, ${orders.indices.joinToString { "${width + it + 1}" }} LIMIT ?",
+                sql.withParameters + joinParameters + sql.whereParameters + limit
+            ) { rs -> totalGroups = rs.getLong(width + orders.size + 2); raw(rs) }
+            GroupPage(dimensions.map { it.name }, groupValues(connection, dimensions, rawGroups), totalGroups)
+        }
+    }
+
+    private class RawGroup(val values: List<Any?>, val count: Long)
+
+    /** The values of [groups] for their [dimensions]: entities, units and files read once each. */
+    private fun groupValues(connection: Connection, dimensions: List<GroupDimension>, groups: List<RawGroup>): List<OccurrenceGroup> {
+        val entityIds = HashSet<Long>()
+        val unitIds = HashSet<Long>()
+        val fileIds = HashSet<Long>()
+        for (group in groups) {
+            var column = 0
+            for (dimension in dimensions) {
+                val value = (group.values[column] as? Number)?.toLong()
+                when (dimension) {
+                    GroupDimension.ENTITY, GroupDimension.CONTAINER -> value?.let { entityIds += it }
+                    GroupDimension.UNIT -> value?.let { unitIds += it }
+                    GroupDimension.FILE -> value?.let { fileIds += it }
+                    else -> Unit
+                }
+                column += if (dimension == GroupDimension.VALUE) 2 else 1
+            }
+        }
+        val entities = byIds(connection, entityIds, "SELECT id, key, kind, display, external, name FROM entity") {
+            EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1, it.getString(6))
+        }
+        val units = byIds(connection, unitIds, "SELECT un.id, un.kind, un.name, f.path FROM unit un JOIN source_file f ON f.id = un.file_id", "un.id") {
+            UnitRef(it.getString(2), it.getString(3)) to it.getString(4)
+        }
+        val files = byIds(connection, fileIds, "SELECT id, path FROM source_file") { it.getString(2) }
+        return groups.map { group ->
+            var column = 0
+            val values = dimensions.map { dimension ->
+                val raw = group.values[column]
+                val id = (raw as? Number)?.toLong()
+                column += if (dimension == GroupDimension.VALUE) 2 else 1
+                when (dimension) {
+                    GroupDimension.ENTITY, GroupDimension.CONTAINER -> GroupValue(entity = id?.let { entities.getValue(it) })
+                    GroupDimension.UNIT -> id?.let { units.getValue(it) }?.let { GroupValue(unit = it.first, path = it.second) } ?: GroupValue()
+                    GroupDimension.FILE -> GroupValue(path = id?.let { files.getValue(it) })
+                    GroupDimension.VALUE -> GroupValue(text = group.values[column - 1] as String?, valueKind = raw as String?)
+                    else -> GroupValue(text = raw as String?)
+                }
+            }
+            OccurrenceGroup(values, group.count)
+        }
+    }
+
+    /** Rows of [select] (whose first column is the id) for [ids], read in chunks, by id. */
+    private fun <T> byIds(connection: Connection, ids: Collection<Long>, select: String, idColumn: String = "id", map: (ResultSet) -> T): Map<Long, T> {
+        val result = HashMap<Long, T>()
+        for (chunk in ids.chunked(500)) {
+            connection.query("$select WHERE $idColumn IN (${chunk.joinToString(",") { "?" }})", chunk) { it.getLong(1) to map(it) }
+                .forEach { result[it.first] = it.second }
+        }
+        return result
+    }
+
+    /**
+     * The total and the facets of the occurrences [sql] matches, counted while the rows stream by: on a large set a SQL
+     * `GROUP BY` of these text columns spends most of its time sorting, a scan with a hash count does not. Each row is
+     * read as one text, its six values joined by tabs, which the driver hands over in one call.
+     */
+    private fun summary(connection: Connection, sql: OccurrenceQuerySql): Pair<Long, Facets> {
+        val counts = HashMap<String, Long>()
+        connection.prepareStatement(
+            """${sql.with}
+               SELECT o.roles || char(9) || o.status || char(9) || o.origin || char(9) || coalesce(me.kind, '') || char(9) || un.kind
+                      || char(9) || coalesce(o.reason, '')
+               FROM ${sql.from} LEFT JOIN entity me ON me.id = ${sql.matched} JOIN unit un ON un.id = o.unit_id
+               ${sql.where()}"""
+        ).use { statement ->
+            statement.bind(sql.parameters)
+            statement.executeQuery().use { rs ->
+                while (rs.next()) counts.merge(rs.getString(1), 1L, Long::plus)
+            }
+        }
+        val combinations = counts.map { (text, n) -> text.split('\t') to n }
+        fun facet(values: Sequence<Pair<String, Long>>) =
+            values.filter { it.first.isNotEmpty() }.groupingBy { it.first }.fold(0L) { sum, item -> sum + item.second }
+                .toSortedMap().map { Count(it.key, it.value) }
+        fun column(index: Int) = facet(combinations.asSequence().map { (values, n) -> values[index] to n })
+        return counts.values.sum() to Facets(
+            facet(combinations.asSequence().flatMap { (values, n) -> roles(values[0]).map { it to n } }),
+            column(1), column(2), column(3), column(4), column(5)
+        )
+    }
+
+    /** The SQL of [query], with its entity and container keys resolved; an unknown key is an error. */
+    private fun sql(connection: Connection, query: OccurrenceQuery): OccurrenceQuerySql {
+        fun id(key: String?, what: String) = key?.let {
+            connection.query("SELECT id FROM entity WHERE key = ?", listOf(it)) { rs -> rs.getLong(1) }.singleOrNull()
+                ?: throw InvalidQueryException("Unknown $what: $it")
+        }
+        return OccurrenceQuerySql(query, id(query.entity, "entity"), id(query.container, "container"))
+    }
+
+    private fun validate(query: OccurrenceQuery) {
+        fun check(values: Collection<String>, known: Collection<String>, what: String) =
+            values.firstOrNull { it !in known }?.let { throw InvalidQueryException("Unknown $what: $it") }
+        check(query.roles, ROLES, "role")
+        check(query.statuses, STATUSES, "status")
+        check(query.entityKinds, ENTITY_KINDS, "entity kind")
+        check(query.unitKinds, UNIT_KINDS, "unit kind")
+        check(query.origins, ORIGINS, "origin")
+        check(query.statementKinds, STATEMENT_KINDS, "statement kind")
+        check(listOfNotNull(query.valueKind), VALUE_KINDS, "value kind")
+        if (query.value != null) {
+            if (query.valueKind != null && query.valueKind !in OccurrenceQuerySql.TEXT_VALUE_KINDS) throw InvalidQueryException("A ${query.valueKind} value has no text to match")
+        }
+        for ((name, text) in listOf(
+            "name" to query.name, "containerName" to query.containerName, "schema" to query.schema, "path" to query.path, "value" to query.value
+        )) {
+            if (text != null && text.isEmpty()) throw InvalidQueryException("$name must not be empty")
+        }
+        for ((name, text) in listOf("name" to query.name, "containerName" to query.containerName)) {
+            val segments = text?.split('.') ?: continue
+            if (segments.size > OccurrenceQuerySql.MAX_SEGMENTS) throw InvalidQueryException("$name takes at most ${OccurrenceQuerySql.MAX_SEGMENTS} dotted segments")
+            if (segments.any { it.isEmpty() }) throw InvalidQueryException("$name has an empty segment")
+        }
+    }
+
     // ---- internals ----------------------------------------------------------------------------------------------
 
     private class SourceFile(val id: Long, val path: String, val sha256: String, val encoding: String)
@@ -397,7 +613,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
     private class Entity(val id: Long, val key: String, val kind: String, val schema: String?, val name: String, val display: String,
                          val external: Boolean, val parentId: Number?)
 
-    private class Hit(val id: Long, val matched: Long, val viaCandidate: Boolean, val viaView: Boolean, val roles: List<String>, val status: String)
+    private class Hit(val id: Long, val matched: Long?, val viaCandidate: Boolean, val viaView: Boolean, val roles: List<String>, val status: String)
 
     /** The hit an occurrence hit several ways reports: not added by [Scope.VIEWS] first, then direct before candidate. */
     private val hitPreference = compareBy<Hit>({ it.viaView }, { it.viaCandidate }, { it.matched })
@@ -441,7 +657,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             val containerId = (rs.getObject(13) as Number?)?.toLong()
             OccurrenceRow(
                 id, rs.getString(2), span(rs, 3), rs.getString(7), roles(rs.getString(8)), rs.getString(9), rs.getString(10), rs.getString(11),
-                entityOf(hit.matched)!!, hit.viaCandidate, hit.viaView, null, null, UnitRef(rs.getString(14), rs.getString(15)), rs.getString(16),
+                entityOf(hit.matched), hit.viaCandidate, hit.viaView, null, null, UnitRef(rs.getString(14), rs.getString(15)), rs.getString(16),
                 candidates[id].orEmpty(), arguments[id].orEmpty(), written[id].orEmpty()
             ).let { it.copy(entity = entityOf(entityId), container = entityOf(containerId)) }
         }
@@ -460,12 +676,16 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
 
     private fun counts(connection: Connection, sql: String) = connection.query(sql) { Count(it.getString(1), it.getLong(2)) }
 
-    private fun escapeLike(text: String) = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    private fun escapeLike(text: String) = OccurrenceQuerySql.escapeLike(text)
 
     private fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
-    /** One read-only connection for one request; the run stamp is read and the schema version checked first. */
-    private fun <T> read(body: (Connection, RunStamp) -> T): Answer<T> {
+    /**
+     * One read-only connection for one request; the run stamp is read and the schema version checked first. With
+     * [timed], the body is interrupted once [queryTimeout] has passed: `Statement.setQueryTimeout` does not stop a
+     * statement that is running, a progress handler does (SQLite calls it every [PROGRESS_STEPS] virtual machine steps).
+     */
+    private fun <T> read(timed: Boolean = false, body: (Connection, RunStamp) -> T): Answer<T> {
         val config = SQLiteConfig().apply { setReadOnly(true) }
         config.createConnection("jdbc:sqlite:${database.toAbsolutePath()}").use { connection ->
             connection.createStatement().use { it.execute("PRAGMA query_only = 1") }
@@ -473,7 +693,17 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
                 "SELECT schema_version, finished_at, atlas_version, zpa_version, compilation_schema, metadata_origin FROM run"
             ) { it.getInt(1) to RunStamp(it.getString(2), it.getString(3), it.getString(4), it.getString(5), it.getString(6)) }.single()
             if (version != SCHEMA_VERSION) throw SchemaMismatchException(version, SCHEMA_VERSION)
-            return Answer(stamp, body(connection, stamp))
+            if (!timed) return Answer(stamp, body(connection, stamp))
+            val deadline = System.nanoTime() + queryTimeout.toNanos()
+            ProgressHandler.setHandler(connection, PROGRESS_STEPS, object : ProgressHandler() {
+                override fun progress(): Int = if (System.nanoTime() > deadline) 1 else 0
+            })
+            try {
+                return Answer(stamp, body(connection, stamp))
+            } catch (e: SQLiteException) {
+                if (e.resultCode == SQLiteErrorCode.SQLITE_INTERRUPT) throw QueryTimeoutException(queryTimeout.toMillis() / 1000.0)
+                throw e
+            }
         }
     }
 
@@ -497,6 +727,10 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
     }
 
     companion object {
+        val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
+
+        private const val PROGRESS_STEPS = 1000
+
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
         const val SCHEMA_VERSION = 12
 
@@ -518,6 +752,13 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             "DDL_CREATE", "DDL_ALTER", "DDL_DROP", "DDL_TRUNCATE", "DDL_ANALYZE"
         )
         val VALUE_KINDS = listOf("STRING", "NUMBER", "NULL", "BOOLEAN", "NAME", "BIND", "EXPRESSION", "DEFAULT")
+
+        val UNIT_KINDS = listOf(
+            "PACKAGE", "PACKAGE_BODY", "PROCEDURE", "FUNCTION", "TRIGGER", "TYPE", "TYPE_BODY", "VIEW", "MATERIALIZED_VIEW",
+            "ANONYMOUS_BLOCK", "SQL_STATEMENT", "UNPARSED", "FORMS_TRIGGER", "FORMS_PROGRAM_UNIT"
+        )
+        val ORIGINS = listOf("STATIC", "DYNAMIC_LITERAL", "FORMS_IMPLICIT", "HEURISTIC")
+        val STATEMENT_KINDS = listOf("SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "LOCK", "DYNAMIC", "DDL")
 
         /** The value kinds whose arguments form one group whatever they pass. */
         private val VALUES_UNSHOWN = setOf("NULL", "BIND", "EXPRESSION", "DEFAULT")

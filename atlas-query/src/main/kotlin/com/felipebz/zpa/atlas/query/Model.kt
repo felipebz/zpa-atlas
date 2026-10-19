@@ -134,8 +134,8 @@ data class OccurrenceRow(
     val status: String,
     val reason: String?,
     val origin: String,
-    /** The entity in scope this row hit (the occurrence entity, or the candidate). */
-    val matched: EntitySummary,
+    /** The entity in scope this row hit (the occurrence entity, or the candidate); null for a query row without entity. */
+    val matched: EntitySummary?,
     val viaCandidate: Boolean,
     /** [matched] is a view column or view the [Scope.VIEWS] scope added, not the entity asked about or its partners and children. */
     val viaView: Boolean,
@@ -153,11 +153,99 @@ data class OccurrenceRow(
 @Serializable
 data class WrittenValue(val row: Int, val valueKind: String, val value: String?)
 
+/**
+ * Counts over a set of occurrences: roles split (an occurrence counts once under each of its roles). [byOrigin],
+ * [byEntityKind] (the kind of the matched entity; occurrences without one are left out), [byUnitKind] and [byReason]
+ * (occurrences without a reason are left out) are filled by the occurrence query only.
+ */
 @Serializable
-data class Facets(val byRole: List<Count>, val byStatus: List<Count>)
+data class Facets(
+    val byRole: List<Count>,
+    val byStatus: List<Count>,
+    val byOrigin: List<Count> = emptyList(),
+    val byEntityKind: List<Count> = emptyList(),
+    val byUnitKind: List<Count> = emptyList(),
+    val byReason: List<Count> = emptyList()
+)
 
 @Serializable
 data class OccurrencePage(val rows: List<OccurrenceRow>, val nextAfter: Long?, val total: Long, val facets: Facets)
+
+/** The size and facets of the occurrences a query matches. */
+@Serializable
+data class QuerySummary(val total: Long, val facets: Facets)
+
+/**
+ * A query over every occurrence of the index. Every filter is optional; set filters combine with AND, the values of
+ * one filter with OR. Patterns (`name`, `path`, `value`) take `*` as a wildcard; `name` and patterns are
+ * case-insensitive, an exact `value` is not.
+ */
+data class OccurrenceQuery(
+    /** The occurrence's entity has this key; with [inside], or is one of its `CONTAINS` descendants. */
+    val entity: String? = null,
+    val inside: Boolean = false,
+    val entityKinds: Set<String> = emptySet(),
+    /**
+     * The entity's name, or a dotted name as in the header search: the last segment is the entity's name, each earlier
+     * one the next parent up, and the first may be the schema instead (`st_active`, `company.st_active`,
+     * `hr.company.st_active`). At most four segments; each is case-insensitive and exact, or a pattern with `*`.
+     */
+    val name: String? = null,
+    /** The entity's schema, exact. */
+    val schema: String? = null,
+    val external: Boolean? = null,
+    /** The occurrence is inside this entity; with [containerInside], or inside one of its `CONTAINS` descendants. */
+    val container: String? = null,
+    /** The typed form of [container]: every entity this dotted name matches, as for [name], is a container. */
+    val containerName: String? = null,
+    /** [container] and [containerName] include their `CONTAINS` descendants. */
+    val containerInside: Boolean = true,
+    val unitKinds: Set<String> = emptySet(),
+    /** The file path: a prefix, or with `*` a pattern of the whole path. */
+    val path: String? = null,
+    /** The occurrence has any of these roles; empty matches every role, definitions and declarations included. */
+    val roles: Set<String> = emptySet(),
+    val statuses: Set<String> = emptySet(),
+    val reasons: Set<String> = emptySet(),
+    val origins: Set<String> = emptySet(),
+    val statementKinds: Set<String> = emptySet(),
+    /**
+     * A written value or call argument of this kind and, for `STRING`, `NUMBER`, `BOOLEAN` and `NAME`, [value]: exact,
+     * or with `*` as a wildcard. A [value] without a kind matches a row of any of those four kinds. `NAME` and `BOOLEAN` values are stored upper case, so [value] is upper-cased for them;
+     * a `STRING` value matches case-sensitively, exact or as a pattern (where `?` and `[` are themselves); a `NUMBER`
+     * matches as written, a pattern case-insensitively.
+     */
+    val valueKind: String? = null,
+    val value: String? = null,
+    /** An `AMBIGUOUS` occurrence matches the entity filters through any of its candidates. */
+    val candidates: Boolean = true
+) {
+    val hasEntityFilter: Boolean get() = entity != null || entityKinds.isNotEmpty() || name != null || schema != null || external != null
+}
+
+/** What occurrences can be grouped by. */
+enum class GroupDimension { ENTITY, ENTITY_KIND, CONTAINER, UNIT, FILE, ROLE, STATUS, REASON, ORIGIN, STATEMENT_KIND, VALUE }
+
+/**
+ * The value of one dimension of a group: [entity] for `ENTITY` and `CONTAINER`, [unit] and its [path] for `UNIT`,
+ * [path] for `FILE`, [valueKind] and [text] for `VALUE`, [text] otherwise. Every field is null for a group without the
+ * dimension (an occurrence without an entity, a reason or a statement).
+ */
+@Serializable
+data class GroupValue(
+    val text: String? = null,
+    val entity: EntitySummary? = null,
+    val unit: UnitRef? = null,
+    val path: String? = null,
+    val valueKind: String? = null
+)
+
+@Serializable
+data class OccurrenceGroup(val values: List<GroupValue>, val count: Long)
+
+/** The first groups by count, descending, then by their values; [totalGroups] counts them all. */
+@Serializable
+data class GroupPage(val dimensions: List<String>, val groups: List<OccurrenceGroup>, val totalGroups: Long)
 
 @Serializable
 data class SourceLine(val number: Int, val text: String)
@@ -181,6 +269,10 @@ data class FileView(val path: String, val stale: Boolean, val lines: List<String
 
 /** A request the index cannot answer as asked (an unknown role, a limit out of range, a path outside the index). */
 class InvalidQueryException(message: String) : RuntimeException(message)
+
+/** A query ran longer than the index allows; narrower filters make it faster. */
+class QueryTimeoutException(val seconds: Double) :
+    RuntimeException("The query took longer than ${"%.0f".format(java.util.Locale.ROOT, seconds)} s; narrow the filters and try again.")
 
 /** The file was written by an indexer with another schema version. */
 class SchemaMismatchException(val found: Int, val expected: Int) :

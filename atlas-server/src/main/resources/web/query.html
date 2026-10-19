@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="application-name" content="zpa-atlas"><meta name="viewport" content="width=device-width, initial-scale=1"><title data-i18n="page.query.title"></title><link rel="stylesheet" href="app.css"></head>
+<body>
+<header class="top"><a href="./">Atlas</a><a href="query.html" class="nav" data-keep-lang data-i18n="header.query"></a><form class="find" action="./"><input type="text" name="q" data-i18n-placeholder="header.search"><input type="hidden" name="lang"></form><span class="run" data-i18n="banner.loading"></span></header>
+<div id="warn" class="warn" hidden></div>
+<main class="query-page">
+  <form id="query" class="card query" autocomplete="off">
+    <div class="front">
+      <div class="suggest" data-param="entity" data-typed="name">
+        <label class="label" for="what" data-i18n="query.what"></label>
+        <div class="box">
+          <input type="text" id="what" name="what" data-i18n-placeholder="query.what.placeholder" role="combobox" aria-autocomplete="list" aria-expanded="false">
+          <div class="picked" hidden><span class="pick-name"></span><span class="badge pick-kind"></span><button type="button" class="x" data-i18n-title="query.unpick">×</button></div>
+        </div>
+        <ul class="suggestions" role="listbox" hidden></ul>
+        <label class="check inside" hidden><input type="checkbox" name="inside"> <span data-i18n="query.inside"></span></label>
+        <div class="kept" hidden><span class="chip"><span class="kept-text"></span> <button type="button" class="x" data-i18n-title="query.unpick">×</button></span></div>
+      </div>
+      <div class="suggest" data-param="container" data-typed="containerName">
+        <label class="label" for="within" data-i18n="query.container"></label>
+        <div class="box">
+          <input type="text" id="within" name="within" data-i18n-placeholder="query.container.placeholder" role="combobox" aria-autocomplete="list" aria-expanded="false">
+          <div class="picked" hidden><span class="pick-name"></span><span class="badge pick-kind"></span><button type="button" class="x" data-i18n-title="query.unpick">×</button></div>
+        </div>
+        <ul class="suggestions" role="listbox" hidden></ul>
+      </div>
+      <div class="roles">
+        <span class="label" data-i18n="query.roles"></span>
+        <details class="pick boxed" data-name="roles"><summary></summary><div class="opts"></div></details>
+      </div>
+      <div class="actions">
+        <span class="label" aria-hidden="true">&nbsp;</span>
+        <div class="buttons"><button data-i18n="query.run"></button> <a href="#" id="reset" data-i18n="query.reset"></a></div>
+      </div>
+    </div>
+    <details id="more" class="more">
+      <summary></summary>
+      <div class="groups">
+        <div class="group">
+          <details class="pick" data-name="entityKinds"><summary></summary><div class="opts"></div></details>
+          <label class="field"><span data-i18n="query.schema"></span><input type="text" name="schema"></label>
+          <label class="field"><span data-i18n="query.external"></span><select name="external">
+            <option value="" data-i18n="query.any"></option><option value="true" data-i18n="query.yes"></option><option value="false" data-i18n="query.no"></option>
+          </select></label>
+          <label class="check"><input type="checkbox" name="candidates" checked> <span data-i18n="query.candidates"></span></label>
+        </div>
+        <div class="group">
+          <details class="pick" data-name="unitKinds"><summary></summary><div class="opts"></div></details>
+          <label class="check"><input type="checkbox" name="containerInside" checked> <span data-i18n="query.containerInside"></span></label>
+          <label class="field"><span data-i18n="query.path"></span><input type="text" name="path" class="mono"></label>
+        </div>
+        <div class="group">
+          <details class="pick" data-name="statuses"><summary></summary><div class="opts"></div></details>
+          <label class="field"><span data-i18n="query.reasons.input"></span><input type="text" name="reasons" class="mono"></label>
+          <details class="pick" data-name="origins"><summary></summary><div class="opts"></div></details>
+          <details class="pick" data-name="statementKinds"><summary></summary><div class="opts"></div></details>
+        </div>
+        <div class="group">
+          <label class="field"><span data-i18n="query.valueKind"></span><select name="valueKind"><option value="" data-i18n="query.any"></option></select></label>
+          <label class="field"><span data-i18n="query.value"></span><input type="text" name="value" class="mono"></label>
+        </div>
+      </div>
+    </details>
+  </form>
+  <section id="answer"></section>
+</main>
+<script src="common.js"></script>
+<script src="query.js"></script>
+</body>
+</html>
