@@ -34,28 +34,54 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
     }
 
     /**
-     * Without a dot, [q] is a case-insensitive prefix of the entity name; with a dot, a case-insensitive substring
-     * of its display. Exact name matches first, then declared before external, then display.
+     * Without a dot, [q] is a case-insensitive prefix of the entity name. With a dot, the last segment is a name
+     * prefix and the segments before it name the parent chain (the leftmost may be the schema); when nothing
+     * matches, [q] is a case-insensitive substring of the display. Exact name matches first, then declared before
+     * external, then display.
      */
     fun searchEntities(q: String, kind: String? = null, includeExternal: Boolean = true, limit: Int = 50): Answer<List<SearchHit>> {
         if (q.isBlank()) throw InvalidQueryException("The search text must not be empty")
         if (limit !in 1..200) throw InvalidQueryException("limit must be between 1 and 200")
         if (kind != null && kind !in ENTITY_KINDS) throw InvalidQueryException("Unknown entity kind: $kind")
-        val text = escapeLike(q.trim())
-        val match = if ('.' in q) "e.display LIKE ? ESCAPE '\\'" else "e.name LIKE ? ESCAPE '\\'"
-        val pattern = if ('.' in q) "%$text%" else "$text%"
+        val text = q.trim()
+        val segments = text.split('.')
         return read { connection, _ ->
-            connection.query(
+            fun search(joins: String, match: String, parameters: List<Any?>) = connection.query(
                 """SELECT e.key, e.kind, e.display, e.external,
-                          (SELECT count(*) FROM occurrence o WHERE o.entity_id = e.id AND o.roles NOT IN ('DEFINITION', 'DECLARATION'))
-                   FROM entity e
+                          (SELECT count(*) FROM occurrence o WHERE o.entity_id = e.id AND o.roles NOT IN ('DEFINITION', 'DECLARATION')), e.name
+                   FROM entity e $joins
                    WHERE $match ${if (kind != null) "AND e.kind = ?" else ""} ${if (includeExternal) "" else "AND e.external = 0"}
                    ORDER BY CASE WHEN e.name = ? COLLATE NOCASE THEN 0 ELSE 1 END, e.external, e.display, e.key
                    LIMIT ?""",
-                listOfNotNull(pattern, kind, q.trim(), limit)
-            ) { SearchHit(it.getString(1), it.getString(2), it.getString(3), it.getInt(4) == 1, it.getLong(5)) }
+                parameters + listOfNotNull(kind, text, limit)
+            ) { SearchHit(it.getString(1), it.getString(2), it.getString(3), it.getInt(4) == 1, it.getLong(5), it.getString(6)) }
+
+            if (segments.size == 1) return@read search("", "e.name LIKE ? ESCAPE '\\'", listOf("${escapeLike(text)}%"))
+            val structural = if (segments.size > 4 || segments.any { it.isEmpty() }) {
+                emptyList()
+            } else {
+                val last = segments.size - 1
+                val joins = (1..last).joinToString(" ") { k -> "LEFT JOIN entity a$k ON a$k.id = ${alias(k - 1)}.parent_id" }
+                val conditions = mutableListOf("e.name LIKE ? ESCAPE '\\'")
+                val parameters = mutableListOf<Any?>("${escapeLike(segments[last])}%")
+                for (k in 1..last) {
+                    val segment = segments[last - k]
+                    if (k < last) {
+                        conditions += "a$k.name = ? COLLATE NOCASE"
+                        parameters += segment
+                    } else {
+                        conditions += "(a$k.name = ? COLLATE NOCASE OR (a$k.id IS NULL AND ${alias(k - 1)}.schema_name = ? COLLATE NOCASE))"
+                        parameters.addAll(listOf(segment, segment))
+                    }
+                }
+                search(joins, conditions.joinToString(" AND "), parameters)
+            }
+            structural.ifEmpty { search("", "e.display LIKE ? ESCAPE '\\'", listOf("%${escapeLike(text)}%")) }
         }
     }
+
+    /** The alias of the [k]th entity up the parent chain in [searchEntities]: `e` itself, then `a1`, `a2`… */
+    private fun alias(k: Int) = if (k == 0) "e" else "a$k"
 
     fun entity(key: String): Answer<EntityDetail?> = read { connection, _ ->
         val row = connection.query(
@@ -64,18 +90,20 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
             .singleOrNull() ?: return@read null
         val parent = row.parentId?.let { summary(connection, it.toLong()) }
         val children = connection.query(
-            """SELECT c.key, c.kind, c.display, c.external FROM relation r JOIN entity c ON c.id = r.to_id
-               WHERE r.from_id = ? AND r.kind = 'CONTAINS' ORDER BY c.kind, c.name, c.key""", listOf(row.id), ::entitySummary
-        )
+            """SELECT c.key, c.kind, c.display, c.external, c.name,
+                      (SELECT count(*) FROM occurrence o WHERE o.entity_id = c.id AND o.roles NOT IN ('DEFINITION', 'DECLARATION'))
+               FROM relation r JOIN entity c ON c.id = r.to_id
+               WHERE r.from_id = ? AND r.kind = 'CONTAINS' ORDER BY c.kind, c.name, c.key""", listOf(row.id)
+        ) { Member(entitySummary(it), it.getLong(6)) }
         // VIEW_BASE edges have their own lists (baseColumns, viewColumns).
         val relations = connection.query(
-            """SELECT r.kind, 'OUT', t.key, t.kind, t.display, t.external FROM relation r JOIN entity t ON t.id = r.to_id
+            """SELECT r.kind, 'OUT', t.key, t.kind, t.display, t.external, t.name FROM relation r JOIN entity t ON t.id = r.to_id
                WHERE r.from_id = ? AND r.kind NOT IN ('CONTAINS', 'VIEW_BASE')
                UNION ALL
-               SELECT r.kind, 'IN', f.key, f.kind, f.display, f.external FROM relation r JOIN entity f ON f.id = r.from_id
+               SELECT r.kind, 'IN', f.key, f.kind, f.display, f.external, f.name FROM relation r JOIN entity f ON f.id = r.from_id
                WHERE r.to_id = ? AND r.kind NOT IN ('CONTAINS', 'VIEW_BASE')
                ORDER BY 1, 2, 3""", listOf(row.id, row.id)
-        ) { RelationLink(it.getString(1), it.getString(2), EntitySummary(it.getString(3), it.getString(4), it.getString(5), it.getInt(6) == 1)) }
+        ) { RelationLink(it.getString(1), it.getString(2), EntitySummary(it.getString(3), it.getString(4), it.getString(5), it.getInt(6) == 1, it.getString(7))) }
         val definitions = connection.query(
             """SELECT f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.roles, o.status, o.written
                FROM occurrence o JOIN source_file f ON f.id = o.file_id
@@ -83,7 +111,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         ) { Location(it.getString(1), span(it, 2), roles(it.getString(6)), it.getString(7), it.getString(8)) }
         val overloads = if (row.kind == "PROCEDURE" || row.kind == "FUNCTION") {
             connection.query(
-                """SELECT key, kind, display, external FROM entity
+                """SELECT key, kind, display, external, name FROM entity
                    WHERE parent_id IS ? AND name = ? AND kind = ? ORDER BY key""", listOf(row.parentId, row.name, row.kind), ::entitySummary
             ).map { Overload(it, isBody(it.key), it.key == row.key) }
         } else {
@@ -108,30 +136,30 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
     private fun viewBase(connection: Connection, columnId: Long, outgoing: Boolean): List<EntitySummary> {
         val (near, far) = if (outgoing) "from_id" to "to_id" else "to_id" to "from_id"
         return connection.query(
-            """SELECT e.key, e.kind, e.display, e.external FROM relation r JOIN entity e ON e.id = r.$far
+            """SELECT e.key, e.kind, e.display, e.external, e.name FROM relation r JOIN entity e ON e.id = r.$far
                WHERE r.$near = ? AND r.kind = 'VIEW_BASE' ORDER BY e.key""", listOf(columnId), ::entitySummary
         )
     }
 
     // Both derive from the SQL_SELECT occurrences: no relation rows are stored for them.
     private fun viewReads(connection: Connection, viewId: Long): List<EntitySummary> = connection.query(
-        """SELECT DISTINCT e.key, e.kind, e.display, e.external FROM occurrence o JOIN entity e ON e.id = o.entity_id
+        """SELECT DISTINCT e.key, e.kind, e.display, e.external, e.name FROM occurrence o JOIN entity e ON e.id = o.entity_id
            WHERE o.container_entity_id = ? AND (',' || o.roles || ',') LIKE '%,SQL_SELECT,%' ORDER BY e.key""", listOf(viewId), ::entitySummary
     )
 
     private fun viewsReading(connection: Connection, relationId: Long): List<EntitySummary> = connection.query(
-        """SELECT DISTINCT v.key, v.kind, v.display, v.external FROM occurrence o JOIN entity v ON v.id = o.container_entity_id
+        """SELECT DISTINCT v.key, v.kind, v.display, v.external, v.name FROM occurrence o JOIN entity v ON v.id = o.container_entity_id
            WHERE o.entity_id = ? AND v.kind IN ($VIEW_KINDS_SQL) AND (',' || o.roles || ',') LIKE '%,SQL_SELECT,%' ORDER BY v.key""", listOf(relationId), ::entitySummary
     )
 
     /** The trigger events [EntityDetail.triggerEvents] lists for an entity of [kind]. */
     private fun triggerEvents(connection: Connection, id: Long, kind: String, parentId: Long?): List<TriggerEvent> {
-        val select = """SELECT t.key, t.kind, t.display, t.external, e.timing, e.level, e.event, c.key, c.kind, c.display, c.external
+        val select = """SELECT t.key, t.kind, t.display, t.external, e.timing, e.level, e.event, c.key, c.kind, c.display, c.external, t.name, c.name
                FROM trigger_event e JOIN entity t ON t.id = e.trigger_id LEFT JOIN entity c ON c.id = e.column_id"""
         val order = " ORDER BY t.key, e.event, e.timing, c.key"
         val map = { rs: ResultSet ->
-            TriggerEvent(EntitySummary(rs.getString(1), rs.getString(2), rs.getString(3), rs.getInt(4) == 1), rs.getString(5), rs.getString(6), rs.getString(7),
-                rs.getString(8)?.let { EntitySummary(it, rs.getString(9), rs.getString(10), rs.getInt(11) == 1) })
+            TriggerEvent(EntitySummary(rs.getString(1), rs.getString(2), rs.getString(3), rs.getInt(4) == 1, rs.getString(12)), rs.getString(5), rs.getString(6), rs.getString(7),
+                rs.getString(8)?.let { EntitySummary(it, rs.getString(9), rs.getString(10), rs.getInt(11) == 1, rs.getString(13)) })
         }
         return when (kind) {
             "TRIGGER" -> connection.query("$select WHERE e.trigger_id = ?$order", listOf(id), map)
@@ -337,8 +365,8 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         }
         val summaries = HashMap<Long, EntitySummary>()
         for (chunk in entityIndexes.keys.chunked(500)) {
-            connection.query("SELECT id, key, kind, display, external FROM entity WHERE id IN (${chunk.joinToString(",") { "?" }})", chunk) {
-                it.getLong(1) to EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1)
+            connection.query("SELECT id, key, kind, display, external, name FROM entity WHERE id IN (${chunk.joinToString(",") { "?" }})", chunk) {
+                it.getLong(1) to EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1, it.getString(6))
             }.forEach { summaries[it.first] = it.second }
         }
         FileView(path, false, text.lines, entityIndexes.keys.map { summaries.getValue(it) }, occurrences)
@@ -381,18 +409,18 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
         val summaries = HashMap<Long, EntitySummary>()
         fun entityOf(id: Long?): EntitySummary? = id?.let { summaries.getOrPut(it) { summary(connection, it) } }
         val candidates = connection.query(
-            "SELECT c.occurrence_id, e.key, e.kind, e.display, e.external FROM occurrence_candidate c JOIN entity e ON e.id = c.entity_id WHERE c.occurrence_id IN ($marks) ORDER BY c.occurrence_id, e.id",
+            "SELECT c.occurrence_id, e.key, e.kind, e.display, e.external, e.name FROM occurrence_candidate c JOIN entity e ON e.id = c.entity_id WHERE c.occurrence_id IN ($marks) ORDER BY c.occurrence_id, e.id",
             ids
-        ) { it.getLong(1) to EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1) }
+        ) { it.getLong(1) to EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1, it.getString(6)) }
             .groupBy({ it.first }, { it.second })
         val arguments = connection.query(
             """SELECT a.occurrence_id, a.ordinal, a.label, e.key, e.kind, e.display, e.external, a.start_line, a.start_col, a.end_line, a.end_col,
-                      a.value_kind, a.value
+                      a.value_kind, a.value, e.name
                FROM call_argument a LEFT JOIN entity e ON e.id = a.parameter_entity_id WHERE a.occurrence_id IN ($marks) ORDER BY a.occurrence_id, a.ordinal""",
             ids
         ) {
             it.getLong(1) to CallArgument(it.getInt(2), it.getString(3),
-                it.getString(4)?.let { k -> EntitySummary(k, it.getString(5), it.getString(6), it.getInt(7) == 1) }, span(it, 8),
+                it.getString(4)?.let { k -> EntitySummary(k, it.getString(5), it.getString(6), it.getInt(7) == 1, it.getString(14)) }, span(it, 8),
                 it.getString(12), it.getString(13))
         }.groupBy({ it.first }, { it.second })
         val written = connection.query(
@@ -420,9 +448,9 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?) {
     }
 
     private fun summary(connection: Connection, id: Long): EntitySummary =
-        connection.query("SELECT key, kind, display, external FROM entity WHERE id = ?", listOf(id), ::entitySummary).single()
+        connection.query("SELECT key, kind, display, external, name FROM entity WHERE id = ?", listOf(id), ::entitySummary).single()
 
-    private fun entitySummary(rs: ResultSet) = EntitySummary(rs.getString(1), rs.getString(2), rs.getString(3), rs.getInt(4) == 1)
+    private fun entitySummary(rs: ResultSet) = EntitySummary(rs.getString(1), rs.getString(2), rs.getString(3), rs.getInt(4) == 1, rs.getString(5))
 
     private fun span(rs: ResultSet, first: Int) = Span(rs.getInt(first), rs.getInt(first + 1), rs.getInt(first + 2), rs.getInt(first + 3))
 

@@ -62,10 +62,17 @@ class AtlasIndexTest {
     }
 
     @Test
-    fun `search with a dot matches a substring of the display`() {
+    fun `search with a dot matches the parent chain, then a substring of the display`() {
         val hits = index.searchEntities("company.st_ac").result
         assertThat(hits.map { it.key }).containsExactly("db:HR.COMPANY.ST_ACTIVE")
         assertThat(hits.single().usages).isGreaterThan(0)
+        // The subprogram's spec and body, not its parameters.
+        assertThat(index.searchEntities("pack_process.run_job").result.map { it.key })
+            .containsExactlyInAnyOrder(runJob4, "$runJob4@BODY", runJob5, "$runJob5@BODY")
+        // The leftmost segment may be the schema of a schema-level entity.
+        assertThat(index.searchEntities("hr.company").result.first().key).isEqualTo("db:HR.COMPANY")
+        // No name chain matches: the display substring still finds remote names.
+        assertThat(index.searchEntities("req@far.example").result).isNotEmpty
     }
 
     @Test
@@ -76,8 +83,8 @@ class AtlasIndexTest {
             runJob4 to false, "$runJob4@BODY" to true, runJob5 to false, "$runJob5@BODY" to true
         )
         assertThat(entity.overloads.single { it.self }.entity.key).isEqualTo(runJob5)
-        assertThat(entity.relations).contains(RelationLink("IMPLEMENTS", "IN", EntitySummary("$runJob5@BODY", "PROCEDURE", "HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY", false)))
-        assertThat(entity.children.map { it.key.substringAfterLast('.') }).containsExactly("P_A", "P_B", "P_C", "P_D", "P_E")
+        assertThat(entity.relations).contains(RelationLink("IMPLEMENTS", "IN", EntitySummary("$runJob5@BODY", "PROCEDURE", "HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY", false, "RUN_JOB")))
+        assertThat(entity.children.map { it.entity.key.substringAfterLast('.') }).containsExactly("P_A", "P_B", "P_C", "P_D", "P_E")
         assertThat(entity.definitions.map { it.path to it.roles }).containsExactly("hr/pack_process.pks" to listOf("DECLARATION"))
         // Two resolved calls in pack_calls.pkb; two ambiguous calls list it as a candidate.
         assertThat(entity.usage.byRole).containsExactly(Count("CALL", 2))
@@ -334,7 +341,7 @@ class AtlasIndexTest {
         assertThat(page.rows.filter { it.path == "hr/remote_calls.prc" }.map { "${it.span.startLine} ${it.status} ${it.reason} ${it.arguments.map { a -> a.valueKind + " " + a.value }}" })
             .containsExactly("7 EXTERNAL DB_LINK [NUMBER 4]", "8 EXTERNAL DB_LINK [NUMBER 5]")
         val pack = index.entity("db:~.PACK_REQ@FAR.EXAMPLE.COM").result!!
-        assertThat(pack.children.map { it.key }).containsExactlyInAnyOrder("db:~.PACK_REQ@FAR.EXAMPLE.COM.CLOSE_REQ", "db:~.PACK_REQ@FAR.EXAMPLE.COM.GET_MAX")
+        assertThat(pack.children.map { it.entity.key }).containsExactlyInAnyOrder("db:~.PACK_REQ@FAR.EXAMPLE.COM.CLOSE_REQ", "db:~.PACK_REQ@FAR.EXAMPLE.COM.GET_MAX")
     }
 
     private fun throughViews(key: String) = index.values(key).result!!.filter { it.value in setOf("10", "11", "12") || it.value?.startsWith("via ") == true }
@@ -351,6 +358,18 @@ class AtlasIndexTest {
             .containsExactly("hr/proc_view_writes.prc:4 db:HR.V_COMPANY_NAMES.COMPANY_LABEL")
         assertThat(index.valueSites("db:HR.COMPANY.ID", "NUMBER", "11").result!!.rows).isEmpty()
         assertThat(index.valueSites("db:HR.COMPANY.ID", "NUMBER", "12").result!!.rows).isEmpty()
+    }
+
+    @Test
+    fun `summaries and search hits carry the entity's own name`() {
+        val entity = index.entity(runJob5).result!!
+        assertThat(entity.children.map { it.entity.name }).containsExactly("P_A", "P_B", "P_C", "P_D", "P_E")
+        assertThat(entity.relations.single { it.kind == "IMPLEMENTS" }.entity.let { it.key to it.name }).isEqualTo("$runJob5@BODY" to "RUN_JOB")
+        assertThat(index.searchEntities("notify_req").result!!.map { it.display to it.name }).contains("NOTIFY_REQ@FAR" to "NOTIFY_REQ@FAR")
+        assertThat(index.entity("db:~.PACK_REQ@FAR.EXAMPLE.COM").result!!.children.map { it.entity.name }).contains("GET_MAX")
+        val pack = index.entity("db:HR.PACK_PROCESS").result!!
+        assertThat(pack.children.first { it.entity.key == runJob5 }.usages)
+            .isEqualTo(index.occurrences(runJob5, includeCandidates = false).result!!.total)
     }
 
     @Test

@@ -113,7 +113,9 @@ function fileHref(target, line) {
 function entityHeader(entity) {
   const head = el("div", "entity");
   head.appendChild(el("span", "badge", kindLabel(entity.kind)));
-  head.appendChild(el("b", null, entity.display));
+  const name = el("b");
+  name.appendChild(nameNodes(entity));
+  head.appendChild(name);
   if (entity.external) head.appendChild(el("span", "badge external", t("entity.external")));
   return head;
 }

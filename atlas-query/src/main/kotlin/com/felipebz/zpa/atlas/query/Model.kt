@@ -35,10 +35,17 @@ data class RunSummary(
 )
 
 @Serializable
-data class EntitySummary(val key: String, val kind: String, val display: String, val external: Boolean)
+data class EntitySummary(
+    val key: String,
+    val kind: String,
+    val display: String,
+    val external: Boolean,
+    /** The entity's own name (`entity.name`), the end of [display]: `P_A`, `RUN_JOB`, `NOTIFY_REQ@FAR.EXAMPLE.COM`. */
+    val name: String
+)
 
 @Serializable
-data class SearchHit(val key: String, val kind: String, val display: String, val external: Boolean, val usages: Long)
+data class SearchHit(val key: String, val kind: String, val display: String, val external: Boolean, val usages: Long, val name: String)
 
 /** One-based lines, zero-based columns, exclusive end column, as stored. */
 @Serializable
@@ -52,6 +59,10 @@ data class RelationLink(val kind: String, val direction: String, val entity: Ent
 
 @Serializable
 data class Overload(val entity: EntitySummary, val body: Boolean, val self: Boolean)
+
+/** A `CONTAINS` child and its uses (occurrences that are not a definition or declaration). */
+@Serializable
+data class Member(val entity: EntitySummary, val usages: Long)
 
 @Serializable
 data class UsageSummary(val byRole: List<Count>, val byStatus: List<Count>, val asCandidate: Long)
@@ -69,7 +80,7 @@ data class EntityDetail(
     val display: String,
     val external: Boolean,
     val parent: EntitySummary?,
-    val children: List<EntitySummary>,
+    val children: List<Member>,
     val relations: List<RelationLink>,
     val definitions: List<Location>,
     val overloads: List<Overload>,
