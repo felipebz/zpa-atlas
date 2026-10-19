@@ -131,6 +131,26 @@ object PlSqlText {
         return tokens(rest).firstOrNull()?.let { it.kind == Kind.WORD && it.name == "WRAPPED" } == true
     }
 
+    /**
+     * Whether a materialized view's `ALL_MVIEWS.QUERY` is the form Oracle rewrites instead of storing the text as
+     * written: `SELECT` in upper case, an optional `DISTINCT`, `UNIQUE` or `ALL`, then a first item `"Q"."C" "C"` (a
+     * quoted qualifier, a quoted column, and the same column quoted again as its alias). On 26ai a star in the select
+     * list (`t.*`, `mvp_t.*`, or a bare `*` when the view has no column list) makes Oracle store the whole query that
+     * way: every column qualified, quoted and aliased, the table quoted and aliased, the conditions rewritten too.
+     */
+    fun isRewrittenQuery(storedText: String): Boolean {
+        val t = tokens(storedText, literals = true)
+        if (t.firstOrNull()?.let { it.kind == Kind.WORD && it.text == "SELECT" } != true) return false
+        var i = 1
+        if (t.getOrNull(i)?.let { it.kind == Kind.WORD && it.name in setOf("DISTINCT", "UNIQUE", "ALL") } == true) i++
+        val qualifier = t.getOrNull(i)
+        val dot = t.getOrNull(i + 1)
+        val column = t.getOrNull(i + 2)
+        val alias = t.getOrNull(i + 3)
+        return qualifier?.kind == Kind.QUOTED && dot?.kind == Kind.SYMBOL && dot.text == "." &&
+            column?.kind == Kind.QUOTED && alias?.kind == Kind.QUOTED && alias.text == column.text
+    }
+
     /** Line ends as `\n`, trailing blanks of every line, blank last lines and a final `/` line removed. */
     fun normalize(text: String): List<String> {
         val lines = text.replace("\r\n", "\n").replace('\r', '\n').split('\n').map { it.trimEnd() }.toMutableList()
@@ -153,10 +173,12 @@ object PlSqlText {
     }
 
     /**
-     * Compares the query of a view's file text (a `CREATE VIEW`) with its `ALL_VIEWS.TEXT`: null when they are the
-     * same, else the 1-based line of the stored text where the first differing token is.
+     * Compares the query of a view's file text (a `CREATE VIEW` or `CREATE MATERIALIZED VIEW`) with its `ALL_VIEWS.TEXT`
+     * or `ALL_MVIEWS.QUERY`: null when they are the same, else the 1-based line of the stored text where the first
+     * differing token is.
      *
-     * The file query is the text after the `AS` that follows the view name and its column list, without the final `;`
+     * The file query is the text after the `AS` that follows the view name, its column list and, for a materialized
+     * view, its physical clauses (`BUILD`, `REFRESH`, `ENABLE QUERY REWRITE`), without the final `;`
      * or `/`, and without the name of a `WITH CHECK OPTION CONSTRAINT x` (Oracle stores the clause without it). Tokens
      * are compared ignoring whitespace and comments: names as Oracle identities, literals and symbols exactly.
      *
@@ -204,7 +226,10 @@ object PlSqlText {
         else -> a.name == b.name
     }
 
-    /** The tokens of the query of a `CREATE VIEW`: after the `AS` that follows the name and the column list. */
+    /**
+     * The tokens of the query of a `CREATE VIEW` or `CREATE MATERIALIZED VIEW`: after the first `AS` at depth 0 that
+     * follows the name, the column list and the clauses of a materialized view.
+     */
     private fun viewQuery(tokens: List<Token>): List<Token> {
         var i = 0
         while (i < tokens.size && tokens[i].kind == Kind.WORD && tokens[i].name in HEADER_WORDS) i++

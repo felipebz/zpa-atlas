@@ -25,7 +25,8 @@ import java.sql.SQLException
 import java.util.logging.Logger
 
 /**
- * Reads `ALL_DEPENDENCIES`, `ALL_OBJECTS`, `ALL_SOURCE`, `ALL_VIEWS` (the text of views), `ALL_TRIGGER_COLS`, `ALL_PLSQL_OBJECT_SETTINGS` (the triggers'
+ * Reads `ALL_DEPENDENCIES`, `ALL_OBJECTS`, `ALL_SOURCE`, `ALL_VIEWS` (the text of views), `ALL_MVIEWS` (the query of
+ * materialized views), `ALL_TRIGGER_COLS`, `ALL_PLSQL_OBJECT_SETTINGS` (the triggers'
  * `PLSQL_DEBUG` and every unit's `PLSQL_CCFLAGS`) and the database version (as the indexer reads it) for the requested
  * owners, in one read-only transaction. Only the seven `ALL_DEPENDENCIES` columns that exist on 10.2 are used. A failure
  * to read `ALL_SOURCE` is not an error: the comparison then skips the source classes; nor is a failure to read
@@ -66,7 +67,7 @@ object OracleDependencyReader {
                         LOG.warning("ALL_SOURCE is not readable (error ${e.errorCode}); source comparison skipped")
                         sourceReadable = false
                         emptyList()
-                    } + if (sourceReadable) viewTexts(connection, marks, owners) else emptyList()
+                    } + if (sourceReadable) viewTexts(connection, marks, owners) + materializedViewQueries(connection, marks, owners) else emptyList()
                     val triggerColumns = connection.rows(
                         """SELECT trigger_owner, trigger_name, table_owner, table_name, column_name, column_list, column_usage
                            FROM all_trigger_cols WHERE trigger_owner IN ($marks)""", owners
@@ -100,22 +101,39 @@ object OracleDependencyReader {
     }
 
     /**
-     * The stored text of every view (`ALL_VIEWS.TEXT`), as `VIEW` source lines: split after each line end, numbered
-     * from 1, so that joining them gives the text back. `TEXT` is a `LONG` (10.2 has no `TEXT_VC`): the driver returns
-     * it whole, but it can be read only once and only in column order. Empty, with a warning, when the view is not
-     * readable; `ALL_SOURCE` is not affected.
+     * The stored text of every view (`ALL_VIEWS.TEXT`), as `VIEW` source lines. Empty, with a warning, when the view
+     * is not readable; `ALL_SOURCE` is not affected.
      */
     private fun viewTexts(connection: Connection, marks: String, owners: List<String>): List<DbSourceLine> = try {
-        connection.rows("SELECT owner, view_name, text FROM all_views WHERE owner IN ($marks)", owners) { rs ->
-            val owner = rs.getString(1)
-            val name = rs.getString(2)
-            val text = rs.getString(3) ?: ""
-            Regex("[^\n]*\n|[^\n]+$").findAll(text).mapIndexed { i, line -> DbSourceLine(owner, name, "VIEW", i + 1, line.value) }.toList()
-        }.flatten()
+        storedQueries(connection, "SELECT owner, view_name, text FROM all_views WHERE owner IN ($marks)", owners, "VIEW")
     } catch (e: SQLException) {
         LOG.warning("ALL_VIEWS is not readable (error ${e.errorCode}); views are compared as without stored source")
         emptyList()
     }
+
+    /**
+     * The stored query of every materialized view (`ALL_MVIEWS.QUERY`), as `MATERIALIZED VIEW` source lines. Empty,
+     * with a warning, when the view is not readable; `ALL_SOURCE` and `ALL_VIEWS` are not affected.
+     */
+    private fun materializedViewQueries(connection: Connection, marks: String, owners: List<String>): List<DbSourceLine> = try {
+        storedQueries(connection, "SELECT owner, mview_name, query FROM all_mviews WHERE owner IN ($marks)", owners, "MATERIALIZED VIEW")
+    } catch (e: SQLException) {
+        LOG.warning("ALL_MVIEWS is not readable (error ${e.errorCode}); materialized views are compared as without stored source")
+        emptyList()
+    }
+
+    /**
+     * The owner, name and `LONG` text read by [sql], as [type] source lines: split after each line end, numbered from 1,
+     * so that joining them gives the text back. The `LONG` is last in the select list (10.2 has no `TEXT_VC`): the
+     * driver returns it whole, but it can be read only once and only in column order.
+     */
+    private fun storedQueries(connection: Connection, sql: String, owners: List<String>, type: String): List<DbSourceLine> =
+        connection.rows(sql, owners) { rs ->
+            val owner = rs.getString(1)
+            val name = rs.getString(2)
+            val text = rs.getString(3) ?: ""
+            Regex("[^\n]*\n|[^\n]+$").findAll(text).mapIndexed { i, line -> DbSourceLine(owner, name, type, i + 1, line.value) }.toList()
+        }.flatten()
 
     private fun <T> Connection.rows(sql: String, parameters: List<String>, map: (java.sql.ResultSet) -> T): List<T> =
         prepareStatement(sql).use { statement ->

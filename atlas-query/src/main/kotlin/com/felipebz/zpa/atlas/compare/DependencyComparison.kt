@@ -43,7 +43,11 @@ data class Location(val path: String, val line: Int) : Comparable<Location> {
     override fun toString() = "$path:$line"
 }
 
-enum class SourceStatus { SAME, DIFFERS, WRAPPED, NO_STORED_SOURCE, UNAVAILABLE }
+/**
+ * How a unit's file text compares with what the database stores. [REWRITTEN]: Oracle stores a rewritten query of a
+ * materialized view, which cannot be compared with the file.
+ */
+enum class SourceStatus { SAME, DIFFERS, WRAPPED, REWRITTEN, NO_STORED_SOURCE, UNAVAILABLE }
 
 data class UnitRow(
     val unit: DbObjectId,
@@ -366,8 +370,11 @@ class DependencyComparison(
             sourceStatus[obj] = when {
                 !database.sourceReadable || text == null -> SourceStatus.UNAVAILABLE to null
                 db == null -> SourceStatus.NO_STORED_SOURCE to null
-                // ALL_VIEWS.TEXT: the query only, with the stars expanded.
+                // ALL_VIEWS.TEXT and ALL_MVIEWS.QUERY: the query only, with the stars of a view expanded.
                 obj.type == "VIEW" -> PlSqlText.viewDifference(text, db)?.let { SourceStatus.DIFFERS to it } ?: (SourceStatus.SAME to null)
+                obj.type == "MATERIALIZED VIEW" -> PlSqlText.viewDifference(text, db)?.let {
+                    if (PlSqlText.isRewrittenQuery(db)) SourceStatus.REWRITTEN to null else SourceStatus.DIFFERS to it
+                } ?: (SourceStatus.SAME to null)
                 PlSqlText.isWrapped(db) -> SourceStatus.WRAPPED to null
                 else -> PlSqlText.firstDifference(text, db)?.let { SourceStatus.DIFFERS to it } ?: (SourceStatus.SAME to null)
             }
@@ -654,8 +661,12 @@ class DependencyComparison(
         private val EDGE_STATUSES = setOf("RESOLVED", "UNVERIFIED", "EXTERNAL")
         private val DECLARING_ROLES = setOf("DEFINITION", "DECLARATION")
 
-        /** A definition or declaration only (an empty role set, dynamic SQL, is not). */
-        private fun declaringOnly(roles: Set<String>) = roles.isNotEmpty() && roles.all { it in DECLARING_ROLES }
+        /**
+         * A definition or declaration only, possibly `IMPLICIT` (a view column defined by a select-list star); an empty
+         * role set (dynamic SQL) is not, nor is `IMPLICIT` with a use such as `READ`.
+         */
+        private fun declaringOnly(roles: Set<String>) =
+            roles.any { it in DECLARING_ROLES } && roles.all { it in DECLARING_ROLES || it == "IMPLICIT" }
         private val RELATION_TYPES = setOf("TABLE", "VIEW", "MATERIALIZED VIEW")
         private val PACKAGE_ROLES = setOf("CALL", "TYPE_USE", "READ", "WRITE", "RAISE", "HANDLE")
 

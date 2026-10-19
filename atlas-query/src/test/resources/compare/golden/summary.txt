@@ -14,10 +14,11 @@ Conditional compilation
     HR.PACK_CALLS PACKAGE BODY: debug:true
 
 Source
-  SAME: 2
+  SAME: 3
   DIFFERS: 2
   WRAPPED: 0
-  NO_STORED_SOURCE: 111
+  REWRITTEN: 0
+  NO_STORED_SOURCE: 110
   UNAVAILABLE: 0
     HR.TRG_COMPANY_BU TRIGGER: first difference at stored line 5
     HR.V_REMOTE_DIFFERS VIEW: first difference at stored line 1

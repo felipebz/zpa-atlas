@@ -54,6 +54,21 @@ dependencies whose name never appears in the unit's text, since no reading of th
 Before trusting a difference, check the **Source** section. A unit whose stored source differs from the file
 (`DIFFERS`) was compiled from another version of the code, so its differences say little about the index.
 
+The file text of a PL/SQL unit is compared with `ALL_SOURCE`; the query of a view with `ALL_VIEWS.TEXT` and the query
+of a materialized view with `ALL_MVIEWS.QUERY` (only the query after `AS`, ignoring whitespace, comments and the case of
+names). Each unit gets one source status:
+
+| Status | Meaning |
+|---|---|
+| `SAME` | the file and the stored text are the same |
+| `DIFFERS` | they differ; `first_different_line` is the line of the stored text |
+| `WRAPPED` | the stored source is wrapped, so it cannot be compared |
+| `REWRITTEN` | Oracle stores a rewritten query of a materialized view, which cannot be compared with the file. Seen with a star in the select list (`t.*`, or `*` without a column list): every column quoted, qualified and aliased |
+| `NO_STORED_SOURCE` | the database has no stored text for the unit |
+| `UNAVAILABLE` | the stored source or the file could not be read |
+
+Only `DIFFERS` moves a unit's edges to `SOURCE_DIFFERS`.
+
 **Dependencies only in the database** (`db_only.csv`), each with the first reason that applies:
 
 | Class | Meaning |
@@ -201,9 +216,10 @@ The file written by `--save-dependencies` and read by `--dependencies` is UTF-8 
 | `META` | `database_version,23.0` and `database_version_origin,DATABASE\|JDBC` | optional |
 | `OBJ` | `owner,name,type,status` | one per object (`ALL_OBJECTS`) |
 | `DEP` | `owner,name,type,referenced_owner,referenced_name,referenced_type,referenced_link` | one per dependency (`ALL_DEPENDENCIES`) |
-| `SRC` | `owner,name,type,line,text` | stored source (`ALL_SOURCE`; for views, `ALL_VIEWS.TEXT` with type `VIEW`) |
+| `SRC` | `owner,name,type,line,text` | stored source (`ALL_SOURCE`; for views, `ALL_VIEWS.TEXT` with type `VIEW`; for materialized views, `ALL_MVIEWS.QUERY` with type `MATERIALIZED VIEW`) |
 | `TCOL` | `trigger_owner,trigger_name,column_name,table_owner,table_name,column_list,column_usage` | `ALL_TRIGGER_COLS` |
 | `TSET` | `owner,name,TRIGGER,plsql_debug` | optional; without it no trigger counts as compiled with debug |
 | `CCF` | `owner,name,type,plsql_ccflags` | optional; empty means compiled without flags |
 
-A file without `VIEW` source rows leaves views without stored source, so their text is not compared.
+A file without `VIEW` or `MATERIALIZED VIEW` source rows (one written before they were read) leaves those views without
+stored source, so their text is not compared.

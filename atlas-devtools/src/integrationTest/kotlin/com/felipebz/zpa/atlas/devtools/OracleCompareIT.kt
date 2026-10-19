@@ -96,6 +96,12 @@ class OracleCompareIT {
                 // Views compare with ALL_VIEWS.TEXT, stars included (V_ORDER_STAR): every view's text is the same.
                 assertThat(Csv.parse(Files.readString(out.resolve("units.csv"))).drop(1).filter { it[2] == "VIEW" }.map { "${it[1]} ${it[5]}" })
                     .hasSize(6).allMatch { it.endsWith(" SAME") }
+                // Materialized views compare with ALL_MVIEWS.QUERY: a star under a column list is stored as written, a
+                // star without one (here `o.*`) makes Oracle store a rewritten query, which is not compared.
+                assertThat(Csv.parse(Files.readString(out.resolve("units.csv"))).drop(1).filter { it[2] == "MATERIALIZED VIEW" }.map { "${it[1]} ${it[5]}" })
+                    .containsExactlyInAnyOrder("MV_ORDER_STAR SAME", "MV_ORDER_QSTAR REWRITTEN")
+                assertThat(Csv.parse(Files.readString(out.resolve("db_only.csv"))).drop(1).filter { it[0] == "MVIEW_CONTAINER" }.map { it[2] })
+                    .containsExactlyInAnyOrder("MV_ORDER_STAR", "MV_ORDER_QSTAR")
                 // The only differences: the columns Oracle lists for the trigger compiled with debug, and the columns of
                 // the trigger that does not compile, which Oracle lists with usage NONE.
                 assertThat(Files.readAllLines(out.resolve("trigger_columns.csv")).drop(1).map { it.substringBeforeLast(',') }).containsExactlyInAnyOrder(
@@ -186,10 +192,11 @@ class OracleCompareIT {
         // not the public synonym of the same name. TY_CIRCLE depends on its supertype, its body on TY_CIRCLE, and
         // P_XMLSEQ on the public synonym XMLSEQUENCE and its operator SYS.XMLSEQUENCE (Oracle records both).
         // P_CC_VERSION depends on T_CC_AFTER19, PK_CC_FLAGS, and on DBMS_DB_VERSION through its public synonym; V_ORDER_STAR
-        // on T_ORDER and T_CUSTOMER.
-        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 34, "SOURCE_DIFFERS" to 1)
+        // on T_ORDER and T_CUSTOMER. MV_ORDER_STAR and MV_ORDER_QSTAR each on T_ORDER and on their own container table,
+        // which the index never finds (MVIEW_CONTAINER), as for any materialized view.
+        val EXPECTED_DB_ONLY = mapOf("BUILTIN" to 34, "MVIEW_CONTAINER" to 2, "SOURCE_DIFFERS" to 1)
         val EXPECTED_INDEX_ONLY = mapOf("SOURCE_DIFFERS" to 1)
-        val EXPECTED_MATCHED = mapOf("EXACT" to 38, "SYNONYM" to 10)
+        val EXPECTED_MATCHED = mapOf("EXACT" to 40, "SYNONYM" to 10)
 
         val DEBUG_TRIGGERS = listOf("TRG_ORDER_DEBUG")
 

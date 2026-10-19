@@ -30,6 +30,8 @@ class DependencyComparisonTest {
     private lateinit var types: ComparisonResult
     private lateinit var byName: ComparisonResult
     private lateinit var values: ComparisonResult
+    private lateinit var fixtureIndex: Path
+    private lateinit var fixtureFacts: DatabaseDependencies
 
     private val golden = Path.of("src/test/resources/compare/golden")
     private val update = System.getProperty("atlas.updateGolden") == "true"
@@ -38,6 +40,8 @@ class DependencyComparisonTest {
     fun compare() {
         val index = Fixture.index(temp.resolve("fixture.db"))
         val facts = Files.newBufferedReader(Path.of("src/test/resources/compare/fixture-dependencies.csv")).use { DatabaseDependencies.read(it) }
+        fixtureIndex = index
+        fixtureFacts = facts
         result = DependencyComparison(index, facts, Fixture.sources).compare()
 
         // A second, small index: calls into schemas the run does not know, and a guessed table.
@@ -293,6 +297,63 @@ class DependencyComparisonTest {
     }
 
     @Test
+    fun `a materialized view's query compares with ALL_MVIEWS QUERY, which keeps the text as written`() {
+        fun same(file: String, stored: String) = assertThat(PlSqlText.viewDifference(file, stored)).describedAs(file).isNull()
+        // The forms Oracle stores (26ai): the query only, from the first token after AS, as written.
+        val plain = "select /*+ first_rows */ t.id, upper(t.name) nm -- a comment\n    from mvp_t t\n   where t.qty > 0"
+        same("create materialized view mvp_plain\n  build immediate refresh complete on demand\nas\n  $plain;", plain)
+        same("create materialized view mvp_star (a, b, c) as select * from mvp_t;", "select * from mvp_t")
+        same("create materialized view mvp_sub as select id from mvp_t where exists (select * from mvp_t u where u.id = mvp_t.id);",
+            "select id from mvp_t where exists (select * from mvp_t u where u.id = mvp_t.id)")
+        same("create materialized view mvp_rw refresh complete on demand enable query rewrite as select id, qty from mvp_t\n/", "select id, qty from mvp_t")
+        // A hint or a comment that differs is skipped like any comment.
+        same("create materialized view m as select /*+ all_rows */ id from t -- other", "select id from t")
+        // A query cut short differs at the line where the stored text goes on.
+        assertThat(PlSqlText.viewDifference("create materialized view mvp_plain build immediate as select /*+ first_rows */ t.id, upper(t.name) nm from mvp_t t;", plain))
+            .isEqualTo(3)
+    }
+
+    @Test
+    fun `the query Oracle rewrites for a select-list star is recognized, a query stored as written is not`() {
+        // Stored on 26ai for `select t.*, 'x' lit from mvp_t t`, `select t.* from mvp_t t`, `select mvp_t.* from mvp_t`
+        // and, without a column list, `select * from t_order where amount > 0`.
+        assertThat(PlSqlText.isRewrittenQuery("SELECT \"T\".\"ID\" \"ID\",\"T\".\"NAME\" \"NAME\",\"T\".\"QTY\" \"QTY\",'x' \"LIT\" FROM \"MVP_T\" \"T\"")).isTrue
+        assertThat(PlSqlText.isRewrittenQuery("SELECT \"T\".\"ID\" \"ID\",\"T\".\"NAME\" \"NAME\",\"T\".\"QTY\" \"QTY\" FROM \"MVP_T\" \"T\"")).isTrue
+        assertThat(PlSqlText.isRewrittenQuery("SELECT \"T_ORDER\".\"ID\" \"ID\",\"T_ORDER\".\"CUSTOMER_ID\" \"CUSTOMER_ID\",\"T_ORDER\".\"AMOUNT\" \"AMOUNT\"," +
+            "\"T_ORDER\".\"STATUS\" \"STATUS\" FROM \"T_ORDER\" \"T_ORDER\" WHERE \"T_ORDER\".\"AMOUNT\">0")).isTrue
+        assertThat(PlSqlText.isRewrittenQuery("SELECT \"MVP_T\".\"ID\" \"ID\",\"MVP_T\".\"NAME\" \"NAME\",\"MVP_T\".\"QTY\" \"QTY\" FROM \"MVP_T\" \"MVP_T\"")).isTrue
+        assertThat(PlSqlText.isRewrittenQuery("SELECT DISTINCT \"T\".\"ID\" \"ID\" FROM \"MVP_T\" \"T\"")).isTrue
+        // Stored as written.
+        assertThat(PlSqlText.isRewrittenQuery("select /*+ first_rows */ t.id, upper(t.name) nm -- a comment\n    from mvp_t t\n   where t.qty > 0")).isFalse
+        assertThat(PlSqlText.isRewrittenQuery("select * from mvp_t")).isFalse
+        assertThat(PlSqlText.isRewrittenQuery("select id from mvp_t where exists (select * from mvp_t u where u.id = mvp_t.id)")).isFalse
+        // Hand-written: no repeated alias, another alias, or not in upper case.
+        assertThat(PlSqlText.isRewrittenQuery("select \"T\".\"ID\" from t")).isFalse
+        assertThat(PlSqlText.isRewrittenQuery("SELECT \"T\".\"ID\" \"KEY\" FROM \"T\" \"T\"")).isFalse
+        assertThat(PlSqlText.isRewrittenQuery("select \"T\".\"ID\" \"ID\" from \"T\" \"T\"")).isFalse
+    }
+
+    @Test
+    fun `the columns a materialized view takes from a star are definitions, not an edge to its container table`() {
+        val corpus = Path.of("src/test/resources/compare/mview-corpus")
+        val index = temp.resolve("mview.db")
+        Indexer().index(IndexOptions(corpus, index, compilationSchema = "HR", dictionary = Fixture.dictionary, threads = 1))
+        // HR.COMPANY's columns are complete in the dictionary, so each column of the view is defined at the star.
+        val implicit = java.sql.DriverManager.getConnection("jdbc:sqlite:$index").use { db ->
+            db.createStatement().use { st ->
+                st.executeQuery("SELECT count(*) FROM occurrence o JOIN entity c ON c.id = o.entity_id WHERE c.key LIKE 'db:HR.MV_COMPANY_LOG.%' AND o.roles = 'DEFINITION,IMPLICIT'")
+                    .use { rs -> rs.next(); rs.getInt(1) }
+            }
+        }
+        assertThat(implicit).isGreaterThan(0)
+        val facts = Files.newBufferedReader(Path.of("src/test/resources/compare/mview-dependencies.csv")).use { DatabaseDependencies.read(it) }
+        val mview = DependencyComparison(index, facts, corpus).compare()
+        assertThat(mview.matched.map { "${it.unit.name} ${it.reference.referencedName} ${it.reference.referencedType}" }).containsExactly("MV_COMPANY_LOG COMPANY TABLE")
+        assertThat(mview.databaseOnly.map { "${it.dbClass} ${it.reference.referencedName}" }).containsExactly("MVIEW_CONTAINER MV_COMPANY_LOG")
+        assertThat(mview.indexOnly).isEmpty()
+    }
+
+    @Test
     fun `views compare with their stored text, and a file without view rows keeps them without stored source`() {
         val corpus = Path.of("src/test/resources/compare/views-corpus")
         val index = temp.resolve("views.db")
@@ -307,11 +368,15 @@ class DependencyComparisonTest {
         fun status(name: String) = result.units.single { it.unit.name == name }.let { "${it.sourceStatus} ${it.firstDifferentLine}" }
         assertThat(status("V_SAME")).isEqualTo("SAME null")
         assertThat(status("V_DIFF")).isEqualTo("DIFFERS 2")
+        // A star without a column list: Oracle stores a rewritten query, which is not compared, nor moves an edge to
+        // SOURCE_DIFFERS.
+        assertThat(status("MV_QSTAR")).isEqualTo("REWRITTEN null")
         assertThat(result.indexOnly.map { "${it.unit.name} ${it.target.name} ${it.indexClass}" }).containsExactly("V_DIFF T_B SOURCE_DIFFERS")
 
-        val old = facts.copy(sources = facts.sources.filter { it.type != "VIEW" })
+        val old = facts.copy(sources = facts.sources.filter { it.type != "VIEW" && it.type != "MATERIALIZED VIEW" })
         val oldResult = DependencyComparison(index, old, corpus).compare()
-        assertThat(oldResult.units.filter { it.unit.type == "VIEW" }.map { it.sourceStatus }.distinct()).containsExactly(SourceStatus.NO_STORED_SOURCE)
+        assertThat(oldResult.units.filter { it.unit.type == "VIEW" || it.unit.type == "MATERIALIZED VIEW" }.map { it.sourceStatus }.distinct())
+            .containsExactly(SourceStatus.NO_STORED_SOURCE)
     }
 
     @Test
@@ -338,6 +403,14 @@ class DependencyComparisonTest {
         assertThat(result.matched.filter { it.unit == mview || it.unit.name == "PROC_MVIEW" }.map { "${it.unit.name} ${it.reference.referencedName} ${it.reference.referencedType}" })
             .containsExactlyInAnyOrder("MV_COMPANY_LOG COMPANY TABLE", "MV_COMPANY_LOG V_COMPANY_LIST VIEW", "PROC_MVIEW MV_COMPANY_LOG TABLE")
         assertThat(result.databaseOnly.filter { it.unit == mview }.map { "${it.dbClass} ${it.reference.referencedName}" }).containsExactly("MVIEW_CONTAINER MV_COMPANY_LOG")
+
+        // ALL_MVIEWS.QUERY, stored as written: the same query, a changed one at its line, none without stored lines.
+        fun status(facts: DatabaseDependencies) = DependencyComparison(fixtureIndex, facts, Fixture.sources).compare().units.single { it.unit == mview }
+            .let { "${it.sourceStatus} ${it.firstDifferentLine}" }
+        assertThat(result.units.single { it.unit == mview }.sourceStatus).isEqualTo(SourceStatus.SAME)
+        val changed = fixtureFacts.copy(sources = fixtureFacts.sources.map { if (it.name == mview.name && it.line == 2) it.copy(text = "    from company c") else it })
+        assertThat(status(changed)).isEqualTo("DIFFERS 2")
+        assertThat(status(fixtureFacts.copy(sources = fixtureFacts.sources.filter { it.name != mview.name }))).isEqualTo("NO_STORED_SOURCE null")
     }
 
     @Test
