@@ -19,6 +19,11 @@ const MODIFIERS = ["inside", "containerInside", "candidates"];
 /** Whether [params] narrows the query: a modifier alone does not, so it leaves the whole index. */
 export const hasFilter = (params: QueryParams) => Object.keys(filtersOf(params)).some(name => !MODIFIERS.includes(name));
 
+/** The mode of [params] that a Run of other filters keeps: groups with their dimensions, or nothing for a list. */
+export function modeOf(params: QueryParams | null): QueryParams {
+  return params?.mode === "groups" ? { mode: params.mode, groupBy: params.groupBy } : {};
+}
+
 /**
  * The query of the page's [search] string: every parameter but `lang` and those with an empty value (an empty value
  * is no filter), and `groupBy` `ENTITY` for groups without dimensions.

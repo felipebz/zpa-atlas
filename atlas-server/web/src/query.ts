@@ -7,7 +7,7 @@ import { buildForm, readFilters, writeForm } from "./query-form";
 import { runGroups } from "./query-groups";
 import { runList } from "./query-list";
 import { modeBar } from "./query-mode";
-import { filtersOf, hasFilter, paramsOf } from "./query-params";
+import { filtersOf, hasFilter, modeOf, paramsOf } from "./query-params";
 import type { QueryParams } from "./query-params";
 import { answer, form, state } from "./query-state";
 import { setupSourceToggle } from "./uses";
@@ -31,6 +31,7 @@ function run(params: QueryParams) {
 /** Empties the answer and the URL's query; nothing runs. */
 function clearAnswer(params?: QueryParams) {
   state.current = null;
+  state.opened = null;
   state.generation++;
   answer.innerHTML = "";
   history.replaceState(null, "", queryHref(params ?? {}));
@@ -78,11 +79,8 @@ form.addEventListener("submit", e => {
   e.preventDefault();
   // Run is the user's choice: an empty form runs the whole set.
   const params = readFilters();
-  if (state.current?.mode) {
-    params.mode = state.current.mode;
-    params.groupBy = state.current.groupBy;
-  }
-  run(params);
+  // The mode of the answer shown, else of the URL the page opened with when nothing ran yet.
+  run({ ...params, ...modeOf(state.current ?? state.opened) });
 });
 
 document.getElementById("reset")!.addEventListener("click", e => {
@@ -102,6 +100,7 @@ document.getElementById("reset")!.addEventListener("click", e => {
   buildForm(loaded);
   showBanner();
   const initial = paramsOf(location.search);
+  state.opened = initial;
   writeForm(initial);
   if (failure !== null) {
     answer.innerHTML = `<div class="card"><p class="muted">${esc(t("error.message", { error: failure }))}</p></div>`;

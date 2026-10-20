@@ -12,6 +12,8 @@ export const field = (name: string) => form.elements.namedItem(name) as HTMLInpu
 interface PageState {
   /** The query that ran last, as page parameters; null before the first run. */
   current: QueryParams | null;
+  /** The query the URL opened with, until an answer is cleared: the first Run takes its mode when nothing ran. */
+  opened: QueryParams | null;
   /** Only the latest run fills the answer. */
   generation: number;
   /** The dimensions grouped last, offered again when the answer goes back from the list to groups. */
@@ -22,7 +24,7 @@ interface PageState {
   keptName: string | null;
 }
 
-export const state: PageState = { current: null, generation: 0, lastGroupBy: "ENTITY", dimensions: [], keptName: null };
+export const state: PageState = { current: null, opened: null, generation: 0, lastGroupBy: "ENTITY", dimensions: [], keptName: null };
 /** The entity each suggest field has picked, by its parameter. */
 export const picks: Record<string, EntitySummary | null> = { entity: null, container: null };
 /** The text typed in each suggest field before it picked, put back when the pick is removed. */

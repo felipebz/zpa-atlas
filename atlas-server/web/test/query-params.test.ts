@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filtersOf, hasFilter, moreSet, paramsOf } from "../src/query-params";
+import { filtersOf, hasFilter, modeOf, moreSet, paramsOf } from "../src/query-params";
 
 // The expected values are what the code returns today.
 
@@ -26,6 +26,16 @@ describe("hasFilter", () => {
     for (const search of ["?roles=WRITE", "?entity=db:HR.COMPANY&inside=true", "?containerName=PACK_PROCESS&containerInside=false", "?value=%20"]) {
       expect(hasFilter(paramsOf(search)), search).toBe(true);
     }
+  });
+});
+
+describe("modeOf", () => {
+  it("keeps groups and their dimensions, and nothing for a list, a lone groupBy or no query", () => {
+    expect(modeOf(paramsOf("?mode=groups"))).toEqual({ mode: "groups", groupBy: "ENTITY" });
+    expect(modeOf(paramsOf("?mode=groups&groupBy=ROLE,STATUS&lang=pt&name=x"))).toEqual({ mode: "groups", groupBy: "ROLE,STATUS" });
+    expect(modeOf(paramsOf("?groupBy=ROLE"))).toEqual({});
+    expect(modeOf(paramsOf("?name=company"))).toEqual({});
+    expect(modeOf(null)).toEqual({});
   });
 });
 
