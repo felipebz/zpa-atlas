@@ -1,19 +1,16 @@
-import {
-  api, Count, displayParts, entityHref, entityLink, EntityRef, errorMessage, esc, getOrPut, initI18n, kindLabel, parentKeyOf, qualifierHtml,
-  RunSummary, showBanner, t
-} from "./common";
+import { api, errorMessage } from "./api";
+import type { Answer, Count, RunSummary, SearchHit } from "./api";
+import { showBanner } from "./banner";
+import { KINDS } from "./codes";
+import { entityLink, kindLabel } from "./entity-html";
+import { entityHref, esc, getOrPut, qualifierHtml } from "./html";
+import { initI18n, t } from "./i18n";
+import { displayParts, parentKeyOf } from "./names";
 
-// The entity kinds the index produces: the stored codes, shown through the catalog.
-const KINDS = ["TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "COLUMN", "SEQUENCE", "TRIGGER", "PACKAGE", "PROCEDURE", "FUNCTION", "PARAMETER",
-  "TYPE", "RECORD_FIELD", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "EXCEPTION", "CURSOR", "UNKNOWN_RELATION"];
 const LIMIT = 200;
 
 const kindSelect = document.getElementById("kind") as HTMLSelectElement;
 let runSummary: Promise<RunSummary | null> | null = null;
-
-interface SearchHit extends EntityRef {
-  usages: number;
-}
 
 interface HitGroup {
   spec: SearchHit | null;
@@ -69,7 +66,7 @@ async function search() {
   if (lang) params.set("lang", lang);
   history.replaceState(null, "", "?" + params);
   try {
-    const answer = await api<{ result: SearchHit[] }>("api/entities", { q, kind: kindSelect.value, external, limit: LIMIT });
+    const answer = await api<Answer<SearchHit[]>>("api/entities", { q, kind: kindSelect.value, external, limit: LIMIT });
     const hits = answer.result;
     results.innerHTML = hits.length === 0 ? `<p class="muted">${esc(t("search.empty"))}</p>` :
       `<ol class="hits">${groupHits(hits).map(hitRow).join("")}</ol>` +

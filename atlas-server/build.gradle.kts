@@ -49,6 +49,8 @@ val webSources = webDir.asFileTree.matching {
     exclude("node_modules/**")
 }
 
+val webTestSources = webDir.asFileTree.matching { include("test/**") }
+
 val webInstall = tasks.register<NpmTask>("webInstall") {
     description = "Installs the web page's dependencies from package-lock.json (npm ci)."
     npmCommand.set(listOf("ci"))
@@ -63,8 +65,21 @@ val webTypecheck = tasks.register<NpmTask>("webTypecheck") {
     dependsOn(webInstall)
     npmCommand.set(listOf("run", "typecheck"))
     inputs.files(webSources).withPropertyName("webSources").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(webTestSources).withPropertyName("webTestSources").withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.property("nodeVersion", node.version)
     val stamp = layout.buildDirectory.file("web-typecheck.stamp")
+    outputs.file(stamp)
+    doLast { stamp.get().asFile.writeText("ok") }
+}
+
+val webTest = tasks.register<NpmTask>("webTest") {
+    description = "Runs the web page's unit tests (vitest run); a failure fails the build."
+    dependsOn(webInstall)
+    npmCommand.set(listOf("run", "test"))
+    inputs.files(webSources).withPropertyName("webSources").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(webTestSources).withPropertyName("webTestSources").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.property("nodeVersion", node.version)
+    val stamp = layout.buildDirectory.file("web-test.stamp")
     outputs.file(stamp)
     doLast { stamp.get().asFile.writeText("ok") }
 }
@@ -84,5 +99,5 @@ tasks.processResources {
 }
 
 tasks.check {
-    dependsOn(webTypecheck)
+    dependsOn(webTypecheck, webTest)
 }

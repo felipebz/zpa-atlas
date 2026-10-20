@@ -1,4 +1,4 @@
-import type { Catalog } from "../common";
+import type { Catalog } from "../i18n";
 
 export default {
   "page.search.title": "Atlas",

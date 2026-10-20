@@ -1,4 +1,9 @@
-import { api, EntityRef, errorMessage, getOrPut, initI18n, kindLabel, langSuffix, nameNodes, roleLabel, showBanner, t } from "./common";
+import { api, errorMessage } from "./api";
+import type { Answer, EntityDetail, EntitySummary, FileOccurrence, FileView } from "./api";
+import { showBanner } from "./banner";
+import { kindLabel, nameNodes, roleLabel } from "./entity-html";
+import { getOrPut, langSuffix } from "./html";
+import { initI18n, t } from "./i18n";
 
 // The whole of an indexed file; every indexed name is clickable and opens a popover with its entity, status,
 // definitions and who uses it. File text only ever enters the DOM as text nodes.
@@ -8,38 +13,15 @@ const path = params.get("path");
 const wantedLine = Number(params.get("line")) || null;
 const LINKED_STATUSES = new Set(["RESOLVED"]);
 
-/** A name span of the file, with what the index knows about it; `entity` and `candidates` index [FileView.entities]. */
-interface FileOccurrence {
-  at: [number, number, number, number];
-  roles: string[];
-  status: string;
-  reason: string | null;
-  entity: number | null;
-  candidates: number[];
-}
-
-interface FileView {
-  lines: string[];
-  occurrences: FileOccurrence[];
-  entities: EntityRef[];
-  stale: boolean;
-}
-
-/** What the popover reads of an entity page. */
-interface EntityPage {
-  relations: { kind: string; entity: EntityRef }[];
-  definitions: { path: string; span: { startLine: number }; roles: string[] }[];
-}
-
 /** The pieces of a line covered by name spans: from, to (columns) and the occurrences that cover them. */
 type Piece = [number, number, number[]];
 
 let view!: FileView;
-const details = new Map<string, Promise<EntityPage>>();
+const details = new Map<string, Promise<EntityDetail>>();
 
 /** The entity detail of [key], fetched once. */
 function detail(key: string) {
-  return getOrPut(details, key, () => api<{ result: EntityPage }>("api/entity", { key }).then(a => a.result));
+  return getOrPut(details, key, () => api<Answer<EntityDetail>>("api/entity", { key }).then(a => a.result));
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string | null, text?: string | null) {
@@ -136,7 +118,7 @@ function fileHref(target: string, line: number) {
   return `file.html?path=${encodeURIComponent(target)}&line=${line}${langSuffix()}`;
 }
 
-function entityHeader(entity: EntityRef) {
+function entityHeader(entity: EntitySummary) {
   const head = el("div", "entity");
   head.appendChild(el("span", "badge", kindLabel(entity.kind)));
   const name = el("b");
@@ -147,7 +129,7 @@ function entityHeader(entity: EntityRef) {
 }
 
 /** The definitions of [entity] and of its IMPLEMENTS partner (a spec and a body give two links), loaded on demand. */
-async function definitionLinks(entity: EntityRef, target: HTMLElement) {
+async function definitionLinks(entity: EntitySummary, target: HTMLElement) {
   target.replaceChildren(el("span", "muted", t("popover.loading")));
   try {
     const own = await detail(entity.key);
@@ -172,7 +154,7 @@ async function definitionLinks(entity: EntityRef, target: HTMLElement) {
 }
 
 /** An entity with its two ways out: its definitions and who uses it. */
-function entityBlock(entity: EntityRef) {
+function entityBlock(entity: EntitySummary) {
   const block = el("div", "target");
   block.appendChild(entityHeader(entity));
   const definitions = el("div", "definitions");
@@ -234,7 +216,7 @@ window.addEventListener("hashchange", () => {
   if (!path) { header.textContent = t("file.missingPath"); return; }
   document.title = t("page.file.titleWith", { path });
   try {
-    view = (await api<{ result: FileView }>("api/file", { path })).result;
+    view = (await api<Answer<FileView>>("api/file", { path })).result;
   } catch (e) {
     header.textContent = t("source.unavailable", { error: errorMessage(e) });
     return;

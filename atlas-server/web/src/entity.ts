@@ -1,60 +1,13 @@
-import {
-  api, Count, displayParts, entityHref, entityLink, EntityRef, errorMessage, esc, formatNumber, getOrPut, initI18n, kindLabel, lineLink, literalText,
-  nameHtml, OccurrencePage, parentKeyOf, queryHref, renderChips, roleLabel, scrollTable, showBanner, sourceLine, statusBadge, t, USAGE_ROLES, usesBlock,
-  UsesBlock
-} from "./common";
-
-interface Span {
-  startLine: number;
-  startCol: number;
-}
-
-interface Definition {
-  path: string;
-  span: Span;
-  roles: string[];
-  status: string;
-}
-
-interface Member {
-  entity: EntityRef;
-  usages: number;
-}
-
-interface Overload {
-  entity: EntityRef;
-  self: boolean;
-}
-
-interface TriggerEvent {
-  trigger: EntityRef;
-  timing: string;
-  level: string | null;
-  event: string;
-  column: EntityRef | null;
-}
-
-/** An entity page's answer. */
-interface EntityDetail extends EntityRef {
-  schema: string | null;
-  parent: EntityRef | null;
-  children: Member[];
-  relations: { kind: string; direction: string; entity: EntityRef }[];
-  definitions: Definition[];
-  overloads: Overload[];
-  usage: { byStatus: Count[]; asCandidate: number };
-  triggerEvents: TriggerEvent[];
-  reads: EntityRef[];
-  views: EntityRef[];
-  baseColumns: EntityRef[];
-  viewColumns: EntityRef[];
-}
-
-interface ValueGroup {
-  valueKind: string;
-  value: string;
-  count: number;
-}
+import { api, errorMessage } from "./api";
+import type { Answer, EntityDetail, EntitySummary, Member, OccurrencePage, Overload, ValueGroup } from "./api";
+import { showBanner, sourceLine } from "./banner";
+import { USAGE_ROLES } from "./codes";
+import { entityLink, kindLabel, nameHtml, roleLabel } from "./entity-html";
+import { entityHref, esc, getOrPut, lineLink, literalText, queryHref, scrollTable, statusBadge } from "./html";
+import { formatNumber, initI18n, t } from "./i18n";
+import { displayParts, parentKeyOf } from "./names";
+import { renderChips, setupSourceToggle, usesBlock } from "./uses";
+import type { UsesBlock } from "./uses";
 
 /** A spec and its body, either of which may be missing. */
 interface SpecBody<T> {
@@ -63,6 +16,8 @@ interface SpecBody<T> {
 }
 
 type ScopeName = "implementations" | "children" | "views";
+
+setupSourceToggle();
 
 const key = new URLSearchParams(location.search).get("key") ?? "";
 const SUBPROGRAM_KINDS = ["PROCEDURE", "FUNCTION"];
@@ -108,7 +63,7 @@ function specBodyGroups<T>(list: T[], keyOf: (item: T) => string) {
   return [...groups.values()];
 }
 
-function bodyBadgeLink(entity: EntityRef) {
+function bodyBadgeLink(entity: EntitySummary) {
   return ` <a class="badge" href="${entityHref(entity.key)}">${esc(t("entity.overload.body"))}</a>`;
 }
 
@@ -139,7 +94,7 @@ function definitionsHtml(entity: EntityDetail) {
 function parametersHtml(entity: EntityDetail, params: { name: string; mode?: string; type: string }[] | null) {
   if (params === null) return "";
   if (params.length === 0) return `<h2>${esc(t("entity.parameters"))}</h2><p class="muted">${esc(t("entity.parameters.none"))}</p>`;
-  const byName = new Map(entity.children.map((m): [string, EntityRef] => [m.entity.name, m.entity]));
+  const byName = new Map(entity.children.map((m): [string, EntitySummary] => [m.entity.name, m.entity]));
   const unquoted = (name: string) => name.startsWith('"') && name.endsWith('"') ? name.slice(1, -1) : name;
   return `<h2>${esc(t("entity.parameters"))}</h2><ul class="stacked">${params.map(p => {
     const child = byName.get(p.name) ?? byName.get(unquoted(p.name));
@@ -283,7 +238,7 @@ function valueRowsHtml(groups: ValueGroup[], from: number, to: number) {
 
 async function loadValues(title: string) {
   const target = document.getElementById("values")!;
-  const groups = (await api<{ result: ValueGroup[] }>("api/values", { key })).result;
+  const groups = (await api<Answer<ValueGroup[]>>("api/values", { key })).result;
   if (groups.length === 0) {
     target.innerHTML = `<h2>${esc(t(title))}</h2><p class="muted">${esc(t("values.none"))}</p>`;
     return;
@@ -322,7 +277,7 @@ async function loadValues(title: string) {
 
 /** One page of the calls or writes that give [group]'s value, appended to its "who uses" [block]. */
 async function loadValueSites(group: ValueGroup, block: UsesBlock, row: Element, after: string | null | undefined) {
-  const page = (await api<{ result: OccurrencePage }>("api/value-sites", { key, kind: group.valueKind, value: group.value, after, limit: 100 })).result;
+  const page = (await api<Answer<OccurrencePage>>("api/value-sites", { key, kind: group.valueKind, value: group.value, after, limit: 100 })).result;
   block.append(page.rows);
   const more = row.querySelector<HTMLButtonElement>("button.more")!;
   more.hidden = page.nextAfter === null;
@@ -350,7 +305,7 @@ async function loadUsages(reset: boolean) {
   if (state.implementations) scope.push("IMPLEMENTATIONS");
   if (state.children) scope.push("CHILDREN");
   if (state.views) scope.push("VIEWS");
-  const answer = await api<{ result: OccurrencePage }>("api/occurrences", {
+  const answer = await api<Answer<OccurrencePage>>("api/occurrences", {
     key, scope: scope.join(","), roles: [...state.roles].join(","), status: [...state.statuses].join(","),
     candidates: true, after: state.after, limit: 100
   });
@@ -414,7 +369,7 @@ document.getElementById("more")!.addEventListener("click", () => loadUsages(fals
   showBanner();
   if (!key) { document.getElementById("header")!.textContent = t("entity.missingKey"); return; }
   try {
-    const answer = await api<{ result: EntityDetail }>("api/entity", { key });
+    const answer = await api<Answer<EntityDetail>>("api/entity", { key });
     renderEntity(answer.result);
     await loadUsages(true);
   } catch (e) {

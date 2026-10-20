@@ -1,0 +1,26 @@
+// The codes the pages offer and accept, as the index stores them.
+
+/** Every role the index stores. */
+export const ROLES = ["DEFINITION", "DECLARATION", "READ", "WRITE", "CALL", "SQL_SELECT", "SQL_INSERT", "SQL_UPDATE", "SQL_DELETE", "SQL_MERGE",
+  "SQL_LOCK", "TYPE_USE", "RAISE", "HANDLE", "IMPLICIT", "DDL_CREATE", "DDL_ALTER", "DDL_DROP", "DDL_TRUNCATE", "DDL_ANALYZE"];
+
+/** The roles "who uses" lists by default: every role but where the entity is defined or declared. */
+export const USAGE_ROLES = ROLES.filter(r => r !== "DEFINITION" && r !== "DECLARATION");
+
+// The codes the query accepts, as the index stores them.
+export const STATUSES = ["RESOLVED", "UNVERIFIED", "AMBIGUOUS", "UNRESOLVED", "EXTERNAL", "DYNAMIC", "PARTIAL_SOURCE"];
+export const ENTITY_KINDS = ["SCHEMA", "TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "COLUMN", "SYNONYM", "SEQUENCE", "TRIGGER", "PACKAGE",
+  "PROCEDURE", "FUNCTION", "PARAMETER", "TYPE", "RECORD_FIELD", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "EXCEPTION", "CURSOR",
+  "LOCAL_VARIABLE", "LOCAL_CONSTANT", "LABEL", "FORMS_MODULE", "FORMS_BLOCK", "FORMS_ITEM", "FORMS_TRIGGER", "FORMS_PROGRAM_UNIT",
+  "FORMS_LIBRARY", "UNKNOWN_RELATION"];
+export const UNIT_KINDS = ["PACKAGE", "PACKAGE_BODY", "PROCEDURE", "FUNCTION", "TRIGGER", "TYPE", "TYPE_BODY", "VIEW", "MATERIALIZED_VIEW",
+  "ANONYMOUS_BLOCK", "SQL_STATEMENT", "UNPARSED", "FORMS_TRIGGER", "FORMS_PROGRAM_UNIT"];
+export const ORIGINS = ["STATIC", "DYNAMIC_LITERAL", "FORMS_IMPLICIT", "HEURISTIC"];
+export const STATEMENT_KINDS = ["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "LOCK", "DYNAMIC", "DDL"];
+export const VALUE_KINDS = ["STRING", "NUMBER", "NULL", "BOOLEAN", "NAME", "BIND", "EXPRESSION", "DEFAULT"];
+export const VALUES_WITH_TEXT = new Set(["STRING", "NUMBER", "BOOLEAN", "NAME"]);
+export const DIMENSIONS = ["ENTITY", "ENTITY_KIND", "CONTAINER", "UNIT", "FILE", "ROLE", "STATUS", "REASON", "ORIGIN", "STATEMENT_KIND", "VALUE"];
+
+// The entity kinds the search page offers: the stored codes, shown through the catalog.
+export const KINDS = ["TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "COLUMN", "SEQUENCE", "TRIGGER", "PACKAGE", "PROCEDURE", "FUNCTION", "PARAMETER",
+  "TYPE", "RECORD_FIELD", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "EXCEPTION", "CURSOR", "UNKNOWN_RELATION"];
