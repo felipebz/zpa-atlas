@@ -115,3 +115,15 @@ internal val KEYWORD_FUNCTIONS = arrayOf<AstNodeType>(
     // `json(x)` with one argument: a constructor of a user type `JSON` (PL/JSON) below version 21.
     SingleRowSqlFunctionsGrammar.JSON_CONSTRUCTOR
 )
+
+internal fun FileState.valueOccurrence(span: SourceSpan, written: String, context: Context, statementId: Int?, status: Status, entityKey: String?,
+                                       reason: String?, candidates: List<String>, roles: Set<Role>) {
+    occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, span, written, entityKey,
+        roles, status(status, context.partial), context.origin, reason, candidates)
+}
+
+/** A function called without parentheses: a `CALL` occurrence without actuals. */
+internal fun FileState.callOccurrence(name: AstNode, context: Context, statementId: Int?, outcome: CallOutcome.Call) {
+    occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
+        setOf(Role.CALL), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys)
+}

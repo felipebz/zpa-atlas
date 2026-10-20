@@ -7,15 +7,10 @@ package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.flr.api.AstNode
 import com.felipebz.flr.api.Token
-import com.felipebz.zpa.api.DmlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlPunctuator
-import com.felipebz.zpa.api.PlSqlTokenType
 import com.felipebz.zpa.api.project.ProjectAnalysis
 import com.felipebz.zpa.api.project.ProjectCallKind
-import com.felipebz.zpa.api.project.ProjectParameterMode
-import com.felipebz.zpa.api.project.ProjectQualifiedName
-import com.felipebz.zpa.api.project.SequenceReferenceResolution
 import com.felipebz.zpa.api.squid.SemanticAstNode
 import com.felipebz.zpa.api.symbols.Symbol
 import com.felipebz.zpa.atlas.model.*
@@ -28,15 +23,22 @@ import com.felipebz.zpa.atlas.model.*
 internal class PlSqlNames(
     private val state: FileState,
     private val scopes: SqlScopes,
-    private val catalog: DeclarationCatalog,
+    catalog: DeclarationCatalog,
     private val calls: CallResolver,
-    private val values: PackageValues,
-    private val synonyms: SynonymResolver,
-    private val typeMembers: ObjectTypeMembers,
-    private val runSchemas: Set<String>,
+    values: PackageValues,
+    synonyms: SynonymResolver,
+    typeMembers: ObjectTypeMembers,
+    runSchemas: Set<String>,
     private val jsonBuiltIn: Boolean,
-    private val projectAnalysis: ProjectAnalysis
+    projectAnalysis: ProjectAnalysis
 ) {
+    private val ownNames = OwnNames(typeMembers)
+    private val segmentValues = SegmentValues(calls, values)
+    private val roles = NameRoles(state)
+    private val remoteNames = RemoteNames(state, scopes, roles)
+    private val sequenceNames = SequenceNames(state, scopes, values, synonyms, runSchemas, projectAnalysis)
+    private val conditionNameReads = ConditionNameReads(state, catalog, segmentValues, runSchemas)
+
     /** The segments of a plain dotted name as written, or null for anything else (a host variable, `f(x).g`, `c%rowcount`). */
     fun nameSegments(callee: AstNode): List<String>? {
         val parts = when (callee.type) {
@@ -63,7 +65,7 @@ internal class PlSqlNames(
         val kind = if (!isMethodCall || node.parent.type == PlSqlGrammar.CALL_STATEMENT) ProjectCallKind.PROCEDURE else ProjectCallKind.FUNCTION
         val actuals = if (isMethodCall) node.getFirstChildOrNull(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT).orEmpty() else emptyList()
         remoteName(callee)?.takeIf { it.segments.size in 1..3 }?.let {
-            remoteCall(callee, it, kind, actuals, context, statementId)
+            remoteNames.remoteCall(callee, it, kind, actuals, context, statementId)
             return
         }
         val segments = nameSegments(callee) ?: run {
@@ -92,7 +94,7 @@ internal class PlSqlNames(
         }
         var outcome = resolved
         if (isExternalGuess(outcome)) {
-            when (ownName(callee, segments, context)) {
+            when (ownNames.ownName(callee, segments, context)) {
                 OwnName.VALUE -> {
                     state.rollBack(entityMark, relationMark)
                     return
@@ -108,8 +110,8 @@ internal class PlSqlNames(
             // `pkg.g_tab(i)`, `pkg.g_tab.exists(i)`, `pkg.g_tab.delete`, `pkg.c_pending(1)`: a package member; in SQL,
             // not when the first segment is a qualifier of the statement.
             if (statementId != null && scopes.isSqlQualified(callee, segments)) return
-            valueOccurrence(spanOf(callee), writtenText(callee), context, statementId, outcome.status, outcome.entityKey, outcome.reason,
-                outcome.candidateKeys, memberRoles(callee, segments, outcome.kind))
+            state.valueOccurrence(spanOf(callee), writtenText(callee), context, statementId, outcome.status, outcome.entityKey, outcome.reason,
+                outcome.candidateKeys, roles.memberRoles(callee, segments, outcome.kind))
             return
         }
         if (outcome !is CallOutcome.Call || symbol?.kind == Symbol.Kind.VARIABLE || symbol?.kind == Symbol.Kind.CURSOR) return
@@ -138,71 +140,6 @@ internal class PlSqlNames(
     }
 
     /**
-     * A call through a database link (`p@l(…)`, `pkg.p@l(…)`, `s.pkg.p@l(…)`): never resolved, the project cannot know
-     * the remote code. Keyed as remote relations are: `db:P@L`; `db:~.A@L.B` under package `db:~.A@L` (`A` a package
-     * or a schema on the remote side); `db:S.A@L.B` under `db:S.A@L`. `EXTERNAL`, reason `DB_LINK`, its arguments
-     * recorded with their values and no formal.
-     */
-    private fun remoteCall(callee: AstNode, remote: RemoteName, kind: ProjectCallKind, actuals: List<AstNode>, context: Context, statementId: Int?) {
-        val (names, link) = remote
-        val calledKind = if (kind == ProjectCallKind.PROCEDURE) EntityKind.PROCEDURE else EntityKind.FUNCTION
-        fun entity(key: String, entityKind: EntityKind, schema: String?, name: String, parent: String?) {
-            state.entities += EntityFact(key, entityKind, schema, name, parent, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
-            if (parent != null) state.relations += RelationFact(parent, RelationKind.CONTAINS, key)
-        }
-        val key = if (names.size == 1) {
-            "db:${names[0]}@$link".also { entity(it, calledKind, null, "${names[0]}@$link", null) }
-        } else {
-            val schema = if (names.size == 3) names[0] else null
-            val owner = names[names.size - 2]
-            val parent = dbKey(schema ?: UNKNOWN_SCHEMA, "$owner@$link")
-            entity(parent, EntityKind.PACKAGE, schema, "$owner@$link", null)
-            "$parent.${names.last()}".also { entity(it, calledKind, schema, names.last(), parent) }
-        }
-        val arguments = actuals.mapIndexed { index, argument ->
-            val children = argument.children
-            val named = children.size >= 3 && children[1].tokenValue == "=>"
-            val expression = if (named) children.last() else argument
-            val value = ExpressionValues.of(expression, context::hasHoles)
-            CallArgumentFact(index + 1, if (named) normalizeIdentifier(children[0].tokenOriginalValue) else null, null, spanOf(expression), value.kind, value.value)
-        }
-        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), key,
-            setOf(Role.CALL), status(Status.EXTERNAL, context.partial), context.origin, "DB_LINK", emptyList(), arguments)
-    }
-
-    /**
-     * A name through a database link without parentheses: Oracle rejects a remote package variable or cursor
-     * (PLS-00512), so it is a remote sequence (`[s.]seq.NEXTVAL@l`, a `READ` of `db:[S.]SEQ@L` at the sequence's name)
-     * or a remote function called without parentheses (the `CALL` of [remoteCall]). Never looked up. Nothing for a part
-     * of a remote source of the statement (`t.col@l` with `t@l` in `FROM`), a write, an attribute (`%`) or four segments
-     * or more: Oracle rejects those, or they are not a program.
-     */
-    private fun remoteValue(name: AstNode, remote: RemoteName, context: Context, statementId: Int?) {
-        if (name.hasDirectChildren(PlSqlPunctuator.MOD)) return
-        val (names, link) = remote
-        if (statementId != null && scopes.isSqlQualified(name, names)) return
-        if (Role.WRITE in valueRoles(name, names)) return
-        val sequence = names.size in 2..3 && names.last() in PSEUDOCOLUMNS
-        when {
-            sequence -> {
-                val schema = if (names.size == 3) names[0] else null
-                val sequenceName = names[names.size - 2]
-                val key = "db:" + listOfNotNull(schema, sequenceName).joinToString(".") + "@" + link
-                state.entities += EntityFact(key, EntityKind.SEQUENCE, schema, "$sequenceName@$link", null, key.removePrefix("db:"),
-                    external = true, precedence = Precedence.MENTIONED)
-                // The span is the sequence's name, before `.NEXTVAL`, as for a local sequence; the link is in the key.
-                val children = name.children
-                val remoteAt = children.indexOfFirst { it.type == PlSqlPunctuator.REMOTE }
-                val lastDot = children.subList(0, remoteAt).indexOfLast { it.type == PlSqlPunctuator.DOT }
-                val parts = children.subList(0, lastDot)
-                state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(parts.first(), parts.last()),
-                    parts.joinToString("") { writtenText(it) }, key, setOf(Role.READ), status(Status.EXTERNAL, context.partial), context.origin, "DB_LINK")
-            }
-            names.size in 1..3 -> remoteCall(name, remote, ProjectCallKind.FUNCTION, emptyList(), context, statementId)
-        }
-    }
-
-    /**
      * Whether [node] is the outermost plain name of an expression: not a segment of a longer name, not the callee of a
      * call (handled by [callSite]), not the member after a call (`pkg.g_tab(i).f`).
      */
@@ -222,7 +159,7 @@ internal class PlSqlNames(
     fun valueReference(name: AstNode, context: Context, statementId: Int?, sql: Boolean) {
         if (context.hasHoles(name)) return
         remoteName(name)?.let {
-            remoteValue(name, it, context, statementId)
+            remoteNames.remoteValue(name, it, context, statementId)
             return
         }
         val attribute = name.type == PlSqlGrammar.MEMBER_EXPRESSION && name.hasDirectChildren(PlSqlPunctuator.MOD)
@@ -231,7 +168,7 @@ internal class PlSqlNames(
         val span = spanOf(parts.first(), parts.last())
         val text = parts.joinToString("") { writtenText(it) }
         if (!attribute && name.type == PlSqlGrammar.MEMBER_EXPRESSION && segments.size in 2..3 && normalizeIdentifier(segments.last()) in PSEUDOCOLUMNS) {
-            sequenceReference(name, segments, context, statementId)
+            sequenceNames.sequenceReference(name, segments, context, statementId)
             return
         }
         if (sql && (segments.size == 1 || scopes.isSqlQualified(name, segments))) return
@@ -254,9 +191,9 @@ internal class PlSqlNames(
         val entityMark = state.entities.size
         val relationMark = state.relations.size
         // A name before `%` is never a call.
-        val value = segmentValue(segments, context, packageName, valueReadable, callable, callAllowed = !attribute)
+        val value = segmentValues.segmentValue(segments, context, packageName, valueReadable, callable, callAllowed = !attribute)
         if (value is SegmentValue.Member && value.status == Status.UNRESOLVED && value.reason in GUESSED_REASONS) {
-            when (ownName(name, segments, context)) {
+            when (ownNames.ownName(name, segments, context)) {
                 OwnName.VALUE -> {
                     state.rollBack(entityMark, relationMark)
                     return
@@ -270,20 +207,11 @@ internal class PlSqlNames(
             }
         }
         when (value) {
-            is SegmentValue.Member -> valueOccurrence(span, text, context, statementId, value.status, value.entityKey, value.reason, value.candidates,
-                if (attribute || value.kind == null) setOf(Role.READ) else memberRoles(name, segments, value.kind))
+            is SegmentValue.Member -> state.valueOccurrence(span, text, context, statementId, value.status, value.entityKey, value.reason, value.candidates,
+                if (attribute || value.kind == null) setOf(Role.READ) else roles.memberRoles(name, segments, value.kind))
             is SegmentValue.Call -> callOccurrence(name, context, statementId, value.outcome)
             null -> Unit
         }
-    }
-
-    /** What a name the project could only guess resolves to, when it names a declaration of an enclosing unit or of the object itself. */
-    private enum class OwnName {
-        /** A local or private value, a type attribute: nothing to index. */
-        VALUE,
-
-        /** A local subprogram or a method of the type: a `LOCAL_SUBPROGRAM` call. */
-        SUBPROGRAM
     }
 
     /** Whether a call outcome is a guess: an external name or a missing member, not a declaration the project found. */
@@ -295,183 +223,13 @@ internal class PlSqlNames(
     }
 
     /**
-     * A name whose leading segments name enclosing units of the place it is written (optionally the schema, the package
-     * body, enclosing subprograms: `valida.x`, `pk.valida.x`, `pk.x`) is the rest of the name declared in the innermost
-     * unit named, as the unqualified name there. In a type body, `SELF.x` and a name whose first segment is an
-     * attribute or method of the type are the object's own members. Null when the name is neither.
-     */
-    private fun ownName(name: AstNode, segments: List<String>, context: Context): OwnName? {
-        val names = segments.map { normalizeIdentifier(it) }
-        context.objectType?.let { type ->
-            val members = typeMembers.of(type)
-            val methods = typeMembers.methods(type)
-            if (names[0] == "SELF") {
-                val member = names.getOrNull(1) ?: return OwnName.VALUE
-                return if (names.size == 2 && (member in methods || isUnitSubprogram(name, member, context))) OwnName.SUBPROGRAM else OwnName.VALUE
-            }
-            if (names[0] in members) return if (names.size == 1 && names[0] in methods) OwnName.SUBPROGRAM else OwnName.VALUE
-        }
-        if (names.size < 2) return null
-        val units = enclosingUnits(name)
-        if (units.isEmpty()) return null
-        var index: Int
-        var consumed: Int
-        if (names.size > 2 && names[0] == (units[0].schema ?: context.schema) && names[1] == units[0].name) {
-            index = 0
-            consumed = 2
-        } else {
-            index = units.indexOfLast { it.name == names[0] }
-            if (index < 0) return null
-            consumed = 1
-        }
-        while (consumed < names.size - 1 && index + 1 < units.size && names[consumed] == units[index + 1].name) {
-            index++
-            consumed++
-        }
-        val declared = context.symbols.getScopeFor(units[index].node)?.symbols.orEmpty().firstOrNull { it.called(names[consumed]) } ?: return null
-        return when (declared.kind) {
-            Symbol.Kind.PROCEDURE, Symbol.Kind.FUNCTION -> if (consumed == names.size - 1) OwnName.SUBPROGRAM else OwnName.VALUE
-            else -> OwnName.VALUE
-        }
-    }
-
-    /** A subprogram declared in the type body around [node] (a method body). */
-    private fun isUnitSubprogram(node: AstNode, name: String, context: Context): Boolean {
-        val body = node.getFirstAncestorOrNull(PlSqlGrammar.CREATE_TYPE_BODY) ?: return false
-        return context.symbols.getScopeFor(body)?.symbols.orEmpty()
-            .any { it.called(name) && (it.kind == Symbol.Kind.PROCEDURE || it.kind == Symbol.Kind.FUNCTION) }
-    }
-
-    /** A named unit enclosing a name: a package body, a standalone subprogram or a nested subprogram. */
-    private class EnclosingUnit(val node: AstNode, val schema: String?, val name: String)
-
-    /** The named units around [node], outermost first. */
-    private fun enclosingUnits(node: AstNode): List<EnclosingUnit> {
-        val result = ArrayList<EnclosingUnit>()
-        var current = node.parentOrNull
-        while (current != null) {
-            when (current.type) {
-                PlSqlGrammar.CREATE_PACKAGE_BODY, PlSqlGrammar.CREATE_PROCEDURE, PlSqlGrammar.CREATE_FUNCTION -> {
-                    val written = names(current.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME))
-                    if (written.isNotEmpty()) result += EnclosingUnit(current, written.getOrNull(written.size - 2), written.last())
-                }
-                PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION ->
-                    current.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { result += EnclosingUnit(current, null, normalizeIdentifier(it.tokenOriginalValue)) }
-            }
-            current = current.parentOrNull
-        }
-        return result.asReversed()
-    }
-
-    /** What a dotted value name resolves to from its segments alone, for [segmentValue]. */
-    private sealed interface SegmentValue {
-        /** A package member or external member; [kind] null for a member whose kind is unknown (read as a value). */
-        class Member(val status: Status, val entityKey: String?, val reason: String?, val candidates: List<String>, val kind: MemberKind?) : SegmentValue
-        class Call(val outcome: CallOutcome.Call) : SegmentValue
-    }
-
-    /**
-     * The part of [valueReference] that needs only the segments of a name: a package value, exception or cursor
-     * ([valueReadable]); else a project function called without parentheses ([callable], a call only when
-     * [callAllowed]), a member of a package or type a synonym names, or a missing member of a project package. Null
-     * when the name is none of these.
-     */
-    private fun segmentValue(
-        segments: List<String>, context: Context, packageName: ProjectQualifiedName?, valueReadable: Boolean, callable: Boolean, callAllowed: Boolean
-    ): SegmentValue? {
-        if (valueReadable) {
-            values.packageMember(segments, context.schema, packageName)?.let {
-                return SegmentValue.Member(it.status, it.entityKey, it.reason, it.candidateKeys, it.kind)
-            }
-        }
-        if (callable) {
-            when (val outcome = calls.resolve(segments, ProjectCallKind.FUNCTION, emptyList(), context.schema, context.enclosingPackage, withoutParentheses = true)) {
-                is CallOutcome.Value -> return SegmentValue.Member(outcome.status, outcome.entityKey, outcome.reason, outcome.candidateKeys, outcome.kind)
-                // Only a name the project knows is a call: anything else may be a value outside the project.
-                is CallOutcome.Call -> if (callAllowed && outcome.reason != "NOT_IN_PROJECT" && !(outcome.reason in INCONCLUSIVE && outcome.entityKey == null)) {
-                    return SegmentValue.Call(outcome)
-                }
-                // A member of a package or type a synonym names, kind unknown: a read of the owner.
-                is CallOutcome.ExternalMember -> return SegmentValue.Member(Status.UNRESOLVED, outcome.entityKey, "NOT_IN_PROJECT", emptyList(), null)
-                CallOutcome.NotACall -> Unit
-            }
-        }
-        if (segments.size >= 2 && values.isPackageMember(segments, context.schema)) {
-            return SegmentValue.Member(Status.UNRESOLVED, null, "UNKNOWN_MEMBER", emptyList(), null)
-        }
-        return null
-    }
-
-    /**
      * The names written in the conditional compilation conditions Oracle evaluated, from the skipped-text trivia of
-     * [token] ([ConditionNames]): one `READ` per name, resolved by [segmentValue], at the name's own position, without
+     * [token] ([ConditionNames]): one `READ` per name, resolved by [SegmentValues.segmentValue], at the name's own position, without
      * statement. A condition name is always a package constant, never a local value: one the project and the
-     * synonyms do not know is a read of its external package ([externalOwner]). Closing texts and `$ERROR` give
+     * synonyms do not know is a read of its external package. Closing texts and `$ERROR` give
      * nothing; a text that cannot be read gives a `CONDITION_UNREADABLE` note.
      */
-    fun conditionNames(token: Token, context: Context) {
-        for (trivia in token.trivia) {
-            if (!trivia.isSkippedText) continue
-            val skipped = trivia.token
-            val whole = when (skipped.type) {
-                PlSqlTokenType.CONDITIONAL_BRANCH_BOUNDARY -> false
-                PlSqlTokenType.CONDITIONAL_DIRECTIVE -> true
-                else -> continue
-            }
-            val text = skipped.originalValue
-            val names = ConditionNames.read(text, whole) ?: run {
-                state.coverage += CoverageFact("CONDITION_UNREADABLE", "Conditional compilation text at line ${skipped.line} could not be read: its condition names are not indexed")
-                continue
-            }
-            val packageName = context.enclosingPackage?.let { qualifiedName(it) }
-            for (name in names) {
-                val (startLine, startColumn) = lineAt(skipped, text, name.start)
-                val (endLine, endColumn) = lineAt(skipped, text, name.end)
-                val span = SourceSpan(startLine, startColumn, endLine, endColumn)
-                val written = text.substring(name.start, name.end)
-                when (val value = segmentValue(name.segments, context, packageName, valueReadable = true, callable = true, callAllowed = true)) {
-                    is SegmentValue.Member -> valueOccurrence(span, written, context, null, value.status, value.entityKey, value.reason, value.candidates, setOf(Role.READ))
-                    is SegmentValue.Call -> valueOccurrence(span, written, context, null, value.outcome.status, value.outcome.entityKey, value.outcome.reason,
-                        value.outcome.candidateKeys, setOf(Role.READ))
-                    null -> externalOwner(name.segments, context)?.let {
-                        valueOccurrence(span, written, context, null, Status.UNRESOLVED, it, "NOT_IN_PROJECT", emptyList(), setOf(Role.READ))
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * The external package that owns a condition name the project does not know: `db:S.PKG` for `S.PKG.C` when `S` is
-     * a schema of the run, else `db:~.PKG` (as [ExternalNames] keys the owner of an unknown name). Null when that
-     * package is a project declaration (the member is then simply missing).
-     */
-    private fun externalOwner(segments: List<String>, context: Context): String? {
-        val names = segments.map { normalizeIdentifier(it) }
-        val schemaQualified = names.size == 3 && names[0] in runSchemas
-        val schema = if (schemaQualified) names[0] else null
-        val name = if (schemaQualified) names[1] else names[0]
-        if (catalog.isDeclared(dbKey(schema ?: context.schema ?: UNKNOWN_SCHEMA, name))) return null
-        val key = dbKey(schema ?: UNKNOWN_SCHEMA, name)
-        state.entities += EntityFact(key, EntityKind.PACKAGE, schema, name, null, key.removePrefix("db:"), external = true, precedence = Precedence.MENTIONED)
-        return key
-    }
-
-    /** The line and column of [offset] inside the text of [token], with the lexer's line breaks (LF, or CR not followed by LF). */
-    private fun lineAt(token: Token, text: String, offset: Int): Pair<Int, Int> {
-        var line = token.line
-        var column = token.column
-        for (i in 0 until offset) {
-            val c = text[i]
-            if (c == '\n' || c == '\r' && text.getOrNull(i + 1) != '\n') {
-                line++
-                column = 0
-            } else {
-                column++
-            }
-        }
-        return line to column
-    }
+    fun conditionNames(token: Token, context: Context) = conditionNameReads.conditionNames(token, context)
 
     /** The segments of the name before `%` of a cursor attribute (`c%isopen`, `pkg.c%rowcount`), or null. */
     private fun attributeName(name: AstNode, parts: List<AstNode>): List<String>? {
@@ -496,83 +254,14 @@ internal class PlSqlNames(
         return names[member] in context.bodyNames
     }
 
-    private fun valueOccurrence(span: SourceSpan, written: String, context: Context, statementId: Int?, status: Status, entityKey: String?,
-                                reason: String?, candidates: List<String>, roles: Set<Role>) {
-        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, span, written, entityKey,
-            roles, status(status, context.partial), context.origin, reason, candidates)
-    }
-
     /** A function called without parentheses: a `CALL` occurrence without actuals. */
-    fun callOccurrence(name: AstNode, context: Context, statementId: Int?, outcome: CallOutcome.Call) {
-        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
-            setOf(Role.CALL), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys)
-    }
-
-    /**
-     * The roles of a package member: for an exception `RAISE` as the exception of a `RAISE` statement and `HANDLE`
-     * as a name of an exception handler (the direct parent only), else `READ`; for a cursor `READ`; for a value
-     * [valueRoles].
-     */
-    private fun memberRoles(name: AstNode, segments: List<String>, kind: MemberKind): Set<Role> = when (kind) {
-        MemberKind.EXCEPTION -> when (name.parentOrNull?.type) {
-            PlSqlGrammar.RAISE_STATEMENT -> setOf(Role.RAISE)
-            PlSqlGrammar.EXCEPTION_HANDLER -> setOf(Role.HANDLE)
-            else -> setOf(Role.READ)
-        }
-        MemberKind.CURSOR -> setOf(Role.READ)
-        MemberKind.VALUE -> valueRoles(name, segments)
-    }
+    fun callOccurrence(name: AstNode, context: Context, statementId: Int?, outcome: CallOutcome.Call) = state.callOccurrence(name, context, statementId, outcome)
 
     /**
      * The roles of a value: `WRITE` for an assignment target, an `INTO` target, an actual bound to an `OUT`
      * formal of a resolved call or a modifying collection method; `READ` and `WRITE` for an `IN OUT` formal; else `READ`.
      */
-    fun valueRoles(name: AstNode, segments: List<String>): Set<Role> {
-        var expression = name
-        name.parentOrNull?.takeIf { it.type == PlSqlGrammar.METHOD_CALL && it.firstChild === name }?.let { expression = it }
-        while (true) {
-            val parent = expression.parentOrNull ?: break
-            if (parent.type != PlSqlGrammar.OBJECT_REFERENCE || parent.firstChild !== expression) break
-            expression = parent
-        }
-        val parent = expression.parentOrNull
-        if (parent != null) {
-            if (parent.type == PlSqlGrammar.ASSIGNMENT_STATEMENT) {
-                val assignment = parent.children.indexOfFirst { it.type == PlSqlPunctuator.ASSIGNMENT }
-                if (parent.children.indexOf(expression) < assignment) return setOf(Role.WRITE)
-            }
-            if (parent.type == DmlGrammar.INTO_CLAUSE) return setOf(Role.WRITE)
-            val mode = state.argumentModes[expression] ?: if (parent.type == PlSqlGrammar.ARGUMENT) state.argumentModes[parent] else null
-            when (mode) {
-                ProjectParameterMode.OUT -> return setOf(Role.WRITE)
-                ProjectParameterMode.IN_OUT -> return setOf(Role.READ, Role.WRITE)
-                else -> Unit
-            }
-        }
-        if (segments.size >= 2 && normalizeIdentifier(segments.last()) in MODIFYING_METHODS) return setOf(Role.WRITE)
-        return setOf(Role.READ)
-    }
-
-    /**
-     * `seq.nextval`, `s.seq.currval`: a project sequence, else an external `SEQUENCE` entity, `db:S.SEQ` when
-     * `S` is a schema of the run and `db:~.…` otherwise (the dictionary does not know sequences). Not a sequence when the
-     * first segment is captured lexically, is an SQL qualifier, or the legacy table binds the whole name.
-     */
-    private fun sequenceReference(name: AstNode, segments: List<String>, context: Context, statementId: Int?) {
-        val symbol = (name.firstChild as? SemanticAstNode)?.symbol
-        if (symbol != null && symbol.kind != Symbol.Kind.PACKAGE && isLocalDeclaration(symbol)) return
-        if (statementId != null && scopes.isSqlQualified(name, segments)) return
-        if (projectAnalysis.resolveSequenceReference(name) == SequenceReferenceResolution.RESOLVED_NON_SEQUENCE) return
-        val written = segments.dropLast(1)
-        val children = name.children
-        val lastDot = children.indexOfLast { it.type == PlSqlPunctuator.DOT }
-        val nameParts = children.subList(0, lastDot)
-        val text = nameParts.joinToString("") { writtenText(it) }
-        val span = spanOf(nameParts.first(), nameParts.last())
-        val (key, status) = sequenceEntity(written, context.schema, followSynonym = true)
-        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, span, text, key,
-            setOf(Role.READ), status(status, context.partial), context.origin, null)
-    }
+    fun valueRoles(name: AstNode, segments: List<String>): Set<Role> = roles.valueRoles(name, segments)
 
     /**
      * The sequence [written] names, as `seq.nextval` finds it: the project sequence (`RESOLVED`), else an external
@@ -580,57 +269,21 @@ internal class PlSqlNames(
      * [followSynonym], a one-segment name the project does not declare may be a synonym of the sequence; a DDL
      * statement names the sequence itself.
      */
-    fun sequenceEntity(written: List<String>, schema: String?, followSynonym: Boolean): Pair<String, Status> {
-        // A sequence the project does not declare may be named by a synonym: `syn_seq.nextval` reads the target.
-        val target = if (followSynonym && values.sequence(written, schema) == null && written.size == 1) {
-            synonyms.follow(normalizeIdentifier(written[0]), schema, SynonymResolver.SEQUENCES)
-        } else {
-            null
-        }
-        val resolvedName = target?.let { SynonymResolver.written(it, emptyList()) } ?: written
-        val declared = values.sequence(resolvedName, schema)
-        if (declared != null) return declared to Status.RESOLVED
-        val names = resolvedName.map { normalizeIdentifier(it) }
-        val schemaQualified = names.size == 2 && (names[0] in runSchemas || target != null)
-        val key = if (schemaQualified) dbKey(names[0], names[1]) else dbKey(UNKNOWN_SCHEMA, *names.toTypedArray())
-        state.entities += EntityFact(key, EntityKind.SEQUENCE, if (schemaQualified) names[0] else null, names.last(), null, key.removePrefix("db:"),
-            external = true, precedence = Precedence.MENTIONED)
-        return key to Status.UNVERIFIED
-    }
-
-    /**
-     * A subprogram the legacy table declares outside a package scope and below the file scope: nested in a standalone
-     * unit, a subprogram or a block. `Symbol.isGlobal` is not used: it is true for subprograms nested in standalone
-     * units, because their scope's outer scope is the file scope. The unit itself (recursion) is declared in the file
-     * scope and package members in the package spec or body scope; those are not local.
-     */
-    private fun isLocalSubprogram(symbol: Symbol): Boolean {
-        val scope = symbol.scope
-        if (scope.outer == null) return false
-        return scope.type != PlSqlGrammar.CREATE_PACKAGE && scope.type != PlSqlGrammar.CREATE_PACKAGE_BODY
-    }
+    fun sequenceEntity(written: List<String>, schema: String?, followSynonym: Boolean): Pair<String, Status> =
+        sequenceNames.sequenceEntity(written, schema, followSynonym)
 
     /**
      * A value or type the legacy table declares outside a package specification and below the file scope: in a
      * block, a subprogram or a package body. zpa-core indexes the package values and types of specifications only, so
      * these are never project declarations.
      */
-    fun isLocalDeclaration(symbol: Symbol): Boolean {
-        val scope = symbol.scope
-        return scope.outer != null && scope.type != PlSqlGrammar.CREATE_PACKAGE
-    }
+    fun isLocalDeclaration(symbol: Symbol): Boolean = com.felipebz.zpa.atlas.extract.isLocalDeclaration(symbol)
 }
 
 /** Legacy symbol kinds whose names are indexed or called like subprograms but are values or types. */
 private val NOT_CALLABLE = setOf(Symbol.Kind.VARIABLE, Symbol.Kind.PARAMETER, Symbol.Kind.CURSOR, Symbol.Kind.TYPE)
 
 private val CURSOR_ATTRIBUTES = setOf("ISOPEN", "FOUND", "NOTFOUND", "ROWCOUNT", "BULK_ROWCOUNT", "BULK_EXCEPTIONS")
-
-/** Collection methods that change the collection. */
-private val MODIFYING_METHODS = setOf("DELETE", "EXTEND", "TRIM")
-
-/** Call statuses that say nothing about a name when no declaration was selected. */
-private val INCONCLUSIVE = setOf("INCOMPLETE_INDEX", "PARTIAL_DECLARATIONS")
 
 /** The reasons of a name the project did not find: an external guess or a missing member of a project package. */
 private val GUESSED_REASONS = setOf("NOT_IN_PROJECT", "UNKNOWN_MEMBER")
