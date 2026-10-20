@@ -36,140 +36,164 @@ private fun rolesCheck(): String {
 
 /** The tables, with their inline constraints (`PRIMARY KEY`, `UNIQUE`), in creation order. */
 internal fun tableDdl(): List<String> = listOf(
-    """CREATE TABLE run (
-                id INTEGER PRIMARY KEY,
-                schema_version INTEGER NOT NULL,
-                atlas_version TEXT NOT NULL,
-                zpa_version TEXT NOT NULL,
-                sources_root TEXT NOT NULL,
-                source_encoding TEXT NOT NULL,
-                metadata_origin TEXT NULL,
-                compilation_schema TEXT NULL,
-                database_version TEXT NULL,
-                database_version_origin TEXT NULL CHECK (database_version_origin IN ('OPTION', 'DATABASE', 'JDBC')),
-                ccflags TEXT NULL,
-                started_at TEXT NOT NULL,
-                finished_at TEXT NOT NULL
-            )""",
-    """CREATE TABLE source_file (
-                id INTEGER PRIMARY KEY,
-                path TEXT NOT NULL UNIQUE,
-                kind TEXT NOT NULL ${check<FileKind>("kind")},
-                sha256 TEXT NOT NULL,
-                size_bytes INTEGER NOT NULL,
-                compilation_schema TEXT NULL,
-                parse_status TEXT NOT NULL ${check<ParseStatus>("parse_status")},
-                recovered_regions INTEGER NOT NULL,
-                encoding TEXT NOT NULL
-            )""",
-    """CREATE TABLE entity (
-                id INTEGER PRIMARY KEY,
-                key TEXT NOT NULL,
-                kind TEXT NOT NULL ${check<EntityKind>("kind")},
-                schema_name TEXT NULL,
-                name TEXT NOT NULL,
-                parent_id INTEGER NULL REFERENCES entity(id),
-                display TEXT NOT NULL,
-                external INTEGER NOT NULL CHECK (external IN (0, 1))
-            )""",
-    """CREATE TABLE unit (
-                id INTEGER PRIMARY KEY,
-                file_id INTEGER NOT NULL REFERENCES source_file(id),
-                entity_id INTEGER NULL REFERENCES entity(id),
-                kind TEXT NOT NULL ${check<UnitKind>("kind")},
-                name TEXT NOT NULL,
-                start_line INTEGER NOT NULL,
-                start_col INTEGER NOT NULL,
-                end_line INTEGER NOT NULL,
-                end_col INTEGER NOT NULL,
-                origin_path TEXT NULL,
-                origin_line_offset INTEGER NULL
-            )""",
-    """CREATE TABLE relation (
-                from_id INTEGER NOT NULL REFERENCES entity(id),
-                kind TEXT NOT NULL ${check<RelationKind>("kind")},
-                to_id INTEGER NOT NULL REFERENCES entity(id),
-                PRIMARY KEY (from_id, kind, to_id)
-            )""",
-    """CREATE TABLE sql_statement (
-                id INTEGER PRIMARY KEY,
-                file_id INTEGER NOT NULL REFERENCES source_file(id),
-                unit_id INTEGER NOT NULL REFERENCES unit(id),
-                container_entity_id INTEGER NULL REFERENCES entity(id),
-                kind TEXT NOT NULL ${check<StatementKind>("kind")},
-                start_line INTEGER NOT NULL,
-                start_col INTEGER NOT NULL,
-                end_line INTEGER NOT NULL,
-                end_col INTEGER NOT NULL,
-                normalized_hash TEXT NOT NULL
-            )""",
-    """CREATE TABLE occurrence (
-                id INTEGER PRIMARY KEY,
-                file_id INTEGER NOT NULL REFERENCES source_file(id),
-                unit_id INTEGER NOT NULL REFERENCES unit(id),
-                container_entity_id INTEGER NULL REFERENCES entity(id),
-                statement_id INTEGER NULL REFERENCES sql_statement(id),
-                start_line INTEGER NOT NULL,
-                start_col INTEGER NOT NULL,
-                end_line INTEGER NOT NULL,
-                end_col INTEGER NOT NULL,
-                written TEXT NOT NULL,
-                entity_id INTEGER NULL REFERENCES entity(id),
-                roles TEXT NOT NULL ${rolesCheck()},
-                status TEXT NOT NULL ${check<Status>("status")},
-                origin TEXT NOT NULL ${check<Origin>("origin")},
-                reason TEXT NULL,
-                -- The span of the name, when it is not the span (a definition or declaration spans the whole of it).
-                name_start_line INTEGER NULL,
-                name_start_col INTEGER NULL,
-                name_end_line INTEGER NULL,
-                name_end_col INTEGER NULL
-            )""",
-    """CREATE TABLE occurrence_candidate (
-                occurrence_id INTEGER NOT NULL REFERENCES occurrence(id),
-                entity_id INTEGER NOT NULL REFERENCES entity(id),
-                PRIMARY KEY (occurrence_id, entity_id)
-            )""",
-    """CREATE TABLE call_argument (
-                occurrence_id INTEGER NOT NULL REFERENCES occurrence(id),
-                ordinal INTEGER NOT NULL,
-                label TEXT NULL,
-                parameter_entity_id INTEGER NULL REFERENCES entity(id),
-                start_line INTEGER NOT NULL,
-                start_col INTEGER NOT NULL,
-                end_line INTEGER NOT NULL,
-                end_col INTEGER NOT NULL,
-                value_kind TEXT NOT NULL ${check<ValueKind>("value_kind")},
-                -- The literal's value (a decoded string, a canonical number), the name or bind as written; null otherwise.
-                value TEXT NULL,
-                PRIMARY KEY (occurrence_id, ordinal)
-            )""",
+    """
+    CREATE TABLE run (
+        id INTEGER PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        atlas_version TEXT NOT NULL,
+        zpa_version TEXT NOT NULL,
+        sources_root TEXT NOT NULL,
+        source_encoding TEXT NOT NULL,
+        metadata_origin TEXT NULL,
+        compilation_schema TEXT NULL,
+        database_version TEXT NULL,
+        database_version_origin TEXT NULL CHECK (database_version_origin IN ('OPTION', 'DATABASE', 'JDBC')),
+        ccflags TEXT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE source_file (
+        id INTEGER PRIMARY KEY,
+        path TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL ${check<FileKind>("kind")},
+        sha256 TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        compilation_schema TEXT NULL,
+        parse_status TEXT NOT NULL ${check<ParseStatus>("parse_status")},
+        recovered_regions INTEGER NOT NULL,
+        encoding TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE entity (
+        id INTEGER PRIMARY KEY,
+        key TEXT NOT NULL,
+        kind TEXT NOT NULL ${check<EntityKind>("kind")},
+        schema_name TEXT NULL,
+        name TEXT NOT NULL,
+        parent_id INTEGER NULL REFERENCES entity(id),
+        display TEXT NOT NULL,
+        external INTEGER NOT NULL CHECK (external IN (0, 1))
+    )
+    """,
+    """
+    CREATE TABLE unit (
+        id INTEGER PRIMARY KEY,
+        file_id INTEGER NOT NULL REFERENCES source_file(id),
+        entity_id INTEGER NULL REFERENCES entity(id),
+        kind TEXT NOT NULL ${check<UnitKind>("kind")},
+        name TEXT NOT NULL,
+        start_line INTEGER NOT NULL,
+        start_col INTEGER NOT NULL,
+        end_line INTEGER NOT NULL,
+        end_col INTEGER NOT NULL,
+        origin_path TEXT NULL,
+        origin_line_offset INTEGER NULL
+    )
+    """,
+    """
+    CREATE TABLE relation (
+        from_id INTEGER NOT NULL REFERENCES entity(id),
+        kind TEXT NOT NULL ${check<RelationKind>("kind")},
+        to_id INTEGER NOT NULL REFERENCES entity(id),
+        PRIMARY KEY (from_id, kind, to_id)
+    )
+    """,
+    """
+    CREATE TABLE sql_statement (
+        id INTEGER PRIMARY KEY,
+        file_id INTEGER NOT NULL REFERENCES source_file(id),
+        unit_id INTEGER NOT NULL REFERENCES unit(id),
+        container_entity_id INTEGER NULL REFERENCES entity(id),
+        kind TEXT NOT NULL ${check<StatementKind>("kind")},
+        start_line INTEGER NOT NULL,
+        start_col INTEGER NOT NULL,
+        end_line INTEGER NOT NULL,
+        end_col INTEGER NOT NULL,
+        normalized_hash TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE occurrence (
+        id INTEGER PRIMARY KEY,
+        file_id INTEGER NOT NULL REFERENCES source_file(id),
+        unit_id INTEGER NOT NULL REFERENCES unit(id),
+        container_entity_id INTEGER NULL REFERENCES entity(id),
+        statement_id INTEGER NULL REFERENCES sql_statement(id),
+        start_line INTEGER NOT NULL,
+        start_col INTEGER NOT NULL,
+        end_line INTEGER NOT NULL,
+        end_col INTEGER NOT NULL,
+        written TEXT NOT NULL,
+        entity_id INTEGER NULL REFERENCES entity(id),
+        roles TEXT NOT NULL ${rolesCheck()},
+        status TEXT NOT NULL ${check<Status>("status")},
+        origin TEXT NOT NULL ${check<Origin>("origin")},
+        reason TEXT NULL,
+        -- The span of the name, when it is not the span (a definition or declaration spans the whole of it).
+        name_start_line INTEGER NULL,
+        name_start_col INTEGER NULL,
+        name_end_line INTEGER NULL,
+        name_end_col INTEGER NULL
+    )
+    """,
+    """
+    CREATE TABLE occurrence_candidate (
+        occurrence_id INTEGER NOT NULL REFERENCES occurrence(id),
+        entity_id INTEGER NOT NULL REFERENCES entity(id),
+        PRIMARY KEY (occurrence_id, entity_id)
+    )
+    """,
+    """
+    CREATE TABLE call_argument (
+        occurrence_id INTEGER NOT NULL REFERENCES occurrence(id),
+        ordinal INTEGER NOT NULL,
+        label TEXT NULL,
+        parameter_entity_id INTEGER NULL REFERENCES entity(id),
+        start_line INTEGER NOT NULL,
+        start_col INTEGER NOT NULL,
+        end_line INTEGER NOT NULL,
+        end_col INTEGER NOT NULL,
+        value_kind TEXT NOT NULL ${check<ValueKind>("value_kind")},
+        -- The literal's value (a decoded string, a canonical number), the name or bind as written; null otherwise.
+        value TEXT NULL,
+        PRIMARY KEY (occurrence_id, ordinal)
+    )
+    """,
     // The value a column write writes, one per row of its statement; classified as call_argument values are.
-    """CREATE TABLE written_value (
-                occurrence_id INTEGER NOT NULL REFERENCES occurrence(id),
-                row_number INTEGER NOT NULL,
-                value_kind TEXT NOT NULL ${check<ValueKind>("value_kind")},
-                value TEXT NULL,
-                start_line INTEGER NOT NULL,
-                start_col INTEGER NOT NULL,
-                end_line INTEGER NOT NULL,
-                end_col INTEGER NOT NULL,
-                PRIMARY KEY (occurrence_id, row_number)
-            )""",
-    """CREATE TABLE coverage_note (
-                id INTEGER PRIMARY KEY,
-                file_id INTEGER NULL REFERENCES source_file(id),
-                kind TEXT NOT NULL,
-                message TEXT NOT NULL
-            )""",
+    """
+    CREATE TABLE written_value (
+        occurrence_id INTEGER NOT NULL REFERENCES occurrence(id),
+        row_number INTEGER NOT NULL,
+        value_kind TEXT NOT NULL ${check<ValueKind>("value_kind")},
+        value TEXT NULL,
+        start_line INTEGER NOT NULL,
+        start_col INTEGER NOT NULL,
+        end_line INTEGER NOT NULL,
+        end_col INTEGER NOT NULL,
+        PRIMARY KEY (occurrence_id, row_number)
+    )
+    """,
+    """
+    CREATE TABLE coverage_note (
+        id INTEGER PRIMARY KEY,
+        file_id INTEGER NULL REFERENCES source_file(id),
+        kind TEXT NOT NULL,
+        message TEXT NOT NULL
+    )
+    """,
     // The event is free text: DML events, but also the DDL and database events of system triggers.
-    """CREATE TABLE trigger_event (
-                trigger_id INTEGER NOT NULL REFERENCES entity(id),
-                timing TEXT NOT NULL ${check<TriggerTiming>("timing")},
-                level TEXT NULL ${check<TriggerLevel>("level")},
-                event TEXT NOT NULL,
-                column_id INTEGER NULL REFERENCES entity(id)
-            )"""
+    """
+    CREATE TABLE trigger_event (
+        trigger_id INTEGER NOT NULL REFERENCES entity(id),
+        timing TEXT NOT NULL ${check<TriggerTiming>("timing")},
+        level TEXT NULL ${check<TriggerLevel>("level")},
+        event TEXT NOT NULL,
+        column_id INTEGER NULL REFERENCES entity(id)
+    )
+    """
 ).map { it.trimIndent() }
 
 /** The secondary indexes, created after the rows are loaded. Readers do not depend on their creation order. */
