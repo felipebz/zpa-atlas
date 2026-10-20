@@ -21,8 +21,10 @@ internal class OccurrenceQuerySql(query: OccurrenceQuery, entityId: Long?, conta
     private val conditions = ArrayList<String>()
     private val conditionParameters = ArrayList<Any?>()
 
-    val from: String
-    val matched: String
+    var from: String
+        private set
+    var matched: String
+        private set
     val via: String
 
     init {
@@ -138,6 +140,16 @@ internal class OccurrenceQuerySql(query: OccurrenceQuery, entityId: Long?, conta
     fun where(vararg extra: String): String {
         val all = conditions + extra
         return if (all.isEmpty()) "" else "WHERE " + all.joinToString(" AND ")
+    }
+
+    /**
+     * Only the occurrences of [hits], a JSON array of `[occurrence id, matched entity id]` pairs, each matched as given:
+     * for a query without filters of its own, so that rows chosen elsewhere group as the query's rows do.
+     */
+    fun restrictToHits(hits: String) {
+        addCte("chosen(oid, matched) AS (SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?))", listOf(hits))
+        from = "chosen u JOIN occurrence o ON o.id = u.oid"
+        matched = "u.matched"
     }
 
     /** Adds a common table expression to [with], after those of the query. */

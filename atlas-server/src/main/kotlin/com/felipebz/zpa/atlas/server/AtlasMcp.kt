@@ -13,6 +13,7 @@ import com.felipebz.zpa.atlas.query.OccurrenceQuery
 import com.felipebz.zpa.atlas.query.QueryTimeoutException
 import com.felipebz.zpa.atlas.query.Scope
 import com.felipebz.zpa.atlas.query.SchemaMismatchException
+import com.felipebz.zpa.atlas.query.UsagePath
 import com.felipebz.zpa.atlas.query.indexCodes
 import io.ktor.http.ContentType
 import io.ktor.server.application.Application
@@ -140,6 +141,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         add("get_entity", ENTITY, entitySchema(), ::getEntity)
         add("find_occurrences", FIND, findSchema(), ::findOccurrences)
         add("find_usages", USAGES, usagesSchema(), ::findUsages)
+        add("group_usages", GROUP_USAGES, groupUsagesSchema(), ::groupUsages)
         add("group_occurrences", GROUP, groupSchema(), ::groupOccurrences)
         add("get_source", SOURCE, sourceSchema(), ::getSource)
     }
@@ -178,33 +180,58 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
 
     private fun findUsages(args: Arguments): JsonElement {
         val key = args.requiredString("key")
-        val include = if (args.has("include")) {
-            args.list("include").map { value -> USAGE_SCOPES.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown include value: $value") }
-        } else {
-            // The entity page's default for the kind: a package's usages are its members'.
-            val kind = index.entity(key).result?.kind
-                ?: throw ToolException("Unknown entity: $key. Entity keys come from search_entities or from earlier answers.")
-            listOfNotNull(
-                Scope.IMPLEMENTATIONS.takeIf { kind in setOf("PROCEDURE", "FUNCTION", "PACKAGE") },
-                Scope.CHILDREN.takeIf { kind in setOf("PACKAGE", "TYPE") }
-            )
-        }
+        val include = include(args, key)
         val answer = index.occurrences(
             key, args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, (include + Scope.SELF).toSet(),
-            args.boolean("candidates") ?: true, args.long("after"), args.int("limit", 1..FIND_MAX) ?: FIND_DEFAULT
+            args.boolean("candidates") ?: true, args.long("after"), args.int("limit", 1..FIND_MAX) ?: FIND_DEFAULT, via(args)
         )
-        if (answer.result == null) throw ToolException("Unknown entity: $key. Entity keys come from search_entities or from earlier answers.")
+        if (answer.result == null) throw unknownEntity(key)
+        val answered = JsonObject(toolAnswer(answer) + ("included" to included(include)))
         // after is an occurrence id here too (rows in id order), so a cut page goes on right after its last row kept.
-        val answered = JsonObject(toolAnswer(answer) + ("included" to JsonArray(include.map { JsonPrimitive(it.name) })))
         return McpAnswers.fitList(answered, maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
             a.withResult("nextAfter", rows.last().jsonObject.getValue("id"))
         }
     }
 
-    private fun groupOccurrences(args: Arguments): JsonElement {
-        val dimensions = args.requiredList("group_by").map { value ->
-            GroupDimension.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown group_by dimension: $value")
+    private fun groupUsages(args: Arguments): JsonElement {
+        val key = args.requiredString("key")
+        val dimensions = dimensions(args)
+        val include = include(args, key)
+        val answer = index.groupUsages(
+            key, dimensions, args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, (include + Scope.SELF).toSet(),
+            args.boolean("candidates") ?: true, via(args), args.int("limit", 1..GROUP_MAX) ?: GROUP_DEFAULT
+        )
+        if (answer.result == null) throw unknownEntity(key)
+        val answered = JsonObject(toolAnswer(answer) + ("included" to included(include)))
+        return McpAnswers.fitList(answered, maxChars, { it.result().getValue("groups").jsonArray }, { a, groups -> a.withResult("groups", groups) })
+    }
+
+    private fun unknownEntity(key: String) = ToolException("Unknown entity: $key. Entity keys come from search_entities or from earlier answers.")
+
+    private fun included(include: List<Scope>) = JsonArray(include.map { JsonPrimitive(it.name) })
+
+    private fun via(args: Arguments) = args.string("via")?.let { value ->
+        UsagePath.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown via value: $value")
+    }
+
+    private fun dimensions(args: Arguments) = args.requiredList("group_by").map { value ->
+        GroupDimension.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown group_by dimension: $value")
+    }
+
+    /** The include asked for, else the entity page's default for the kind: a package's usages are its members'. */
+    private fun include(args: Arguments, key: String): List<Scope> =
+        if (args.has("include")) {
+            args.list("include").map { value -> USAGE_SCOPES.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown include value: $value") }
+        } else {
+            val kind = index.entity(key).result?.kind ?: throw unknownEntity(key)
+            listOfNotNull(
+                Scope.IMPLEMENTATIONS.takeIf { kind in setOf("PROCEDURE", "FUNCTION", "PACKAGE") },
+                Scope.CHILDREN.takeIf { kind in setOf("PACKAGE", "TYPE") }
+            )
         }
+
+    private fun groupOccurrences(args: Arguments): JsonElement {
+        val dimensions = dimensions(args)
         val answer = index.groupOccurrences(args.query(), dimensions, args.int("limit", 1..GROUP_MAX) ?: GROUP_DEFAULT)
         return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("groups").jsonArray }, { a, groups -> a.withResult("groups", groups) })
     }
@@ -279,6 +306,18 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     }
 
     private fun usagesSchema() = schema(listOf("key")) {
+        usageFilters()
+        integer("after", null, null, "The nextAfter of the previous page.")
+        integer("limit", 1..FIND_MAX, FIND_DEFAULT)
+    }
+
+    private fun groupUsagesSchema() = schema(listOf("key", "group_by")) {
+        usageFilters()
+        enumArray("group_by", codesOf(codes.groupDimensions), "One to three dimensions, as in group_occurrences.", minItems = 1, maxItems = 3)
+        integer("limit", 1..GROUP_MAX, GROUP_DEFAULT, "The first groups by count; totalGroups counts them all.")
+    }
+
+    private fun SchemaBuilder.usageFilters() {
         string("key", "An entity key, as search_entities or another answer gives it.")
         enumArray("include", USAGE_SCOPES.map { it.name }, "Entities added to the one asked for: IMPLEMENTATIONS its spec or " +
             "body, CHILDREN its contents, VIEWS the view columns computed from it and the views reading it, transitively. " +
@@ -287,8 +326,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         enumArray("roles", produced(codes.roles), "The occurrence has any of these roles. Without it, every role but DEFINITION and DECLARATION.")
         enumArray("statuses", produced(codes.statuses), "The occurrence has one of these statuses.")
         boolean("candidates", "Include AMBIGUOUS occurrences where one of the entities is a candidate. Default true.")
-        integer("after", null, null, "The nextAfter of the previous page.")
-        integer("limit", 1..FIND_MAX, FIND_DEFAULT)
+        enumString("via", UsagePath.entries.map { it.name }, "DIRECT: only rows on the entity, its spec or body, or its " +
+            "contents; THROUGH_VIEWS: only rows reached through a view (viaView). Default both.")
     }
 
     private fun groupSchema() = schema(listOf("group_by")) {
@@ -471,13 +510,20 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "(a standalone procedure that only calls the package one): ask again for that subprogram's usages. Pages as in " +
             "find_occurrences. $STATUSES"
 
+        const val GROUP_USAGES = "Counts an entity's usages, the rows find_usages lists for the same arguments, grouped " +
+            "by one to three dimensions as in group_occurrences; ENTITY is the entity a row matched, so on a row " +
+            "through a view it names the view or view column. Example, who uses a table through views, by view and " +
+            "routine, in one call: key the table, include [VIEWS], via THROUGH_VIEWS, group_by ENTITY, CONTAINER. " +
+            "include defaults by kind as in find_usages; the answer's included lists what was followed."
+
         private val USAGE_SCOPES = listOf(Scope.IMPLEMENTATIONS, Scope.CHILDREN, Scope.VIEWS)
 
         const val GROUP = "Counts occurrences grouped by one to three dimensions, with the same filters as " +
             "find_occurrences. A CRUD matrix of a package: container_name or container the package, roles " +
             "SQL_SELECT, SQL_INSERT, SQL_UPDATE, SQL_DELETE, group_by CONTAINER, ENTITY, ROLE. ROLE counts an " +
             "occurrence once per role. A group value without entity is an occurrence tied to no entity; add STATUS " +
-            "to group_by to tell proven occurrences from the others. $STATUSES"
+            "to group_by to tell proven occurrences from the others. To follow an entity's spec or body, contents or " +
+            "views, use group_usages. $STATUSES"
 
         const val SOURCE = "Lines of an indexed source file around a line, as the index read it; stale is true " +
             "when the file changed since it was indexed."

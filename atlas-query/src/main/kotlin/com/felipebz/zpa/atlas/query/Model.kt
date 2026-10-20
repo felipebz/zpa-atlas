@@ -105,6 +105,12 @@ data class EntityDetail(
  */
 enum class Scope { SELF, IMPLEMENTATIONS, CHILDREN, VIEWS }
 
+/**
+ * Which usages to keep: [DIRECT] the rows whose matched entity is the entity, its partners or its contents;
+ * [THROUGH_VIEWS] the rows [Scope.VIEWS] added ([OccurrenceRow.viaView]).
+ */
+enum class UsagePath { DIRECT, THROUGH_VIEWS }
+
 @Serializable
 data class UnitRef(val kind: String, val name: String)
 

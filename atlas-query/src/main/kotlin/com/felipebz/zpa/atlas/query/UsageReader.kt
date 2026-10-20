@@ -17,9 +17,50 @@ internal class UsageReader(private val connection: Connection) {
         statuses: Set<String>?,
         scope: Set<Scope>,
         includeCandidates: Boolean,
+        via: UsagePath?,
         after: Long?,
         limit: Int
     ): OccurrencePage? {
+        val (hits, filtered) = usageHits(key, roleFilter, statuses, scope, includeCandidates, via) ?: return null
+        fun roleMatch(hit: Hit) = hit.roles.any { it in roleFilter }
+        fun statusMatch(hit: Hit) = statuses.isNullOrEmpty() || hit.status in statuses
+        val facets = Facets(
+            tally(hits.filter { statusMatch(it) }.flatMap { hit -> hit.roles.filter { it in USAGE_ROLES } }),
+            tally(hits.filter { roleMatch(it) }.map { it.status })
+        )
+        val remaining = filtered.filter { after == null || it.id > after }
+        val page = remaining.take(limit)
+        val nextAfter = if (remaining.size > limit) page.last().id else null
+        return OccurrencePage(rows(connection, page), nextAfter, filtered.size.toLong(), facets)
+    }
+
+    /** [AtlasIndex.groupUsages] after its checks: the rows [occurrences] lists, grouped. */
+    fun groupUsages(
+        key: String,
+        roleFilter: Set<String>,
+        statuses: Set<String>?,
+        scope: Set<Scope>,
+        includeCandidates: Boolean,
+        via: UsagePath?,
+        dimensions: List<GroupDimension>,
+        limit: Int
+    ): GroupPage? {
+        val (_, filtered) = usageHits(key, roleFilter, statuses, scope, includeCandidates, via) ?: return null
+        return OccurrenceQueryReader(connection).groupHits(filtered, roleFilter, dimensions, limit)
+    }
+
+    /**
+     * The hits of [key]'s scope, one per occurrence and kept by [via], then those that also pass the role and status
+     * filters; null when there is no such entity.
+     */
+    private fun usageHits(
+        key: String,
+        roleFilter: Set<String>,
+        statuses: Set<String>?,
+        scope: Set<Scope>,
+        includeCandidates: Boolean,
+        via: UsagePath?
+    ): Pair<List<Hit>, List<Hit>>? {
         if (connection.query("SELECT 1 FROM entity WHERE key = ?", listOf(key)) { 1 }.isEmpty()) return null
         // UNION, not UNION ALL, in the recursive CTEs: an entity already in the set is not followed again (no cycles).
         val hits = connection.query(
@@ -49,18 +90,9 @@ internal class UsageReader(private val connection: Connection) {
                 Scope.VIEWS in scope, Scope.VIEWS in scope, includeCandidates)
         ) { Hit(it.getLong(1), it.getLong(2), it.getInt(3) == 1, it.getInt(4) == 1, roles(it.getString(5)), it.getString(6)) }
             .groupBy { it.id }.values.map { it.minWith(hitPreference) }
-
-        fun roleMatch(hit: Hit) = hit.roles.any { it in roleFilter }
-        fun statusMatch(hit: Hit) = statuses.isNullOrEmpty() || hit.status in statuses
-        val filtered = hits.filter { roleMatch(it) && statusMatch(it) }
-        val facets = Facets(
-            tally(hits.filter { statusMatch(it) }.flatMap { hit -> hit.roles.filter { it in USAGE_ROLES } }),
-            tally(hits.filter { roleMatch(it) }.map { it.status })
-        )
-        val remaining = filtered.filter { after == null || it.id > after }
-        val page = remaining.take(limit)
-        val nextAfter = if (remaining.size > limit) page.last().id else null
-        return OccurrencePage(rows(connection, page), nextAfter, filtered.size.toLong(), facets)
+            .filter { via == null || it.viaView == (via == UsagePath.THROUGH_VIEWS) }
+        val filtered = hits.filter { hit -> hit.roles.any { it in roleFilter } && (statuses.isNullOrEmpty() || hit.status in statuses) }
+        return hits to filtered
     }
 
     fun values(key: String): List<ValueGroup>? {

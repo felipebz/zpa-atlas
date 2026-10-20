@@ -13,6 +13,7 @@ import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.query.GroupDimension
 import com.felipebz.zpa.atlas.query.OccurrenceQuery
 import com.felipebz.zpa.atlas.query.Scope
+import com.felipebz.zpa.atlas.query.UsagePath
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.ToolJson
@@ -121,10 +122,10 @@ class McpServerTest {
         assertThat(client.serverVersion!!.name).isEqualTo("zpa-atlas")
         assertThat(client.serverVersion!!.version).matches("\\d+\\.\\d+\\.\\d+.*")
         val tools = client.listTools().tools.associateBy { it.name }
-        assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_occurrences", "find_usages", "group_occurrences", "get_source")
+        assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_occurrences", "find_usages", "group_occurrences", "group_usages", "get_source")
         assertThat(tools.mapValues { it.value.inputSchema.required.orEmpty() }).isEqualTo(mapOf(
             "search_entities" to listOf("query"), "get_entity" to listOf("key"), "find_occurrences" to emptyList(),
-            "find_usages" to listOf("key"), "group_occurrences" to listOf("group_by"), "get_source" to listOf("path", "line")
+            "find_usages" to listOf("key"), "group_occurrences" to listOf("group_by"), "group_usages" to listOf("key", "group_by"), "get_source" to listOf("path", "line")
         ))
         assertThat(tools.values).allMatch { it.annotations?.readOnlyHint == true }
         // Every enum of every schema, arrays' items included.
@@ -337,6 +338,43 @@ class McpServerTest {
     }
 
     @Test
+    fun `group_usages answers what AtlasIndex groupUsages answers, and find_usages keeps the rows via asks for`() = mcp { client ->
+        val views = setOf(Scope.SELF, Scope.VIEWS)
+        val byViewAndRoutine = listOf(GroupDimension.ENTITY, GroupDimension.CONTAINER)
+        val grouped = client.call("group_usages", args {
+            put("key", "db:HR.COMPANY"); put("include", strings("VIEWS")); put("via", "THROUGH_VIEWS"); put("group_by", strings("ENTITY", "CONTAINER"))
+        }).json()
+        assertThat(grouped).isEqualTo(JsonObject(toolAnswer(
+            index.groupUsages("db:HR.COMPANY", byViewAndRoutine, scope = views, via = UsagePath.THROUGH_VIEWS, limit = AtlasMcpTools.GROUP_DEFAULT)
+        ) + ("included" to strings("VIEWS"))))
+        // Without include, the default by kind: a package with its spec or body and its members.
+        assertThat(client.call("group_usages", args { put("key", "db:HR.PACK_PROCESS"); put("group_by", strings("ROLE")) }).json())
+            .isEqualTo(JsonObject(toolAnswer(index.groupUsages("db:HR.PACK_PROCESS", listOf(GroupDimension.ROLE),
+                scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN), limit = AtlasMcpTools.GROUP_DEFAULT)) + ("included" to strings("IMPLEMENTATIONS", "CHILDREN"))))
+        for (via in UsagePath.entries) {
+            assertThat(client.call("find_usages", args { put("key", "db:HR.COMPANY"); put("include", strings("VIEWS")); put("via", via.name) }).json())
+                .isEqualTo(JsonObject(toolAnswer(index.occurrences("db:HR.COMPANY", scope = views, via = via, limit = AtlasMcpTools.FIND_DEFAULT)) +
+                    ("included" to strings("VIEWS"))))
+        }
+    }
+
+    @Test
+    fun `group_usages refuses an unknown entity, via value, dimension or argument, and four dimensions`() = mcp { client ->
+        fun CallToolResult.error(): String {
+            assertThat(isError).describedAs(text()).isTrue()
+            return text()
+        }
+        suspend fun group(block: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit) = client.call("group_usages", args { put("key", "db:HR.COMPANY"); block() }).error()
+        assertThat(client.call("group_usages", args { put("key", "db:NO.SUCH"); put("group_by", strings("ENTITY")) }).error())
+            .isEqualTo("Unknown entity: db:NO.SUCH. Entity keys come from search_entities or from earlier answers.")
+        assertThat(group { put("group_by", strings("ENTITY")); put("via", "VIEWS") }).isEqualTo("Unknown via value: VIEWS")
+        assertThat(client.call("find_usages", args { put("key", "db:HR.COMPANY"); put("via", "SIDEWAYS") }).error()).isEqualTo("Unknown via value: SIDEWAYS")
+        assertThat(group { put("group_by", strings("COLOR")) }).isEqualTo("Unknown group_by dimension: COLOR")
+        assertThat(group { put("group_by", strings("ENTITY", "CONTAINER", "ROLE", "STATUS")) }).isEqualTo("groupBy takes one to three dimensions")
+        assertThat(group { put("group_by", strings("ENTITY")); put("after", 3) }).startsWith("Unknown argument: after. group_usages takes: key, include,")
+    }
+
+    @Test
     fun `find_usages refuses an unknown entity, include value or argument`() = mcp { client ->
         fun CallToolResult.error(): String {
             assertThat(isError).describedAs(text()).isTrue()
@@ -456,7 +494,7 @@ class McpServerTest {
             assertThat(listing.headers().firstValue("Content-Encoding")).hasValue("gzip")
             val listed = Json.parseToJsonElement(GZIPInputStream(listing.body()).readAllBytes().decodeToString())
                 .jsonObject["result"]!!.jsonObject["tools"]!!.jsonArray
-            assertThat(listed).hasSize(6)
+            assertThat(listed).hasSize(7)
             assertThat(listed.map { it.jsonObject["inputSchema"]!!.jsonObject["additionalProperties"] }).containsOnly(JsonPrimitive(false))
             val stream = http.sendAsync(
                 HttpRequest.newBuilder(url).header("Accept", "text/event-stream").header("Accept-Encoding", "gzip, deflate")

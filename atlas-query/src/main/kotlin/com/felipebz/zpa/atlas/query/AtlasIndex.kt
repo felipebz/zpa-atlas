@@ -54,13 +54,47 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTi
         scope: Set<Scope> = setOf(Scope.SELF),
         includeCandidates: Boolean = true,
         after: Long? = null,
-        limit: Int = 100
+        limit: Int = 100,
+        via: UsagePath? = null
     ): Answer<OccurrencePage?> {
         if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
+        val roleFilter = usageRoles(roles, statuses)
+        return read { connection, _ -> UsageReader(connection).occurrences(key, roleFilter, statuses, scope, includeCandidates, via, after, limit) }
+    }
+
+    /**
+     * The rows [occurrences] lists for the same arguments, grouped and counted as [groupOccurrences] groups: `ROLE`
+     * counts a row under each of its roles the role filter keeps, `ENTITY` is the matched entity (on a row through a
+     * view, the view or view column). Null when there is no such entity.
+     */
+    fun groupUsages(
+        key: String,
+        dimensions: List<GroupDimension>,
+        roles: Set<String>? = null,
+        statuses: Set<String>? = null,
+        scope: Set<Scope> = setOf(Scope.SELF),
+        includeCandidates: Boolean = true,
+        via: UsagePath? = null,
+        limit: Int = 100
+    ): Answer<GroupPage?> {
+        checkGroups(dimensions, limit)
+        val roleFilter = usageRoles(roles, statuses)
+        return read(timed = true) { connection, _ ->
+            UsageReader(connection).groupUsages(key, roleFilter, statuses, scope, includeCandidates, via, dimensions, limit)
+        }
+    }
+
+    /** The roles a usage filter keeps: [roles], else every usage role; an unknown role or status is an error. */
+    private fun usageRoles(roles: Set<String>?, statuses: Set<String>?): Set<String> {
         roles?.firstOrNull { it !in ROLES }?.let { throw InvalidQueryException("Unknown role: $it") }
         statuses?.firstOrNull { it !in STATUSES }?.let { throw InvalidQueryException("Unknown status: $it") }
-        val roleFilter = roles?.ifEmpty { null } ?: USAGE_ROLES
-        return read { connection, _ -> UsageReader(connection).occurrences(key, roleFilter, statuses, scope, includeCandidates, after, limit) }
+        return roles?.ifEmpty { null } ?: USAGE_ROLES
+    }
+
+    private fun checkGroups(dimensions: List<GroupDimension>, limit: Int) {
+        if (dimensions.size !in 1..3) throw InvalidQueryException("groupBy takes one to three dimensions")
+        if (dimensions.toSet().size != dimensions.size) throw InvalidQueryException("A groupBy dimension is repeated")
+        if (limit !in 1..1000) throw InvalidQueryException("limit must be between 1 and 1000")
     }
 
     /**
@@ -131,9 +165,7 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTi
      * through one, null for an occurrence without entity.
      */
     fun groupOccurrences(query: OccurrenceQuery, dimensions: List<GroupDimension>, limit: Int = 100): Answer<GroupPage> {
-        if (dimensions.size !in 1..3) throw InvalidQueryException("groupBy takes one to three dimensions")
-        if (dimensions.toSet().size != dimensions.size) throw InvalidQueryException("A groupBy dimension is repeated")
-        if (limit !in 1..1000) throw InvalidQueryException("limit must be between 1 and 1000")
+        checkGroups(dimensions, limit)
         validate(query)
         return read(timed = true) { connection, _ -> OccurrenceQueryReader(connection).groupOccurrences(query, dimensions, limit) }
     }

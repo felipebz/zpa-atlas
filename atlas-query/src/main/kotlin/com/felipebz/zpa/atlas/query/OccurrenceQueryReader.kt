@@ -32,8 +32,21 @@ internal class OccurrenceQueryReader(private val connection: Connection) {
     }
 
     /** [AtlasIndex.groupOccurrences] after its checks. */
-    fun groupOccurrences(query: OccurrenceQuery, dimensions: List<GroupDimension>, limit: Int): GroupPage {
-        val sql = sql(query)
+    fun groupOccurrences(query: OccurrenceQuery, dimensions: List<GroupDimension>, limit: Int): GroupPage =
+        group(sql(query), query, query.roles.ifEmpty { ROLES.toSet() }, dimensions, limit)
+
+    /**
+     * The occurrences of [hits] (`[occurrence id, matched entity id]` pairs) grouped as [groupOccurrences] groups, `ROLE`
+     * counting each occurrence under each of its roles in [roles].
+     */
+    fun groupHits(hits: List<Hit>, roles: Set<String>, dimensions: List<GroupDimension>, limit: Int): GroupPage {
+        val query = OccurrenceQuery()
+        val sql = OccurrenceQuerySql(query, null, null)
+        sql.restrictToHits(hits.joinToString(",", "[", "]") { "[${it.id},${it.matched}]" })
+        return group(sql, query, roles, dimensions, limit)
+    }
+
+    private fun group(sql: OccurrenceQuerySql, query: OccurrenceQuery, roles: Set<String>, dimensions: List<GroupDimension>, limit: Int): GroupPage {
         val joins = ArrayList<String>()
         val joinParameters = ArrayList<Any?>()
         val valueRows = GroupDimension.VALUE in dimensions
@@ -55,7 +68,7 @@ internal class OccurrenceQueryReader(private val connection: Connection) {
         }
         if (GroupDimension.ROLE in dimensions) {
             // Roles are stored as one text: an occurrence joins once each of its roles the roles filter keeps.
-            val kept = ROLES.filter { query.roles.isEmpty() || it in query.roles }
+            val kept = ROLES.filter { it in roles }
             sql.addCte("role_list(role) AS (VALUES ${kept.joinToString(", ") { "(?)" }})", kept)
             joins += "JOIN role_list rl ON instr(',' || o.roles || ',', ',' || rl.role || ',') > 0"
         }
