@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Codes } from "../src/api";
-import { codesOf, searchKinds, usageRoles } from "../src/codes";
+import { codesOf, offeredCodes, pickerCodes, searchKinds, usageRoles } from "../src/codes";
 
 const code = (name: string, reserved = false) => ({ code: name, reserved });
 
@@ -27,6 +27,24 @@ describe("codesOf", () => {
 describe("searchKinds", () => {
   it("offers the entity kinds the index produces, synonyms included, in their order", () => {
     expect(searchKinds(CODES)).toEqual(["TABLE", "COLUMN", "SYNONYM", "SEQUENCE", "UNKNOWN_RELATION"]);
+  });
+});
+
+describe("offeredCodes", () => {
+  it("leaves out the reserved codes and keeps the order", () => {
+    expect(offeredCodes(CODES.entityKinds)).toEqual(["TABLE", "COLUMN", "SYNONYM", "SEQUENCE", "UNKNOWN_RELATION"]);
+    expect(offeredCodes(CODES.unitKinds)).toEqual(["PACKAGE"]);
+    expect(offeredCodes(CODES.origins)).toEqual(["STATIC"]);
+    expect(offeredCodes(CODES.roles)).toEqual(codesOf(CODES.roles));
+  });
+});
+
+describe("pickerCodes", () => {
+  it("adds every chosen code the picker does not offer after the offered ones, once", () => {
+    expect(pickerCodes(["TABLE", "COLUMN"], [])).toEqual(["TABLE", "COLUMN"]);
+    expect(pickerCodes(["TABLE", "COLUMN"], ["COLUMN"])).toEqual(["TABLE", "COLUMN"]);
+    expect(pickerCodes(["TABLE", "COLUMN"], ["FORMS_TRIGGER", "COLUMN", "FOO"])).toEqual(["TABLE", "COLUMN", "FORMS_TRIGGER", "FOO"]);
+    expect(pickerCodes([], ["FOO"])).toEqual(["FOO"]);
   });
 });
 

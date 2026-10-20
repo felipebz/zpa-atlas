@@ -6,8 +6,8 @@ import { initI18n, t } from "./i18n";
 import { buildForm, readFilters, writeForm } from "./query-form";
 import { runGroups } from "./query-groups";
 import { runList } from "./query-list";
-import { modeBar } from "./query-mode";
-import { filtersOf, hasFilter, modeOf, paramsOf } from "./query-params";
+import { modeAhead, modeBar } from "./query-mode";
+import { filtersOf, hasFilter, modeChosen, modeOf, paramsOf } from "./query-params";
 import type { QueryParams } from "./query-params";
 import { answer, form, state } from "./query-state";
 import { setupSourceToggle } from "./uses";
@@ -28,12 +28,12 @@ function run(params: QueryParams) {
   });
 }
 
-/** Empties the answer and the URL's query; nothing runs. */
+/** Empties the answer and the URL's query; nothing runs. The bar stays, with the mode of [params]. */
 function clearAnswer(params?: QueryParams) {
   state.current = null;
-  state.opened = null;
+  state.opened = modeOf(params ?? {});
   state.generation++;
-  answer.innerHTML = "";
+  answer.innerHTML = modeAhead(state.opened);
   history.replaceState(null, "", queryHref(params ?? {}));
 }
 
@@ -50,12 +50,16 @@ function rerun(params: QueryParams) {
 answer.addEventListener("change", e => {
   if ((e.target as HTMLInputElement).name !== "view" && (e.target as HTMLInputElement).name !== "groupBy") return;
   const bar = (e.target as Element).closest(".mode")!;
-  const params = filtersOf(state.current!);
-  if (bar.querySelector<HTMLInputElement>("input[name=view]:checked")!.value === "groups") {
-    params.mode = "groups";
-    params.groupBy = [...new Set([...bar.querySelectorAll<HTMLSelectElement>("select[name=groupBy]")].map(s => s.value).filter(Boolean))].join(",");
+  const mode = modeChosen(bar.querySelector<HTMLInputElement>("input[name=view]:checked")!.value,
+    [...bar.querySelectorAll<HTMLSelectElement>("select[name=groupBy]")].map(s => s.value));
+  if (state.current) {
+    run({ ...filtersOf(state.current), ...mode });
+    return;
   }
-  run(params);
+  // No answer: the choice is the mode of the next Run, and the URL follows it; nothing runs.
+  state.opened = mode;
+  answer.innerHTML = modeAhead(mode);
+  history.replaceState(null, "", queryHref({ ...filtersOf(paramsOf(location.search)), ...mode }));
 });
 
 // A facet chip adds its value to the filter, or takes it out.
@@ -103,9 +107,13 @@ document.getElementById("reset")!.addEventListener("click", e => {
   state.opened = initial;
   writeForm(initial);
   if (failure !== null) {
-    answer.innerHTML = `<div class="card"><p class="muted">${esc(t("error.message", { error: failure }))}</p></div>`;
+    // Without dimensions the bar offers the list only, and the next Run is a list.
+    state.opened = {};
+    answer.innerHTML = modeAhead(initial) + `<div class="card"><p class="muted">${esc(t("error.message", { error: failure }))}</p></div>`;
     return;
   }
-  // A URL with filters runs; one without (or with only the mode) never runs the whole index by itself.
+  // A URL with filters runs; one without (or with only the mode) never runs the whole index by itself, and shows the
+  // mode the next Run uses.
   if (hasFilter(initial)) run(initial);
+  else answer.innerHTML = modeAhead(initial);
 })();

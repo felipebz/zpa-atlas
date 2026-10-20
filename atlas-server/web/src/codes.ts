@@ -22,5 +22,14 @@ export const codesOf = (list: Code[]) => list.map(c => c.code);
 /** The entity kinds the search page offers: those the index produces, not the reserved ones. */
 export const searchKinds = (codes: Codes) => codes.entityKinds.filter(c => !c.reserved).map(c => c.code);
 
+/** The codes a picker offers: those the index produces, not the reserved ones. */
+export const offeredCodes = (list: Code[]) => list.filter(c => !c.reserved).map(c => c.code);
+
+/**
+ * The options of a picker: the [offered] codes, then every [chosen] one it does not offer (a reserved or unknown code
+ * from the URL), so the form still shows and runs the whole query.
+ */
+export const pickerCodes = (offered: string[], chosen: string[]) => [...offered, ...chosen.filter(c => !offered.includes(c))];
+
 /** The roles "who uses" lists by default: every role but where the entity is defined or declared. */
 export const usageRoles = (codes: Codes) => codesOf(codes.roles).filter(r => r !== "DEFINITION" && r !== "DECLARATION");

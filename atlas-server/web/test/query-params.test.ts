@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filtersOf, hasFilter, modeOf, moreSet, paramsOf } from "../src/query-params";
+import { filtersOf, hasFilter, modeChosen, modeOf, moreSet, paramsOf } from "../src/query-params";
 
 // The expected values are what the code returns today.
 
@@ -36,6 +36,16 @@ describe("modeOf", () => {
     expect(modeOf(paramsOf("?groupBy=ROLE"))).toEqual({});
     expect(modeOf(paramsOf("?name=company"))).toEqual({});
     expect(modeOf(null)).toEqual({});
+  });
+});
+
+describe("modeChosen", () => {
+  it("groups by the chosen dimensions, repeats and empty selects left out, and is a list without any", () => {
+    expect(modeChosen("groups", ["ROLE", "", ""])).toEqual({ mode: "groups", groupBy: "ROLE" });
+    expect(modeChosen("groups", ["ROLE", "STATUS", "ROLE"])).toEqual({ mode: "groups", groupBy: "ROLE,STATUS" });
+    expect(modeChosen("", ["ROLE", "STATUS", ""])).toEqual({});
+    expect(modeChosen("groups", [])).toEqual({});
+    expect(modeChosen("groups", ["", ""])).toEqual({});
   });
 });
 

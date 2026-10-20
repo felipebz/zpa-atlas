@@ -25,6 +25,15 @@ export function modeOf(params: QueryParams | null): QueryParams {
 }
 
 /**
+ * The mode the bar sets: groups by its [dimensions] (repeats and empty selects left out), or a list. Without any
+ * dimension it is a list, so the page never asks for groups with an empty `groupBy`.
+ */
+export function modeChosen(view: string, dimensions: string[]): QueryParams {
+  const groupBy = [...new Set(dimensions.filter(Boolean))].join(",");
+  return view === "groups" && groupBy ? { mode: "groups", groupBy } : {};
+}
+
+/**
  * The query of the page's [search] string: every parameter but `lang` and those with an empty value (an empty value
  * is no filter), and `groupBy` `ENTITY` for groups without dimensions.
  */

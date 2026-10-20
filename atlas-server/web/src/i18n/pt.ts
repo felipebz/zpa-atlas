@@ -177,6 +177,7 @@ export default {
   "query.facet.more": "mostrar o resto",
   "query.mode.list": "Lista",
   "query.mode.groups": "Agrupar por",
+  "query.mode.next": "A próxima execução usa este modo.",
   "query.none": "(nenhum)",
   "query.run": "Executar",
   "query.reset": "Limpar",

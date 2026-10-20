@@ -12,7 +12,7 @@ export const field = (name: string) => form.elements.namedItem(name) as HTMLInpu
 interface PageState {
   /** The query that ran last, as page parameters; null before the first run. */
   current: QueryParams | null;
-  /** The query the URL opened with, until an answer is cleared: the first Run takes its mode when nothing ran. */
+  /** While no answer is shown, the mode the next Run uses: the URL's at first, then the one chosen on the bar. */
   opened: QueryParams | null;
   /** Only the latest run fills the answer. */
   generation: number;

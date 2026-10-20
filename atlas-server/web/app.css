@@ -152,6 +152,11 @@ ul.suggestions li.active, ul.suggestions li[data-index]:hover { background: var(
 }
 #answer { margin-top: var(--gap); }
 #answer .mode { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-bottom: 10px; }
+/* The bar before anything runs: a dashed outline, not an answer card, with the hint that it sets the next Run. */
+#answer .mode-ahead { border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 8px 12px; }
+#answer .mode-ahead .mode { margin-bottom: 4px; }
+#answer .mode-ahead p { margin: 0; font-size: 12px; }
+#answer .mode-ahead + .card { margin-top: var(--gap); }
 .facet { margin: 2px 0; }
 button.chip.more { font: inherit; font-size: 12px; }
 td.num, th.num { text-align: right; white-space: nowrap; width: 1%; }

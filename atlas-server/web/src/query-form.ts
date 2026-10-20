@@ -1,5 +1,5 @@
 import type { Codes } from "./api";
-import { codesOf } from "./codes";
+import { codesOf, offeredCodes, pickerCodes } from "./codes";
 import { kindLabel, roleLabel } from "./entity-html";
 import { esc } from "./html";
 import { t } from "./i18n";
@@ -20,12 +20,16 @@ export const labelOf = (filter: string) => PICKS[filter]?.[1] ?? code;
 
 // ---- the form ---------------------------------------------------------------------------------------------------------
 
-/** Fills the pickers with [codes] and sets up the form's fields. */
+/** One option of a picker; [extra] marks a code the picker shows only because the query has it. */
+function optionHtml(code: string, label: (code: string) => string, extra: boolean) {
+  return `<label class="check"${extra ? " data-extra" : ""}><input type="checkbox" value="${esc(code)}"> ${esc(label(code))}</label>`;
+}
+
+/** Fills the pickers with the codes the index produces and sets up the form's fields. */
 export function buildForm(codes: Codes) {
   for (const pick of form.querySelectorAll<HTMLElement>("details.pick")) {
     const [list, label] = PICKS[pick.dataset.name!];
-    pick.querySelector(".opts")!.innerHTML = codesOf(codes[list]).map(c =>
-      `<label class="check"><input type="checkbox" value="${esc(c)}"> ${esc(label(c))}</label>`).join("");
+    pick.querySelector(".opts")!.innerHTML = offeredCodes(codes[list]).map(c => optionHtml(c, label, false)).join("");
   }
   field("valueKind").insertAdjacentHTML("beforeend", codesOf(codes.valueKinds).map(k => `<option value="${k}">${esc(k)}</option>`).join(""));
   form.querySelectorAll<HTMLElement>(".suggest").forEach(setupSuggest);
@@ -95,6 +99,11 @@ export function writeForm(params: QueryParams) {
   for (const name of TEXTS) field(name).value = params[name] ?? "";
   for (const pick of form.querySelectorAll<HTMLElement>("details.pick")) {
     const chosen = new Set((params[pick.dataset.name!] ?? "").split(",").filter(Boolean));
+    // A code the picker does not offer (reserved, or unknown) is added after the others, so the form keeps it.
+    const opts = pick.querySelector(".opts")!;
+    opts.querySelectorAll("label[data-extra]").forEach(extra => extra.remove());
+    const offered = [...opts.querySelectorAll<HTMLInputElement>("input")].map(i => i.value);
+    for (const code of pickerCodes(offered, [...chosen]).slice(offered.length)) opts.insertAdjacentHTML("beforeend", optionHtml(code, labelOf(pick.dataset.name!), true));
     for (const input of pick.querySelectorAll<HTMLInputElement>("input")) input.checked = chosen.has(input.value);
     pickSummary(pick);
   }

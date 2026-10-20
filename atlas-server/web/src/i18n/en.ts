@@ -177,6 +177,7 @@ export default {
   "query.facet.more": "show the rest",
   "query.mode.list": "List",
   "query.mode.groups": "Group by",
+  "query.mode.next": "The next Run uses this mode.",
   "query.none": "(none)",
   "query.run": "Run",
   "query.reset": "Clear",
