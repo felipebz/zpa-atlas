@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filtersOf, hasFilter, moreSet } from "../src/query-params";
+import { filtersOf, hasFilter, moreSet, paramsOf } from "../src/query-params";
 
 // The expected values are what the code returns today.
 
@@ -17,6 +17,30 @@ describe("hasFilter", () => {
     expect(hasFilter({ mode: "groups", groupBy: "ENTITY" })).toBe(false);
     expect(hasFilter({ roles: "WRITE" })).toBe(true);
     expect(hasFilter({ value: "" })).toBe(true);
+  });
+
+  it("is false for the modifiers alone, which only narrow another filter", () => {
+    for (const search of ["?roles=", "?mode=groups", "?lang=pt", "?inside=true", "?candidates=false", "?containerInside=false", "?entity=&inside=true"]) {
+      expect(hasFilter(paramsOf(search)), search).toBe(false);
+    }
+    for (const search of ["?roles=WRITE", "?entity=db:HR.COMPANY&inside=true", "?containerName=PACK_PROCESS&containerInside=false", "?value=%20"]) {
+      expect(hasFilter(paramsOf(search)), search).toBe(true);
+    }
+  });
+});
+
+describe("paramsOf", () => {
+  it("reads the page's query without the language, empty values left out, and groups by entity by default", () => {
+    expect(paramsOf("?roles=")).toEqual({});
+    expect(paramsOf("?path=&roles=WRITE")).toEqual({ roles: "WRITE" });
+    expect(paramsOf("?lang=pt")).toEqual({});
+    expect(paramsOf("?lang=pt&roles=WRITE")).toEqual({ roles: "WRITE" });
+    expect(paramsOf("?mode=groups")).toEqual({ mode: "groups", groupBy: "ENTITY" });
+    expect(paramsOf("?mode=groups&groupBy=")).toEqual({ mode: "groups", groupBy: "ENTITY" });
+    expect(paramsOf("?mode=groups&groupBy=ROLE,STATUS")).toEqual({ mode: "groups", groupBy: "ROLE,STATUS" });
+    // A space is a value: readFilters keeps `value` untrimmed.
+    expect(paramsOf("?value=%20")).toEqual({ value: " " });
+    expect(paramsOf("")).toEqual({});
   });
 });
 

@@ -6,7 +6,7 @@ import { buildForm, readFilters, writeForm } from "./query-form";
 import { runGroups } from "./query-groups";
 import { runList } from "./query-list";
 import { modeBar } from "./query-mode";
-import { filtersOf, hasFilter } from "./query-params";
+import { filtersOf, hasFilter, paramsOf } from "./query-params";
 import type { QueryParams } from "./query-params";
 import { answer, form, state } from "./query-state";
 import { setupSourceToggle } from "./uses";
@@ -94,9 +94,7 @@ document.getElementById("reset")!.addEventListener("click", e => {
   await initI18n();
   buildForm();
   showBanner();
-  const initial = Object.fromEntries(new URLSearchParams(location.search));
-  delete initial.lang;
-  if (initial.mode === "groups" && !initial.groupBy) initial.groupBy = "ENTITY";
+  const initial = paramsOf(location.search);
   writeForm(initial);
   // A URL with filters runs; one without (or with only the mode) never runs the whole index by itself.
   if (hasFilter(initial)) run(initial);

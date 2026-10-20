@@ -13,5 +13,19 @@ export function filtersOf(params: QueryParams) {
   return filters;
 }
 
-/** The filters [params] sets: none means the whole index. */
-export const hasFilter = (params: QueryParams) => Object.keys(filtersOf(params)).length > 0;
+/** What only modifies another filter: `inside` an entity, `containerInside` a container, `candidates` the entity filters. */
+const MODIFIERS = ["inside", "containerInside", "candidates"];
+
+/** Whether [params] narrows the query: a modifier alone does not, so it leaves the whole index. */
+export const hasFilter = (params: QueryParams) => Object.keys(filtersOf(params)).some(name => !MODIFIERS.includes(name));
+
+/**
+ * The query of the page's [search] string: every parameter but `lang` and those with an empty value (an empty value
+ * is no filter), and `groupBy` `ENTITY` for groups without dimensions.
+ */
+export function paramsOf(search: string): QueryParams {
+  const params: QueryParams = {};
+  for (const [name, value] of new URLSearchParams(search)) if (value !== "" && name !== "lang") params[name] = value;
+  if (params.mode === "groups" && !params.groupBy) params.groupBy = "ENTITY";
+  return params;
+}
