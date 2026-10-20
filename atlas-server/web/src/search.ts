@@ -1,19 +1,32 @@
-"use strict";
+import {
+  api, Count, displayParts, entityHref, entityLink, EntityRef, errorMessage, esc, getOrPut, initI18n, kindLabel, parentKeyOf, qualifierHtml,
+  RunSummary, showBanner, t
+} from "./common";
 
 // The entity kinds the index produces: the stored codes, shown through the catalog.
 const KINDS = ["TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "COLUMN", "SEQUENCE", "TRIGGER", "PACKAGE", "PROCEDURE", "FUNCTION", "PARAMETER",
   "TYPE", "RECORD_FIELD", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "EXCEPTION", "CURSOR", "UNKNOWN_RELATION"];
 const LIMIT = 200;
 
-const kindSelect = document.getElementById("kind");
-let runSummary = null;
+const kindSelect = document.getElementById("kind") as HTMLSelectElement;
+let runSummary: Promise<RunSummary | null> | null = null;
+
+interface SearchHit extends EntityRef {
+  usages: number;
+}
+
+interface HitGroup {
+  spec: SearchHit | null;
+  body: SearchHit | null;
+  usages: number;
+}
 
 /** The hits in order, a spec and its body as one group whose uses are the sum of both. */
-function groupHits(hits) {
-  const groups = new Map();
+function groupHits(hits: SearchHit[]) {
+  const groups = new Map<string, HitGroup>();
   for (const h of hits) {
     const parent = parentKeyOf(h.key);
-    const group = groups.get(parent) ?? groups.set(parent, { spec: null, body: null, usages: 0 }).get(parent);
+    const group = getOrPut(groups, parent, () => ({ spec: null, body: null, usages: 0 }));
     if (h.key === parent) group.spec = h;
     else group.body = h;
     group.usages += h.usages;
@@ -22,8 +35,8 @@ function groupHits(hits) {
 }
 
 /** A hit as two lines: its name, kind and uses, then the program it is in. */
-function hitRow(group) {
-  const h = group.spec ?? group.body;
+function hitRow(group: HitGroup) {
+  const h = (group.spec ?? group.body)!;
   const body = group.body ? ` <a class="badge" href="${entityHref(group.body.key)}">${esc(t("entity.overload.body"))}</a>` : "";
   const parts = displayParts(h.display, h.name);
   const container = parts.shortQualifier.replace(/\.$/, "");
@@ -38,35 +51,35 @@ function hitRow(group) {
   </li>`;
 }
 
-async function home(results) {
+async function home(results: HTMLElement) {
   const run = await runSummary;
-  const sum = list => list.reduce((n, c) => n + c.count, 0);
+  const sum = (list: Count[]) => list.reduce((n, c) => n + c.count, 0);
   results.innerHTML = `<div class="card">` +
     (run ? `<p>${esc(t("home.files", { count: sum(run.filesByParseStatus) }))} · ${esc(t("home.occurrences", { count: sum(run.occurrencesByStatus) }))}</p>` : "") +
     `<p class="muted">${esc(t("home.tips"))}</p></div>`;
 }
 
 async function search() {
-  const q = document.getElementById("q").value.trim();
-  const results = document.getElementById("results");
+  const q = (document.getElementById("q") as HTMLInputElement).value.trim();
+  const results = document.getElementById("results")!;
   if (!q) { await home(results); return; }
-  const external = document.getElementById("external").checked;
-  const params = new URLSearchParams({ q, kind: kindSelect.value, external });
+  const external = (document.getElementById("external") as HTMLInputElement).checked;
+  const params = new URLSearchParams({ q, kind: kindSelect.value, external: String(external) });
   const lang = new URLSearchParams(location.search).get("lang");
   if (lang) params.set("lang", lang);
   history.replaceState(null, "", "?" + params);
   try {
-    const answer = await api("api/entities", { q, kind: kindSelect.value, external, limit: LIMIT });
+    const answer = await api<{ result: SearchHit[] }>("api/entities", { q, kind: kindSelect.value, external, limit: LIMIT });
     const hits = answer.result;
     results.innerHTML = hits.length === 0 ? `<p class="muted">${esc(t("search.empty"))}</p>` :
       `<ol class="hits">${groupHits(hits).map(hitRow).join("")}</ol>` +
       (hits.length === LIMIT ? `<p class="muted">${esc(t("search.limited", { count: LIMIT }))}</p>` : "");
   } catch (e) {
-    results.innerHTML = `<p class="muted">${esc(t("error.message", { error: e.message }))}</p>`;
+    results.innerHTML = `<p class="muted">${esc(t("error.message", { error: errorMessage(e) }))}</p>`;
   }
 }
 
-document.getElementById("search").addEventListener("submit", e => { e.preventDefault(); search(); });
+document.getElementById("search")!.addEventListener("submit", e => { e.preventDefault(); search(); });
 
 (async () => {
   await initI18n();
@@ -74,9 +87,9 @@ document.getElementById("search").addEventListener("submit", e => { e.preventDef
   runSummary = showBanner();
   const initial = new URLSearchParams(location.search);
   if (initial.get("q")) {
-    document.getElementById("q").value = initial.get("q");
+    (document.getElementById("q") as HTMLInputElement).value = initial.get("q")!;
     kindSelect.value = initial.get("kind") || "";
-    document.getElementById("external").checked = initial.get("external") !== "false";
+    (document.getElementById("external") as HTMLInputElement).checked = initial.get("external") !== "false";
   }
   search();
 })();

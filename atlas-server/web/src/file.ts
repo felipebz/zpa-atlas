@@ -1,4 +1,4 @@
-"use strict";
+import { api, EntityRef, errorMessage, getOrPut, initI18n, kindLabel, langSuffix, nameNodes, roleLabel, showBanner, t } from "./common";
 
 // The whole of an indexed file; every indexed name is clickable and opens a popover with its entity, status,
 // definitions and who uses it. File text only ever enters the DOM as text nodes.
@@ -7,16 +7,42 @@ const params = new URLSearchParams(location.search);
 const path = params.get("path");
 const wantedLine = Number(params.get("line")) || null;
 const LINKED_STATUSES = new Set(["RESOLVED"]);
-let view = null;
-const details = new Map();
 
-/** The entity detail of [key], fetched once. */
-function detail(key) {
-  if (!details.has(key)) details.set(key, api("api/entity", { key }).then(a => a.result));
-  return details.get(key);
+/** A name span of the file, with what the index knows about it; `entity` and `candidates` index [FileView.entities]. */
+interface FileOccurrence {
+  at: [number, number, number, number];
+  roles: string[];
+  status: string;
+  reason: string | null;
+  entity: number | null;
+  candidates: number[];
 }
 
-function el(tag, className, text) {
+interface FileView {
+  lines: string[];
+  occurrences: FileOccurrence[];
+  entities: EntityRef[];
+  stale: boolean;
+}
+
+/** What the popover reads of an entity page. */
+interface EntityPage {
+  relations: { kind: string; entity: EntityRef }[];
+  definitions: { path: string; span: { startLine: number }; roles: string[] }[];
+}
+
+/** The pieces of a line covered by name spans: from, to (columns) and the occurrences that cover them. */
+type Piece = [number, number, number[]];
+
+let view!: FileView;
+const details = new Map<string, Promise<EntityPage>>();
+
+/** The entity detail of [key], fetched once. */
+function detail(key: string) {
+  return getOrPut(details, key, () => api<{ result: EntityPage }>("api/entity", { key }).then(a => a.result));
+}
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string | null, text?: string | null) {
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined && text !== null) node.textContent = text;
@@ -24,26 +50,26 @@ function el(tag, className, text) {
 }
 
 /** Whether an occurrence leads somewhere: an entity or ambiguous candidates. */
-const linkable = o => o.entity !== null || o.candidates.length > 0;
+const linkable = (o: FileOccurrence) => o.entity !== null || o.candidates.length > 0;
 
 /**
  * Pieces of every line covered by name spans: a span over several lines is cut per line, then each line is split at
  * every span edge, and each piece lists the occurrences that cover it (a qualified read covers a column definition).
  */
-function piecesByLine(lines, occurrences) {
-  const cuts = new Map();
+function piecesByLine(lines: string[], occurrences: FileOccurrence[]) {
+  const cuts = new Map<number, [number, number, number][]>();
   occurrences.forEach((o, index) => {
     const [startLine, startCol, endLine, endCol] = o.at;
     for (let line = startLine; line <= endLine && line <= lines.length; line++) {
       const from = line === startLine ? startCol : 0;
       const to = line === endLine ? endCol : lines[line - 1].length;
-      if (to > from) (cuts.get(line) ?? cuts.set(line, []).get(line)).push([from, to, index]);
+      if (to > from) getOrPut(cuts, line, () => []).push([from, to, index]);
     }
   });
-  const result = new Map();
+  const result = new Map<number, Piece[]>();
   for (const [line, list] of cuts) {
     const edges = [...new Set(list.flatMap(c => [c[0], c[1]]))].sort((a, b) => a - b);
-    const pieces = [];
+    const pieces: Piece[] = [];
     for (let i = 0; i + 1 < edges.length; i++) {
       const covering = list.filter(c => c[0] <= edges[i] && c[1] >= edges[i + 1]).map(c => c[2]);
       if (covering.length) pieces.push([edges[i], edges[i + 1], covering]);
@@ -54,13 +80,13 @@ function piecesByLine(lines, occurrences) {
 }
 
 /** One piece's class: a link, a quiet link when none of its linked occurrences is RESOLVED, else only a marker. */
-function pieceClass(covering) {
+function pieceClass(covering: number[]) {
   const linked = covering.map(i => view.occurrences[i]).filter(linkable);
   if (linked.length === 0) return "occ none";
   return linked.some(o => LINKED_STATUSES.has(o.status)) ? "occ link" : "occ link quiet";
 }
 
-function renderLine(number, text, pieces) {
+function renderLine(number: number, text: string, pieces: Piece[] | undefined) {
   const row = el("div", "ln");
   row.id = "L" + number;
   const anchor = el("a", "num", String(number));
@@ -83,9 +109,9 @@ function renderLine(number, text, pieces) {
 // Lines go in blocks the browser may skip laying out while they are off screen (content-visibility).
 const BLOCK = 200;
 
-function renderFile(lines, occurrences) {
+function renderFile(lines: string[], occurrences: FileOccurrence[]) {
   const pieces = piecesByLine(lines, occurrences);
-  const target = document.getElementById("file");
+  const target = document.getElementById("file")!;
   const pre = el("div", "file-src mono");
   for (let start = 0; start < lines.length; start += BLOCK) {
     const block = el("div", "block");
@@ -96,7 +122,7 @@ function renderFile(lines, occurrences) {
   target.replaceChildren(pre);
 }
 
-function highlight(line) {
+function highlight(line: number) {
   document.querySelectorAll(".ln.hl").forEach(n => n.classList.remove("hl"));
   const row = document.getElementById("L" + line);
   if (!row) return;
@@ -106,11 +132,11 @@ function highlight(line) {
 
 // ---- popover ------------------------------------------------------------------------------------------------------
 
-function fileHref(target, line) {
+function fileHref(target: string, line: number) {
   return `file.html?path=${encodeURIComponent(target)}&line=${line}${langSuffix()}`;
 }
 
-function entityHeader(entity) {
+function entityHeader(entity: EntityRef) {
   const head = el("div", "entity");
   head.appendChild(el("span", "badge", kindLabel(entity.kind)));
   const name = el("b");
@@ -121,7 +147,7 @@ function entityHeader(entity) {
 }
 
 /** The definitions of [entity] and of its IMPLEMENTS partner (a spec and a body give two links), loaded on demand. */
-async function definitionLinks(entity, target) {
+async function definitionLinks(entity: EntityRef, target: HTMLElement) {
   target.replaceChildren(el("span", "muted", t("popover.loading")));
   try {
     const own = await detail(entity.key);
@@ -141,12 +167,12 @@ async function definitionLinks(entity, target) {
     }
     target.replaceChildren(list);
   } catch (e) {
-    target.replaceChildren(el("span", "muted", t("error.message", { error: e.message })));
+    target.replaceChildren(el("span", "muted", t("error.message", { error: errorMessage(e) })));
   }
 }
 
 /** An entity with its two ways out: its definitions and who uses it. */
-function entityBlock(entity) {
+function entityBlock(entity: EntityRef) {
   const block = el("div", "target");
   block.appendChild(entityHeader(entity));
   const definitions = el("div", "definitions");
@@ -159,7 +185,7 @@ function entityBlock(entity) {
   return block;
 }
 
-function occurrenceBlock(o) {
+function occurrenceBlock(o: FileOccurrence) {
   const block = el("div", "occurrence");
   const status = el("div");
   status.appendChild(el("span", "badge st-" + o.status, o.reason && o.reason !== o.status ? `${o.status} · ${o.reason}` : o.status));
@@ -176,9 +202,9 @@ function occurrenceBlock(o) {
   return block;
 }
 
-function openPopover(piece) {
-  const popover = document.getElementById("popover");
-  const occurrences = piece.dataset.o.split(",").map(Number).map(i => view.occurrences[i]);
+function openPopover(piece: HTMLElement) {
+  const popover = document.getElementById("popover")!;
+  const occurrences = piece.dataset.o!.split(",").map(Number).map(i => view.occurrences[i]);
   popover.replaceChildren(...occurrences.map(occurrenceBlock));
   popover.hidden = false;
   const box = piece.getBoundingClientRect();
@@ -187,13 +213,13 @@ function openPopover(piece) {
 }
 
 function closePopover() {
-  document.getElementById("popover").hidden = true;
+  document.getElementById("popover")!.hidden = true;
 }
 
 document.addEventListener("click", e => {
-  const piece = e.target.closest(".occ");
+  const piece = (e.target as Element).closest<HTMLElement>(".occ");
   if (piece) { openPopover(piece); return; }
-  if (!e.target.closest("#popover")) closePopover();
+  if (!(e.target as Element).closest("#popover")) closePopover();
 });
 document.addEventListener("keydown", e => { if (e.key === "Escape") closePopover(); });
 window.addEventListener("hashchange", () => {
@@ -204,19 +230,19 @@ window.addEventListener("hashchange", () => {
 (async () => {
   await initI18n();
   showBanner();
-  const header = document.getElementById("header");
+  const header = document.getElementById("header")!;
   if (!path) { header.textContent = t("file.missingPath"); return; }
   document.title = t("page.file.titleWith", { path });
   try {
-    view = (await api("api/file", { path })).result;
+    view = (await api<{ result: FileView }>("api/file", { path })).result;
   } catch (e) {
-    header.textContent = t("source.unavailable", { error: e.message });
+    header.textContent = t("source.unavailable", { error: errorMessage(e) });
     return;
   }
   header.replaceChildren(el("h1", "mono", path),
     el("p", "muted", `${t("file.lines", { count: view.lines.length })} · ${t("file.occurrences", { count: view.occurrences.length })}`));
   if (view.stale) {
-    const stale = document.getElementById("stale");
+    const stale = document.getElementById("stale")!;
     stale.textContent = t("source.stale");
     stale.hidden = false;
   }

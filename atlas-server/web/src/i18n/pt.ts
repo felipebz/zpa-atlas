@@ -1,7 +1,6 @@
-"use strict";
+import type { Catalog } from "../common";
 
-// Mensagens em português (Brasil). Mesmas chaves de en.js; chaves ausentes caem para o inglês.
-registerMessages("pt", {
+export default {
   "page.search.title": "Atlas",
   "page.entity.title": "Atlas · entidade",
   "page.entity.titleWith": "{name} · Atlas",
@@ -214,4 +213,4 @@ registerMessages("pt", {
   "popover.noEntity": "Não resolvido para uma entidade.",
   "source.unavailable": "Fonte indisponível ({error})",
   "error.message": "Erro: {error}"
-});
+} satisfies Catalog;

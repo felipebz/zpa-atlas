@@ -1,9 +1,6 @@
-"use strict";
+import type { Catalog } from "../common";
 
-// English messages. A translation is one file like this one, registered in LOCALES in common.js.
-// Values are plain text, never HTML; {name} is a placeholder; an object holds one message per plural category,
-// and optionally exact forms such as "=0".
-registerMessages("en", {
+export default {
   "page.search.title": "Atlas",
   "page.entity.title": "Atlas · entity",
   "page.entity.titleWith": "{name} · Atlas",
@@ -216,4 +213,4 @@ registerMessages("en", {
   "popover.noEntity": "Not resolved to an entity.",
   "source.unavailable": "Source unavailable ({error})",
   "error.message": "Error: {error}"
-});
+} satisfies Catalog;

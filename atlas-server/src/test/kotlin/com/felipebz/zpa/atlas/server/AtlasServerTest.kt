@@ -14,6 +14,7 @@ import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
@@ -194,22 +195,38 @@ class AtlasServerTest {
         assertThat(client.get("/api/file") { parameter("path", "hr/proc_standalone.prc") }.status).isEqualTo(HttpStatusCode.NotFound)
     }
 
+    private fun references(html: String) = Regex("""(?:src|href)="\./(assets/[^"]+)"""").findAll(html).map { "/" + it.groupValues[1] }.toList()
+
     @Test
-    fun `the English message catalog is served`() = api {
-        val response = client.get("/i18n/en.js")
-        assertThat(response.status).isEqualTo(HttpStatusCode.OK)
-        assertThat(response.bodyAsText()).contains("registerMessages(\"en\"", "\"usage.title\": \"Used by\"")
-        val pt = client.get("/i18n/pt.js")
-        assertThat(pt.status).isEqualTo(HttpStatusCode.OK)
-        assertThat(pt.bodyAsText()).contains("registerMessages(\"pt\"", "\"usage.title\": \"Quem usa\"")
+    fun `the web pages are served with every script and stylesheet they reference`() = api {
+        for (page in listOf("/", "/entity.html", "/file.html", "/query.html")) {
+            val response = client.get(page)
+            assertThat(response.status).describedAs(page).isEqualTo(HttpStatusCode.OK)
+            val assets = references(response.bodyAsText())
+            assertThat(assets).describedAs("what $page references").anyMatch { it.endsWith(".js") }.anyMatch { it.endsWith(".css") }
+            for (asset in assets) {
+                val served = client.get(asset)
+                assertThat(served.status).describedAs(asset).isEqualTo(HttpStatusCode.OK)
+                assertThat(served.contentType().toString()).describedAs(asset)
+                    .matches(if (asset.endsWith(".js")) "(text|application)/javascript.*" else "text/css.*")
+            }
+        }
+        assertThat(client.get("/").bodyAsText()).contains("zpa-atlas")
     }
 
     @Test
-    fun `the web pages are served`() = api {
-        for (path in listOf("/", "/entity.html", "/file.html", "/query.html", "/app.css", "/common.js", "/entity.js", "/file.js", "/query.js", "/search.js")) {
-            val response = client.get(path)
-            assertThat(response.status).describedAs(path).isEqualTo(HttpStatusCode.OK)
+    fun `the English and the Portuguese text reach the browser`() = api {
+        val pending = ArrayDeque(listOf("/", "/entity.html", "/file.html", "/query.html")
+            .flatMap { references(client.get(it).bodyAsText()) }.filter { it.endsWith(".js") })
+        val scripts = LinkedHashMap<String, String>()
+        while (pending.isNotEmpty()) {
+            val path = pending.removeFirst()
+            if (path in scripts) continue
+            val body = client.get(path).bodyAsText()
+            scripts[path] = body
+            Regex("""\./([\w.-]+\.js)""").findAll(body).forEach { pending += "/assets/" + it.groupValues[1] }
         }
-        assertThat(client.get("/").bodyAsText()).contains("zpa-atlas")
+        assertThat(scripts.filterValues { "Used by" in it }).describedAs("scripts holding the English text").isNotEmpty
+        assertThat(scripts.filterValues { "Quem usa" in it }).describedAs("scripts holding the Portuguese text").isNotEmpty
     }
 }
