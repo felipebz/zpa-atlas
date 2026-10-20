@@ -50,3 +50,29 @@ object CcFlags {
         return if (version == null || release == null) text else "$version.$release"
     }
 }
+
+/**
+ * The index's settings against the database's for [units] (sorted): flags compare as parsed by [CcFlags.parse], so
+ * order, spacing and case do not count, and no flags (null or blank) equals no flags.
+ */
+internal fun conditionalCompilation(
+    database: DatabaseDependencies, indexVersion: String?, indexOrigin: String?, indexFlags: String?, units: List<DbObjectId>
+): ConditionalCompilationCheck {
+    val settings = database.ccflags.associateBy { DbObjectId(it.owner, it.name, it.type) }
+    val expected = CcFlags.parse(indexFlags)
+    var same = 0
+    var without = 0
+    val different = ArrayList<Pair<DbObjectId, String?>>()
+    if (database.ccflagsReadable) {
+        for (unit in units) {
+            val row = settings[unit]
+            when {
+                row == null -> without++
+                expected != null && CcFlags.parse(row.ccflags) == expected -> same++
+                else -> different += unit to row.ccflags
+            }
+        }
+    }
+    return ConditionalCompilationCheck(indexVersion, indexOrigin, indexFlags, database.databaseVersion, database.databaseVersionOrigin,
+        database.ccflagsReadable, same, different, without)
+}
