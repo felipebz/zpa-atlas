@@ -1,4 +1,3 @@
-import { DIMENSIONS } from "./codes";
 import { esc } from "./html";
 import { t } from "./i18n";
 import type { QueryParams } from "./query-params";
@@ -12,7 +11,7 @@ export function modeBar(params: QueryParams) {
   const chosen = (params.groupBy || state.lastGroupBy).split(",");
   const selects = [0, 1, 2].map(i => `<select name="groupBy" aria-label="${esc(t("query.mode.groups"))}">` +
     (i === 0 ? "" : `<option value="">${esc(t("query.none"))}</option>`) +
-    DIMENSIONS.map(d => `<option value="${d}" ${chosen[i] === d ? "selected" : ""}>${esc(t("query.dimension." + d))}</option>`).join("") +
+    state.dimensions.map(d => `<option value="${d}" ${chosen[i] === d ? "selected" : ""}>${esc(t("query.dimension." + d))}</option>`).join("") +
     `</select>`).join(" ");
   return `<div class="mode">
     <label class="check"><input type="radio" name="view" value="" ${grouped ? "" : "checked"}> ${esc(t("query.mode.list"))}</label>

@@ -40,4 +40,30 @@ internal val ENTITY_KINDS = listOf(
     "FORMS_PROGRAM_UNIT", "FORMS_LIBRARY", "UNKNOWN_RELATION"
 )
 
+/** The codes only a later phase of the indexer produces; the other code lists have none. */
+internal val RESERVED_ENTITY_KINDS = setOf(
+    "SCHEMA", "LOCAL_VARIABLE", "LOCAL_CONSTANT", "LABEL", "FORMS_MODULE", "FORMS_BLOCK", "FORMS_ITEM", "FORMS_TRIGGER",
+    "FORMS_PROGRAM_UNIT", "FORMS_LIBRARY"
+)
+internal val RESERVED_UNIT_KINDS = setOf("FORMS_TRIGGER", "FORMS_PROGRAM_UNIT")
+internal val RESERVED_ORIGINS = setOf("FORMS_IMPLICIT", "HEURISTIC")
+
+/**
+ * Every code list, as `GET /api/codes` serves it. The codes do not depend on an index, so the endpoint opens none: it
+ * answers while the index is unavailable, and without the `Answer` envelope and its run stamp.
+ */
+fun indexCodes(): Codes {
+    fun codes(names: List<String>, reserved: Set<String> = emptySet()) = names.map { Code(it, it in reserved) }
+    return Codes(
+        roles = codes(ROLES),
+        statuses = codes(STATUSES),
+        entityKinds = codes(ENTITY_KINDS, RESERVED_ENTITY_KINDS),
+        unitKinds = codes(UNIT_KINDS, RESERVED_UNIT_KINDS),
+        origins = codes(ORIGINS, RESERVED_ORIGINS),
+        statementKinds = codes(STATEMENT_KINDS),
+        valueKinds = codes(VALUE_KINDS),
+        groupDimensions = codes(GroupDimension.entries.map { it.name })
+    )
+}
+
 internal fun isBody(key: String) = key.endsWith("@BODY") || key.substringBeforeLast('#').endsWith("@BODY")

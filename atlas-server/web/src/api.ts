@@ -211,6 +211,24 @@ export interface GroupPage {
   totalGroups: number;
 }
 
+/** A stored code, and whether only a later phase of the indexer produces it. */
+export interface Code {
+  code: string;
+  reserved: boolean;
+}
+
+/** Every code the index stores, by enum, in the writer's order (`/api/codes`, which has no run stamp). */
+export interface Codes {
+  roles: Code[];
+  statuses: Code[];
+  entityKinds: Code[];
+  unitKinds: Code[];
+  origins: Code[];
+  statementKinds: Code[];
+  valueKinds: Code[];
+  groupDimensions: Code[];
+}
+
 export interface SourceLine {
   number: number;
   text: string;

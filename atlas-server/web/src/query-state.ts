@@ -16,11 +16,13 @@ interface PageState {
   generation: number;
   /** The dimensions grouped last, offered again when the answer goes back from the list to groups. */
   lastGroupBy: string;
+  /** The dimensions the mode bar offers, from the code lists. */
+  dimensions: string[];
   /** A `name` that came in a URL beside an `entity`: shown under the picked entity, kept until removed. */
   keptName: string | null;
 }
 
-export const state: PageState = { current: null, generation: 0, lastGroupBy: "ENTITY", keptName: null };
+export const state: PageState = { current: null, generation: 0, lastGroupBy: "ENTITY", dimensions: [], keptName: null };
 /** The entity each suggest field has picked, by its parameter. */
 export const picks: Record<string, EntitySummary | null> = { entity: null, container: null };
 /** The text typed in each suggest field before it picked, put back when the pick is removed. */

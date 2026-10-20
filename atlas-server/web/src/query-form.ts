@@ -1,4 +1,5 @@
-import { ENTITY_KINDS, ORIGINS, ROLES, STATEMENT_KINDS, STATUSES, UNIT_KINDS, VALUE_KINDS } from "./codes";
+import type { Codes } from "./api";
+import { codesOf } from "./codes";
 import { kindLabel, roleLabel } from "./entity-html";
 import { esc } from "./html";
 import { t } from "./i18n";
@@ -8,10 +9,10 @@ import { field, form, picks, state } from "./query-state";
 import { entityOf, pick, setKept, setupSuggest, suggestBox, unpick } from "./query-suggest";
 
 const code = (value: string) => value;
-/** The multi-value filters picked from a list: their codes and how a code is shown. */
-const PICKS: Record<string, [string[], (code: string) => string]> = {
-  entityKinds: [ENTITY_KINDS, kindLabel], unitKinds: [UNIT_KINDS, code], roles: [ROLES, roleLabel],
-  statuses: [STATUSES, code], origins: [ORIGINS, code], statementKinds: [STATEMENT_KINDS, code]
+/** The multi-value filters picked from a list: their code list and how a code is shown. */
+const PICKS: Record<string, [keyof Codes, (code: string) => string]> = {
+  entityKinds: ["entityKinds", kindLabel], unitKinds: ["unitKinds", code], roles: ["roles", roleLabel],
+  statuses: ["statuses", code], origins: ["origins", code], statementKinds: ["statementKinds", code]
 };
 /** The text and select filters of "more filters". */
 const TEXTS = ["schema", "path", "reasons", "value", "external", "valueKind"];
@@ -19,13 +20,14 @@ export const labelOf = (filter: string) => PICKS[filter]?.[1] ?? code;
 
 // ---- the form ---------------------------------------------------------------------------------------------------------
 
-export function buildForm() {
+/** Fills the pickers with [codes] and sets up the form's fields. */
+export function buildForm(codes: Codes) {
   for (const pick of form.querySelectorAll<HTMLElement>("details.pick")) {
-    const [codes, label] = PICKS[pick.dataset.name!];
-    pick.querySelector(".opts")!.innerHTML = codes.map(c =>
+    const [list, label] = PICKS[pick.dataset.name!];
+    pick.querySelector(".opts")!.innerHTML = codesOf(codes[list]).map(c =>
       `<label class="check"><input type="checkbox" value="${esc(c)}"> ${esc(label(c))}</label>`).join("");
   }
-  field("valueKind").insertAdjacentHTML("beforeend", VALUE_KINDS.map(k => `<option value="${k}">${esc(k)}</option>`).join(""));
+  field("valueKind").insertAdjacentHTML("beforeend", codesOf(codes.valueKinds).map(k => `<option value="${k}">${esc(k)}</option>`).join(""));
   form.querySelectorAll<HTMLElement>(".suggest").forEach(setupSuggest);
   suggestBox("entity").querySelector(".kept button.x")!.addEventListener("click", () => setKept(null));
   form.addEventListener("change", e => {

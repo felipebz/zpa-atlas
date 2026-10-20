@@ -1,5 +1,6 @@
 import { errorMessage } from "./api";
 import { showBanner } from "./banner";
+import { codesOf, loadCodes, NO_CODES } from "./codes";
 import { esc, queryHref } from "./html";
 import { initI18n, t } from "./i18n";
 import { buildForm, readFilters, writeForm } from "./query-form";
@@ -91,11 +92,21 @@ document.getElementById("reset")!.addEventListener("click", e => {
 });
 
 (async () => {
+  const codes = loadCodes();
+  codes.catch(() => {});
   await initI18n();
-  buildForm();
+  // Without the code lists the pickers stay empty and the answer says why; the URL's query does not run.
+  let failure: string | null = null;
+  const loaded = await codes.catch(e => { failure = errorMessage(e); return NO_CODES; });
+  state.dimensions = codesOf(loaded.groupDimensions);
+  buildForm(loaded);
   showBanner();
   const initial = paramsOf(location.search);
   writeForm(initial);
+  if (failure !== null) {
+    answer.innerHTML = `<div class="card"><p class="muted">${esc(t("error.message", { error: failure }))}</p></div>`;
+    return;
+  }
   // A URL with filters runs; one without (or with only the mode) never runs the whole index by itself.
   if (hasFilter(initial)) run(initial);
 })();

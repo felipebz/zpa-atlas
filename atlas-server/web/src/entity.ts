@@ -1,7 +1,7 @@
 import { api, errorMessage } from "./api";
 import type { Answer, EntityDetail, EntitySummary, Member, OccurrencePage, Overload, ValueGroup } from "./api";
 import { showBanner, sourceLine } from "./banner";
-import { USAGE_ROLES } from "./codes";
+import { loadCodes, usageRoles } from "./codes";
 import { entityLink, kindLabel, nameHtml, roleLabel } from "./entity-html";
 import { entityHref, esc, getOrPut, lineLink, literalText, queryHref, scrollTable, statusBadge } from "./html";
 import { formatNumber, initI18n, t } from "./i18n";
@@ -336,11 +336,17 @@ async function loadUsages(reset: boolean) {
   }
   // The query has no filter for spec and body or for uses through views: it covers the entity and, with members, its contents.
   const open = document.getElementById("openQuery") as HTMLAnchorElement;
-  open.href = queryHref({
-    entity: key, inside: state.children ? "true" : "", roles: [...(state.roles.size ? state.roles : USAGE_ROLES)].join(","),
-    statuses: [...state.statuses].join(",")
-  });
-  open.title = t(state.children ? "query.open.withContents" : "query.open.entityOnly");
+  try {
+    const roles = state.roles.size ? [...state.roles] : usageRoles(await loadCodes());
+    open.href = queryHref({
+      entity: key, inside: state.children ? "true" : "", roles: roles.join(","), statuses: [...state.statuses].join(",")
+    });
+    open.title = t(state.children ? "query.open.withContents" : "query.open.entityOnly");
+  } catch (e) {
+    // Without the code lists the link cannot name the default roles: it shows why instead.
+    open.removeAttribute("href");
+    open.textContent = t("error.message", { error: errorMessage(e) });
+  }
   state.after = page.nextAfter;
   document.getElementById("more")!.hidden = page.nextAfter === null;
 }
@@ -368,6 +374,8 @@ document.getElementById("more")!.addEventListener("click", () => loadUsages(fals
   await initI18n();
   showBanner();
   if (!key) { document.getElementById("header")!.textContent = t("entity.missingKey"); return; }
+  // The roles "open in query" names by default come from the code lists, read beside the entity.
+  loadCodes().catch(() => {});
   try {
     const answer = await api<Answer<EntityDetail>>("api/entity", { key });
     renderEntity(answer.result);

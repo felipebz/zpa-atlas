@@ -1,6 +1,5 @@
 import { api } from "./api";
 import type { Answer, EntitySummary, GroupPage, GroupValue, OccurrenceGroup, SearchHit } from "./api";
-import { VALUES_WITH_TEXT } from "./codes";
 import { entityLink, kindLabel, roleLabel } from "./entity-html";
 import { esc, langSuffix, literalText, queryHref, scrollTable } from "./html";
 import { formatNumber, t } from "./i18n";
@@ -12,6 +11,8 @@ import { answer, state } from "./query-state";
 import { entityOf } from "./query-suggest";
 
 const GROUPS = 200;
+/** The value kinds a value filter matches by their text. */
+const VALUES_WITH_TEXT = new Set(["STRING", "NUMBER", "BOOLEAN", "NAME"]);
 
 // ---- group mode ----------------------------------------------------------------------------------------------------------
 

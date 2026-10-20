@@ -12,6 +12,7 @@ import com.felipebz.zpa.atlas.query.OccurrenceQuery
 import com.felipebz.zpa.atlas.query.QueryTimeoutException
 import com.felipebz.zpa.atlas.query.SchemaMismatchException
 import com.felipebz.zpa.atlas.query.Scope
+import com.felipebz.zpa.atlas.query.indexCodes
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -58,6 +59,8 @@ fun Application.atlasModule(index: AtlasIndex) {
     routing {
         route("/api") {
             get("/run") { call.respond(index.run()) }
+            // The code lists read no index: this answers without one, so it has no run stamp.
+            get("/codes") { call.respond(indexCodes()) }
             get("/entities") {
                 val q = call.required("q")
                 call.respond(index.searchEntities(q, call.optional("kind"), call.optional("external")?.toBooleanStrictOrNull() ?: true,

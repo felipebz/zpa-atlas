@@ -247,6 +247,23 @@ data class OccurrenceGroup(val values: List<GroupValue>, val count: Long)
 @Serializable
 data class GroupPage(val dimensions: List<String>, val groups: List<OccurrenceGroup>, val totalGroups: Long)
 
+/** A stored code, and whether only a later phase of the indexer produces it (no index holds it today). */
+@Serializable
+data class Code(val code: String, val reserved: Boolean)
+
+/** Every code the index stores, by enum, in the writer's order. */
+@Serializable
+data class Codes(
+    val roles: List<Code>,
+    val statuses: List<Code>,
+    val entityKinds: List<Code>,
+    val unitKinds: List<Code>,
+    val origins: List<Code>,
+    val statementKinds: List<Code>,
+    val valueKinds: List<Code>,
+    val groupDimensions: List<Code>
+)
+
 @Serializable
 data class SourceLine(val number: Int, val text: String)
 

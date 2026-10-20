@@ -6,7 +6,15 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.Fixture
+import com.felipebz.zpa.atlas.model.EntityKind
+import com.felipebz.zpa.atlas.model.Origin
+import com.felipebz.zpa.atlas.model.Role
+import com.felipebz.zpa.atlas.model.StatementKind
+import com.felipebz.zpa.atlas.model.Status
+import com.felipebz.zpa.atlas.model.UnitKind
+import com.felipebz.zpa.atlas.model.ValueKind
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import com.felipebz.zpa.atlas.query.GroupDimension
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -185,6 +193,27 @@ class AtlasServerTest {
         assertThat(small.bodyAsBytes().size.toLong()).isLessThan(COMPRESSION_MINIMUM_BYTES)
         val smallGzip = client.get("/api/entity") { parameter("key", "db:HR.TY_SHAPE_REFS"); header(HttpHeaders.AcceptEncoding, "gzip") }
         assertThat(smallGzip.headers[HttpHeaders.ContentEncoding]).isNull()
+    }
+
+    @Test
+    fun `the code lists are served in the writer's order, with its reserved flags, without an index`() = testApplication {
+        application { atlasModule(AtlasIndex(temp.resolve("no-such-index.db"), null)) }
+        val response = client.get("/api/codes")
+        assertThat(response.status).isEqualTo(HttpStatusCode.OK)
+        val codes = json(response.bodyAsText())
+        assertThat(codes).doesNotContainKey("run")
+        fun served(field: String) = codes[field]!!.jsonArray.map { it.jsonObject["code"]!!.jsonPrimitive.content to it.jsonObject["reserved"]!!.jsonPrimitive.content.toBooleanStrict() }
+        assertThat(served("roles")).isEqualTo(Role.entries.map { it.name to it.reserved })
+        assertThat(served("statuses")).isEqualTo(Status.entries.map { it.name to it.reserved })
+        assertThat(served("entityKinds")).isEqualTo(EntityKind.entries.map { it.name to it.reserved })
+        assertThat(served("unitKinds")).isEqualTo(UnitKind.entries.map { it.name to it.reserved })
+        assertThat(served("origins")).isEqualTo(Origin.entries.map { it.name to it.reserved })
+        assertThat(served("statementKinds")).isEqualTo(StatementKind.entries.map { it.name to false })
+        assertThat(served("valueKinds")).isEqualTo(ValueKind.entries.map { it.name to false })
+        assertThat(served("groupDimensions")).isEqualTo(GroupDimension.entries.map { it.name to false })
+        assertThat(served("entityKinds").filter { it.second }.map { it.first }).contains("FORMS_TRIGGER").doesNotContain("SYNONYM")
+        // Every other endpoint needs the index, which is missing.
+        assertThat(client.get("/api/run").status).isNotEqualTo(HttpStatusCode.OK)
     }
 
     @Test

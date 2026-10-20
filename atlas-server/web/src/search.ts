@@ -1,7 +1,7 @@
 import { api, errorMessage } from "./api";
 import type { Answer, Count, RunSummary, SearchHit } from "./api";
 import { showBanner } from "./banner";
-import { KINDS } from "./codes";
+import { loadCodes, searchKinds } from "./codes";
 import { entityLink, kindLabel } from "./entity-html";
 import { entityHref, esc, getOrPut, qualifierHtml } from "./html";
 import { initI18n, t } from "./i18n";
@@ -79,8 +79,13 @@ async function search() {
 document.getElementById("search")!.addEventListener("submit", e => { e.preventDefault(); search(); });
 
 (async () => {
+  const codes = loadCodes();
+  codes.catch(() => {});
   await initI18n();
-  for (const kind of KINDS) kindSelect.insertAdjacentHTML("beforeend", `<option value="${esc(kind)}">${esc(kindLabel(kind))}</option>`);
+  // Without the code lists the kind select offers "all kinds" only, and the results say why.
+  let failure: string | null = null;
+  const kinds = await codes.then(searchKinds, e => { failure = errorMessage(e); return []; });
+  for (const kind of kinds) kindSelect.insertAdjacentHTML("beforeend", `<option value="${esc(kind)}">${esc(kindLabel(kind))}</option>`);
   runSummary = showBanner();
   const initial = new URLSearchParams(location.search);
   if (initial.get("q")) {
@@ -88,5 +93,8 @@ document.getElementById("search")!.addEventListener("submit", e => { e.preventDe
     kindSelect.value = initial.get("kind") || "";
     (document.getElementById("external") as HTMLInputElement).checked = initial.get("external") !== "false";
   }
-  search();
+  await search();
+  if (failure !== null) {
+    document.getElementById("results")!.insertAdjacentHTML("afterbegin", `<p class="muted">${esc(t("error.message", { error: failure }))}</p>`);
+  }
 })();
