@@ -18,6 +18,8 @@ import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.index.SourceDecoding
 import com.felipebz.zpa.atlas.index.SourceIdentifiers
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import com.felipebz.zpa.atlas.server.MCP_LOCAL_HOSTS
+import com.felipebz.zpa.atlas.server.McpSettings
 import com.felipebz.zpa.atlas.stats.Stats
 import com.felipebz.zpa.squid.CcValue
 import com.felipebz.zpa.squid.ConditionalCompilationSettings
@@ -117,8 +119,16 @@ private fun serve(args: ServeArguments): Int {
     } else {
         Path.of(AtlasIndex(database, null).run().result.sourcesRoot).takeIf { Files.isDirectory(it) }
     }
+    val mcpHosts = args.mcpAllowedHosts.map { it.trim() }.filter { it.isNotEmpty() }
+    if (mcpHosts.any { it.any { c -> c in "/@?#:" && !(it.startsWith("[") && it.endsWith("]")) } }) {
+        throw CliValidationException("--mcp-allowed-host takes host names or addresses, without scheme or port")
+    }
     System.err.println("Serving ${args.db} on http://${args.host}:${args.port}/ (sources: ${sources ?: "not available"})")
-    com.felipebz.zpa.atlas.server.serve(AtlasIndex(database, sources), args.host, args.port)
+    System.err.println("MCP at http://${args.host}:${args.port}/mcp, for Host ${(MCP_LOCAL_HOSTS + mcpHosts).distinct().joinToString(", ")}")
+    if (args.host !in MCP_LOCAL_HOSTS && mcpHosts.isEmpty()) {
+        System.err.println("Warning: /mcp accepts only local host names; clients on other machines need --mcp-allowed-host with the name they use")
+    }
+    com.felipebz.zpa.atlas.server.serve(AtlasIndex(database, sources), args.host, args.port, McpSettings(allowedHosts = mcpHosts))
     return 0
 }
 

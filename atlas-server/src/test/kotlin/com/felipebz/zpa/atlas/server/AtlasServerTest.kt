@@ -26,6 +26,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -214,6 +215,15 @@ class AtlasServerTest {
         assertThat(served("entityKinds").filter { it.second }.map { it.first }).contains("FORMS_TRIGGER").doesNotContain("SYNONYM")
         // Every other endpoint needs the index, which is missing.
         assertThat(client.get("/api/run").status).isNotEqualTo(HttpStatusCode.OK)
+    }
+
+    @Test
+    fun `an api answer writes a null field as null`() = api {
+        val body = client.get("/api/query") { parameter("roles", "WRITE"); parameter("statuses", "RESOLVED"); parameter("limit", "1") }.bodyAsText()
+        val row = json(body)["result"]!!.jsonObject["rows"]!!.jsonArray.single().jsonObject
+        assertThat(row).containsKey("reason")
+        assertThat(row["reason"]).isEqualTo(JsonNull)
+        assertThat(body).contains("\"reason\":null")
     }
 
     @Test

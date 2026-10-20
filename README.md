@@ -106,6 +106,8 @@ Run from the repository root.
    Open http://127.0.0.1:8080 and search by name or dotted name (e.g. `pack.run_job`). An entity page shows its
    definition, contents, relations, triggers, the views reading it, and "Used by", filterable by role and status, with
    the source line.
+6. **Ask an agent:** the same server answers MCP at `/mcp` (Streamable HTTP), with read-only tools over the same
+   answers as the web page.
 
 ## Using the Oracle dictionary
 
@@ -133,7 +135,7 @@ zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--thr
   [--database-version 19] [--ccflags 'name:value, ...'] \
   [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]
 zpa-atlas stats <file.db>
-zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080]
+zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080] [--mcp-allowed-host <name>,...]
 ```
 
 | Option               | Default                                                                                          |
@@ -146,6 +148,7 @@ zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080
 | `--host`             | `127.0.0.1`                                                                                      |
 | `--port`             | `8080`                                                                                           |
 | `serve --sources`    | the folder recorded in the index                                                                 |
+| `--mcp-allowed-host` | none: `/mcp` accepts only the `Host` names `localhost`, `127.0.0.1` and `[::1]`                  |
 
 - Oracle options and exit codes are those of zpa-cli: 0 success, 2 invalid usage, 3 execution failure.
 - `serve` has no authentication: binding to anything but 127.0.0.1 exposes the index and the sources to the network.
@@ -176,7 +179,8 @@ The schema can change between versions (the stored version is in `run`), so quer
 - `atlas-query`: the read API over an index, and the dependency comparison.
 - `atlas-server`: the web page and its JSON API (`/api/run`, `/api/codes`, `/api/entities`, `/api/entity`,
   `/api/occurrences`, `/api/source`, `/api/file`, `/api/values`, `/api/value-sites`, `/api/query`,
-  `/api/query/summary`, `/api/query/groups`). `/api/codes` lists the stored codes and reads no index.
+  `/api/query/summary`, `/api/query/groups`), and the MCP endpoint `/mcp` over the same calls. `/api/codes` lists the
+  stored codes and reads no index.
 - `atlas-cli`: the `zpa-atlas` command.
 - `atlas-devtools`: measurement tools.
 

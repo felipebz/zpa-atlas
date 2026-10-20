@@ -1,6 +1,7 @@
 import com.github.gradle.node.npm.task.NpmTask
 
 val ktorVersion = "3.6.0"
+val mcpVersion = "0.15.0"
 
 plugins {
     kotlin("jvm")
@@ -16,13 +17,16 @@ java {
 }
 
 dependencies {
+    // The MCP SDK is built against an older Ktor: the BOM keeps every Ktor module, the SDK's included, on one version.
+    implementation(platform("io.ktor:ktor-bom:$ktorVersion"))
+    testImplementation(platform("io.ktor:ktor-bom:$ktorVersion"))
     api(project(":atlas-query"))
     api("io.ktor:ktor-server-core:$ktorVersion")
     implementation("io.ktor:ktor-server-cio:$ktorVersion")
-    implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
     implementation("io.ktor:ktor-server-compression:$ktorVersion")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
+    implementation("io.modelcontextprotocol:kotlin-sdk-server:$mcpVersion")
+    testImplementation("io.modelcontextprotocol:kotlin-sdk-client:$mcpVersion")
     testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
     testImplementation(testFixtures(project(":atlas-core")))
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
@@ -96,6 +100,11 @@ val webBuild = tasks.register<NpmTask>("webBuild") {
 
 tasks.processResources {
     from(webBuild) { into("web") }
+    val versions = mapOf("atlasVersion" to project.version.toString())
+    inputs.properties(versions)
+    filesMatching("zpa-atlas-server.properties") {
+        expand(versions)
+    }
 }
 
 tasks.check {

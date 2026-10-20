@@ -70,7 +70,7 @@ class StatsArguments {
 
 @Parameters(
     commandNames = ["serve"],
-    commandDescription = "Serve the web UI and the JSON API of an index (no authentication: binding to an address other " +
+    commandDescription = "Serve the web UI, the JSON API and the MCP endpoint (/mcp) of an index (no authentication: binding to an address other " +
         "than 127.0.0.1 exposes the index and the source files to the network)"
 )
 class ServeArguments {
@@ -85,4 +85,11 @@ class ServeArguments {
 
     @Parameter(names = ["--port"], description = "Port to listen on")
     var port: Int = 8080
+
+    @Parameter(
+        names = ["--mcp-allowed-host"],
+        description = "A host name /mcp accepts besides localhost, 127.0.0.1 and [::1]: the name or address clients on other machines " +
+            "use to reach this server (comma-separated or repeated). /mcp refuses any other Host, against DNS rebinding"
+    )
+    var mcpAllowedHosts: List<String> = ArrayList()
 }
