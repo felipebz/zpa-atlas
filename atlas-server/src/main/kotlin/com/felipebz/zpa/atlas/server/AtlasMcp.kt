@@ -11,6 +11,7 @@ import com.felipebz.zpa.atlas.query.GroupDimension
 import com.felipebz.zpa.atlas.query.InvalidQueryException
 import com.felipebz.zpa.atlas.query.OccurrenceQuery
 import com.felipebz.zpa.atlas.query.QueryTimeoutException
+import com.felipebz.zpa.atlas.query.Scope
 import com.felipebz.zpa.atlas.query.SchemaMismatchException
 import com.felipebz.zpa.atlas.query.indexCodes
 import io.ktor.http.ContentType
@@ -138,6 +139,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         add("search_entities", SEARCH, searchSchema(), ::searchEntities)
         add("get_entity", ENTITY, entitySchema(), ::getEntity)
         add("find_occurrences", FIND, findSchema(), ::findOccurrences)
+        add("find_usages", USAGES, usagesSchema(), ::findUsages)
         add("group_occurrences", GROUP, groupSchema(), ::groupOccurrences)
         add("get_source", SOURCE, sourceSchema(), ::getSource)
     }
@@ -170,6 +172,31 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         val answer = index.queryOccurrences(args.query(), args.long("after"), args.int("limit", 1..FIND_MAX) ?: FIND_DEFAULT, summary = true)
         // after is an occurrence id (rows come in id order), so a cut page goes on right after its last row kept.
         return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
+            a.withResult("nextAfter", rows.last().jsonObject.getValue("id"))
+        }
+    }
+
+    private fun findUsages(args: Arguments): JsonElement {
+        val key = args.requiredString("key")
+        val include = if (args.has("include")) {
+            args.list("include").map { value -> USAGE_SCOPES.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown include value: $value") }
+        } else {
+            // The entity page's default for the kind: a package's usages are its members'.
+            val kind = index.entity(key).result?.kind
+                ?: throw ToolException("Unknown entity: $key. Entity keys come from search_entities or from earlier answers.")
+            listOfNotNull(
+                Scope.IMPLEMENTATIONS.takeIf { kind in setOf("PROCEDURE", "FUNCTION", "PACKAGE") },
+                Scope.CHILDREN.takeIf { kind in setOf("PACKAGE", "TYPE") }
+            )
+        }
+        val answer = index.occurrences(
+            key, args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, (include + Scope.SELF).toSet(),
+            args.boolean("candidates") ?: true, args.long("after"), args.int("limit", 1..FIND_MAX) ?: FIND_DEFAULT
+        )
+        if (answer.result == null) throw ToolException("Unknown entity: $key. Entity keys come from search_entities or from earlier answers.")
+        // after is an occurrence id here too (rows in id order), so a cut page goes on right after its last row kept.
+        val answered = JsonObject(toolAnswer(answer) + ("included" to JsonArray(include.map { JsonPrimitive(it.name) })))
+        return McpAnswers.fitList(answered, maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
             a.withResult("nextAfter", rows.last().jsonObject.getValue("id"))
         }
     }
@@ -251,6 +278,19 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         integer("limit", 1..FIND_MAX, FIND_DEFAULT)
     }
 
+    private fun usagesSchema() = schema(listOf("key")) {
+        string("key", "An entity key, as search_entities or another answer gives it.")
+        enumArray("include", USAGE_SCOPES.map { it.name }, "Entities added to the one asked for: IMPLEMENTATIONS its spec or " +
+            "body, CHILDREN its contents, VIEWS the view columns computed from it and the views reading it, transitively. " +
+            "Default by kind, as the entity page: IMPLEMENTATIONS for a procedure or function, IMPLEMENTATIONS and CHILDREN " +
+            "for a package, CHILDREN for a type, none otherwise; [] for the entity alone. The answer's included lists what was followed.")
+        enumArray("roles", produced(codes.roles), "The occurrence has any of these roles. Without it, every role but DEFINITION and DECLARATION.")
+        enumArray("statuses", produced(codes.statuses), "The occurrence has one of these statuses.")
+        boolean("candidates", "Include AMBIGUOUS occurrences where one of the entities is a candidate. Default true.")
+        integer("after", null, null, "The nextAfter of the previous page.")
+        integer("limit", 1..FIND_MAX, FIND_DEFAULT)
+    }
+
     private fun groupSchema() = schema(listOf("group_by")) {
         queryFilters()
         enumArray("group_by", codesOf(codes.groupDimensions), "One to three dimensions.", minItems = 1, maxItems = 3)
@@ -325,6 +365,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         }
 
         fun requiredInt(name: String) = int(name) ?: throw InvalidQueryException("Missing argument: $name")
+
+        fun has(name: String) = values[name].let { it != null && it !is JsonNull }
 
         fun list(name: String): List<String> = when (val value = values[name]) {
             null, JsonNull -> emptyList()
@@ -420,6 +462,16 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "the answer's nextAfter as after; nextAfter is absent on the last page. Each row has its status and " +
             "reason; facets.byStatus counts the statuses of every match. A call's arguments name their parameter " +
             "(P_A); its key is the row's entity key, a dot and that name. $STATUSES $ROLES"
+
+        const val USAGES = "The usages of one entity, as its page lists them: use it instead of find_occurrences " +
+            "for who uses an entity, following its spec or body and the views built on it. Rows as in find_occurrences, " +
+            "in source order, definitions and declarations left out unless roles asks for them; viaView is true on a row " +
+            "reached through a view (a view column computed from the entity, or a view reading it), viaCandidate on an " +
+            "AMBIGUOUS row where the entity is one of the candidates. Calls through another subprogram are not followed " +
+            "(a standalone procedure that only calls the package one): ask again for that subprogram's usages. Pages as in " +
+            "find_occurrences. $STATUSES"
+
+        private val USAGE_SCOPES = listOf(Scope.IMPLEMENTATIONS, Scope.CHILDREN, Scope.VIEWS)
 
         const val GROUP = "Counts occurrences grouped by one to three dimensions, with the same filters as " +
             "find_occurrences. A CRUD matrix of a package: container_name or container the package, roles " +

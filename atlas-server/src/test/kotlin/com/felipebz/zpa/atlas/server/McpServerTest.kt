@@ -12,6 +12,7 @@ import com.felipebz.zpa.atlas.model.UnitKind
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.query.GroupDimension
 import com.felipebz.zpa.atlas.query.OccurrenceQuery
+import com.felipebz.zpa.atlas.query.Scope
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.ToolJson
@@ -120,10 +121,10 @@ class McpServerTest {
         assertThat(client.serverVersion!!.name).isEqualTo("zpa-atlas")
         assertThat(client.serverVersion!!.version).matches("\\d+\\.\\d+\\.\\d+.*")
         val tools = client.listTools().tools.associateBy { it.name }
-        assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_occurrences", "group_occurrences", "get_source")
+        assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_occurrences", "find_usages", "group_occurrences", "get_source")
         assertThat(tools.mapValues { it.value.inputSchema.required.orEmpty() }).isEqualTo(mapOf(
             "search_entities" to listOf("query"), "get_entity" to listOf("key"), "find_occurrences" to emptyList(),
-            "group_occurrences" to listOf("group_by"), "get_source" to listOf("path", "line")
+            "find_usages" to listOf("key"), "group_occurrences" to listOf("group_by"), "get_source" to listOf("path", "line")
         ))
         assertThat(tools.values).allMatch { it.annotations?.readOnlyHint == true }
         // Every enum of every schema, arrays' items included.
@@ -280,6 +281,74 @@ class McpServerTest {
         assertThat(entity["result"]!!.jsonObject["children"]!!.jsonArray).hasSize(1)
     }
 
+    private fun total(answer: JsonElement) = answer.jsonObject["result"]!!.jsonObject["total"]!!.jsonPrimitive.content.toInt()
+
+    @Test
+    fun `find_usages answers what AtlasIndex occurrences answers, and include widens the entity as the page does`() = mcp { client ->
+        fun withIncluded(answer: JsonObject, vararg scopes: String) = JsonObject(answer + ("included" to strings(*scopes)))
+        val body = "$runJob5@BODY"
+        assertThat(client.call("find_usages", args { put("key", body) }).json())
+            .isEqualTo(withIncluded(toolAnswer(index.occurrences(body, scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.FIND_DEFAULT)), "IMPLEMENTATIONS"))
+        val view = "db:HR.V_COMPANY_LIST"
+        assertThat(client.call("find_usages", args { put("key", view); put("include", strings("CHILDREN", "VIEWS")) }).json())
+            .isEqualTo(withIncluded(toolAnswer(index.occurrences(view, scope = setOf(Scope.SELF, Scope.CHILDREN, Scope.VIEWS), limit = AtlasMcpTools.FIND_DEFAULT)), "CHILDREN", "VIEWS"))
+        // Without include, the page's default for the kind: a package with its spec or body and its members.
+        val pack = client.call("find_usages", args { put("key", "db:HR.PACK_PROCESS") }).json()
+        assertThat(pack).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.PACK_PROCESS",
+            scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN), limit = AtlasMcpTools.FIND_DEFAULT)), "IMPLEMENTATIONS", "CHILDREN"))
+        assertThat(total(pack)).isEqualTo(53)
+        // A table: the table alone.
+        val table = client.call("find_usages", args { put("key", "db:HR.COMPANY") }).json()
+        assertThat(table).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.COMPANY", limit = AtlasMcpTools.FIND_DEFAULT))))
+        assertThat(total(table)).isEqualTo(119)
+        // The body alone has no usage: its callers bind the spec.
+        val alone = client.call("find_usages", args { put("key", body); putJsonArray("include") {} }).json()
+        assertThat(total(alone)).isEqualTo(0)
+        assertThat(alone.jsonObject["included"]).isEqualTo(JsonArray(emptyList()))
+        assertThat(total(client.call("find_usages", args { put("key", body) }).json())).isEqualTo(4)
+        assertThat(total(client.call("find_usages", args { put("key", view); putJsonArray("include") {} }).json())).isEqualTo(3)
+        assertThat(total(client.call("find_usages", args { put("key", view); put("include", strings("VIEWS")) }).json())).isEqualTo(7)
+        assertThat(total(client.call("find_usages", args { put("key", view); put("include", strings("CHILDREN")) }).json())).isEqualTo(9)
+        assertThat(total(client.call("find_usages", args { put("key", view); put("include", strings("CHILDREN", "VIEWS")) }).json())).isEqualTo(16)
+    }
+
+    @Test
+    fun `find_usages pages lose and repeat no row, under a small size cap too`() {
+        val all = index.occurrences("db:HR.PACK_PROCESS", scope = setOf(Scope.SELF, Scope.CHILDREN), limit = 500).result!!.rows.map { it.id }
+        assertThat(all.size).isGreaterThan(AtlasMcpTools.FIND_MAX)
+        for (cap in listOf(McpAnswers.MAX_CHARS, 6_000)) {
+            mcp(settings = McpSettings(maxAnswerChars = cap)) { client ->
+                val ids = ArrayList<Long>()
+                var after: Long? = null
+                var cut = 0
+                do {
+                    val answer = client.call("find_usages", args {
+                        put("key", "db:HR.PACK_PROCESS"); put("include", strings("CHILDREN")); put("limit", AtlasMcpTools.FIND_MAX); after?.let { put("after", it) }
+                    }).json().jsonObject
+                    val rows = answer["result"]!!.jsonObject["rows"]!!.jsonArray
+                    answer["cutForSize"]?.let { cut++; assertThat(it.jsonObject["kept"]!!.jsonPrimitive.content.toInt()).isEqualTo(rows.size) }
+                    ids += rows.map { it.jsonObject["id"]!!.jsonPrimitive.content.toLong() }
+                    after = answer["result"]!!.jsonObject["nextAfter"]?.jsonPrimitive?.content?.toLong()
+                } while (after != null)
+                assertThat(ids).isEqualTo(all)
+                if (cap < McpAnswers.MAX_CHARS) assertThat(cut).isGreaterThan(0)
+            }
+        }
+    }
+
+    @Test
+    fun `find_usages refuses an unknown entity, include value or argument`() = mcp { client ->
+        fun CallToolResult.error(): String {
+            assertThat(isError).describedAs(text()).isTrue()
+            return text()
+        }
+        assertThat(client.call("find_usages", args { put("key", "db:NO.SUCH") }).error())
+            .isEqualTo("Unknown entity: db:NO.SUCH. Entity keys come from search_entities or from earlier answers.")
+        assertThat(client.call("find_usages", args { put("key", runJob5); put("include", strings("SELF")) }).error()).isEqualTo("Unknown include value: SELF")
+        assertThat(client.call("find_usages", args { put("key", runJob5); put("scope", strings("VIEWS")) }).error())
+            .startsWith("Unknown argument: scope. find_usages takes: key, include,")
+    }
+
     @Test
     fun `a request the index cannot answer is an error result with the reason`() = mcp { client ->
         fun CallToolResult.error(): String {
@@ -387,7 +456,7 @@ class McpServerTest {
             assertThat(listing.headers().firstValue("Content-Encoding")).hasValue("gzip")
             val listed = Json.parseToJsonElement(GZIPInputStream(listing.body()).readAllBytes().decodeToString())
                 .jsonObject["result"]!!.jsonObject["tools"]!!.jsonArray
-            assertThat(listed).hasSize(5)
+            assertThat(listed).hasSize(6)
             assertThat(listed.map { it.jsonObject["inputSchema"]!!.jsonObject["additionalProperties"] }).containsOnly(JsonPrimitive(false))
             val stream = http.sendAsync(
                 HttpRequest.newBuilder(url).header("Accept", "text/event-stream").header("Accept-Encoding", "gzip, deflate")
