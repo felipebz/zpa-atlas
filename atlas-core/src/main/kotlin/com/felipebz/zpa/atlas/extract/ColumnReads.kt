@@ -13,34 +13,16 @@ import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.squid.SemanticAstNode
 import com.felipebz.zpa.atlas.model.*
 
-/**
- * A column source of an SQL scope: a named relation ([target]), an inline view or `WITH` name ([viewColumns],
- * null when its select list has an unnamed item), or anything else (a table function, a collection), never
- * complete.
- */
-internal class ColumnSource(
-    /** The node in the `FROM` clause (or the target's reference). */
-    val node: AstNode,
-    /** The alias, else the relation or `WITH` name; null for an inline view or a function without alias. */
-    val qualifier: String?,
-    val target: Target?,
-    val viewLike: Boolean,
-    val viewColumns: Set<String>?,
-    /** The query of an inline view or `WITH` name, which gives the values of its columns. */
-    val query: AstNode? = null,
-    /** The column names of a `WITH` column list or `DUAL`, in order. */
-    val listed: List<String>? = null,
-    /** The alias written for the source, if any. */
-    val alias: String? = null
-)
-
-/** Column reads of static SQL: the sources of each SQL scope and the names, qualified or not, that read their columns. */
+/** Column reads of static SQL: the names, qualified or not, that read the columns of the sources of their scope. */
 internal class ColumnReads(
     private val state: FileState,
     private val resolver: RelationResolver,
     private val scopes: SqlScopes,
     private val plsql: PlSqlNames
 ) {
+    private val columnSources = ColumnSources(scopes, plsql)
+    private val implicit = ImplicitColumns(columnSources, scopes, plsql)
+
     /** Whether [source] has [column]: null when its columns are not known (or the dictionary cannot tell). */
     fun has(source: ColumnSource, column: String): Boolean? = when {
         source.target != null -> resolver.hasColumn(source.target.resolved, column)
@@ -203,108 +185,6 @@ internal class ColumnReads(
         return false
     }
 
-    /**
-     * The column sources that can capture [name] in [scope]: those it owns, except that an `INSERT` target is one only
-     * for `RETURNING` (any position for a qualified name), and a `SELECT_EXPRESSION` lends its `ORDER BY` the sources
-     * of its first query block.
-     */
-    fun scopeSources(statement: Statement, scope: AstNode, name: AstNode, qualified: Boolean): List<ColumnSource> = when (scope.type) {
-        DmlGrammar.SELECT_EXPRESSION -> {
-            val orderBy = name.getFirstAncestorOrNull(DmlGrammar.ORDER_BY_CLAUSE)
-            val block = scope.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK)
-            if (orderBy != null && orderBy.parentOrNull === scope && block != null) sourcesOf(statement, block) else sourcesOf(statement, scope)
-        }
-        DmlGrammar.INSERT_EXPRESSION ->
-            if (qualified || name.getFirstAncestorOrNull(DmlGrammar.RETURNING_INTO_CLAUSE)?.let { scopes.sqlScope(it) === scope } == true) sourcesOf(statement, scope)
-            else emptyList()
-        else -> sourcesOf(statement, scope)
-    }
-
-    /** The sources [scope] owns directly: its `FROM` relations, the targets of `UPDATE`, `DELETE`, `INSERT`, `MERGE`. */
-    private fun sourcesOf(statement: Statement, scope: AstNode): List<ColumnSource> = statement.sources.getOrPut(scope) {
-        val result = ArrayList<ColumnSource>()
-        if (scope.type == DmlGrammar.MERGE_EXPRESSION) {
-            scope.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE)?.let { reference ->
-                result += namedSource(statement, reference, scope.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { normalizeIdentifier(it.tokenOriginalValue) })
-            }
-        }
-        if (scope.type == DmlGrammar.INSERT_EXPRESSION) {
-            for (clause in scope.getDescendants(DmlGrammar.INSERT_INTO_CLAUSE)) {
-                if (scopes.sqlScope(clause) !== scope) continue
-                val reference = clause.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE) ?: continue
-                result += namedSource(statement, reference, clause.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { normalizeIdentifier(it.tokenOriginalValue) })
-            }
-        }
-        for (clause in scope.getDescendants(DmlGrammar.DML_TABLE_EXPRESSION_CLAUSE)) {
-            if (scopes.sqlScope(clause) !== scope) continue
-            val alias = clause.getFirstChildOrNull(DmlGrammar.ALIAS)?.let { normalizeIdentifier(it.tokenOriginalValue) }
-            val reference = clause.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE)
-            val subquery = clause.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION)
-            result += when {
-                reference != null -> namedSource(statement, reference, alias)
-                subquery != null -> ColumnSource(clause, alias, null, viewLike = true, viewColumns = selectNames(statement, subquery), query = subquery, alias = alias)
-                else -> ColumnSource(clause, alias, null, viewLike = false, viewColumns = null, alias = alias)
-            }
-        }
-        result
-    }
-
-    /** A relation reference as a source: a `WITH` name, `DUAL` (one column, `DUMMY`), or the relation [target] resolved. */
-    private fun namedSource(statement: Statement, reference: AstNode, alias: String?): ColumnSource {
-        val written = scopes.written(reference)
-        if (written.link == null && written.schema == null && written.name in statement.localNames) {
-            val factoring = statement.root.getDescendants(DmlGrammar.SUBQUERY_FACTORING_CLAUSE)
-                .firstOrNull { normalizeIdentifier(it.firstChild.tokenOriginalValue) == written.name }
-            return ColumnSource(reference, alias ?: written.name, null, viewLike = true, viewColumns = factoring?.let { withColumns(statement, it) },
-                query = factoring?.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION), listed = factoring?.let { withList(it) }?.ifEmpty { null }, alias = alias)
-        }
-        if (written.link == null && written.name == "DUAL" && (written.schema == null || written.schema == "SYS")) {
-            return ColumnSource(reference, alias ?: written.name, null, viewLike = true, viewColumns = setOf("DUMMY"), listed = listOf("DUMMY"), alias = alias)
-        }
-        val target = statement.targets[reference] ?: return ColumnSource(reference, alias ?: written.name, null, viewLike = false, viewColumns = null, alias = alias)
-        val writtenAlias = alias ?: target.alias
-        return ColumnSource(reference, writtenAlias ?: written.name, target, viewLike = false, viewColumns = null, alias = writtenAlias)
-    }
-
-    /** The column names of a `WITH` name: its column list, else the names of its subquery's select list. */
-    private fun withColumns(statement: Statement, factoring: AstNode): Set<String>? {
-        val listed = withList(factoring)
-        if (listed.isNotEmpty()) return listed.toHashSet()
-        return factoring.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION)?.let { selectNames(statement, it) }
-    }
-
-    /** The column list of a `WITH` name, empty without one. */
-    private fun withList(factoring: AstNode): List<String> =
-        factoring.children.drop(1).takeWhile { it.type != PlSqlKeyword.AS }.filter { it.type == PlSqlGrammar.IDENTIFIER_NAME }
-            .map { normalizeIdentifier(it.tokenOriginalValue) }
-
-    /**
-     * The names of a subquery's select list (the first branch of a compound query): an alias, the last segment of a
-     * plain column, or every column of the complete dictionary relations a `*` or `t.*` covers; null when an item has no
-     * known name (an expression without alias, a `*` over a source whose columns are unknown).
-     */
-    private fun selectNames(statement: Statement, subquery: AstNode): Set<String>? {
-        val block = subquery.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK) ?: return null
-        val names = HashSet<String>()
-        for (column in block.getChildren(DmlGrammar.SELECT_COLUMN)) {
-            val star = starSources(statement, column)
-            if (star != null) {
-                if (star.isEmpty()) return null
-                for (source in star) {
-                    val relation = source.target?.resolved?.relation?.takeIf { it.isColumnsComplete } ?: return null
-                    relation.rowFields.forEach { names += it.name.exact() }
-                }
-                continue
-            }
-            names += columnAlias(column) ?: plsql.nameSegments(column.firstChild)?.last()?.let { normalizeIdentifier(it) } ?: return null
-        }
-        return names
-    }
-
-    private fun columnAlias(selectColumn: AstNode): String? {
-        val children = selectColumn.children
-        return children.lastOrNull()?.takeIf { children.size > 1 && it.type == PlSqlGrammar.IDENTIFIER_NAME }?.let { normalizeIdentifier(it.tokenOriginalValue) }
-    }
 
     /**
      * An `ORDER BY` name (bare, or inside an expression) that names a select item of the query it orders (the first
@@ -317,7 +197,7 @@ internal class ColumnReads(
         val block = if (owner.type == DmlGrammar.QUERY_BLOCK) owner else owner.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK) ?: return false
         if (scopes.sqlScope(name) !== owner && scopes.sqlScope(name) !== block) return false
         val items = block.getChildren(DmlGrammar.SELECT_COLUMN).filter { item ->
-            (columnAlias(item) ?: plsql.nameSegments(item.firstChild)?.last()?.let { normalizeIdentifier(it) }) == column
+            (columnSources.columnAlias(item) ?: plsql.nameSegments(item.firstChild)?.last()?.let { normalizeIdentifier(it) }) == column
         }
         if (items.isEmpty()) return false
         val reads = items.map { item -> if (plsql.nameSegments(item.firstChild) != null) statement.columnReads[item.firstChild].orEmpty() else emptyList() }
@@ -379,40 +259,6 @@ internal class ColumnReads(
         }
     }
 
-    /**
-     * `REF(x)` or `VALUE(x)` whose single argument is the alias of a source of an enclosing SQL scope (innermost first):
-     * the function name and that source, or null. Oracle takes only an alias here, not a relation name.
-     */
-    fun correlationCall(statement: Statement, call: AstNode): Pair<String, ColumnSource>? {
-        if (call.type != PlSqlGrammar.METHOD_CALL) return null
-        val callee = call.firstChild
-        if (callee.type != PlSqlGrammar.VARIABLE_NAME) return null
-        val function = normalizeIdentifier(callee.tokenOriginalValue).takeIf { it in CORRELATION_FUNCTIONS } ?: return null
-        val argument = singleArgument(call) ?: return null
-        if (argument.type != PlSqlGrammar.VARIABLE_NAME || plsql.nameSegments(argument)?.size != 1) return null
-        val alias = normalizeIdentifier(argument.tokenOriginalValue)
-        var scope = scopes.sqlScope(call)
-        while (scope != null) {
-            scopeSources(statement, scope, argument, qualified = true).firstOrNull { it.alias == alias }?.let { return function to it }
-            scope = scopes.sqlScope(scope)
-        }
-        return null
-    }
-
-    /** The argument of a [correlationCall]: an alias, never a column or a PL/SQL name. */
-    fun isCorrelationArgument(statement: Statement, name: AstNode): Boolean {
-        val call = name.parentOrNull?.parentOrNull?.parentOrNull ?: return false
-        return name.parentOrNull?.type == PlSqlGrammar.ARGUMENT && correlationCall(statement, call) != null
-    }
-
-    /** `VALUE(x)` outside the left of `SET`: every column of the relation [x] names, at the call. */
-    fun correlationValue(statement: Statement, call: AstNode) {
-        val (function, source) = correlationCall(statement, call) ?: return
-        if (function != "VALUE") return
-        if (call.parentOrNull?.type == DmlGrammar.UPDATE_COLUMN && call.parent.firstChild === call) return
-        source.target?.let { implicitColumns(statement, it, COLUMN_IMPLICIT_READ, call) }
-    }
-
     /** The `t` of `t.*`: read through [selectStar]. */
     private fun isStarQualifier(name: AstNode): Boolean {
         val parent = name.parentOrNull ?: return false
@@ -420,82 +266,44 @@ internal class ColumnReads(
     }
 
     /**
+     * The column sources that can capture [name] in [scope]: those it owns, except that an `INSERT` target is one only
+     * for `RETURNING` (any position for a qualified name), and a `SELECT_EXPRESSION` lends its `ORDER BY` the sources
+     * of its first query block.
+     */
+    fun scopeSources(statement: Statement, scope: AstNode, name: AstNode, qualified: Boolean): List<ColumnSource> =
+        columnSources.scopeSources(statement, scope, name, qualified)
+
+    /** The sources a `*` or `t.*` select item covers, or null when the item is not one. */
+    fun starSources(statement: Statement, selectColumn: AstNode): List<ColumnSource>? = columnSources.starSources(statement, selectColumn)
+
+    /**
      * Every column written or read without being named (`INSERT` without a column list, `SET ROW`, `*`): by dictionary
      * position, at [at] (the target's range for writes).
      */
-    fun implicitColumns(statement: Statement, target: Target, roles: Set<Role>, at: AstNode = target.reference, written: WriteSource? = null) {
-        val relation = target.resolved.relation
-        if (relation != null && relation.isColumnsComplete) {
-            // A write pairs its values with the columns in the relation's order.
-            val values = written?.forColumns(relation.rowFields.size)
-            relation.rowFields.forEachIndexed { position, field ->
-                statement.occurrence(at, target.resolved.entityKey + "." + field.name.exact(), roles, Status.RESOLVED, null,
-                    values = values?.let { statement.writtenValues(it, position) }.orEmpty())
-            }
-        } else {
-            // No value without the relation's columns, unless the statement has none to give anyway (`SET ROW`, a record).
-            if (written != null) statement.unvalued((written as? WriteSource.None)?.reason ?: WrittenValues.COLUMNS_INCOMPLETE)
-            val status = when (target.resolved.status) {
-                Status.EXTERNAL, Status.UNRESOLVED -> target.resolved.status
-                else -> Status.UNVERIFIED
-            }
-            statement.occurrence(at, target.resolved.entityKey, roles, status, "COLUMNS_UNKNOWN")
-        }
-    }
+    fun implicitColumns(statement: Statement, target: Target, roles: Set<Role>, at: AstNode = target.reference, written: WriteSource? = null) =
+        implicit.implicitColumns(statement, target, roles, at, written)
 
     /**
      * `*` and `t.*` in a select list: every column of the sources they cover, implicit reads at the `*` for a complete
      * dictionary relation, one `COLUMNS_UNKNOWN` read of a named relation whose columns are unknown.
      */
-    fun selectStar(statement: Statement, selectColumn: AstNode) {
-        val covered = starSources(statement, selectColumn) ?: return
-        for (source in covered) source.target?.let { implicitColumns(statement, it, COLUMN_IMPLICIT_READ, selectColumn.firstChild) }
-    }
+    fun selectStar(statement: Statement, selectColumn: AstNode) = implicit.selectStar(statement, selectColumn)
 
-    /** The sources a `*` or `t.*` select item covers, or null when the item is not one. */
-    fun starSources(statement: Statement, selectColumn: AstNode): List<ColumnSource>? {
-        val item = selectColumn.firstChild
-        val block = scopes.sqlScope(selectColumn) ?: return null
-        return when {
-            item.tokenValue == "*" && item.type is PlSqlPunctuator -> sourcesOf(statement, block)
-            item.type == PlSqlGrammar.OBJECT_REFERENCE && item.lastChild.tokenValue == "*" -> {
-                val qualifier = item.children.filter { it.type != PlSqlPunctuator.DOT && it.tokenValue != "*" }
-                    .flatMap { tokensOf(it) }.filter { it.type !is PlSqlPunctuator }.map { normalizeIdentifier(it.originalValue) }
-                sourcesOf(statement, block).filter { source ->
-                    source.qualifier != null && source.qualifier == qualifier.singleOrNull() ||
-                        source.target != null && qualifier.size == 2 && source.qualifier == source.target.written.name && scopes.qualifierMatches(qualifier, source.target)
-                }.take(1)
-            }
-            else -> null
-        }
-    }
+    /**
+     * `REF(x)` or `VALUE(x)` whose single argument is the alias of a source of an enclosing SQL scope (innermost first):
+     * the function name and that source, or null. Oracle takes only an alias here, not a relation name.
+     */
+    fun correlationCall(statement: Statement, call: AstNode): Pair<String, ColumnSource>? = implicit.correlationCall(statement, call)
+
+    /** The argument of a [correlationCall]: an alias, never a column or a PL/SQL name. */
+    fun isCorrelationArgument(statement: Statement, name: AstNode): Boolean = implicit.isCorrelationArgument(statement, name)
+
+    /** `VALUE(x)` outside the left of `SET`: every column of the relation [x] names, at the call. */
+    fun correlationValue(statement: Statement, call: AstNode) = implicit.correlationValue(statement, call)
 }
+
 
 /** SQL functions called without parentheses: PL/SQL names, never a column the scope could not exclude. */
 private val SQL_PARAMETERLESS_FUNCTIONS = setOf(
     "SYSDATE", "SYSTIMESTAMP", "CURRENT_DATE", "CURRENT_TIMESTAMP", "LOCALTIMESTAMP", "USER", "UID", "DBTIMEZONE", "SESSIONTIMEZONE"
 )
-
-private val COLUMN_IMPLICIT_READ = setOf(Role.READ, Role.IMPLICIT)
-
-private val CORRELATION_FUNCTIONS = setOf("REF", "VALUE")
-
-/** The single positional argument of a method call, or null. */
-internal fun singleArgument(call: AstNode): AstNode? {
-    val arguments = call.getChildren(PlSqlGrammar.ARGUMENTS).singleOrNull() ?: return null
-    val argument = arguments.getChildren(PlSqlGrammar.ARGUMENT).singleOrNull() ?: return null
-    return argument.children.singleOrNull()
-}
-
-/** The relation of `MAKE_REF(t, key…)`, a plain name of one or two segments, or null. */
-internal fun makeRefRelation(call: AstNode): AstNode? {
-    if (call.type != PlSqlGrammar.METHOD_CALL) return null
-    val callee = call.firstChild
-    if (callee.type != PlSqlGrammar.VARIABLE_NAME || normalizeIdentifier(callee.tokenOriginalValue) != "MAKE_REF") return null
-    val first = call.getChildren(PlSqlGrammar.ARGUMENTS).singleOrNull()?.getFirstChildOrNull(PlSqlGrammar.ARGUMENT) ?: return null
-    val name = first.children.singleOrNull() ?: return null
-    if (name.type != PlSqlGrammar.VARIABLE_NAME && name.type != PlSqlGrammar.MEMBER_EXPRESSION) return null
-    val parts = if (name.type == PlSqlGrammar.VARIABLE_NAME) listOf(name) else name.children.filter { it.type != PlSqlPunctuator.DOT }
-    if (parts.size !in 1..2 || parts.any { it.type is PlSqlPunctuator || tokensOf(it).size != 1 }) return null
-    return name
-}
