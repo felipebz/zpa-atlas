@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.query.Code
+import com.felipebz.zpa.atlas.query.EntityDetail
 import com.felipebz.zpa.atlas.query.GroupDimension
 import com.felipebz.zpa.atlas.query.InvalidQueryException
 import com.felipebz.zpa.atlas.query.OccurrenceQuery
@@ -144,6 +145,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         add("group_usages", GROUP_USAGES, groupUsagesSchema(), ::groupUsages)
         add("group_occurrences", GROUP, groupSchema(), ::groupOccurrences)
         add("get_source", SOURCE, sourceSchema(), ::getSource)
+        add("get_values", VALUES, valuesSchema(), ::getValues)
+        add("find_value_sites", VALUE_SITES, valueSitesSchema(), ::findValueSites)
     }
 
     // ---- the calls --------------------------------------------------------------------------------------------------
@@ -236,6 +239,56 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("groups").jsonArray }, { a, groups -> a.withResult("groups", groups) })
     }
 
+    private fun getValues(args: Arguments): JsonElement {
+        val key = args.requiredString("key")
+        val limit = args.int("limit", 1..VALUES_MAX) ?: VALUES_DEFAULT
+        valueEntity(key, "get_values")
+        val answer = index.values(key)
+        if (answer.result == null) throw unknownEntity(key)
+        val full = toolAnswer(answer)
+        val groups = full.getValue("result").jsonArray
+        val page = JsonObject(mapOf("groups" to JsonArray(groups.take(limit)), "totalGroups" to JsonPrimitive(groups.size)))
+        return McpAnswers.fitList(JsonObject(full + ("result" to page)), maxChars, { it.result().getValue("groups").jsonArray }, { a, kept -> a.withResult("groups", kept) })
+    }
+
+    private fun findValueSites(args: Arguments): JsonElement {
+        val key = args.requiredString("key")
+        val valueKind = args.requiredString("value_kind")
+        val value = args.string("value")
+        if (value == null && valueKind in VALUE_TEXT_KINDS) throw InvalidQueryException("Missing argument: value")
+        val after = args.long("after")
+        val limit = args.int("limit", 1..FIND_MAX) ?: FIND_DEFAULT
+        val entity = valueEntity(key, "find_value_sites")
+        val answer = index.valueSites(key, valueKind, value, after, limit)
+        val page = answer.result ?: throw unknownEntity(key)
+        // A call's other arguments say nothing about this parameter, and with long signatures they are most of a row.
+        val kept = if (entity.kind != "PARAMETER") answer else boundKeys(entity).let { keys ->
+            answer.copy(result = page.copy(rows = page.rows.map { row -> row.copy(arguments = row.arguments.filter { it.parameter?.key in keys }) }))
+        }
+        // after is an occurrence id here too (rows in id order), so a cut page goes on right after its last row kept.
+        return McpAnswers.fitList(toolAnswer(kept), maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
+            a.withResult("nextAfter", rows.last().jsonObject.getValue("id"))
+        }
+    }
+
+    /**
+     * [key]'s entity, which must be a PARAMETER or a COLUMN: the index answers no values for another kind, and an
+     * empty answer would read as "no values".
+     */
+    private fun valueEntity(key: String, tool: String): EntityDetail {
+        val entity = index.entity(key).result ?: throw unknownEntity(key)
+        if (entity.kind !in VALUE_ENTITY_KINDS) throw ToolException("$tool answers for a PARAMETER or a COLUMN; $key is a ${entity.kind}.")
+        return entity
+    }
+
+    /** The keys of [parameter] and of its twin: the parameter of the same name in its subprogram's spec or body. */
+    private fun boundKeys(parameter: EntityDetail): Set<String> {
+        val subprogram = parameter.parent?.let { index.entity(it.key).result } ?: return setOf(parameter.key)
+        val twins = subprogram.relations.filter { it.kind == "IMPLEMENTS" }.mapNotNull { index.entity(it.entity.key).result }
+            .flatMap { it.children }.map { it.entity }.filter { it.kind == "PARAMETER" && it.name == parameter.name }
+        return setOf(parameter.key) + twins.map { it.key }
+    }
+
     private fun getSource(args: Arguments): JsonElement {
         val path = args.requiredString("path")
         val answer = index.source(path, args.requiredInt("line"), args.int("context", 0..SOURCE_CONTEXT_MAX) ?: SOURCE_CONTEXT_DEFAULT)
@@ -315,6 +368,20 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         usageFilters()
         enumArray("group_by", codesOf(codes.groupDimensions), "One to three dimensions, as in group_occurrences.", minItems = 1, maxItems = 3)
         integer("limit", 1..GROUP_MAX, GROUP_DEFAULT, "The first groups by count; totalGroups counts them all.")
+    }
+
+    private fun valuesSchema() = schema(listOf("key")) {
+        string("key", "A PARAMETER or COLUMN key, as search_entities or another answer gives it.")
+        integer("limit", 1..VALUES_MAX, VALUES_DEFAULT, "The first groups by count; totalGroups counts them all.")
+    }
+
+    private fun valueSitesSchema() = schema(listOf("key", "value_kind")) {
+        string("key", "A PARAMETER or COLUMN key, as search_entities or another answer gives it.")
+        enumString("value_kind", produced(codes.valueKinds), "The valueKind of a get_values group.")
+        string("value", "The value of that group, exactly as get_values gives it: S, not 'S'. Required for STRING, " +
+            "NUMBER, BOOLEAN and NAME; ignored for the other kinds.")
+        integer("after", null, null, "The nextAfter of the previous page.")
+        integer("limit", 1..FIND_MAX, FIND_DEFAULT)
     }
 
     private fun SchemaBuilder.usageFilters() {
@@ -453,6 +520,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         const val FIND_MAX = 40
         const val GROUP_DEFAULT = 50
         const val GROUP_MAX = 100
+        const val VALUES_DEFAULT = 50
+        const val VALUES_MAX = 200
         const val SOURCE_CONTEXT_DEFAULT = 3
         const val SOURCE_CONTEXT_MAX = 50
 
@@ -515,6 +584,40 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "through a view it names the view or view column. Example, who uses a table through views, by view and " +
             "routine, in one call: key the table, include [VIEWS], via THROUGH_VIEWS, group_by ENTITY, CONTAINER. " +
             "include defaults by kind as in find_usages; the answer's included lists what was followed."
+
+        private val VALUE_ENTITY_KINDS = setOf("PARAMETER", "COLUMN")
+
+        /** The value kinds that carry a value: find_value_sites needs one for them. */
+        private val VALUE_TEXT_KINDS = setOf("STRING", "NUMBER", "BOOLEAN", "NAME")
+
+        private const val VALUE_WHY =
+            "Use it, not the value_kind and value filters of find_occurrences, for one parameter or column: those " +
+                "filters match any argument or written value of an occurrence, not the one this parameter receives or " +
+                "this column is written with; for a parameter of a body subprogram, the arguments bound to its spec's " +
+                "parameter count too (calls bind the spec); for a column, the writes through the views that reach it " +
+                "count too."
+
+        private const val VALUE_KIND_NOTES =
+            "STRING, NUMBER, BOOLEAN and NAME carry a value: a string without its quotes (S, not 'S'), a number as a " +
+                "canonical number (1.5 for 1.50), TRUE or FALSE, a name as an identifier, upper case unless quoted (a " +
+                "variable, constant, column or record field: R.CODE). BIND, EXPRESSION, NULL and DEFAULT carry none, and each is one " +
+                "group: BIND a bind variable, EXPRESSION anything computed (a call, a concatenation, a sum), NULL " +
+                "null or '', DEFAULT a column written with the keyword DEFAULT (insert ... values (default), update " +
+                "... set c = default), so the column's default applies. An argument left out of a call is not indexed, " +
+                "so a parameter's default is not counted."
+
+        const val VALUES = "The values a PARAMETER is passed or a COLUMN is written with, grouped by valueKind and " +
+            "value, most frequent first, each with its count; totalGroups counts every group. $VALUE_WHY " +
+            "$VALUE_KIND_NOTES Then find_value_sites, with a group's valueKind and value, lists where it comes from. " +
+            "Any other kind of entity is an error."
+
+        const val VALUE_SITES = "The calls or writes that give a PARAMETER or a COLUMN one value: pass the valueKind " +
+            "and value of one get_values group. value is required for STRING, NUMBER, BOOLEAN and NAME and matched " +
+            "exactly as get_values gives it (S, not 'S'); for BIND, EXPRESSION, NULL and DEFAULT it is ignored and " +
+            "every row of the kind matches. $VALUE_WHY Rows as in find_usages, in source order. On a parameter's " +
+            "row, arguments keeps only the argument bound to that parameter (or to its spec or body twin): the " +
+            "call's other arguments are left out. A column's row is whole, with the values written. Pages as in " +
+            "find_occurrences. Any other kind of entity is an error."
 
         private val USAGE_SCOPES = listOf(Scope.IMPLEMENTATIONS, Scope.CHILDREN, Scope.VIEWS)
 
