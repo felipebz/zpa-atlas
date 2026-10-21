@@ -135,7 +135,8 @@ zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--thr
   [--database-version 19] [--ccflags 'name:value, ...'] \
   [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]
 zpa-atlas stats <file.db>
-zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080] [--mcp-allowed-host <name>,...]
+zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080] [--mcp-allowed-host <name>,...] \
+  [--oidc-issuer URL --public-url URL [--oidc-audience VALUE] [--oidc-scope SCOPE]]
 ```
 
 | Option               | Default                                                                                          |
@@ -149,9 +150,13 @@ zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080
 | `--port`             | `8080`                                                                                           |
 | `serve --sources`    | the folder recorded in the index                                                                 |
 | `--mcp-allowed-host` | none: `/mcp` accepts only the `Host` names `localhost`, `127.0.0.1` and `[::1]`                  |
+| `--oidc-issuer`      | none: no authentication. With it, `/mcp` and `/api` need an access token of that provider        |
+| `--public-url`       | none; required with `--oidc-issuer`: the server as clients reach it, such as `https://atlas.example.com` |
+| `--oidc-audience`    | the resource, `<public url>/mcp`: what an access token must carry in `aud`                       |
+| `--oidc-scope`       | none: a scope an access token must carry, in `scope` or `scp`                                    |
 
 - Oracle options and exit codes are those of zpa-cli: 0 success, 2 invalid usage, 3 execution failure.
-- `serve` has no authentication: binding to anything but 127.0.0.1 exposes the index and the sources to the network.
+- Without `--oidc-issuer`, `serve` has no authentication: binding to anything but 127.0.0.1 exposes the index and the sources to the network. With it, see [docs/authentication.md](docs/authentication.md).
 - `serve` opens the index for each request only, so `index` can replace the file while the server runs.
 - The output is a new SQLite file per run, written to a temporary file and renamed at the end.
 - A schema change means re-indexing.

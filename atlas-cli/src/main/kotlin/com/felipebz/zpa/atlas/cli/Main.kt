@@ -18,6 +18,8 @@ import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.index.SourceDecoding
 import com.felipebz.zpa.atlas.index.SourceIdentifiers
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import com.felipebz.zpa.atlas.server.AuthDiscoveryException
+import com.felipebz.zpa.atlas.server.AuthSettings
 import com.felipebz.zpa.atlas.server.MCP_LOCAL_HOSTS
 import com.felipebz.zpa.atlas.server.McpSettings
 import com.felipebz.zpa.atlas.stats.Stats
@@ -123,13 +125,34 @@ private fun serve(args: ServeArguments): Int {
     if (mcpHosts.any { it.any { c -> c in "/@?#:" && !(it.startsWith("[") && it.endsWith("]")) } }) {
         throw CliValidationException("--mcp-allowed-host takes host names or addresses, without scheme or port")
     }
+    val auth = authSettings(args)
     System.err.println("Serving ${args.db} on http://${args.host}:${args.port}/ (sources: ${sources ?: "not available"})")
-    System.err.println("MCP at http://${args.host}:${args.port}/mcp, for Host ${(MCP_LOCAL_HOSTS + mcpHosts).distinct().joinToString(", ")}")
-    if (args.host !in MCP_LOCAL_HOSTS && mcpHosts.isEmpty()) {
+    System.err.println("MCP at http://${args.host}:${args.port}/mcp, for Host ${(MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")}")
+    if (auth != null) {
+        System.err.println("Authentication: /mcp and /api need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
+            (auth.scope?.let { " and scope $it" } ?: ""))
+        System.err.println("Protected resource metadata: ${auth.metadataUrl}")
+    }
+    if (args.host !in MCP_LOCAL_HOSTS && mcpHosts.isEmpty() && auth == null) {
         System.err.println("Warning: /mcp accepts only local host names; clients on other machines need --mcp-allowed-host with the name they use")
     }
-    com.felipebz.zpa.atlas.server.serve(AtlasIndex(database, sources), args.host, args.port, McpSettings(allowedHosts = mcpHosts))
+    com.felipebz.zpa.atlas.server.serve(AtlasIndex(database, sources), args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth)
     return 0
+}
+
+/** The authentication [args] ask for, or null without `--oidc-issuer`; the other options without it are an error. */
+private fun authSettings(args: ServeArguments): AuthSettings? {
+    if (args.oidcIssuer.isBlank()) {
+        val orphan = listOf("--public-url" to args.publicUrl, "--oidc-audience" to args.oidcAudience, "--oidc-scope" to args.oidcScope).firstOrNull { it.second.isNotBlank() }
+        if (orphan != null) throw CliValidationException("${orphan.first} needs --oidc-issuer")
+        return null
+    }
+    if (args.publicUrl.isBlank()) throw CliValidationException("--oidc-issuer needs --public-url, the server's address as clients reach it")
+    return try {
+        AuthSettings(args.oidcIssuer.trim(), args.publicUrl.trim(), args.oidcAudience.trim().ifEmpty { null }, args.oidcScope.trim().ifEmpty { null })
+    } catch (e: IllegalArgumentException) {
+        throw CliValidationException(e.message ?: "Invalid authentication options")
+    }
 }
 
 private fun stats(args: StatsArguments): Int {
@@ -183,6 +206,9 @@ fun execute(args: Array<String>, environment: (String) -> String? = System::gete
     } catch (exception: CliValidationException) {
         System.err.println(exception.message)
         2
+    } catch (exception: AuthDiscoveryException) {
+        System.err.println(exception.message)
+        3
     } catch (exception: CliExecutionException) {
         System.err.println(exception.message)
         3

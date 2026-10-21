@@ -55,8 +55,14 @@ internal suspend inline fun <reified T> ApplicationCall.respondJson(value: T, st
  * parameters, call one [AtlasIndex] method and serialize its answer.
  *
  * @param mcp the host names `/mcp` accepts besides the local ones, and its stream settings
+ * @param auth when given, `/mcp` and `/api` answer only requests with an access token of that issuer, and the
+ *     protected resource metadata is served; the static page stays open. Without it, nothing is checked
+ * @throws AuthDiscoveryException when [auth] is given and its issuer's discovery document cannot be read
  */
-fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings = McpSettings()) {
+fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null) =
+    atlasModule(index, mcp, auth) { oidcIdentity(it) }
+
+internal fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings, auth: AuthSettings?, identity: IdentityInstaller) {
     install(Compression) {
         gzip { priority = 1.0; minimumSize(COMPRESSION_MINIMUM_BYTES) }
         deflate { priority = 0.9; minimumSize(COMPRESSION_MINIMUM_BYTES) }
@@ -68,6 +74,7 @@ fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings = McpSettings())
         exception<QueryTimeoutException> { call, e -> call.respondJson(ApiError(e.message ?: "The query took too long"), HttpStatusCode.BadRequest) }
         exception<SchemaMismatchException> { call, e -> call.respondJson(ApiError(e.message ?: "Schema mismatch"), HttpStatusCode.ServiceUnavailable) }
     }
+    auth?.let { atlasAuth(it, identity) }
     routing {
         route("/api") {
             get("/run") { call.respondJson(index.run()) }
@@ -147,7 +154,7 @@ fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings = McpSettings())
         }
         staticResources("/", "web", index = "index.html")
     }
-    atlasMcp(index, mcp)
+    atlasMcp(index, mcp, auth)
 }
 
 private fun ApplicationCall.optional(name: String): String? = request.queryParameters[name]?.takeIf { it.isNotEmpty() }
@@ -188,7 +195,17 @@ private fun ApplicationCall.int(name: String): Int? =
 private fun ApplicationCall.long(name: String): Long? =
     optional(name)?.let { it.toLongOrNull() ?: throw InvalidQueryException("$name must be an integer") }
 
-/** Starts the server and blocks. */
-fun serve(index: AtlasIndex, host: String, port: Int, mcp: McpSettings = McpSettings()) {
-    embeddedServer(CIO, host = host, port = port) { atlasModule(index, mcp) }.start(wait = true)
+/**
+ * Starts the server and blocks.
+ *
+ * @throws AuthDiscoveryException when [auth] is given and its issuer's discovery document cannot be read: the server
+ *     does not start
+ */
+fun serve(index: AtlasIndex, host: String, port: Int, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null) {
+    val server = embeddedServer(CIO, host = host, port = port) { atlasModule(index, mcp, auth) }
+    try {
+        server.start(wait = true)
+    } catch (e: Throwable) {
+        throw generateSequence(e) { it.cause }.filterIsInstance<AuthDiscoveryException>().firstOrNull() ?: e
+    }
 }

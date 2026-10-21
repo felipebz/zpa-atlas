@@ -70,8 +70,9 @@ class StatsArguments {
 
 @Parameters(
     commandNames = ["serve"],
-    commandDescription = "Serve the web UI, the JSON API and the MCP endpoint (/mcp) of an index (no authentication: binding to an address other " +
-        "than 127.0.0.1 exposes the index and the source files to the network)"
+    commandDescription = "Serve the web UI, the JSON API and the MCP endpoint (/mcp) of an index. Without --oidc-issuer there is no " +
+        "authentication: binding to an address other than 127.0.0.1 exposes the index and the source files to the network. With it, " +
+        "/mcp and /api accept only access tokens of that OpenID Connect provider"
 )
 class ServeArguments {
     @Parameter(names = ["--db"], description = "Index database to serve", required = true)
@@ -92,4 +93,30 @@ class ServeArguments {
             "use to reach this server (comma-separated or repeated). /mcp refuses any other Host, against DNS rebinding"
     )
     var mcpAllowedHosts: List<String> = ArrayList()
+
+    @Parameter(
+        names = ["--oidc-issuer"],
+        description = "Issuer URL of an OpenID Connect provider: turns authentication on. /mcp and /api then need an access token of that provider " +
+            "(the server reads its discovery document at startup and refuses to start if it cannot); needs --public-url"
+    )
+    var oidcIssuer: String = ""
+
+    @Parameter(
+        names = ["--public-url"],
+        description = "The server's address as clients reach it, such as https://atlas.example.com (no path; http only for localhost). " +
+            "Required with --oidc-issuer: the resource is this plus /mcp, and its host is accepted by /mcp"
+    )
+    var publicUrl: String = ""
+
+    @Parameter(
+        names = ["--oidc-audience"],
+        description = "The value an access token must carry in aud (default: the resource, <public url>/mcp). Never the id of a client that signs users in"
+    )
+    var oidcAudience: String = ""
+
+    @Parameter(
+        names = ["--oidc-scope"],
+        description = "A scope an access token must carry, in scope or scp (default: none required); a token without it gets 403"
+    )
+    var oidcScope: String = ""
 }

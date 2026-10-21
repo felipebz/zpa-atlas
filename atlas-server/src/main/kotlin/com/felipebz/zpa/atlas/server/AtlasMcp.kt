@@ -79,10 +79,11 @@ val MCP_LOCAL_HOSTS = listOf("localhost", "127.0.0.1", "[::1]")
 /**
  * Mounts MCP over Streamable HTTP at `/mcp`: read-only tools over the same [AtlasIndex] calls as `/api`, each answer
  * the JSON of the call's result in its `Answer` envelope. Requests whose `Host` (or `Origin`) names a host outside
- * [MCP_LOCAL_HOSTS] and [McpSettings.allowedHosts] are refused.
+ * [MCP_LOCAL_HOSTS], [McpSettings.allowedHosts] and the host of [AuthSettings.publicUrl] are refused. The token check
+ * of [AuthSettings] is not here: it answers before this route is reached.
  */
-fun Application.atlasMcp(index: AtlasIndex, settings: McpSettings) {
-    val hosts = (MCP_LOCAL_HOSTS + settings.allowedHosts).distinct()
+fun Application.atlasMcp(index: AtlasIndex, settings: McpSettings, auth: AuthSettings? = null) {
+    val hosts = (MCP_LOCAL_HOSTS + settings.allowedHosts + listOfNotNull(auth?.publicHost)).distinct()
     install(ClosedToolSchemas)
     mcpStreamableHttp(
         path = "/mcp",
