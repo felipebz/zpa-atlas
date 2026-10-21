@@ -103,6 +103,9 @@ object Fixture {
             relation("IT_PONG", "ID"),
             relation("IT_V_ORDERS", "ID", "STATUS", "AMOUNT", "NOTE", kind = DictionaryRelationKind.VIEW),
             relation("IT_V_ORDERS_IO", "ID", "STATUS", kind = DictionaryRelationKind.VIEW),
+            relation("IT_V_ORDERS_IO2", "ID", "STATUS", kind = DictionaryRelationKind.VIEW),
+            relation("IT_V_ORDERS_IU", "ID", "STATUS", kind = DictionaryRelationKind.VIEW),
+            relation("IT_V_ORDERS_IU2", "ID", "STATUS", kind = DictionaryRelationKind.VIEW),
             relation("IT_V_ORDERS_CALC", "ID", "MIXED", kind = DictionaryRelationKind.VIEW),
             relation("USER_TABLES", "TABLE_NAME", "NUM_ROWS", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
             relation("USER_TAB_COLUMNS", "TABLE_NAME", "COLUMN_NAME", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
@@ -153,7 +156,7 @@ object Fixture {
                 "SYN_COMPANY" to "SYNONYM", "SYN_CHAIN1" to "SYNONYM", "SYN_CHAIN2" to "SYNONYM", "SYN_LOOP_A" to "SYNONYM",
                 "SYN_LOOP_B" to "SYNONYM", "SYN_EXT_PKG" to "SYNONYM", "SYN_CALLS" to "SYNONYM",
                 "IT_ORDERS" to "TABLE", "IT_UNWRITTEN" to "TABLE", "IT_STAGE" to "TABLE", "IT_PING" to "TABLE", "IT_PONG" to "TABLE",
-                "IT_V_ORDERS" to "VIEW", "IT_V_ORDERS_IO" to "VIEW", "IT_V_ORDERS_CALC" to "VIEW", "IT_ORDERS_SYN" to "SYNONYM",
+                "IT_V_ORDERS" to "VIEW", "IT_V_ORDERS_IO" to "VIEW", "IT_V_ORDERS_IO2" to "VIEW", "IT_V_ORDERS_IU" to "VIEW", "IT_V_ORDERS_IU2" to "VIEW", "IT_V_ORDERS_CALC" to "VIEW", "IT_ORDERS_SYN" to "SYNONYM",
                 "DBMS_RANDOM" to "PACKAGE", "TY_MISSING" to "TYPE", "SEQ_MISSING" to "SEQUENCE"
             )
         )

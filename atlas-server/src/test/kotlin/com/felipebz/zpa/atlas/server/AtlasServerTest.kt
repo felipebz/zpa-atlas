@@ -176,7 +176,7 @@ class AtlasServerTest {
     fun `the impact follows triggers by default, and triggers=false answers as the walk without them`() = api {
         val key = "db:HR.IT_AUDIT(P_WHAT IN VARCHAR2)"
         val followed = client.get("/api/impact") { parameter("key", key) }.bodyAsText()
-        assertThat(json(followed)["result"]!!.jsonObject["levels"]!!.jsonArray.map { it.jsonPrimitive.content }).containsExactly("7", "12", "2")
+        assertThat(json(followed)["result"]!!.jsonObject["levels"]!!.jsonArray.map { it.jsonPrimitive.content }).containsExactly("8", "21", "2")
         assertThat(followed).contains("\"fires\":\"INSERT\"")
         val off = client.get("/api/impact") { parameter("key", key); parameter("triggers", "false") }.bodyAsText()
         assertThat(off).isEqualTo(ApiJson.encodeToString(index.impact(key, followTriggers = false)))
