@@ -4,7 +4,7 @@
 
 # The build runs on the builder's own platform: the distribution is plain JARs, and the Gradle Node plugin downloads
 # Node's glibc build for the web page.
-FROM --platform=$BUILDPLATFORM docker.io/bellsoft/liberica-openjdk-debian:25@sha256:213512c11989ebdcf464c475603f6381af2a447338a2a04381c14b6e786d8c94 AS build
+FROM --platform=$BUILDPLATFORM docker.io/bellsoft/liberica-openjdk-debian:27@sha256:c8b4fe2c477ee36b7666c4a036c8b224cc265371a9992fbf69e356ca3002096f AS build
 WORKDIR /src
 COPY . .
 # Empty: the version of gradle.properties. A release passes its own.
