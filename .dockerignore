@@ -1,0 +1,19 @@
+# Only what the build reads.
+*
+!gradlew
+!gradle/
+!build.gradle.kts
+!settings.gradle.kts
+!gradle.properties
+!LICENSE
+!NOTICE
+!licenses/
+!atlas-*/
+
+**/build/
+**/node_modules/
+**/.gradle/
+**/.kotlin/
+**/.idea/
+**/*.iml
+**/*.db

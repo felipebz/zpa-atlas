@@ -6,8 +6,6 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.query.AtlasIndex
-import io.ktor.client.HttpClient
-import io.ktor.server.application.ApplicationStopped
 import com.felipebz.zpa.atlas.query.GroupDimension
 import com.felipebz.zpa.atlas.query.ImpactStop
 import com.felipebz.zpa.atlas.query.InvalidQueryException
@@ -16,11 +14,15 @@ import com.felipebz.zpa.atlas.query.QueryTimeoutException
 import com.felipebz.zpa.atlas.query.SchemaMismatchException
 import com.felipebz.zpa.atlas.query.Scope
 import com.felipebz.zpa.atlas.query.indexCodes
+import io.ktor.client.HttpClient
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
+import io.ktor.server.application.log
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.http.content.staticResources
@@ -30,8 +32,11 @@ import io.ktor.server.plugins.compression.excludeContentType
 import io.ktor.server.plugins.compression.gzip
 import io.ktor.server.plugins.compression.minimumSize
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.response.header
+import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
+import io.ktor.server.routing.head
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
@@ -162,9 +167,27 @@ internal fun Application.atlasModule(
                 if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
             }
         }
+        // Outside the gate: a probe has no token. It answers whether the index opens, nothing of what is in it.
+        route("/health") {
+            get { call.health(index, head = false) }
+            head { call.health(index, head = true) }
+        }
         staticResources("/", "web", index = "index.html")
     }
     atlasMcp(index, mcp, auth)
+}
+
+private suspend fun ApplicationCall.health(index: AtlasIndex, head: Boolean) {
+    val ready = try {
+        index.stamp()
+        true
+    } catch (e: Exception) {
+        application.log.debug("Health check: the index is unavailable: {}", e.message)
+        false
+    }
+    val status = if (ready) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable
+    response.header(HttpHeaders.CacheControl, "no-store")
+    if (head) respond(status) else respondText(if (ready) "ok\n" else "unavailable\n", ContentType.Text.Plain, status)
 }
 
 private fun ApplicationCall.optional(name: String): String? = request.queryParameters[name]?.takeIf { it.isNotEmpty() }

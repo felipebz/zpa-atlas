@@ -20,6 +20,9 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTi
 
     fun run(): Answer<RunSummary> = read { connection, _ -> runSummary(connection) }
 
+    /** The run stamp alone: the index opens and has the schema version this module reads. Cheap, for a health check. */
+    fun stamp(): RunStamp = read { _, stamp -> stamp }.run
+
     /**
      * Without a dot, [q] is a case-insensitive prefix of the entity name. With a dot, the last segment is a name
      * prefix and the segments before it name the parent chain (the leftmost may be the schema); when nothing

@@ -113,7 +113,14 @@ private fun conditionalCompilation(
     return ConditionalCompilationSettings(flags, detected.version) to detected.origin
 }
 
-private fun serve(args: ServeArguments, environment: (String) -> String?): Int {
+/** What `serve` starts, once its options are checked. */
+internal class ServeLaunch(val database: Path, val sources: Path?, val host: String, val port: Int, val mcp: McpSettings, val auth: AuthSettings?)
+
+private fun launch(serve: ServeLaunch) =
+    com.felipebz.zpa.atlas.server.serve(AtlasIndex(serve.database, serve.sources), serve.host, serve.port, serve.mcp, serve.auth)
+
+private fun serve(args: ServeArguments, environment: (String) -> String?, launch: (ServeLaunch) -> Unit): Int {
+    if (args.db.isBlank()) throw CliValidationException("The option is required: --db (or ${environmentName("--db")})")
     val database = Path.of(args.db)
     if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: ${args.db}")
     if (args.port !in 1..65535) throw CliValidationException("--port must be between 1 and 65535")
@@ -122,7 +129,7 @@ private fun serve(args: ServeArguments, environment: (String) -> String?): Int {
     } else {
         Path.of(AtlasIndex(database, null).run().result.sourcesRoot).takeIf { Files.isDirectory(it) }
     }
-    val mcpHosts = args.mcpAllowedHosts.map { it.trim() }.filter { it.isNotEmpty() }
+    val mcpHosts = args.mcpAllowedHosts.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
     if (mcpHosts.any { it.any { c -> c in "/@?#:" && !(it.startsWith("[") && it.endsWith("]")) } }) {
         throw CliValidationException("--mcp-allowed-host takes host names or addresses, without scheme or port")
     }
@@ -140,7 +147,7 @@ private fun serve(args: ServeArguments, environment: (String) -> String?): Int {
     if (args.host !in MCP_LOCAL_HOSTS && mcpHosts.isEmpty() && auth == null) {
         System.err.println("Warning: /mcp accepts only local host names; clients on other machines need --mcp-allowed-host with the name they use")
     }
-    com.felipebz.zpa.atlas.server.serve(AtlasIndex(database, sources), args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth)
+    launch(ServeLaunch(database, sources, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth))
     return 0
 }
 
@@ -157,8 +164,11 @@ private fun authSettings(args: ServeArguments, environment: (String) -> String?)
     if (args.publicUrl.isBlank()) throw CliValidationException("--oidc-issuer needs --public-url, the server's address as clients reach it")
     val secretEnv = args.oidcClientSecretEnv.trim()
     if (secretEnv.isNotEmpty() && args.oidcClientId.isBlank()) throw CliValidationException("--oidc-client-secret-env needs --oidc-client-id")
-    val secret = secretEnv.takeIf { it.isNotEmpty() }?.let {
-        environment(it)?.takeIf(String::isNotEmpty) ?: throw CliValidationException("The environment variable $it, named by --oidc-client-secret-env, is not set")
+    // A variable named on purpose must be set; the default one is optional, and without it the client is public.
+    val secret = if (secretEnv.isNotEmpty()) {
+        environment(secretEnv)?.takeIf(String::isNotEmpty) ?: throw CliValidationException("The environment variable $secretEnv, named by --oidc-client-secret-env, is not set")
+    } else {
+        environment(DEFAULT_CLIENT_SECRET_ENV)?.takeIf { it.isNotEmpty() && args.oidcClientId.isNotBlank() }
     }
     return try {
         val page = args.oidcClientId.trim().takeIf { it.isNotEmpty() }?.let { PageClient(it, secret) }
@@ -182,7 +192,19 @@ fun applicationHome(): Path {
     return if (codePath.extension == "jar" && codePath.parent.name == "lib") codePath.parent.parent.toAbsolutePath() else Path.of(".")
 }
 
-fun execute(args: Array<String>, environment: (String) -> String? = System::getenv): Int {
+/** The variable `serve` reads the page client's secret from when `--oidc-client-secret-env` names none. */
+internal const val DEFAULT_CLIENT_SECRET_ENV = "ZPA_ATLAS_OIDC_CLIENT_SECRET"
+
+/** The environment variable an option of `serve` can come from: `--oidc-issuer` is `ZPA_ATLAS_OIDC_ISSUER`. */
+internal fun environmentName(option: String) = "ZPA_ATLAS_" + option.removePrefix("--").uppercase().replace('-', '_')
+
+/** The names of the options of `serve`, the only ones the environment gives. */
+internal val SERVE_OPTIONS: Set<String> = ServeArguments::class.java.declaredFields
+    .mapNotNull { it.getAnnotation(com.beust.jcommander.Parameter::class.java) }.flatMap { it.names.toList() }.toSet()
+
+fun execute(args: Array<String>, environment: (String) -> String? = System::getenv): Int = execute(args, environment, ::launch)
+
+internal fun execute(args: Array<String>, environment: (String) -> String?, launch: (ServeLaunch) -> Unit): Int {
     val main = MainArguments()
     val indexArguments = IndexArguments()
     val statsArguments = StatsArguments()
@@ -193,6 +215,14 @@ fun execute(args: Array<String>, environment: (String) -> String? = System::gete
         .addCommand(statsArguments)
         .addCommand(serveArguments)
         .programName("zpa-atlas")
+        .apply {
+            // JCommander does not tell the provider which command it parses, and with a provider it no longer enforces
+            // `required` on options that have an initial value: only `serve` gets one, so the variables of a server
+            // never change what `index` indexes.
+            if (args.firstOrNull { !it.startsWith("-") } == "serve") {
+                defaultProvider { option -> if (option in SERVE_OPTIONS) environment(environmentName(option))?.takeIf { it.isNotBlank() } else null }
+            }
+        }
         .build()
     return try {
         commander.parse(*args)
@@ -204,7 +234,7 @@ fun execute(args: Array<String>, environment: (String) -> String? = System::gete
         }
         when (commander.parsedCommand) {
             "index" -> index(indexArguments, environment)
-            "serve" -> serve(serveArguments, environment)
+            "serve" -> serve(serveArguments, environment, launch)
             else -> stats(statsArguments)
         }
     } catch (exception: ParameterException) {

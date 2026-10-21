@@ -155,9 +155,11 @@ zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080
 | `--oidc-audience`    | the resource, `<public url>/mcp`: what an access token must carry in `aud`                       |
 | `--oidc-scope`       | none: a scope an access token must carry, in `scope` or `scp`                                    |
 | `--oidc-client-id`   | none: the page has no sign-in. With it, people sign in to the page with the provider             |
-| `--oidc-client-secret-env` | none: a public client. The environment variable holding the page client's secret       |
+| `--oidc-client-secret-env` | `ZPA_ATLAS_OIDC_CLIENT_SECRET`, optional: unset, the page client is public. The variable holding its secret |
 
 - Oracle options and exit codes are those of zpa-cli: 0 success, 2 invalid usage, 3 execution failure.
+- Every option of `serve` can also come from the environment: `ZPA_ATLAS_` and the option's name in upper case, `-` as `_` (`ZPA_ATLAS_DB` for `--db`). The command line wins; a blank variable is unset. `index` and `stats` read no such variables.
+- In a container: see [docs/container.md](docs/container.md).
 - Without `--oidc-issuer`, `serve` has no authentication: binding to anything but 127.0.0.1 exposes the index and the sources to the network. With it, see [docs/authentication.md](docs/authentication.md).
 - `serve` opens the index for each request only, so `index` can replace the file while the server runs.
 - The output is a new SQLite file per run, written to a temporary file and renamed at the end.

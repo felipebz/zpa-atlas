@@ -19,7 +19,10 @@ zpa-atlas serve --db atlas.db --host 0.0.0.0 \
 | `--oidc-audience` | What an access token must carry in `aud`. Default: the resource, `<public url>/mcp`.                 |
 | `--oidc-scope`    | A scope an access token must carry. Default: none.                                                   |
 | `--oidc-client-id` | The page's client id. Turns the page sign-in on.                                                    |
-| `--oidc-client-secret-env` | The environment variable holding that client's secret. Default: none, a public client.     |
+| `--oidc-client-secret-env` | The environment variable holding that client's secret. Default: `ZPA_ATLAS_OIDC_CLIENT_SECRET`; unset, the client is public. |
+
+Each option can also be an environment variable: `ZPA_ATLAS_OIDC_ISSUER`, `ZPA_ATLAS_PUBLIC_URL`, `ZPA_ATLAS_OIDC_AUDIENCE`,
+`ZPA_ATLAS_OIDC_SCOPE`, `ZPA_ATLAS_OIDC_CLIENT_ID`; the command line wins.
 
 At startup the server reads `<issuer>/.well-known/openid-configuration`. If it cannot, it stops with exit code 3: it
 never starts without the authentication it was asked for. Both URLs must be `https`, except on `localhost`, `127.0.0.1`
@@ -55,8 +58,8 @@ With `--oidc-client-id`, a person signs in to the page with the same provider. T
 flow, with PKCE S256, `state` and `nonce`, and keeps the tokens: the browser holds only a session id, in a cookie.
 
 - **The client:** registered at the provider for the page, with the redirect URI `<public url>/auth/callback`. A
-  confidential client gives its secret through the environment variable named by `--oidc-client-secret-env`, never on
-  the command line; without it, the client is public and uses PKCE alone. The server refuses to start when the client
+  confidential client gives its secret in the environment variable `ZPA_ATLAS_OIDC_CLIENT_SECRET`, or in the one named by
+  `--oidc-client-secret-env`, never on the command line; without it, the client is public and uses PKCE alone. The server refuses to start when the client
   id is the audience.
 - **Signing in:** `/auth/login?return=<path>` sends the browser to the provider, asking for `openid` and the required
   scope. Back at the callback, the access token the provider gave is checked as a bearer token is: issuer, audience,

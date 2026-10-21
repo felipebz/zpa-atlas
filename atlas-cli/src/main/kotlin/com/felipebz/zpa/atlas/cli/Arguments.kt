@@ -72,63 +72,65 @@ class StatsArguments {
     commandNames = ["serve"],
     commandDescription = "Serve the web UI, the JSON API and the MCP endpoint (/mcp) of an index. Without --oidc-issuer there is no " +
         "authentication: binding to an address other than 127.0.0.1 exposes the index and the source files to the network. With it, " +
-        "/mcp and /api accept only access tokens of that OpenID Connect provider"
+        "/mcp and /api accept only access tokens of that OpenID Connect provider. Every option can also come from the environment " +
+        "variable named next to it (ZPA_ATLAS_ and the option's name); the command line wins, a blank variable is unset"
 )
 class ServeArguments {
-    @Parameter(names = ["--db"], description = "Index database to serve", required = true)
+    @Parameter(names = ["--db"], description = "Index database to serve [env ZPA_ATLAS_DB]", required = true)
     var db: String = ""
 
-    @Parameter(names = ["--sources"], description = "Folder of the indexed sources (default: the folder recorded in the index, when it exists)")
+    @Parameter(names = ["--sources"], description = "Folder of the indexed sources (default: the folder recorded in the index, when it exists) [env ZPA_ATLAS_SOURCES]")
     var sources: String = ""
 
-    @Parameter(names = ["--host"], description = "Address to bind; anything but 127.0.0.1 exposes the index to the network")
+    @Parameter(names = ["--host"], description = "Address to bind; anything but 127.0.0.1 exposes the index to the network [env ZPA_ATLAS_HOST]")
     var host: String = "127.0.0.1"
 
-    @Parameter(names = ["--port"], description = "Port to listen on")
+    @Parameter(names = ["--port"], description = "Port to listen on [env ZPA_ATLAS_PORT]")
     var port: Int = 8080
 
     @Parameter(
         names = ["--mcp-allowed-host"],
         description = "A host name /mcp accepts besides localhost, 127.0.0.1 and [::1]: the name or address clients on other machines " +
-            "use to reach this server (comma-separated or repeated). /mcp refuses any other Host, against DNS rebinding"
+            "use to reach this server (comma-separated or repeated). /mcp refuses any other Host, against DNS rebinding [env ZPA_ATLAS_MCP_ALLOWED_HOST]"
     )
     var mcpAllowedHosts: List<String> = ArrayList()
 
     @Parameter(
         names = ["--oidc-issuer"],
         description = "Issuer URL of an OpenID Connect provider: turns authentication on. /mcp and /api then need an access token of that provider " +
-            "(the server reads its discovery document at startup and refuses to start if it cannot); needs --public-url"
+            "(the server reads its discovery document at startup and refuses to start if it cannot); needs --public-url [env ZPA_ATLAS_OIDC_ISSUER]"
     )
     var oidcIssuer: String = ""
 
     @Parameter(
         names = ["--public-url"],
         description = "The server's address as clients reach it, such as https://atlas.example.com (no path; http only for localhost). " +
-            "Required with --oidc-issuer: the resource is this plus /mcp, and its host is accepted by /mcp"
+            "Required with --oidc-issuer: the resource is this plus /mcp, and its host is accepted by /mcp [env ZPA_ATLAS_PUBLIC_URL]"
     )
     var publicUrl: String = ""
 
     @Parameter(
         names = ["--oidc-audience"],
-        description = "The value an access token must carry in aud (default: the resource, <public url>/mcp). Never the id of a client that signs users in"
+        description = "The value an access token must carry in aud (default: the resource, <public url>/mcp). Never the id of a client that signs users in [env ZPA_ATLAS_OIDC_AUDIENCE]"
     )
     var oidcAudience: String = ""
 
     @Parameter(
         names = ["--oidc-scope"],
-        description = "A scope an access token must carry, in scope or scp (default: none required); a token without it gets 403"
+        description = "A scope an access token must carry, in scope or scp (default: none required); a token without it gets 403 [env ZPA_ATLAS_OIDC_SCOPE]"
     )
     var oidcScope: String = ""
 
     @Parameter(
         names = ["--oidc-client-id"],
-        description = "The page's client id at the provider: turns the page sign-in on (redirect URI <public url>/auth/callback). Needs --oidc-issuer; never the audience"
+        description = "The page's client id at the provider: turns the page sign-in on (redirect URI <public url>/auth/callback). Needs --oidc-issuer; never the audience [env ZPA_ATLAS_OIDC_CLIENT_ID]"
     )
     var oidcClientId: String = ""
 
     @Parameter(
         names = ["--oidc-client-secret-env"],
-        description = "Name of the environment variable holding the page client's secret (default: none, a public client with PKCE)"
+        description = "Name of the environment variable holding the page client's secret (default: ZPA_ATLAS_OIDC_CLIENT_SECRET; when the " +
+            "default is unset the client is public, with PKCE; a variable named here must be set) [env ZPA_ATLAS_OIDC_CLIENT_SECRET_ENV]"
     )
     var oidcClientSecretEnv: String = ""
 }
