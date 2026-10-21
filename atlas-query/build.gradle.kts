@@ -11,7 +11,7 @@ java {
 }
 
 dependencies {
-    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
     implementation("org.xerial:sqlite-jdbc:3.53.4.0")
     // Tests build the fixture index with the indexer; the main code never depends on it.
     testImplementation(testFixtures(project(":atlas-core")))
