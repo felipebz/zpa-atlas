@@ -4,3 +4,5 @@ atlas-core/src/testFixtures/resources/** text eol=lf
 atlas-core/src/test/resources/** text eol=lf
 atlas-query/src/test/resources/** text eol=lf
 atlas-devtools/src/integrationTest/resources/** text eol=lf
+/gradlew text eol=lf
+/dev/oracle/oracle-probe text eol=lf
