@@ -33,6 +33,8 @@ import kotlin.io.path.extension
 import kotlin.io.path.name
 
 private fun index(args: IndexArguments, environment: (String) -> String?): Int {
+    requireOptions(args)
+    if (Files.isDirectory(Path.of(args.out))) throw CliValidationException("--out names a folder: ${args.out}; give the path of the index file to create")
     val sources = Path.of(args.sources)
     if (!Files.isDirectory(sources)) throw CliValidationException("Sources folder does not exist or is not a directory: ${args.sources}")
     if (args.threads < 1) throw CliValidationException("--threads must be at least 1")

@@ -10,6 +10,7 @@ import com.beust.jcommander.ParameterException
 import com.felipebz.zpa.atlas.cli.CliExecutionException
 import com.felipebz.zpa.atlas.cli.CliValidationException
 import com.felipebz.zpa.atlas.cli.applicationHome
+import com.felipebz.zpa.atlas.cli.requireOptions
 import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
 import com.felipebz.zpa.atlas.compare.ComparisonReport
 import com.felipebz.zpa.atlas.compare.DatabaseDependencies
@@ -20,6 +21,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 private fun compareDeps(args: CompareArguments, environment: (String) -> String?): Int {
+    requireOptions(args)
     if (args.oracle.oracleRelations.isNotBlank()) {
         throw CliValidationException("compare-deps does not use --oracle-relations: it reads whole owners with --oracle-schemas")
     }

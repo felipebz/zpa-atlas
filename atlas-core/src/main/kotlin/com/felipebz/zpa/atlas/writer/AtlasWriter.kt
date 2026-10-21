@@ -41,6 +41,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
          */
         fun writeAtomically(target: Path, body: (AtlasWriter) -> Unit) {
             val absolute = target.toAbsolutePath()
+            require(!Files.isDirectory(absolute)) { "Cannot write the index to $absolute: it is a folder" }
             Files.createDirectories(absolute.parent)
             val temporary = Files.createTempFile(absolute.parent, absolute.fileName.toString(), ".tmp")
             try {
@@ -61,7 +62,8 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
 
         /**
          * Moves [temporary] over [target]. On Windows the move fails while another process (the server between two
-         * requests is the usual one) has the target open, so it is retried for about [REPLACE_WAIT_MILLIS].
+         * requests is the usual one) has the target open, so it is retried for about [REPLACE_WAIT_MILLIS]; then the
+         * error says what the file system answered, and that another process may hold the file.
          */
         private fun replace(temporary: Path, target: Path) {
             val deadline = System.nanoTime() + REPLACE_WAIT_MILLIS * 1_000_000
@@ -72,7 +74,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                 } catch (e: java.nio.file.FileSystemException) {
                     // AccessDeniedException is a FileSystemException.
                     if (System.nanoTime() > deadline) {
-                        throw IllegalStateException("Cannot replace $target: the index is open in another process (${e.javaClass.simpleName})", e)
+                        throw IllegalStateException("Cannot replace $target: ${e.javaClass.simpleName}${e.reason?.let { " ($it)" } ?: ""}; another process may have it open", e)
                     }
                     Thread.sleep(100)
                 }
