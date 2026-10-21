@@ -27,7 +27,7 @@ dependencies {
     implementation("io.ktor:ktor-server-compression:$ktorVersion")
     implementation("io.ktor:ktor-server-auth-oidc:$ktorVersion")
     implementation("io.ktor:ktor-client-cio:$ktorVersion")
-    implementation("com.auth0:java-jwt:4.6.0")
+    implementation("com.auth0:java-jwt:4.6.2")
     implementation("com.auth0:jwks-rsa:0.24.1")
     implementation("io.modelcontextprotocol:kotlin-sdk-server:$mcpVersion")
     testImplementation("io.modelcontextprotocol:kotlin-sdk-client:$mcpVersion")
