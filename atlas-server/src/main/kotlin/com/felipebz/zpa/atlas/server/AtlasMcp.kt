@@ -532,12 +532,28 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         internal inline fun <reified T> toolAnswer(answer: T): JsonObject = McpAnswers.compact(ToolJson.encodeToJsonElement(answer)).jsonObject
 
         const val INSTRUCTIONS =
-            "zpa-atlas answers questions about an indexed PL/SQL code base: where an entity is defined, who reads, " +
-                "writes or calls it, and what a program uses. Find keys with search_entities, then ask get_entity, " +
-                "find_occurrences or group_occurrences. Every answer carries the run it was read from; null fields " +
-                "are left out, and so is an entity's display when it is its key without db: (the usual case). An " +
-                "answer over ${McpAnswers.MAX_CHARS} characters is cut, and cutForSize says how: the rows kept (page on " +
-                "from nextAfter), the lower list limit of an entity, or the source lines shortened."
+            "zpa-atlas is an index of the PL/SQL code of an Oracle database (packages, procedures, functions, " +
+                "triggers, tables, views, columns): ask it who calls, reads or writes something, for impact analysis, " +
+                "and for the values passed to a parameter or written to a column.\n" +
+                "Which tool answers which question:\n" +
+                "- search_entities: the key of an entity from its name; dotted names work (pack.proc, table.column).\n" +
+                "- get_entity: what an entity is: kind, definitions, members or columns, the views reading it.\n" +
+                "- find_usages: who uses one entity, following its spec and body, its members and the views built on " +
+                "it; group_usages counts them by routine, file or view. via keeps only the direct uses or only those " +
+                "through views. For a table, CHILDREN with VIEWS also follows the view columns computed from its columns.\n" +
+                "- find_occurrences, group_occurrences: questions across the code: every write in a package, calls by " +
+                "name pattern, a CRUD matrix, rows by status or by value.\n" +
+                "- get_values: the values a parameter is passed or a column is written with; then find_value_sites: " +
+                "where one of them comes from.\n" +
+                "- get_source: the source text around a line.\n" +
+                "Usual order: a group_ tool for the summary, then a find_ tool for the lines, then get_source for the text.\n" +
+                "What the index does not answer, to say in the answer: calls through another subprogram are not " +
+                "followed (ask again for that subprogram); dynamic SQL is partial; Forms, reports and code outside the " +
+                "indexed sources are not indexed; a status other than RESOLVED means the index is not sure.\n" +
+                "Every answer carries the run it was read from; null fields are left out, and so is an entity's " +
+                "display when it is its key without db: (the usual case). An answer over ${McpAnswers.MAX_CHARS} " +
+                "characters is cut, and cutForSize says how: the rows kept (page on from nextAfter), the lower list " +
+                "limit of an entity, or the source lines shortened. A usage tool's included lists what it followed."
 
         private const val KEYS =
             "Entity keys: db:SCHEMA.NAME; a member as db:SCHEMA.PACKAGE.MEMBER, a column as db:SCHEMA.TABLE.COLUMN. " +
@@ -559,31 +575,34 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "named: select *, insert without a column list); DDL_CREATE, DDL_ALTER, DDL_DROP, DDL_TRUNCATE, " +
                 "DDL_ANALYZE (the object a DDL statement acts on)."
 
-        const val SEARCH = "Finds entities by name: tables, views, columns, packages, procedures, functions, " +
-            "parameters, types, sequences, synonyms, triggers. Exact name matches first. $KEYS"
+        const val SEARCH = "Finds the key of an entity by its name: tables, views, columns, packages, procedures, " +
+            "functions, parameters, types, sequences, synonyms, triggers. Exact name matches first. $KEYS"
 
-        const val ENTITY = "One entity: its kind, parent, definitions (file and line), overloads, children (members " +
-            "or columns, each with its number of uses), relations, triggers and the views that read it. $KEYS"
+        const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
+            "(members or columns, each with its number of uses), relations, triggers and the views that read it. $KEYS"
 
-        const val FIND = "Lists occurrences (places in the source where entities are defined or used), with total " +
-            "and facets counted over every match. Every filter is optional and they combine with AND. Pages: pass " +
+        const val FIND = "Where entities are defined, called, read or written across the code (occurrences), with " +
+            "optional filters combined with AND, and total and facets counted over every match. Pages: pass " +
             "the answer's nextAfter as after; nextAfter is absent on the last page. Each row has its status and " +
             "reason; facets.byStatus counts the statuses of every match. A call's arguments name their parameter " +
             "(P_A); its key is the row's entity key, a dot and that name. $STATUSES $ROLES"
 
-        const val USAGES = "The usages of one entity, as its page lists them: use it instead of find_occurrences " +
-            "for who uses an entity, following its spec or body and the views built on it. Rows as in find_occurrences, " +
+        const val USAGES = "Who calls, reads or writes one entity, for impact analysis: use it instead of " +
+            "find_occurrences for one entity, following its spec or body and the views built on it. For a table, " +
+            "CHILDREN with VIEWS also follows the view columns computed from its columns. Rows as in find_occurrences, " +
             "in source order, definitions and declarations left out unless roles asks for them; viaView is true on a row " +
             "reached through a view (a view column computed from the entity, or a view reading it), viaCandidate on an " +
             "AMBIGUOUS row where the entity is one of the candidates. Calls through another subprogram are not followed " +
             "(a standalone procedure that only calls the package one): ask again for that subprogram's usages. Pages as in " +
             "find_occurrences. $STATUSES"
 
-        const val GROUP_USAGES = "Counts an entity's usages, the rows find_usages lists for the same arguments, grouped " +
-            "by one to three dimensions as in group_occurrences; ENTITY is the entity a row matched, so on a row " +
+        const val GROUP_USAGES = "Counts who uses one entity, by routine, file or view: the rows find_usages lists for " +
+            "the same arguments, grouped by one to three dimensions as in group_occurrences; ENTITY is the entity a " +
+            "row matched, so on a row " +
             "through a view it names the view or view column. Example, who uses a table through views, by view and " +
             "routine, in one call: key the table, include [VIEWS], via THROUGH_VIEWS, group_by ENTITY, CONTAINER. " +
-            "include defaults by kind as in find_usages; the answer's included lists what was followed."
+            "For a table, CHILDREN with VIEWS also follows the view columns computed from its columns. include " +
+            "defaults by kind as in find_usages; the answer's included lists what was followed."
 
         private val VALUE_ENTITY_KINDS = setOf("PARAMETER", "COLUMN")
 
@@ -606,13 +625,14 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "... set c = default), so the column's default applies. An argument left out of a call is not indexed, " +
                 "so a parameter's default is not counted."
 
-        const val VALUES = "The values a PARAMETER is passed or a COLUMN is written with, grouped by valueKind and " +
+        const val VALUES = "The values passed to a PARAMETER or written to a COLUMN, grouped by valueKind and " +
             "value, most frequent first, each with its count; totalGroups counts every group. $VALUE_WHY " +
             "$VALUE_KIND_NOTES Then find_value_sites, with a group's valueKind and value, lists where it comes from. " +
             "Any other kind of entity is an error."
 
-        const val VALUE_SITES = "The calls or writes that give a PARAMETER or a COLUMN one value: pass the valueKind " +
-            "and value of one get_values group. value is required for STRING, NUMBER, BOOLEAN and NAME and matched " +
+        const val VALUE_SITES = "Where a PARAMETER is passed or a COLUMN is written with one value: the calls or " +
+            "writes, for the valueKind and value of one get_values group. value is required for STRING, NUMBER, " +
+            "BOOLEAN and NAME and matched " +
             "exactly as get_values gives it (S, not 'S'); for BIND, EXPRESSION, NULL and DEFAULT it is ignored and " +
             "every row of the kind matches. $VALUE_WHY Rows as in find_usages, in source order. On a parameter's " +
             "row, arguments keeps only the argument bound to that parameter (or to its spec or body twin): the " +
@@ -621,14 +641,15 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
 
         private val USAGE_SCOPES = listOf(Scope.IMPLEMENTATIONS, Scope.CHILDREN, Scope.VIEWS)
 
-        const val GROUP = "Counts occurrences grouped by one to three dimensions, with the same filters as " +
-            "find_occurrences. A CRUD matrix of a package: container_name or container the package, roles " +
+        const val GROUP = "Counts occurrences across the code, by routine, entity, role, file, status or value, with " +
+            "one to three dimensions and the same filters as find_occurrences. A CRUD matrix of a package: " +
+            "container_name or container the package, roles " +
             "SQL_SELECT, SQL_INSERT, SQL_UPDATE, SQL_DELETE, group_by CONTAINER, ENTITY, ROLE. ROLE counts an " +
             "occurrence once per role. A group value without entity is an occurrence tied to no entity; add STATUS " +
             "to group_by to tell proven occurrences from the others. To follow an entity's spec or body, contents or " +
             "views, use group_usages. $STATUSES"
 
-        const val SOURCE = "Lines of an indexed source file around a line, as the index read it; stale is true " +
+        const val SOURCE = "The source text of an indexed file around a line, as the index read it; stale is true " +
             "when the file changed since it was indexed."
     }
 }

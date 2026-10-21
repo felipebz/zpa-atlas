@@ -146,6 +146,15 @@ class McpServerTest {
     }
 
     @Test
+    fun `the instructions name every tool, and they and every description fit an older client's limit`() = mcp { client ->
+        val instructions = client.serverInstructions!!
+        val tools = client.listTools().tools
+        assertThat(tools.map { it.name }).allSatisfy { assertThat(instructions).contains(it) }
+        assertThat(instructions.length).isLessThanOrEqualTo(2_048)
+        assertThat(tools).allSatisfy { assertThat(it.description!!.length).describedAs(it.name).isLessThanOrEqualTo(2_048) }
+    }
+
+    @Test
     fun `each tool answers what the same AtlasIndex call answers`() = mcp { client ->
         assertThat(client.call("search_entities", args { put("query", "run_job"); put("limit", 5) }).json())
             .isEqualTo(toolAnswer(index.searchEntities("run_job", null, true, 5)))
@@ -576,15 +585,18 @@ class McpServerTest {
                 HttpRequest.newBuilder(url).header("Accept", "application/json, text/event-stream").header("Content-Type", "application/json")
                     .header("Accept-Encoding", "gzip").apply { if (session != null) header("Mcp-Session-Id", session) }
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(),
-                HttpResponse.BodyHandlers.ofString()
+                HttpResponse.BodyHandlers.ofByteArray()
             )
+            fun HttpResponse<ByteArray>.text() =
+                (if (headers().firstValue("Content-Encoding").orElse("") == "gzip") GZIPInputStream(body().inputStream()).readAllBytes() else body())
+                    .decodeToString()
             val answer = post(initialize)
             assertThat(answer.statusCode()).isEqualTo(200)
             val session = answer.headers().firstValue("Mcp-Session-Id").get()
-            val body = Json.parseToJsonElement(answer.body()).jsonObject
+            val body = Json.parseToJsonElement(answer.text()).jsonObject
             assertThat(body["result"]!!.jsonObject["serverInfo"]!!.jsonObject["name"]!!.jsonPrimitive.content).isEqualTo("zpa-atlas")
             // McpJson writes no null field and no class discriminator: the JSON of /api would write both differently.
-            assertThat(answer.body()).doesNotContain(":null").doesNotContain("\"type\":\"io.")
+            assertThat(answer.text()).doesNotContain(":null").doesNotContain("\"type\":\"io.")
             post("""{"jsonrpc":"2.0","method":"notifications/initialized"}""", session)
             // The listing is large enough to be gzipped: the closed schemas must survive compression.
             val listing = http.send(
