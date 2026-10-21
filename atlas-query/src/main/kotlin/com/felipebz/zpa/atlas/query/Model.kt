@@ -393,6 +393,10 @@ data class FileView(val path: String, val stale: Boolean, val lines: List<String
 /** A request the index cannot answer as asked (an unknown role, a limit out of range, a path outside the index). */
 class InvalidQueryException(message: String) : RuntimeException(message)
 
+/** An impact graph of [nodes] nodes, more than [limit]: a smaller depth gives a smaller one. */
+class GraphTooLargeException(val nodes: Int, val limit: Int) :
+    RuntimeException("The graph has $nodes nodes, more than $limit: lower maxDepth")
+
 /** A query ran longer than the index allows; narrower filters make it faster. */
 class QueryTimeoutException(val seconds: Double) :
     RuntimeException("The query took longer than ${"%.0f".format(java.util.Locale.ROOT, seconds)} s; narrow the filters and try again.")

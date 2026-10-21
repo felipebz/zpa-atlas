@@ -178,4 +178,63 @@ class ImpactTest {
         assertThatThrownBy { index.impact(leaf, roles = setOf("NOPE")) }.hasMessage("Unknown role: NOPE")
         assertThatThrownBy { index.impact(leaf, offset = -1) }.hasMessage("offset must not be negative")
     }
+
+    @Test
+    fun `the whole graph in one view names each entity and path once, and each node refers to them as the graph does`() {
+        val whole = index.impactGraph(leaf, followTriggers = false).result!!
+        val view = index.impactView(leaf, followTriggers = false).result!!
+        assertThat(view.entities.map { it.key }).doesNotHaveDuplicates()
+        // Every display of the fixture is its key without db: (the dictionary's are written that way too).
+        assertThat(view.entities).allMatch { it.display == null }
+        assertThat(view.paths).doesNotHaveDuplicates()
+        assertThat(view.levels).isEqualTo(whole.levels)
+        assertThat(view.stops).isEqualTo(whole.stops)
+        assertThat(view.included).isEqualTo(whole.included)
+        assertThat(view.followTriggers).isFalse()
+        assertThat(view.certain).isEqualTo(whole.nodes.count { it.certain })
+        // Each node, read back through the indexes, is the graph's node.
+        assertThat(view.nodes.map { node ->
+            ImpactNode(
+                node.kind, node.entity?.let { view.entities[it].let { e -> EntitySummary(e.key, e.kind, e.display ?: e.key.removePrefix("db:"), e.external, e.name) } },
+                node.path?.let { view.paths[it] }, node.uses, node.firstLine, node.depth,
+                ImpactVia(view.entities[node.via.uses].key, whole.nodes[view.nodes.indexOf(node)].via.occurrence, view.paths[node.via.path], node.via.line,
+                    node.via.status, node.via.fires),
+                node.certain, node.stop, node.trigger
+            )
+        }).isEqualTo(whole.nodes)
+        // From the second hop on, a use is of another node, one depth up; on the first, of the entity or what it matched.
+        for (node in view.nodes) {
+            val used = node.via.node
+            if (node.depth == 1) assertThat(used).isNull() else assertThat(view.nodes[used!!].depth).isEqualTo(node.depth - 1)
+            if (used != null) assertThat(view.nodes[used].entity).isEqualTo(node.via.uses)
+        }
+    }
+
+    @Test
+    fun `a node of the view gives the package or type it belongs to, else its schema`() {
+        val view = index.impactView(leaf, followTriggers = false).result!!
+        fun owner(key: String) = view.nodes.single { it.entity?.let { e -> view.entities[e].key } == key }
+            .let { node -> (node.owner?.let { view.entities[it].key } ?: "-") + " " + node.schema }
+        assertThat(owner(mid)).isEqualTo("db:HR.PACK_IMP_A HR")
+        // A private routine is a body, and still the package's.
+        assertThat(owner("db:HR.PACK_IMP_B.HELPER()@BODY")).isEqualTo("db:HR.PACK_IMP_B HR")
+        assertThat(owner(impFn)).isEqualTo("- HR")
+        assertThat(owner("db:HR.TRG_IMP")).isEqualTo("- HR")
+        val file = view.nodes.single { it.kind == "FILE" }
+        assertThat(file.owner).isNull()
+        assertThat(view.paths[file.path!!]).isEqualTo("scripts/imp_run.sql")
+    }
+
+    @Test
+    fun `the view refuses a bad depth and a graph over its node limit, and is null for an unknown entity`() {
+        assertThat(index.impactView("db:NO.SUCH").result).isNull()
+        assertThatThrownBy { index.impactView(leaf, maxDepth = 0) }.hasMessage("maxDepth must be between 1 and 50")
+        assertThatThrownBy { index.impactView(leaf, maxDepth = 51) }.hasMessage("maxDepth must be between 1 and 50")
+        val limited = { limit: Int -> AtlasIndex(index.database, null, maxViewNodes = limit) }
+        assertThatThrownBy { limited(14).impactView(leaf, followTriggers = false) }.isInstanceOfSatisfying(GraphTooLargeException::class.java) {
+            assertThat(it.nodes).isEqualTo(15)
+            assertThat(it.limit).isEqualTo(14)
+        }
+        assertThat(limited(15).impactView(leaf, followTriggers = false).result!!.nodes).hasSize(15)
+    }
 }

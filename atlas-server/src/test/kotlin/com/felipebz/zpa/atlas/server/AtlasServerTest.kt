@@ -202,6 +202,50 @@ class AtlasServerTest {
     }
 
     @Test
+    fun `the impact graph is the whole graph at once, 404 for an unknown key, 400 for a bad argument and a timeout said as one`() = api {
+        val leaf = "db:HR.PACK_IMP_A.LEAF(P_N IN NUMBER)"
+        val response = client.get("/api/impact/graph") { parameter("key", leaf); parameter("triggers", "false") }
+        assertThat(response.status).isEqualTo(HttpStatusCode.OK)
+        assertThat(response.bodyAsText()).isEqualTo(ApiJson.encodeToString(index.impactView(leaf, followTriggers = false)))
+        val result = json(response.bodyAsText())["result"]!!.jsonObject
+        assertThat(result["nodes"]!!.jsonArray).hasSize(15)
+        assertThat(result["levels"]!!.jsonArray.map { it.jsonPrimitive.content }).containsExactly("5", "9", "1")
+        // The options reach the walk: a smaller depth, and triggers followed by default.
+        val shallow = json(client.get("/api/impact/graph") { parameter("key", leaf); parameter("maxDepth", "1"); parameter("triggers", "false") }.bodyAsText())
+        assertThat(shallow["result"]!!.jsonObject["levels"]!!.jsonArray.map { it.jsonPrimitive.content }).containsExactly("5")
+        assertThat(json(client.get("/api/impact/graph") { parameter("key", leaf) }.bodyAsText())["result"]!!.jsonObject["followTriggers"]!!.jsonPrimitive.content)
+            .isEqualTo("true")
+        assertThat(client.get("/api/impact/graph") { parameter("key", "db:NO.SUCH") }.status).isEqualTo(HttpStatusCode.NotFound)
+        for ((name, value) in listOf("maxDepth" to "0", "maxDepth" to "51", "scope" to "NOPE", "triggers" to "maybe")) {
+            val bad = client.get("/api/impact/graph") { parameter("key", leaf); parameter(name, value) }
+            assertThat(bad.status).describedAs("$name=$value").isEqualTo(HttpStatusCode.BadRequest)
+            assertThat(json(bad.bodyAsText())).containsKey("error").doesNotContainKey("timeout")
+        }
+        assertThat(client.get("/api/impact/graph").status).isEqualTo(HttpStatusCode.BadRequest)
+    }
+
+    @Test
+    fun `an impact graph over the node limit is 400 and gives its size and the limit`() = testApplication {
+        application { atlasModule(AtlasIndex(temp.resolve("fixture.db"), null, maxViewNodes = 14)) }
+        val response = client.get("/api/impact/graph") { parameter("key", "db:HR.PACK_IMP_A.LEAF(P_N IN NUMBER)"); parameter("triggers", "false") }
+        assertThat(response.status).isEqualTo(HttpStatusCode.BadRequest)
+        val body = json(response.bodyAsText())
+        assertThat(body["tooLarge"]!!.jsonPrimitive.content).isEqualTo("true")
+        assertThat(body["nodes"]!!.jsonPrimitive.content).isEqualTo("15")
+        assertThat(body["limit"]!!.jsonPrimitive.content).isEqualTo("14")
+    }
+
+    @Test
+    fun `an impact graph past the time limit is 400 and says it timed out`() = testApplication {
+        application { atlasModule(AtlasIndex(temp.resolve("fixture.db"), null, queryTimeout = Duration.ZERO)) }
+        val response = client.get("/api/impact/graph") { parameter("key", "db:HR.PACK_IMP_A.LEAF(P_N IN NUMBER)") }
+        assertThat(response.status).isEqualTo(HttpStatusCode.BadRequest)
+        val body = json(response.bodyAsText())
+        assertThat(body["timeout"]!!.jsonPrimitive.content).isEqualTo("true")
+        assertThat(body["error"]!!.jsonPrimitive.content).contains("narrow the filters")
+    }
+
+    @Test
     fun `a query past its time limit is 400 and asks for narrower filters`() = testApplication {
         application { atlasModule(AtlasIndex(temp.resolve("fixture.db"), null, queryTimeout = Duration.ZERO)) }
         for (path in listOf("/api/query", "/api/query/summary", "/api/query/groups?groupBy=ENTITY")) {
@@ -272,7 +316,7 @@ class AtlasServerTest {
 
     @Test
     fun `the web pages are served with every script and stylesheet they reference`() = api {
-        for (page in listOf("/", "/entity.html", "/file.html", "/query.html")) {
+        for (page in listOf("/", "/entity.html", "/file.html", "/query.html", "/impact.html")) {
             val response = client.get(page)
             assertThat(response.status).describedAs(page).isEqualTo(HttpStatusCode.OK)
             val assets = references(response.bodyAsText())
@@ -289,7 +333,7 @@ class AtlasServerTest {
 
     @Test
     fun `the English and the Portuguese text reach the browser`() = api {
-        val pending = ArrayDeque(listOf("/", "/entity.html", "/file.html", "/query.html")
+        val pending = ArrayDeque(listOf("/", "/entity.html", "/file.html", "/query.html", "/impact.html")
             .flatMap { references(client.get(it).bodyAsText()) }.filter { it.endsWith(".js") })
         val scripts = LinkedHashMap<String, String>()
         while (pending.isNotEmpty()) {

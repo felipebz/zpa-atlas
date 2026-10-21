@@ -105,7 +105,8 @@ Run from the repository root.
    ```
    Open http://127.0.0.1:8080 and search by name or dotted name (e.g. `pack.run_job`). An entity page shows its
    definition, contents, relations, triggers, the views reading it, and "Used by", filterable by role and status, with
-   the source line.
+   the source line. Its "Impact" link opens what a change to the entity reaches, up to the entry points (the code
+   nothing in the index calls), grouped by package, with the path behind each one and a CSV export.
 6. **Ask an agent:** the same server answers MCP at `/mcp` (Streamable HTTP), with read-only tools over the same
    answers as the web page.
 
@@ -188,7 +189,7 @@ The schema can change between versions (the stored version is in `run`), so quer
 - `atlas-query`: the read API over an index, and the dependency comparison.
 - `atlas-server`: the web page and its JSON API (`/api/run`, `/api/codes`, `/api/entities`, `/api/entity`,
   `/api/occurrences`, `/api/source`, `/api/file`, `/api/values`, `/api/value-sites`, `/api/query`,
-  `/api/query/summary`, `/api/query/groups`), and the MCP endpoint `/mcp` over the same calls. `/api/codes` lists the
+  `/api/query/summary`, `/api/query/groups`, `/api/impact`, `/api/impact/graph`), and the MCP endpoint `/mcp` over the same calls. `/api/codes` lists the
   stored codes and reads no index.
 - `atlas-cli`: the `zpa-atlas` command.
 - `atlas-devtools`: measurement tools.

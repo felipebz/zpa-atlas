@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="application-name" content="zpa-atlas"><meta name="viewport" content="width=device-width, initial-scale=1"><title data-i18n="page.impact.title"></title><link rel="stylesheet" href="app.css"></head>
+<body>
+<header class="top"><a href="./">Atlas</a><a href="query.html" class="nav" data-keep-lang data-i18n="header.query"></a><form class="find" action="./"><input type="text" name="q" data-i18n-placeholder="header.search"><input type="hidden" name="lang"></form><span class="run" data-i18n="banner.loading"></span></header>
+<div id="warn" class="warn" hidden></div>
+<main class="impact-page">
+  <section id="head" class="card">
+    <div id="title"></div>
+    <form id="options" class="options" autocomplete="off">
+      <label class="check"><input type="checkbox" name="triggers"> <span data-i18n="impact.triggers"></span></label>
+      <label class="field"><span data-i18n="impact.maxDepth"></span> <input type="number" name="maxDepth" min="1" max="50" required></label>
+      <button data-i18n="impact.apply"></button>
+    </form>
+    <p id="included" class="muted"></p>
+  </section>
+  <section id="summary" class="card" hidden></section>
+  <section id="nodes" class="card" hidden>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="entries"></button>
+      <button type="button" role="tab" data-tab="all"></button>
+    </div>
+    <div id="toolbar" class="toolbar"></div>
+    <div id="groups"></div>
+  </section>
+</main>
+<script type="module" src="./src/impact.ts"></script>
+</body>
+</html>

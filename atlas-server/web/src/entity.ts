@@ -3,7 +3,7 @@ import type { Answer, EntityDetail, EntitySummary, Member, OccurrencePage, Overl
 import { showBanner, sourceLine } from "./banner";
 import { loadCodes, usageRoles } from "./codes";
 import { entityLink, kindLabel, nameHtml, roleLabel } from "./entity-html";
-import { entityHref, esc, getOrPut, lineLink, literalText, queryHref, scrollTable, statusBadge } from "./html";
+import { entityHref, esc, getOrPut, impactHref, lineLink, literalText, queryHref, scrollTable, statusBadge } from "./html";
 import { formatNumber, initI18n, t } from "./i18n";
 import { displayParts, parentKeyOf } from "./names";
 import { renderChips, setupSourceToggle, usesBlock } from "./uses";
@@ -374,6 +374,7 @@ document.getElementById("more")!.addEventListener("click", () => loadUsages(fals
   await initI18n();
   showBanner();
   if (!key) { document.getElementById("header")!.textContent = t("entity.missingKey"); return; }
+  (document.getElementById("openImpact") as HTMLAnchorElement).href = impactHref(key);
   // The roles "open in query" names by default come from the code lists, read beside the entity.
   loadCodes().catch(() => {});
   try {

@@ -173,3 +173,32 @@ td.num, th.num { text-align: right; white-space: nowrap; width: 1%; }
   .query-page table.uses col.c-role { width: 9em; }
   .query-page table.uses col.c-status { width: 8em; }
 }
+
+/* The impact page. */
+.impact-page { display: flex; flex-direction: column; gap: var(--gap); }
+.impact-page .options { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 8px 0; }
+.impact-page .options input[type=number] { width: 5em; padding: 4px 6px; }
+.impact-page #included { margin: 0; }
+.impact-page .levels .level { white-space: nowrap; margin-right: 10px; }
+.impact-page ul.stops { margin: 6px 0 0; padding-left: 18px; }
+.impact-page a.count { font-weight: 600; }
+.impact-page .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.impact-page .tabs button { border: 1px solid var(--border); border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; background: var(--surface-2); cursor: pointer; }
+.impact-page .tabs button.on { background: var(--surface); font-weight: 600; }
+.impact-page .toolbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 10px; }
+.impact-page details.ngroup { border-top: 1px solid var(--border); padding: 6px 0; }
+.impact-page details.ngroup > summary { cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.impact-page details.ngroup .rows { margin-top: 6px; }
+/* Fixed columns but Name, which gets the rest: the minimum width keeps at least 16em for it. */
+table.impact { min-width: 56em; table-layout: fixed; }
+table.impact.with-stop { min-width: 66em; }
+table.impact col.c-why { width: 6.5em; } table.impact col.c-kind { width: 9em; } table.impact col.c-depth { width: 8.5em; }
+table.impact col.c-stop { width: 10em; } table.impact col.c-notes { width: 16em; }
+table.impact .num { text-align: right; white-space: nowrap; padding-right: 12px; }
+table.impact button.why { padding: 1px 6px; font-size: 12px; white-space: nowrap; }
+table.impact tr.path td { background: var(--surface-2); }
+table.impact tr.path p { margin: 0 0 4px; }
+table.impact ol.hops { margin: 0; padding-left: 20px; }
+table.impact ol.hops li { padding: 2px 0; }
+.badge.uncertain { background: #fde6c4; }
+button.more-rows { margin-top: 6px; }

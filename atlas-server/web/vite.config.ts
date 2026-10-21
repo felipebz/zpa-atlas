@@ -6,7 +6,7 @@ export default defineConfig({
     outDir: "../build/web-bundle",
     emptyOutDir: true,
     rollupOptions: {
-      input: ["index.html", "entity.html", "file.html", "query.html"]
+      input: ["index.html", "entity.html", "file.html", "query.html", "impact.html"]
     }
   },
   server: {

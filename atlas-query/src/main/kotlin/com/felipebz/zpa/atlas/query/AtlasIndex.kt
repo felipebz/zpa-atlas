@@ -16,7 +16,13 @@ import java.time.Duration
  * @param sourcesRoot the folder the indexed paths are relative to, or null when sources are not available
  * @param queryTimeout how long an occurrence query may run before it is interrupted ([QueryTimeoutException])
  */
-class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTimeout: Duration = DEFAULT_QUERY_TIMEOUT) {
+class AtlasIndex(
+    val database: Path,
+    val sourcesRoot: Path?,
+    private val queryTimeout: Duration = DEFAULT_QUERY_TIMEOUT,
+    /** The most nodes [impactView] answers. */
+    private val maxViewNodes: Int = MAX_VIEW_NODES
+) {
 
     fun run(): Answer<RunSummary> = read { connection, _ -> runSummary(connection) }
 
@@ -146,6 +152,27 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTi
         }
     }
 
+    /**
+     * The whole impact graph of [key] in one compact answer ([ImpactView]), for a page that shows it at once: the graph
+     * of [impactGraph] for [include], [maxDepth] and [followTriggers], computed once. A graph of more than
+     * the index's node limit ([MAX_VIEW_NODES] by default) is refused with [GraphTooLargeException], so that one answer
+     * stays one a browser can hold. Null when there is no such entity.
+     */
+    fun impactView(
+        key: String,
+        include: List<Scope>? = null,
+        maxDepth: Int = 10,
+        followTriggers: Boolean = true
+    ): Answer<ImpactView?> {
+        if (maxDepth !in 1..50) throw InvalidQueryException("maxDepth must be between 1 and 50")
+        include?.firstOrNull { it == Scope.SELF }?.let { throw InvalidQueryException("Unknown include: SELF") }
+        return read(timed = true) { connection, _ ->
+            val graph = ImpactReader(connection).impact(key, USAGE_ROLES, null, include, maxDepth, null, 0, Int.MAX_VALUE, followTriggers)
+            if (graph != null && graph.nodes.size > maxViewNodes) throw GraphTooLargeException(graph.nodes.size, maxViewNodes)
+            graph?.let { ImpactViewBuilder(connection).build(it, followTriggers) }
+        }
+    }
+
     /** The roles a usage filter keeps: [roles], else every usage role; an unknown role or status is an error. */
     private fun usageRoles(roles: Set<String>?, statuses: Set<String>?): Set<String> {
         roles?.firstOrNull { it !in ROLES }?.let { throw InvalidQueryException("Unknown role: $it") }
@@ -239,6 +266,9 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTi
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
         const val SCHEMA_VERSION = 12
+
+        /** The most nodes [impactView] answers by default. */
+        const val MAX_VIEW_NODES = 50_000
 
         /** Decodes an indexed file with the charset recorded for it (`source_file.encoding`); a leading BOM is dropped. */
         fun decode(bytes: ByteArray, encoding: String): String =

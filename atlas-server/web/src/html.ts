@@ -35,6 +35,11 @@ export function qualifierHtml(text: string) {
   return esc(text).replace(/\./g, ".<wbr>");
 }
 
+/** The impact page of [key], keeping the language. */
+export function impactHref(key: string) {
+  return `impact.html?key=${encodeURIComponent(key)}${langSuffix()}`;
+}
+
 export function entityHref(key: string) {
   return `entity.html?key=${encodeURIComponent(key)}${langSuffix()}`;
 }

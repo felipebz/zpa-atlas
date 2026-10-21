@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import com.felipebz.zpa.atlas.query.GraphTooLargeException
 import com.felipebz.zpa.atlas.query.GroupDimension
 import com.felipebz.zpa.atlas.query.ImpactStop
 import com.felipebz.zpa.atlas.query.InvalidQueryException
@@ -44,6 +45,14 @@ import kotlinx.serialization.json.Json
 
 @Serializable
 data class ApiError(val error: String)
+
+/** A request past the time limit, told apart from other refusals by [timeout]. */
+@Serializable
+data class ApiTimeout(val error: String, val timeout: Boolean = true)
+
+/** An impact graph over the node limit: its [nodes] and the [limit], told apart by [tooLarge]. */
+@Serializable
+data class ApiTooLarge(val error: String, val nodes: Int, val limit: Int, val tooLarge: Boolean = true)
 
 const val COMPRESSION_MINIMUM_BYTES = 1024L
 
@@ -137,6 +146,26 @@ internal fun Application.atlasModule(
                     limit = call.int("limit") ?: 100,
                     followTriggers = call.boolean("triggers") ?: true
                 )
+                if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+            }
+            // The whole graph at once, for the impact page; a graph past the time limit or over the node limit says
+            // so, so the page can suggest a smaller depth.
+            get("/impact/graph") {
+                val scope = call.list("scope")?.map { value ->
+                    Scope.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown scope: $value")
+                }?.filter { it != Scope.SELF }
+                val key = call.required("key")
+                val maxDepth = call.int("maxDepth") ?: 10
+                val triggers = call.boolean("triggers") ?: true
+                val answer = try {
+                    index.impactView(key, scope, maxDepth, triggers)
+                } catch (e: QueryTimeoutException) {
+                    call.respondJson(ApiTimeout(e.message ?: "The query took too long"), HttpStatusCode.BadRequest)
+                    return@get
+                } catch (e: GraphTooLargeException) {
+                    call.respondJson(ApiTooLarge(e.message!!, e.nodes, e.limit), HttpStatusCode.BadRequest)
+                    return@get
+                }
                 if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
             }
             get("/query") {

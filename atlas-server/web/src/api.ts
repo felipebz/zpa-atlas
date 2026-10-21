@@ -271,9 +271,16 @@ export async function api<T>(path: string, params?: Record<string, string | numb
   const response = await fetch(url);
   if (response.status === 401 && await signInFor(response.status)) return new Promise<T>(() => {});
   const body = await response.json();
-  if (!response.ok) throw new Error(body.error || response.statusText);
+  if (!response.ok) throw new ApiFailure(body.error || response.statusText, response.status, body);
   signInWorked();
   return body;
+}
+
+/** A request the API refused: its message, HTTP status and error body. */
+export class ApiFailure extends Error {
+  constructor(message: string, readonly status: number, readonly body: { error?: string; timeout?: boolean; tooLarge?: boolean; nodes?: number; limit?: number }) {
+    super(message);
+  }
 }
 
 /** The text of an error caught from a request or a parse. */
