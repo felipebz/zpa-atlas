@@ -116,6 +116,23 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTi
         return read(timed = true) { connection, _ -> ImpactReader(connection).impact(key, roleFilter, statuses, include, maxDepth, stop, offset, limit) }
     }
 
+    /**
+     * [impact] with every node of the graph in its order, without stop, offset or limit: for a caller that numbers the
+     * nodes of the whole graph and pages them itself. The graph is computed once.
+     */
+    fun impactGraph(
+        key: String,
+        roles: Set<String>? = null,
+        statuses: Set<String>? = null,
+        include: List<Scope>? = null,
+        maxDepth: Int = 10
+    ): Answer<ImpactGraph?> {
+        if (maxDepth !in 1..50) throw InvalidQueryException("maxDepth must be between 1 and 50")
+        include?.firstOrNull { it == Scope.SELF }?.let { throw InvalidQueryException("Unknown include: SELF") }
+        val roleFilter = usageRoles(roles, statuses)
+        return read(timed = true) { connection, _ -> ImpactReader(connection).impact(key, roleFilter, statuses, include, maxDepth, null, 0, Int.MAX_VALUE) }
+    }
+
     /** The roles a usage filter keeps: [roles], else every usage role; an unknown role or status is an error. */
     private fun usageRoles(roles: Set<String>?, statuses: Set<String>?): Set<String> {
         roles?.firstOrNull { it !in ROLES }?.let { throw InvalidQueryException("Unknown role: $it") }

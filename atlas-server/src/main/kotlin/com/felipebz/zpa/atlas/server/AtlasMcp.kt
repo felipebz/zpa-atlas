@@ -243,14 +243,23 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         val include = include(args, key)
         val stop = args.string("stop")?.let { value -> ImpactStop.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown stop value: $value") }
         val offset = args.int("offset", 0..Int.MAX_VALUE) ?: 0
-        val answer = index.impact(
+        val limit = args.int("limit", 1..IMPACT_MAX) ?: IMPACT_DEFAULT
+        val keys = args.boolean("keys") ?: false
+        // The whole graph, so that a node keeps its number whatever the page and the stop filter.
+        val answer = index.impactGraph(
             key, args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, include,
-            args.int("max_depth", 1..IMPACT_DEPTH_MAX) ?: IMPACT_DEPTH_DEFAULT, stop, offset, args.int("limit", 1..IMPACT_MAX) ?: IMPACT_DEFAULT
+            args.int("max_depth", 1..IMPACT_DEPTH_MAX) ?: IMPACT_DEPTH_DEFAULT
         )
-        if (answer.result == null) throw unknownEntity(key)
+        val graph = answer.result ?: throw unknownEntity(key)
+        val impact = McpImpact(graph.entity, graph.nodes, keys)
+        val kept = graph.nodes.indices.filter { stop == null || graph.nodes[it].stop == stop.name }
+        val page = kept.drop(offset).take(limit)
+        val paged = graph.copy(total = kept.size, offset = offset, nodes = emptyList(), nextOffset = (offset + page.size).takeIf { it < kept.size })
+        val nodes = JsonArray(page.map { impact.node(it) })
+        val full = toolAnswer(answer.copy(result = paged)).withResult("nodes", nodes)
         // The nodes are in a fixed order, so a cut page goes on at the offset after its last node kept.
-        return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("nodes").jsonArray }, { a, nodes -> a.withResult("nodes", nodes) }) { a, nodes ->
-            a.withResult("nextOffset", JsonPrimitive(offset + nodes.size))
+        return McpAnswers.fitList(full, maxChars, { it.result().getValue("nodes").jsonArray }, { a, items -> a.withResult("nodes", items) }) { a, items ->
+            a.withResult("nextOffset", JsonPrimitive(offset + items.size))
         }
     }
 
@@ -394,6 +403,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         enumString("stop", ImpactStop.entries.map { it.name }, "Only the nodes that stop for this reason, such as ENTRY_POINT; levels and stops still count the whole graph.")
         integer("offset", 0..Int.MAX_VALUE, 0, "The nextOffset of the previous page.")
         integer("limit", 1..IMPACT_MAX, IMPACT_DEFAULT)
+        boolean("keys", "Every node gives its full key, and via.uses is a key, as the index answers; use it with stop or offset to get the keys of the nodes another tool will be called on. Default false: n and name.")
     }
 
     private fun valuesSchema() = schema(listOf("key")) {
@@ -544,8 +554,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         const val LIST_MAX = 100
         const val FIND_DEFAULT = 20
         const val FIND_MAX = 40
-        const val IMPACT_DEFAULT = 50
-        const val IMPACT_MAX = 100
+        const val IMPACT_DEFAULT = 100
+        const val IMPACT_MAX = 200
         const val IMPACT_DEPTH_DEFAULT = 10
         const val IMPACT_DEPTH_MAX = 50
         const val GROUP_DEFAULT = 50
@@ -576,7 +586,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "- get_values: the values a parameter is passed or a column is written with; then find_value_sites: " +
                 "where one of them comes from.\n" +
                 "- get_source: the source text around a line.\n" +
-                "- find_impact: impact analysis, who calls the callers up to the entry points.\n" +
+                "- find_impact: impact analysis, who calls the callers up to the entry points; nodes are numbered (n), " +
+                "keys=true gives their full keys.\n" +
                 "Usual order: a group_ tool for the summary, then a find_ tool for the lines, then get_source for the text.\n" +
                 "What the index does not answer, to say in the answer: find_impact does not follow triggers fired by " +
                 "writes or package-level code; dynamic SQL is partial; Forms, reports and code outside the " +
@@ -630,13 +641,18 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "points (code nothing in the index calls, run from Forms, jobs or other systems). The first hop is who uses " +
             "the entity, as find_usages; then the walk follows the uses that run each node: calls of a routine or type, " +
             "SQL on a view, reading a cursor. A node is a routine (spec and body together), view, trigger, type, package " +
-            "or, for script code, the file. A view reached from a column is followed as a whole. Each node has its depth " +
-            "(the shortest path), via (one use on that path: what it uses, file and line), certain (some path of RESOLVED " +
+            "or, for script code, the file. A view reached from a column is followed as a whole. Each node has n (its " +
+            "number in the whole graph, the same on every page), name (the display without the parameter list, @BODY " +
+            "kept for a private routine; key too, only when another node has the same name, as overloads do), its depth " +
+            "(the shortest path), via (one use on that path: uses, the n of the node it uses, or 0 on the first hop, with " +
+            "usesName when that hop matched another entity than the one asked for; file and line), certain (some path of RESOLVED " +
             "uses only) and stop: FOLLOWED (code outside its own cycle uses it), ENTRY_POINT (nothing in the index calls it but " +
             "itself or the routines it calls back, so only outside code can), TRIGGER (runs when its table is " +
             "written, not followed; trigger gives the table and events), PACKAGE_LEVEL (package initialization or " +
             "declarations, not followed), DEPTH_LIMIT, NO_CONTAINER (a script file). levels counts nodes per depth and " +
-            "stops per reason; stop=ENTRY_POINT lists only the entry points. Pages: pass nextOffset as offset."
+            "stops per reason; stop=ENTRY_POINT lists only the entry points. Pages: pass nextOffset as offset. keys=true " +
+            "gives every node's full key and via.uses as a key: use it with stop or offset to get the keys of the " +
+            "nodes another tool will be called on."
 
         const val GROUP_USAGES = "Counts who uses one entity, by routine, file or view: the rows find_usages lists for " +
             "the same arguments, grouped by one to three dimensions as in group_occurrences; ENTITY is the entity a " +
