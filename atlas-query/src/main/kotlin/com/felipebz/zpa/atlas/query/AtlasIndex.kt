@@ -84,6 +84,38 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTi
         }
     }
 
+    /**
+     * The transitive impact of [key]: who uses it, who uses those, and so on, breadth first, up to code nothing in the
+     * index uses. The first hop is "who uses" as [occurrences] lists it, for [roles], [statuses] and [include] (null:
+     * the default by kind, [defaultUsageScopes]), candidates included. From the second hop on, the walk follows the uses
+     * that run a node, not those that only name it: calls of a routine or a type, SQL on a view or materialized view,
+     * reading a cursor. A node is the container of a use (`occurrence.container_entity_id`), a spec and its bodies being
+     * one node named by the spec; the entity and its spec or bodies are never nodes. A view is followed as a whole: from
+     * a column, every user of a view computed from it, not only the users of the view columns computed from that column.
+     * Triggers, package-level code and code outside any container end the walk there ([ImpactStop]).
+     *
+     * The whole graph is computed on each call, so [offset] pages in its order (depth, then key or path); [stop] keeps
+     * only the nodes of one stop reason, while [ImpactGraph.levels] and [ImpactGraph.stops] count the whole graph. A
+     * graph too large for the time limit ends with [QueryTimeoutException]. Null when there is no such entity.
+     */
+    fun impact(
+        key: String,
+        roles: Set<String>? = null,
+        statuses: Set<String>? = null,
+        include: List<Scope>? = null,
+        maxDepth: Int = 10,
+        stop: ImpactStop? = null,
+        offset: Int = 0,
+        limit: Int = 100
+    ): Answer<ImpactGraph?> {
+        if (maxDepth !in 1..50) throw InvalidQueryException("maxDepth must be between 1 and 50")
+        if (offset < 0) throw InvalidQueryException("offset must not be negative")
+        if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
+        include?.firstOrNull { it == Scope.SELF }?.let { throw InvalidQueryException("Unknown include: SELF") }
+        val roleFilter = usageRoles(roles, statuses)
+        return read(timed = true) { connection, _ -> ImpactReader(connection).impact(key, roleFilter, statuses, include, maxDepth, stop, offset, limit) }
+    }
+
     /** The roles a usage filter keeps: [roles], else every usage role; an unknown role or status is an error. */
     private fun usageRoles(roles: Set<String>?, statuses: Set<String>?): Set<String> {
         roles?.firstOrNull { it !in ROLES }?.let { throw InvalidQueryException("Unknown role: $it") }

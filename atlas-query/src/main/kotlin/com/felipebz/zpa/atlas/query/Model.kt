@@ -111,6 +111,89 @@ enum class Scope { SELF, IMPLEMENTATIONS, CHILDREN, VIEWS }
  */
 enum class UsagePath { DIRECT, THROUGH_VIEWS }
 
+/**
+ * The scopes "who uses" adds by default for an entity of [kind], as the entity page does: a subprogram's spec or body,
+ * a package's spec or body and members, a type's members.
+ */
+fun defaultUsageScopes(kind: String): List<Scope> = listOfNotNull(
+    Scope.IMPLEMENTATIONS.takeIf { kind in setOf("PROCEDURE", "FUNCTION", "PACKAGE") },
+    Scope.CHILDREN.takeIf { kind in setOf("PACKAGE", "TYPE") }
+)
+
+/** Why the impact walk stops at a node. */
+enum class ImpactStop {
+    /** Code outside the node's own cycle uses it: the nodes one hop further, nodes already reached, or the entity. */
+    FOLLOWED,
+
+    /**
+     * Nothing in the index uses the node but itself, or the routines it forms a cycle with (routines that call each
+     * other, the entity asked for included): it is called from outside the index (Forms, jobs, other systems) or not
+     * at all. A [FOLLOWED] node can be called from outside the index too.
+     */
+    ENTRY_POINT,
+
+    /** A trigger: it runs when its table is written, which the walk does not follow; [ImpactNode.trigger] gives the table. */
+    TRIGGER,
+
+    /** Code of the package as a whole (its initialization, a declaration): following every user of the package would list too much. */
+    PACKAGE_LEVEL,
+
+    /** The node is at the depth limit: its uses were not read. */
+    DEPTH_LIMIT,
+
+    /** Code outside any routine, view or package, such as a script: nothing calls it. The node is the file. */
+    NO_CONTAINER
+}
+
+/** One use on a shortest path to a node: of [uses] (the entity asked for at depth 1), at [path] line [line]. */
+@Serializable
+data class ImpactVia(val uses: String, val occurrence: Long, val path: String, val line: Int, val status: String)
+
+/** One event of a trigger node: as [TriggerEvent] without the trigger. */
+@Serializable
+data class ImpactTriggerEvent(val timing: String, val level: String?, val event: String, val column: EntitySummary?)
+
+/** The table a trigger node is on, and the events that fire it. */
+@Serializable
+data class ImpactTrigger(val table: EntitySummary?, val events: List<ImpactTriggerEvent>)
+
+/**
+ * One node of an impact graph: a routine, view, trigger, type or package ([entity]), or for [ImpactStop.NO_CONTAINER]
+ * a file ([path], with its [uses] and [firstLine], counted over the uses of every node reached, not only those on its
+ * shortest path). [depth] is the shortest path from the entity; [certain] is true when
+ * some path uses only `RESOLVED` uses.
+ */
+@Serializable
+data class ImpactNode(
+    val kind: String,
+    val entity: EntitySummary? = null,
+    val path: String? = null,
+    val uses: Int? = null,
+    val firstLine: Int? = null,
+    val depth: Int,
+    val via: ImpactVia,
+    val certain: Boolean,
+    val stop: String,
+    val trigger: ImpactTrigger? = null
+)
+
+/**
+ * The transitive impact of [entity]: [levels] counts the nodes per depth (from 1), [stops] per stop reason, both over
+ * the whole graph; [total] counts the nodes the stop filter keeps, and [nodes] is the page from [offset].
+ */
+@Serializable
+data class ImpactGraph(
+    val entity: EntitySummary,
+    val included: List<String>,
+    val maxDepth: Int,
+    val levels: List<Int>,
+    val stops: List<Count>,
+    val total: Int,
+    val offset: Int,
+    val nodes: List<ImpactNode>,
+    val nextOffset: Int?
+)
+
 @Serializable
 data class UnitRef(val kind: String, val name: String)
 

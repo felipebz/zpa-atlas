@@ -53,7 +53,7 @@ internal class UsageReader(private val connection: Connection) {
      * The hits of [key]'s scope, one per occurrence and kept by [via], then those that also pass the role and status
      * filters; null when there is no such entity.
      */
-    private fun usageHits(
+    internal fun usageHits(
         key: String,
         roleFilter: Set<String>,
         statuses: Set<String>?,

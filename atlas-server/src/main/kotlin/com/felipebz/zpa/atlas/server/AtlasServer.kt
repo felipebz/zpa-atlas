@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.query.GroupDimension
+import com.felipebz.zpa.atlas.query.ImpactStop
 import com.felipebz.zpa.atlas.query.InvalidQueryException
 import com.felipebz.zpa.atlas.query.OccurrenceQuery
 import com.felipebz.zpa.atlas.query.QueryTimeoutException
@@ -92,6 +93,25 @@ fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings = McpSettings())
                     scope = scope,
                     includeCandidates = call.optional("candidates")?.toBooleanStrictOrNull() ?: true,
                     after = call.long("after"),
+                    limit = call.int("limit") ?: 100
+                )
+                if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+            }
+            get("/impact") {
+                val scope = call.list("scope")?.map { value ->
+                    Scope.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown scope: $value")
+                }?.filter { it != Scope.SELF }
+                val stop = call.optional("stop")?.let { value ->
+                    ImpactStop.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown stop: $value")
+                }
+                val answer = index.impact(
+                    key = call.required("key"),
+                    roles = call.list("roles")?.toSet(),
+                    statuses = call.list("status")?.toSet(),
+                    include = scope,
+                    maxDepth = call.int("maxDepth") ?: 10,
+                    stop = stop,
+                    offset = call.int("offset") ?: 0,
                     limit = call.int("limit") ?: 100
                 )
                 if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)

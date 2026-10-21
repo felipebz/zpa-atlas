@@ -186,12 +186,12 @@ class FixtureGoldenTest {
         assertThat(Fixture.query(noSchema, "SELECT key FROM entity WHERE key IN ('db:~.PACK_PROCESS', 'db:~.COMPANY', 'db:HR.COMPANY') ORDER BY key"))
             .containsExactly("db:HR.COMPANY", "db:~.COMPANY", "db:~.PACK_PROCESS")
         assertThat(Fixture.query(noSchema, "SELECT f.path FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE c.kind = 'SCHEMA_UNKNOWN' ORDER BY 1"))
-            .containsExactly("hr/conditional.sql", "hr/fn_company_name.fun", "hr/json_holder.typ", "hr/json_type.typ", "hr/mv_company.sql", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/object_views.sql", "hr/pack_args.pkb", "hr/pack_args.pks", "hr/pack_calls.pkb", "hr/pack_calls.pks",
-                "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_ddl.pkb", "hr/pack_ddl.pks", "hr/pack_dynamic.pkb", "hr/pack_dynamic.pks", "hr/pack_inline.sql", "hr/pack_json.pkb", "hr/pack_json.pks", "hr/pack_methods.pkb", "hr/pack_methods.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
+            .containsExactly("hr/conditional.sql", "hr/fn_company_name.fun", "hr/imp_amb.prc", "hr/imp_echo_a.prc", "hr/imp_echo_b.prc", "hr/imp_fn.fun", "hr/imp_read_view.prc", "hr/imp_rec.prc", "hr/json_holder.typ", "hr/json_type.typ", "hr/mv_company.sql", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/object_views.sql", "hr/pack_args.pkb", "hr/pack_args.pks", "hr/pack_calls.pkb", "hr/pack_calls.pks",
+                "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_ddl.pkb", "hr/pack_ddl.pks", "hr/pack_dynamic.pkb", "hr/pack_dynamic.pks", "hr/pack_imp_a.pkb", "hr/pack_imp_a.pks", "hr/pack_imp_b.pkb", "hr/pack_imp_b.pks", "hr/pack_inline.sql", "hr/pack_json.pkb", "hr/pack_json.pks", "hr/pack_methods.pkb", "hr/pack_methods.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
                 "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_mview.prc", "hr/proc_objects.prc", "hr/proc_own_objects.prc",
                 "hr/proc_source_view.prc",
                 "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_view_chain.prc", "hr/proc_view_writes.prc", "hr/proc_writes.prc", "hr/proc_xmlseq.prc", "hr/remote_calls.prc", "hr/remote_names.prc", "hr/trg_company_bu.trg", "hr/trg_company_values.trg", "hr/trg_dynamic.trg",
-                "hr/trg_forms.trg", "hr/trg_syn_company.trg", "hr/ty_bag.tpb", "hr/ty_bag.typ", "hr/ty_num_list.typ", "hr/ty_point.typ", "hr/ty_refs.sql", "hr/ty_shapes.typ", "hr/view_ioi.sql", "hr/views.sql", "hr/views_lineage.sql", "hr/views_remote.sql", "hr/views_star.sql",
+                "hr/trg_forms.trg", "hr/trg_imp.trg", "hr/trg_syn_company.trg", "hr/ty_bag.tpb", "hr/ty_bag.typ", "hr/ty_num_list.typ", "hr/ty_point.typ", "hr/ty_refs.sql", "hr/ty_shapes.typ", "hr/v_imp.sql", "hr/view_ioi.sql", "hr/views.sql", "hr/views_lineage.sql", "hr/views_remote.sql", "hr/views_star.sql",
                 "scripts/broken.sql", "scripts/broken_call.sql")
     }
 

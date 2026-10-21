@@ -90,6 +90,7 @@ object Fixture {
             relation("V_CIRCLE_OBJ", "ID", "R", kind = DictionaryRelationKind.VIEW, rowType = "HR.TY_CIRCLE"),
             relation("V_OBJ_REFS", "SREF", kind = DictionaryRelationKind.VIEW),
             relation("V_LIN_FN", "COL_A", kind = DictionaryRelationKind.VIEW),
+            relation("V_IMP", "N", kind = DictionaryRelationKind.VIEW),
             relation("V_LIN_JOIN", "ID", "COMPANY_NAME", "MSG", kind = DictionaryRelationKind.VIEW),
             relation("V_CHAIN1", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),
             relation("V_CHAIN2", "ID", "LABEL", kind = DictionaryRelationKind.VIEW),
@@ -138,7 +139,7 @@ object Fixture {
                 "V_TABLE_FN" to "VIEW", "V_PARTIAL" to "VIEW",
                 "V_LIN_SCALAR" to "VIEW", "V_LIN_CASE" to "VIEW", "V_LIN_AGG" to "VIEW", "V_LIN_ANALYTIC" to "VIEW", "V_LIN_NONE" to "VIEW",
                 "V_LIN_INLINE" to "VIEW", "V_LIN_WITH" to "VIEW", "V_LIN_UNION" to "VIEW", "V_LIN_SHORT" to "VIEW", "V_LIN_WITH_STAR" to "VIEW",
-                "V_LIN_RECURSIVE" to "VIEW", "V_LIN_FN" to "VIEW", "V_LIN_JOIN" to "VIEW", "V_CHAIN1" to "VIEW", "V_CHAIN2" to "VIEW", "MV_COMPANY_LOG" to "MATERIALIZED VIEW",
+                "V_LIN_RECURSIVE" to "VIEW", "V_LIN_FN" to "VIEW", "V_IMP" to "VIEW", "V_LIN_JOIN" to "VIEW", "V_CHAIN1" to "VIEW", "V_CHAIN2" to "VIEW", "MV_COMPANY_LOG" to "MATERIALIZED VIEW",
                 "SYN_COMPANY" to "SYNONYM", "SYN_CHAIN1" to "SYNONYM", "SYN_CHAIN2" to "SYNONYM", "SYN_LOOP_A" to "SYNONYM",
                 "SYN_LOOP_B" to "SYNONYM", "SYN_EXT_PKG" to "SYNONYM", "SYN_CALLS" to "SYNONYM",
                 "DBMS_RANDOM" to "PACKAGE", "TY_MISSING" to "TYPE", "SEQ_MISSING" to "SEQUENCE"

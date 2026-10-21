@@ -86,6 +86,6 @@ class UsageGroupsTest {
             assertThat(statuses).describedAs(key).isEqualTo(total(UsagePath.DIRECT))
         }
         assertThat(index.occurrences(company, scope = setOf(Scope.SELF, Scope.VIEWS), via = UsagePath.THROUGH_VIEWS, limit = 1).result!!.total)
-            .isEqualTo(16)
+            .isEqualTo(17)
     }
 }

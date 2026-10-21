@@ -11,6 +11,7 @@ import com.felipebz.zpa.atlas.model.Origin
 import com.felipebz.zpa.atlas.model.UnitKind
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.query.GroupDimension
+import com.felipebz.zpa.atlas.query.ImpactStop
 import com.felipebz.zpa.atlas.query.OccurrenceQuery
 import com.felipebz.zpa.atlas.query.Scope
 import com.felipebz.zpa.atlas.query.UsagePath
@@ -123,11 +124,11 @@ class McpServerTest {
         assertThat(client.serverVersion!!.version).matches("\\d+\\.\\d+\\.\\d+.*")
         val tools = client.listTools().tools.associateBy { it.name }
         assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_occurrences", "find_usages", "group_occurrences", "group_usages", "get_source",
-            "get_values", "find_value_sites")
+            "get_values", "find_value_sites", "find_impact")
         assertThat(tools.mapValues { it.value.inputSchema.required.orEmpty() }).isEqualTo(mapOf(
             "search_entities" to listOf("query"), "get_entity" to listOf("key"), "find_occurrences" to emptyList(),
             "find_usages" to listOf("key"), "group_occurrences" to listOf("group_by"), "group_usages" to listOf("key", "group_by"), "get_source" to listOf("path", "line"),
-            "get_values" to listOf("key"), "find_value_sites" to listOf("key", "value_kind")
+            "get_values" to listOf("key"), "find_value_sites" to listOf("key", "value_kind"), "find_impact" to listOf("key")
         ))
         assertThat(tools.values).allMatch { it.annotations?.readOnlyHint == true }
         // Every enum of every schema, arrays' items included.
@@ -312,7 +313,7 @@ class McpServerTest {
         // A table: the table alone.
         val table = client.call("find_usages", args { put("key", "db:HR.COMPANY") }).json()
         assertThat(table).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.COMPANY", limit = AtlasMcpTools.FIND_DEFAULT))))
-        assertThat(total(table)).isEqualTo(119)
+        assertThat(total(table)).isEqualTo(120)
         // The body alone has no usage: its callers bind the spec.
         val alone = client.call("find_usages", args { put("key", body); putJsonArray("include") {} }).json()
         assertThat(total(alone)).isEqualTo(0)
@@ -396,6 +397,34 @@ class McpServerTest {
         assertThat(client.call("find_usages", args { put("key", runJob5); put("include", strings("SELF")) }).error()).isEqualTo("Unknown include value: SELF")
         assertThat(client.call("find_usages", args { put("key", runJob5); put("scope", strings("VIEWS")) }).error())
             .startsWith("Unknown argument: scope. find_usages takes: key, include,")
+    }
+
+    @Test
+    fun `find_impact answers what AtlasIndex impact answers, and under a small cap pages on by offset`() {
+        val leaf = "db:HR.PACK_IMP_A.LEAF(P_N IN NUMBER)"
+        mcp { client ->
+            assertThat(client.call("find_impact", args { put("key", leaf) }).json())
+                .isEqualTo(toolAnswer(index.impact(leaf, include = listOf(Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.IMPACT_DEFAULT)))
+            assertThat(client.call("find_impact", args { put("key", leaf); put("stop", "ENTRY_POINT"); put("max_depth", 2) }).json())
+                .isEqualTo(toolAnswer(index.impact(leaf, include = listOf(Scope.IMPLEMENTATIONS), maxDepth = 2, stop = ImpactStop.ENTRY_POINT, limit = AtlasMcpTools.IMPACT_DEFAULT)))
+            assertThat(client.call("find_impact", args { put("key", leaf); put("stop", "SOMEWHERE") }).text()).isEqualTo("Unknown stop value: SOMEWHERE")
+            assertThat(client.call("find_impact", args { put("key", "db:NO.SUCH") }).text()).startsWith("Unknown entity: db:NO.SUCH.")
+        }
+        val all = index.impact(leaf).result!!.nodes.map { it.entity?.key ?: it.path }
+        mcp(settings = McpSettings(maxAnswerChars = 3_000)) { client ->
+            val seen = ArrayList<String>()
+            var offset: Int? = 0
+            var cut = 0
+            while (offset != null) {
+                val answer = client.call("find_impact", args { put("key", leaf); put("offset", offset!!) }).json().jsonObject
+                val nodes = answer["result"]!!.jsonObject["nodes"]!!.jsonArray
+                answer["cutForSize"]?.let { cut++; assertThat(it.jsonObject["kept"]!!.jsonPrimitive.content.toInt()).isEqualTo(nodes.size) }
+                seen += nodes.map { node -> node.jsonObject["entity"]?.jsonObject?.get("key")?.jsonPrimitive?.content ?: node.jsonObject["path"]!!.jsonPrimitive.content }
+                offset = answer["result"]!!.jsonObject["nextOffset"]?.jsonPrimitive?.content?.toInt()
+            }
+            assertThat(cut).isGreaterThan(0)
+            assertThat(seen).isEqualTo(all)
+        }
     }
 
     @Test
@@ -608,7 +637,7 @@ class McpServerTest {
             assertThat(listing.headers().firstValue("Content-Encoding")).hasValue("gzip")
             val listed = Json.parseToJsonElement(GZIPInputStream(listing.body()).readAllBytes().decodeToString())
                 .jsonObject["result"]!!.jsonObject["tools"]!!.jsonArray
-            assertThat(listed).hasSize(9)
+            assertThat(listed).hasSize(10)
             assertThat(listed.map { it.jsonObject["inputSchema"]!!.jsonObject["additionalProperties"] }).containsOnly(JsonPrimitive(false))
             val stream = http.sendAsync(
                 HttpRequest.newBuilder(url).header("Accept", "text/event-stream").header("Accept-Encoding", "gzip, deflate")

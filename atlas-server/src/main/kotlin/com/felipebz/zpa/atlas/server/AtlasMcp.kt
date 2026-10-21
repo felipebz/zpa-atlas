@@ -9,6 +9,8 @@ import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.query.Code
 import com.felipebz.zpa.atlas.query.EntityDetail
 import com.felipebz.zpa.atlas.query.GroupDimension
+import com.felipebz.zpa.atlas.query.ImpactStop
+import com.felipebz.zpa.atlas.query.defaultUsageScopes
 import com.felipebz.zpa.atlas.query.InvalidQueryException
 import com.felipebz.zpa.atlas.query.OccurrenceQuery
 import com.felipebz.zpa.atlas.query.QueryTimeoutException
@@ -147,6 +149,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         add("get_source", SOURCE, sourceSchema(), ::getSource)
         add("get_values", VALUES, valuesSchema(), ::getValues)
         add("find_value_sites", VALUE_SITES, valueSitesSchema(), ::findValueSites)
+        add("find_impact", IMPACT, impactSchema(), ::findImpact)
     }
 
     // ---- the calls --------------------------------------------------------------------------------------------------
@@ -226,17 +229,29 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         if (args.has("include")) {
             args.list("include").map { value -> USAGE_SCOPES.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown include value: $value") }
         } else {
-            val kind = index.entity(key).result?.kind ?: throw unknownEntity(key)
-            listOfNotNull(
-                Scope.IMPLEMENTATIONS.takeIf { kind in setOf("PROCEDURE", "FUNCTION", "PACKAGE") },
-                Scope.CHILDREN.takeIf { kind in setOf("PACKAGE", "TYPE") }
-            )
+            defaultUsageScopes(index.entity(key).result?.kind ?: throw unknownEntity(key))
         }
 
     private fun groupOccurrences(args: Arguments): JsonElement {
         val dimensions = dimensions(args)
         val answer = index.groupOccurrences(args.query(), dimensions, args.int("limit", 1..GROUP_MAX) ?: GROUP_DEFAULT)
         return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("groups").jsonArray }, { a, groups -> a.withResult("groups", groups) })
+    }
+
+    private fun findImpact(args: Arguments): JsonElement {
+        val key = args.requiredString("key")
+        val include = include(args, key)
+        val stop = args.string("stop")?.let { value -> ImpactStop.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown stop value: $value") }
+        val offset = args.int("offset", 0..Int.MAX_VALUE) ?: 0
+        val answer = index.impact(
+            key, args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, include,
+            args.int("max_depth", 1..IMPACT_DEPTH_MAX) ?: IMPACT_DEPTH_DEFAULT, stop, offset, args.int("limit", 1..IMPACT_MAX) ?: IMPACT_DEFAULT
+        )
+        if (answer.result == null) throw unknownEntity(key)
+        // The nodes are in a fixed order, so a cut page goes on at the offset after its last node kept.
+        return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("nodes").jsonArray }, { a, nodes -> a.withResult("nodes", nodes) }) { a, nodes ->
+            a.withResult("nextOffset", JsonPrimitive(offset + nodes.size))
+        }
     }
 
     private fun getValues(args: Arguments): JsonElement {
@@ -368,6 +383,17 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         usageFilters()
         enumArray("group_by", codesOf(codes.groupDimensions), "One to three dimensions, as in group_occurrences.", minItems = 1, maxItems = 3)
         integer("limit", 1..GROUP_MAX, GROUP_DEFAULT, "The first groups by count; totalGroups counts them all.")
+    }
+
+    private fun impactSchema() = schema(listOf("key")) {
+        string("key", "An entity key, as search_entities or another answer gives it.")
+        enumArray("include", USAGE_SCOPES.map { it.name }, "What the first hop adds to the entity, as in find_usages; the same default by kind.")
+        enumArray("roles", produced(codes.roles), "The first hop's uses have any of these roles. Without it, every role but DEFINITION and DECLARATION.")
+        enumArray("statuses", produced(codes.statuses), "The first hop's uses have one of these statuses.")
+        integer("max_depth", 1..IMPACT_DEPTH_MAX, IMPACT_DEPTH_DEFAULT, "Hops followed; nodes at this depth stop with DEPTH_LIMIT.")
+        enumString("stop", ImpactStop.entries.map { it.name }, "Only the nodes that stop for this reason, such as ENTRY_POINT; levels and stops still count the whole graph.")
+        integer("offset", 0..Int.MAX_VALUE, 0, "The nextOffset of the previous page.")
+        integer("limit", 1..IMPACT_MAX, IMPACT_DEFAULT)
     }
 
     private fun valuesSchema() = schema(listOf("key")) {
@@ -518,6 +544,10 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         const val LIST_MAX = 100
         const val FIND_DEFAULT = 20
         const val FIND_MAX = 40
+        const val IMPACT_DEFAULT = 50
+        const val IMPACT_MAX = 100
+        const val IMPACT_DEPTH_DEFAULT = 10
+        const val IMPACT_DEPTH_MAX = 50
         const val GROUP_DEFAULT = 50
         const val GROUP_MAX = 100
         const val VALUES_DEFAULT = 50
@@ -546,9 +576,10 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "- get_values: the values a parameter is passed or a column is written with; then find_value_sites: " +
                 "where one of them comes from.\n" +
                 "- get_source: the source text around a line.\n" +
+                "- find_impact: impact analysis, who calls the callers up to the entry points.\n" +
                 "Usual order: a group_ tool for the summary, then a find_ tool for the lines, then get_source for the text.\n" +
-                "What the index does not answer, to say in the answer: calls through another subprogram are not " +
-                "followed (ask again for that subprogram); dynamic SQL is partial; Forms, reports and code outside the " +
+                "What the index does not answer, to say in the answer: find_impact does not follow triggers fired by " +
+                "writes or package-level code; dynamic SQL is partial; Forms, reports and code outside the " +
                 "indexed sources are not indexed; a status other than RESOLVED means the index is not sure.\n" +
                 "Every answer carries the run it was read from; null fields are left out, and so is an entity's " +
                 "display when it is its key without db: (the usual case). An answer over ${McpAnswers.MAX_CHARS} " +
@@ -592,9 +623,20 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "CHILDREN with VIEWS also follows the view columns computed from its columns. Rows as in find_occurrences, " +
             "in source order, definitions and declarations left out unless roles asks for them; viaView is true on a row " +
             "reached through a view (a view column computed from the entity, or a view reading it), viaCandidate on an " +
-            "AMBIGUOUS row where the entity is one of the candidates. Calls through another subprogram are not followed " +
-            "(a standalone procedure that only calls the package one): ask again for that subprogram's usages. Pages as in " +
-            "find_occurrences. $STATUSES"
+            "AMBIGUOUS row where the entity is one of the candidates. One hop only: for the callers of the callers, up to " +
+            "the entry points, use find_impact. Pages as in find_occurrences. $STATUSES"
+
+        const val IMPACT = "Impact analysis: who calls the callers of an entity, transitively, up to the entry " +
+            "points (code nothing in the index calls, run from Forms, jobs or other systems). The first hop is who uses " +
+            "the entity, as find_usages; then the walk follows the uses that run each node: calls of a routine or type, " +
+            "SQL on a view, reading a cursor. A node is a routine (spec and body together), view, trigger, type, package " +
+            "or, for script code, the file. A view reached from a column is followed as a whole. Each node has its depth " +
+            "(the shortest path), via (one use on that path: what it uses, file and line), certain (some path of RESOLVED " +
+            "uses only) and stop: FOLLOWED (code outside its own cycle uses it), ENTRY_POINT (nothing in the index calls it but " +
+            "itself or the routines it calls back, so only outside code can), TRIGGER (runs when its table is " +
+            "written, not followed; trigger gives the table and events), PACKAGE_LEVEL (package initialization or " +
+            "declarations, not followed), DEPTH_LIMIT, NO_CONTAINER (a script file). levels counts nodes per depth and " +
+            "stops per reason; stop=ENTRY_POINT lists only the entry points. Pages: pass nextOffset as offset."
 
         const val GROUP_USAGES = "Counts who uses one entity, by routine, file or view: the rows find_usages lists for " +
             "the same arguments, grouped by one to three dimensions as in group_occurrences; ENTITY is the entity a " +
