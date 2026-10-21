@@ -178,7 +178,15 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     }
 
     private fun findOccurrences(args: Arguments): JsonElement {
-        val answer = index.queryOccurrences(args.query(), args.long("after"), args.int("limit", 1..FIND_MAX) ?: FIND_DEFAULT, summary = true)
+        val query = args.query()
+        val after = args.long("after")
+        val limit = args.int("limit", 1..FIND_MAX) ?: FIND_DEFAULT
+        // A client that drops the arguments it does not know (a misspelled filter) would otherwise list the whole index.
+        if (!filtered(query)) {
+            throw InvalidQueryException("find_occurrences needs at least one filter: ${QUERY_FILTERS.joinToString(", ")} " +
+                "(limit and after are not filters; for counts over the whole index, use group_occurrences)")
+        }
+        val answer = index.queryOccurrences(query, after, limit, summary = true)
         // after is an occurrence id (rows come in id order), so a cut page goes on right after its last row kept.
         return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
             a.withResult("nextAfter", rows.last().jsonObject.getValue("id"))
@@ -235,9 +243,15 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
 
     private fun groupOccurrences(args: Arguments): JsonElement {
         val dimensions = dimensions(args)
-        val answer = index.groupOccurrences(args.query(), dimensions, args.int("limit", 1..GROUP_MAX) ?: GROUP_DEFAULT)
-        return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("groups").jsonArray }, { a, groups -> a.withResult("groups", groups) })
+        val query = args.query()
+        val answer = index.groupOccurrences(query, dimensions, args.int("limit", 1..GROUP_MAX) ?: GROUP_DEFAULT)
+        // Without a filter the groups are the whole index's: said in the answer, for an agent that thought it sent one.
+        val answered = toolAnswer(answer).let { if (filtered(query)) it else JsonObject(it + ("wholeIndex" to JsonPrimitive(true))) }
+        return McpAnswers.fitList(answered, maxChars, { it.result().getValue("groups").jsonArray }, { a, groups -> a.withResult("groups", groups) })
     }
+
+    /** Whether [query] narrows the occurrences: a modifier alone (inside, container_inside, candidates) does not. */
+    private fun filtered(query: OccurrenceQuery) = query.copy(inside = false, containerInside = true, candidates = true) != OccurrenceQuery()
 
     private fun findImpact(args: Arguments): JsonElement {
         val key = args.requiredString("key")
@@ -574,6 +588,10 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         /** [answer] as a tool gives it, before any cut for size: its JSON made compact by [McpAnswers.compact]. */
         internal inline fun <reified T> toolAnswer(answer: T): JsonObject = McpAnswers.compact(ToolJson.encodeToJsonElement(answer)).jsonObject
 
+        /** The arguments of find_occurrences and group_occurrences that narrow the occurrences. */
+        private val QUERY_FILTERS = listOf("entity", "entity_kinds", "name", "schema", "external", "container", "container_name",
+            "unit_kinds", "path", "roles", "statuses", "reasons", "origins", "statement_kinds", "value_kind", "value")
+
         const val INSTRUCTIONS =
             "zpa-atlas is an index of the PL/SQL code of an Oracle database (packages, procedures, functions, " +
                 "triggers, tables, views, columns): ask it who calls, reads or writes something, for impact analysis, " +
@@ -588,17 +606,20 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "name pattern, a CRUD matrix, rows by status or by value.\n" +
                 "- get_values: the values a parameter is passed or a column is written with; then find_value_sites: " +
                 "where one of them comes from.\n" +
-                "- get_source: the source text around a line.\n" +
+                "- get_source: the text around a line. Sources are only on the server, paths relative to its folder: " +
+                "not on the local disk.\n" +
                 "- find_impact: impact analysis, who calls the callers up to the entry points; nodes are numbered (n), " +
                 "keys=true gives their full keys.\n" +
                 "Usual order: a group_ tool for the summary, then a find_ tool for the lines, then get_source for the text.\n" +
-                "What the index does not answer, to say in the answer: find_impact does not follow package-level " +
+                "What the index does not answer, to say so: find_impact does not follow package-level " +
                 "code; dynamic SQL is partial; Forms, reports and code outside the " +
                 "indexed sources are not indexed; a status other than RESOLVED means the index is not sure.\n" +
                 "Every answer carries the run it was read from; null fields are left out, and so is an entity's " +
-                "display when it is its key without db: (the usual case). An answer over ${McpAnswers.MAX_CHARS} " +
+                "display when it is its key without db:. An answer over ${McpAnswers.MAX_CHARS} " +
                 "characters is cut, and cutForSize says how: the rows kept (page on from nextAfter), the lower list " +
                 "limit of an entity, or the source lines shortened. A usage tool's included lists what it followed."
+
+        private const val PATHS = "Its paths are on the server, relative to its sources folder: read the text with get_source, not from a local disk."
 
         private const val KEYS =
             "Entity keys: db:SCHEMA.NAME; a member as db:SCHEMA.PACKAGE.MEMBER, a column as db:SCHEMA.TABLE.COLUMN. " +
@@ -624,13 +645,14 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "functions, parameters, types, sequences, synonyms, triggers. Exact name matches first. $KEYS"
 
         const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
-            "(members or columns, each with its number of uses), relations, triggers and the views that read it. $KEYS"
+            "(members or columns, each with its number of uses), relations, triggers and the views that read it. $PATHS $KEYS"
 
         const val FIND = "Where entities are defined, called, read or written across the code (occurrences), with " +
-            "optional filters combined with AND, and total and facets counted over every match. Pages: pass " +
+            "filters combined with AND (at least one; for the whole index, use group_occurrences), and total and " +
+            "facets counted over every match. Pages: pass " +
             "the answer's nextAfter as after; nextAfter is absent on the last page. Each row has its status and " +
             "reason; facets.byStatus counts the statuses of every match. A call's arguments name their parameter " +
-            "(P_A); its key is the row's entity key, a dot and that name. $STATUSES $ROLES"
+            "(P_A); its key is the row's entity key, a dot and that name. $PATHS $STATUSES $ROLES"
 
         const val USAGES = "Who calls, reads or writes one entity, for impact analysis: use it instead of " +
             "find_occurrences for one entity, following its spec or body and the views built on it. For a table, " +
@@ -638,7 +660,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "in source order, definitions and declarations left out unless roles asks for them; viaView is true on a row " +
             "reached through a view (a view column computed from the entity, or a view reading it), viaCandidate on an " +
             "AMBIGUOUS row where the entity is one of the candidates. One hop only: for the callers of the callers, up to " +
-            "the entry points, use find_impact. Pages as in find_occurrences. $STATUSES"
+            "the entry points, use find_impact. Pages as in find_occurrences. $PATHS $STATUSES"
 
         const val IMPACT = "Impact analysis: who calls the callers of an entity, transitively, up to the entry " +
             "points (code nothing in the index calls, run from Forms, jobs or other systems). The first hop is who uses " +
@@ -658,7 +680,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "declarations, not followed), DEPTH_LIMIT, NO_CONTAINER (a script file). levels counts nodes per depth and " +
             "stops per reason; stop=ENTRY_POINT lists only the entry points. Pages: pass nextOffset as offset. keys=true " +
             "gives every node's full key and via.uses as a key: use it with stop or offset to get the keys of the " +
-            "nodes another tool will be called on."
+            "nodes another tool will be called on. $PATHS"
 
         const val GROUP_USAGES = "Counts who uses one entity, by routine, file or view: the rows find_usages lists for " +
             "the same arguments, grouped by one to three dimensions as in group_occurrences; ENTITY is the entity a " +
@@ -701,7 +723,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "every row of the kind matches. $VALUE_WHY Rows as in find_usages, in source order. On a parameter's " +
             "row, arguments keeps only the argument bound to that parameter (or to its spec or body twin): the " +
             "call's other arguments are left out. A column's row is whole, with the values written. Pages as in " +
-            "find_occurrences. Any other kind of entity is an error."
+            "find_occurrences. Any other kind of entity is an error. $PATHS"
 
         private val USAGE_SCOPES = listOf(Scope.IMPLEMENTATIONS, Scope.CHILDREN, Scope.VIEWS)
 
@@ -711,10 +733,11 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "SQL_SELECT, SQL_INSERT, SQL_UPDATE, SQL_DELETE, group_by CONTAINER, ENTITY, ROLE. ROLE counts an " +
             "occurrence once per role. A group value without entity is an occurrence tied to no entity; add STATUS " +
             "to group_by to tell proven occurrences from the others. To follow an entity's spec or body, contents or " +
-            "views, use group_usages. $STATUSES"
+            "views, use group_usages. Without any filter it counts the whole index, and the answer has wholeIndex. $STATUSES"
 
         const val SOURCE = "The source text of an indexed file around a line, as the index read it; stale is true " +
-            "when the file changed since it was indexed."
+            "when the file changed since it was indexed. The files are on the server, not on the local disk: path is " +
+            "relative to the server's sources folder, as the other tools give it."
     }
 }
 

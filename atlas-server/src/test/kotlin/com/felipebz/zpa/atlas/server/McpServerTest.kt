@@ -284,7 +284,7 @@ class McpServerTest {
 
     @Test
     fun `a row longer than the size cap is still sent, alone`() = mcp(settings = McpSettings(maxAnswerChars = 100)) { client ->
-        val answer = client.call("find_occurrences", args { put("limit", 5) }).json().jsonObject
+        val answer = client.call("find_occurrences", args { put("path", "hr/"); put("limit", 5) }).json().jsonObject
         assertThat(answer["result"]!!.jsonObject["rows"]!!.jsonArray).hasSize(1)
         assertThat(answer["cutForSize"]).isEqualTo(Json.parseToJsonElement("""{"kept":1,"of":5}"""))
         assertThat(answer["result"]!!.jsonObject["nextAfter"]).isEqualTo(answer["result"]!!.jsonObject["rows"]!!.jsonArray[0].jsonObject["id"])
@@ -496,6 +496,33 @@ class McpServerTest {
         }
         assertThat(cut).isGreaterThan(0)
         assertThat(seen).isEqualTo((1..15).toList())
+    }
+
+    @Test
+    fun `find_occurrences without a filter is refused and names the filters, group_occurrences says it counts the whole index`() = mcp { client ->
+        for (arguments in listOf(args {}, args { put("limit", 5) }, args { put("after", 10) }, args { put("candidates", false); put("inside", true) })) {
+            val refused = client.call("find_occurrences", arguments)
+            assertThat(refused.isError).describedAs(arguments.toString()).isTrue()
+            assertThat(refused.text()).startsWith("find_occurrences needs at least one filter: entity, entity_kinds, name,")
+                .contains("limit and after are not filters", "group_occurrences")
+        }
+        // One filter answers as before.
+        assertThat(client.call("find_occurrences", args { put("name", "st_active") }).json())
+            .isEqualTo(toolAnswer(index.queryOccurrences(OccurrenceQuery(name = "st_active"), null, AtlasMcpTools.FIND_DEFAULT, summary = true)))
+        val whole = client.call("group_occurrences", args { put("group_by", strings("ROLE")) }).json().jsonObject
+        assertThat(whole["wholeIndex"]).isEqualTo(JsonPrimitive(true))
+        assertThat(JsonObject(whole - "wholeIndex")).isEqualTo(toolAnswer(index.groupOccurrences(OccurrenceQuery(), listOf(GroupDimension.ROLE), AtlasMcpTools.GROUP_DEFAULT)))
+        assertThat(client.call("group_occurrences", args { put("group_by", strings("ROLE")); put("path", "hr/") }).json().jsonObject).doesNotContainKey("wholeIndex")
+    }
+
+    @Test
+    fun `the instructions and the tools that give paths say the sources are read on the server with get_source`() = mcp { client ->
+        assertThat(client.serverInstructions!!).contains("get_source", "only on the server", "not on the local disk")
+        val tools = client.listTools().tools.associateBy { it.name }
+        for (name in listOf("get_entity", "find_occurrences", "find_usages", "find_value_sites", "find_impact")) {
+            assertThat(tools.getValue(name).description).describedAs(name).contains("on the server", "get_source", "not from a local disk")
+        }
+        assertThat(tools.getValue("get_source").description).contains("on the server, not on the local disk")
     }
 
     @Test
