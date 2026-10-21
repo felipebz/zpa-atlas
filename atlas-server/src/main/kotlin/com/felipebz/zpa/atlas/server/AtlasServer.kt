@@ -134,7 +134,8 @@ internal fun Application.atlasModule(
                     maxDepth = call.int("maxDepth") ?: 10,
                     stop = stop,
                     offset = call.int("offset") ?: 0,
-                    limit = call.int("limit") ?: 100
+                    limit = call.int("limit") ?: 100,
+                    followTriggers = call.boolean("triggers") ?: true
                 )
                 if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
             }

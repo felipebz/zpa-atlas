@@ -95,6 +95,15 @@ object Fixture {
             relation("V_CHAIN1", "ID", "COMPANY_NAME", kind = DictionaryRelationKind.VIEW),
             relation("V_CHAIN2", "ID", "LABEL", kind = DictionaryRelationKind.VIEW),
             relation("MV_COMPANY_LOG", "ID", "COMPANY_NAME", "COMPANY_LABEL", kind = DictionaryRelationKind.MATERIALIZED_VIEW),
+            // The tables and views of the impact through triggers (hr/it_*).
+            relation("IT_ORDERS", "ID", "STATUS", "AMOUNT", "NOTE"),
+            relation("IT_UNWRITTEN", "ID"),
+            relation("IT_STAGE", "ID"),
+            relation("IT_PING", "ID"),
+            relation("IT_PONG", "ID"),
+            relation("IT_V_ORDERS", "ID", "STATUS", "AMOUNT", "NOTE", kind = DictionaryRelationKind.VIEW),
+            relation("IT_V_ORDERS_IO", "ID", "STATUS", kind = DictionaryRelationKind.VIEW),
+            relation("IT_V_ORDERS_CALC", "ID", "MIXED", kind = DictionaryRelationKind.VIEW),
             relation("USER_TABLES", "TABLE_NAME", "NUM_ROWS", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
             relation("USER_TAB_COLUMNS", "TABLE_NAME", "COLUMN_NAME", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
             relation("V_\$SESSION", "SID", "USERNAME", kind = DictionaryRelationKind.VIEW, schema = "SYS")
@@ -108,6 +117,7 @@ object Fixture {
             // A target the dictionary lacks, in a schema that is not complete.
             DictionarySynonym("PUBLIC", "MISSING_VIEW", "SYS", "NO_SUCH_VIEW", "VIEW"),
             DictionarySynonym("HR", "SYN_COMPANY", "HR", "COMPANY", "TABLE"),
+            DictionarySynonym("HR", "IT_ORDERS_SYN", "HR", "IT_ORDERS", "TABLE"),
             DictionarySynonym("HR", "SYN_CHAIN1", "HR", "SYN_CHAIN2", "SYNONYM"),
             DictionarySynonym("HR", "SYN_CHAIN2", "HR", "SEND_QUEUE", "TABLE"),
             DictionarySynonym("HR", "SYN_LOOP_A", "HR", "SYN_LOOP_B", "SYNONYM"),
@@ -142,6 +152,8 @@ object Fixture {
                 "V_LIN_RECURSIVE" to "VIEW", "V_LIN_FN" to "VIEW", "V_IMP" to "VIEW", "V_LIN_JOIN" to "VIEW", "V_CHAIN1" to "VIEW", "V_CHAIN2" to "VIEW", "MV_COMPANY_LOG" to "MATERIALIZED VIEW",
                 "SYN_COMPANY" to "SYNONYM", "SYN_CHAIN1" to "SYNONYM", "SYN_CHAIN2" to "SYNONYM", "SYN_LOOP_A" to "SYNONYM",
                 "SYN_LOOP_B" to "SYNONYM", "SYN_EXT_PKG" to "SYNONYM", "SYN_CALLS" to "SYNONYM",
+                "IT_ORDERS" to "TABLE", "IT_UNWRITTEN" to "TABLE", "IT_STAGE" to "TABLE", "IT_PING" to "TABLE", "IT_PONG" to "TABLE",
+                "IT_V_ORDERS" to "VIEW", "IT_V_ORDERS_IO" to "VIEW", "IT_V_ORDERS_CALC" to "VIEW", "IT_ORDERS_SYN" to "SYNONYM",
                 "DBMS_RANDOM" to "PACKAGE", "TY_MISSING" to "TYPE", "SEQ_MISSING" to "SEQUENCE"
             )
         )

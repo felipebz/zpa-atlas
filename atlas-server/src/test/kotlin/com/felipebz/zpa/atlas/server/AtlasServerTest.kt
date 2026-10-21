@@ -153,7 +153,8 @@ class AtlasServerTest {
     @Test
     fun `the impact of an entity is its graph, 404 for an unknown key and 400 for a bad argument`() = api {
         val leaf = "db:HR.PACK_IMP_A.LEAF(P_N IN NUMBER)"
-        val answer = client.get("/api/impact") { parameter("key", leaf); parameter("stop", "ENTRY_POINT") }
+        // Without following triggers: the graph of ImpactTest.
+        val answer = client.get("/api/impact") { parameter("key", leaf); parameter("stop", "ENTRY_POINT"); parameter("triggers", "false") }
         assertThat(answer.status).isEqualTo(HttpStatusCode.OK)
         val result = json(answer.bodyAsText())["result"]!!.jsonObject
         assertThat(result["levels"]!!.jsonArray.map { it.jsonPrimitive.content }).containsExactly("5", "9", "1")
@@ -163,12 +164,24 @@ class AtlasServerTest {
                 "db:HR.PACK_IMP_B.CURS_USER()", "db:HR.PACK_IMP_B.TOP()", "db:HR.IMP_READ_VIEW()"
             )
         assertThat(client.get("/api/impact") { parameter("key", "db:NO.SUCH") }.status).isEqualTo(HttpStatusCode.NotFound)
-        for ((name, value) in listOf("maxDepth" to "0", "maxDepth" to "51", "stop" to "NOPE", "scope" to "NOPE", "roles" to "NOPE", "status" to "NOPE", "limit" to "501")) {
+        for ((name, value) in listOf("maxDepth" to "0", "maxDepth" to "51", "stop" to "NOPE", "scope" to "NOPE", "roles" to "NOPE", "status" to "NOPE", "limit" to "501", "triggers" to "maybe")) {
             val response = client.get("/api/impact") { parameter("key", leaf); parameter(name, value) }
             assertThat(response.status).describedAs("$name=$value").isEqualTo(HttpStatusCode.BadRequest)
             assertThat(json(response.bodyAsText())).containsKey("error")
         }
         assertThat(client.get("/api/impact").status).isEqualTo(HttpStatusCode.BadRequest)
+    }
+
+    @Test
+    fun `the impact follows triggers by default, and triggers=false answers as the walk without them`() = api {
+        val key = "db:HR.IT_AUDIT(P_WHAT IN VARCHAR2)"
+        val followed = client.get("/api/impact") { parameter("key", key) }.bodyAsText()
+        assertThat(json(followed)["result"]!!.jsonObject["levels"]!!.jsonArray.map { it.jsonPrimitive.content }).containsExactly("7", "12", "2")
+        assertThat(followed).contains("\"fires\":\"INSERT\"")
+        val off = client.get("/api/impact") { parameter("key", key); parameter("triggers", "false") }.bodyAsText()
+        assertThat(off).isEqualTo(ApiJson.encodeToString(index.impact(key, followTriggers = false)))
+        assertThat(off).doesNotContain("\"fires\"")
+        assertThat(json(off)["result"]!!.jsonObject["stops"]!!.jsonArray.map { it.jsonObject["value"]!!.jsonPrimitive.content }).containsExactly("TRIGGER")
     }
 
     @Test

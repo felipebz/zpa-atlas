@@ -10,7 +10,10 @@ import java.sql.Connection
 /** The transitive impact of an entity, over one open connection: see [AtlasIndex.impact]. */
 internal class ImpactReader(private val connection: Connection) {
 
-    /** [AtlasIndex.impact] after its checks: [roleFilter] and [statuses] filter the first hop only. */
+    /**
+     * [AtlasIndex.impact] after its checks: [roleFilter] and [statuses] filter the first hop only. With [followTriggers],
+     * a DML trigger node is followed through the writes that fire it ([TriggerWrites]).
+     */
     fun impact(
         key: String,
         roleFilter: Set<String>,
@@ -19,14 +22,15 @@ internal class ImpactReader(private val connection: Connection) {
         maxDepth: Int,
         stop: ImpactStop?,
         offset: Int,
-        limit: Int
+        limit: Int,
+        followTriggers: Boolean
     ): ImpactGraph? {
         val (rootId, root) = connection.query("SELECT id, key, kind, display, external, name FROM entity WHERE key = ?", listOf(key)) {
             it.getLong(1) to EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1, it.getString(6))
         }.singleOrNull() ?: return null
         val scopes = include ?: defaultUsageScopes(root.kind)
         val rootTwins = twinsOf(rootId)
-        val walk = Walk(rootTwins)
+        val walk = Walk(rootTwins, followTriggers)
 
         // The first hop is "who uses", as find_usages lists it.
         val firstHits = UsageReader(connection).usageHits(key, roleFilter, statuses, (scopes + Scope.SELF).toSet(), true, null)!!.second
@@ -39,7 +43,16 @@ internal class ImpactReader(private val connection: Connection) {
         ) {
             Use(null, it.getLong(1), (it.getObject(2) as Number?)?.toLong(), it.getString(3), it.getLong(1) in candidateHits, it.getString(4), it.getInt(5), it.getString(6))
         }
-        var frontier = walk.reach(firstUses, 1, resolve(firstUses))
+        // A DML trigger asked for: the code that fires it is the writes that fire it.
+        val firing = if (followTriggers) {
+            TriggerWrites(connection).firing(listOf(rootId)).filter { statuses.isNullOrEmpty() || it.status in statuses }.map {
+                Use(null, it.occurrence, it.container, it.status, it.candidate, it.path, it.line, sure = it.sure, fires = it.fires)
+            }
+        } else {
+            emptyList()
+        }
+        val first = firstUses + firing
+        var frontier = walk.reach(first, 1, resolve(first))
 
         for (depth in 1 until maxDepth) {
             if (frontier.isEmpty()) break
@@ -62,7 +75,9 @@ internal class ImpactReader(private val connection: Connection) {
         val candidate: Boolean,
         val path: String,
         val line: Int,
-        val matched: String? = null
+        val matched: String? = null,
+        val sure: Boolean = true,
+        val fires: String? = null
     )
 
     /** A node: an entity ([entity], [id] its spec when it has one) or a file ([path]). */
@@ -72,7 +87,7 @@ internal class ImpactReader(private val connection: Connection) {
     }
 
     /** The nodes reached and the uses between them; [rootTwins] (the entity and its spec or bodies) are never nodes. */
-    private inner class Walk(private val rootTwins: Set<Long>) {
+    private inner class Walk(private val rootTwins: Set<Long>, private val followTriggers: Boolean) {
         val nodes = LinkedHashMap<Any, Node>()
         val edges = ArrayList<Pair<Use, Node>>()
 
@@ -103,7 +118,7 @@ internal class ImpactReader(private val connection: Connection) {
                 callers.getOrPut(used) { HashSet() } += node
                 edges += use to node
             }
-            return added.filter { it.id != null && it.kind !in STOPPING_KINDS }
+            return added.filter { it.id != null && it.kind !in (if (followTriggers) FOLLOWED_STOPPING_KINDS else STOPPING_KINDS) }
         }
 
         /**
@@ -166,17 +181,20 @@ internal class ImpactReader(private val connection: Connection) {
             val byId = nodes.values.filter { it.id != null }.associateBy { it.id!! }
             fun depthOf(from: Long?) = if (from == null) 0 else byId.getValue(from).depth
             val unentered = unentered()
+            // Followed, a trigger stops by the rules of any node unless it is a system trigger, which no write fires.
+            val dml = if (followTriggers) TriggerWrites(connection).tables(nodes.values.filter { it.kind == "TRIGGER" }.map { it.id!! }).keys else emptySet()
             fun stopOf(node: Node) = when {
                 node.id == null -> ImpactStop.NO_CONTAINER
                 node.kind == "PACKAGE" -> ImpactStop.PACKAGE_LEVEL
-                node.kind == "TRIGGER" -> ImpactStop.TRIGGER
+                node.kind == "TRIGGER" && node.id !in dml -> ImpactStop.TRIGGER
                 !node.read -> ImpactStop.DEPTH_LIMIT
                 node in callers && node !in unentered -> ImpactStop.FOLLOWED
                 else -> ImpactStop.ENTRY_POINT
             }
-            // Certain: reached from the entity through RESOLVED uses only, at any depth.
+            // Certain: reached from the entity through RESOLVED uses only, at any depth; a write that may not fire its
+            // trigger is not one.
             val certain = HashSet<Node>()
-            val resolved = edges.filter { (use, _) -> use.status == "RESOLVED" && !use.candidate }
+            val resolved = edges.filter { (use, _) -> use.status == "RESOLVED" && !use.candidate && use.sure }
             var grown = true
             while (grown) {
                 grown = false
@@ -198,13 +216,13 @@ internal class ImpactReader(private val connection: Connection) {
                 page.map { node ->
                     val uses = into.getValue(node)
                     // One use on a shortest path: RESOLVED first, then the lowest occurrence id.
-                    val via = uses.filter { depthOf(it.from) == node.depth - 1 }.minWith(compareBy({ it.status != "RESOLVED" }, { it.occurrence }))
+                    val via = uses.filter { depthOf(it.from) == node.depth - 1 }.minWith(compareBy({ it.status != "RESOLVED" || !it.sure }, { it.occurrence }, { it.fires }))
                     ImpactNode(
                         node.kind, node.entity, node.path,
                         uses = if (node.id == null) uses.map { it.occurrence }.distinct().size else null,
                         firstLine = if (node.id == null) uses.minOf { it.line } else null,
                         depth = node.depth,
-                        via = ImpactVia(via.from?.let { byId.getValue(it).entity!!.key } ?: via.matched ?: root.key, via.occurrence, via.path, via.line, via.status),
+                        via = ImpactVia(via.from?.let { byId.getValue(it).entity!!.key } ?: via.matched ?: root.key, via.occurrence, via.path, via.line, via.status, via.fires),
                         certain = node in certain,
                         stop = stops.getValue(node).name,
                         trigger = node.id?.let { triggers[it] }
@@ -215,8 +233,19 @@ internal class ImpactReader(private val connection: Connection) {
         }
     }
 
-    /** The uses that run each of [frontier]'s nodes, through any of its keys, candidates included. */
+    /**
+     * The uses that run each of [frontier]'s nodes, through any of its keys, candidates included; for a trigger, the
+     * writes that fire it.
+     */
     private fun usesOf(frontier: List<Node>): List<Use> {
+        val (triggers, others) = frontier.partition { it.kind == "TRIGGER" }
+        val fired = TriggerWrites(connection).firing(triggers.map { it.id!! }).map {
+            Use(it.trigger, it.occurrence, it.container, it.status, it.candidate, it.path, it.line, sure = it.sure, fires = it.fires)
+        }
+        return fired + if (others.isEmpty()) emptyList() else callsOf(others)
+    }
+
+    private fun callsOf(frontier: List<Node>): List<Use> {
         val twins = connection.query(
             "SELECT r.to_id, r.from_id FROM relation r WHERE r.kind = 'IMPLEMENTS' AND r.to_id IN (SELECT value FROM json_each(?))",
             listOf(ids(frontier.map { it.id!! }))
@@ -300,6 +329,9 @@ internal class ImpactReader(private val connection: Connection) {
 
         /** Containers whose uses the walk does not follow: their stop reason says why. */
         private val STOPPING_KINDS = setOf("PACKAGE", "TRIGGER")
+
+        /** [STOPPING_KINDS] when triggers are followed. */
+        private val FOLLOWED_STOPPING_KINDS = setOf("PACKAGE")
 
         private val SQL_ROLES = setOf("SQL_SELECT", "SQL_INSERT", "SQL_UPDATE", "SQL_DELETE", "SQL_MERGE", "SQL_LOCK")
 

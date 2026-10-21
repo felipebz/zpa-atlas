@@ -246,10 +246,11 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         val offset = args.int("offset", 0..Int.MAX_VALUE) ?: 0
         val limit = args.int("limit", 1..IMPACT_MAX) ?: IMPACT_DEFAULT
         val keys = args.boolean("keys") ?: false
+        val followTriggers = args.boolean("follow_triggers") ?: true
         // The whole graph, so that a node keeps its number whatever the page and the stop filter.
         val answer = index.impactGraph(
             key, args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, include,
-            args.int("max_depth", 1..IMPACT_DEPTH_MAX) ?: IMPACT_DEPTH_DEFAULT
+            args.int("max_depth", 1..IMPACT_DEPTH_MAX) ?: IMPACT_DEPTH_DEFAULT, followTriggers
         )
         val graph = answer.result ?: throw unknownEntity(key)
         val impact = McpImpact(graph.entity, graph.nodes, keys)
@@ -405,6 +406,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         integer("offset", 0..Int.MAX_VALUE, 0, "The nextOffset of the previous page.")
         integer("limit", 1..IMPACT_MAX, IMPACT_DEFAULT)
         boolean("keys", "Every node gives its full key, and via.uses is a key, as the index answers; use it with stop or offset to get the keys of the nodes another tool will be called on. Default false: n and name.")
+        boolean("follow_triggers", "Default true: a DML trigger node is followed through the writes that fire it. False: every trigger stops with TRIGGER, as calls alone reach code.")
     }
 
     private fun valuesSchema() = schema(listOf("key")) {
@@ -590,8 +592,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "- find_impact: impact analysis, who calls the callers up to the entry points; nodes are numbered (n), " +
                 "keys=true gives their full keys.\n" +
                 "Usual order: a group_ tool for the summary, then a find_ tool for the lines, then get_source for the text.\n" +
-                "What the index does not answer, to say in the answer: find_impact does not follow triggers fired by " +
-                "writes or package-level code; dynamic SQL is partial; Forms, reports and code outside the " +
+                "What the index does not answer, to say in the answer: find_impact does not follow package-level " +
+                "code; dynamic SQL is partial; Forms, reports and code outside the " +
                 "indexed sources are not indexed; a status other than RESOLVED means the index is not sure.\n" +
                 "Every answer carries the run it was read from; null fields are left out, and so is an entity's " +
                 "display when it is its key without db: (the usual case). An answer over ${McpAnswers.MAX_CHARS} " +
@@ -641,15 +643,18 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         const val IMPACT = "Impact analysis: who calls the callers of an entity, transitively, up to the entry " +
             "points (code nothing in the index calls, run from Forms, jobs or other systems). The first hop is who uses " +
             "the entity, as find_usages; then the walk follows the uses that run each node: calls of a routine or type, " +
-            "SQL on a view, reading a cursor. A node is a routine (spec and body together), view, trigger, type, package " +
+            "SQL on a view, reading a cursor, and for a DML trigger the INSERT, UPDATE, DELETE or MERGE that fire it (its " +
+            "table, through a synonym or a one-base view; UPDATE OF by the SET columns; via.fires names the events; " +
+            "for a trigger asked for, they are the first hop). " +
+            "A node is a routine (spec and body together), view, trigger, type, package " +
             "or, for script code, the file. A view reached from a column is followed as a whole. Each node has n (its " +
             "number in the whole graph, the same on every page), name (the display without the parameter list, @BODY " +
             "kept for a private routine; key too, only when another node has the same name, as overloads do), its depth " +
             "(the shortest path), via (one use on that path: uses, the n of the node it uses, or 0 on the first hop, with " +
             "usesName when that hop matched another entity than the one asked for; file and line), certain (some path of RESOLVED " +
             "uses only) and stop: FOLLOWED (code outside its own cycle uses it), ENTRY_POINT (nothing in the index calls it but " +
-            "itself or the routines it calls back, so only outside code can), TRIGGER (runs when its table is " +
-            "written, not followed; trigger gives the table and events), PACKAGE_LEVEL (package initialization or " +
+            "itself or the routines it calls back, so only outside code can; for a trigger, nothing writes its table), " +
+            "TRIGGER (a system trigger, or follow_triggers=false; trigger gives table and events), PACKAGE_LEVEL (package initialization or " +
             "declarations, not followed), DEPTH_LIMIT, NO_CONTAINER (a script file). levels counts nodes per depth and " +
             "stops per reason; stop=ENTRY_POINT lists only the entry points. Pages: pass nextOffset as offset. keys=true " +
             "gives every node's full key and via.uses as a key: use it with stop or offset to get the keys of the " +

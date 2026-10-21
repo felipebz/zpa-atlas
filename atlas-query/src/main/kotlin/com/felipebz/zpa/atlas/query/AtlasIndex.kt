@@ -95,7 +95,11 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTi
      * reading a cursor. A node is the container of a use (`occurrence.container_entity_id`), a spec and its bodies being
      * one node named by the spec; the entity and its spec or bodies are never nodes. A view is followed as a whole: from
      * a column, every user of a view computed from it, not only the users of the view columns computed from that column.
-     * Triggers, package-level code and code outside any container end the walk there ([ImpactStop]).
+     * With [followTriggers], a DML trigger is followed through the writes that fire it ([TriggerWrites]): an INSERT,
+     * UPDATE, DELETE or MERGE of its table, directly, through a synonym or through a view with one base, and with its
+     * events (`UPDATE OF` columns included); the hop is not certain when the table or the event is not. A trigger no
+     * such write fires is an entry point. Without it, and for system triggers, the walk stops at the trigger, as it does
+     * at package-level code and code outside any container ([ImpactStop]).
      *
      * The whole graph is computed on each call, so [offset] pages in its order (depth, then key or path); [stop] keeps
      * only the nodes of one stop reason, while [ImpactGraph.levels] and [ImpactGraph.stops] count the whole graph. A
@@ -109,14 +113,17 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTi
         maxDepth: Int = 10,
         stop: ImpactStop? = null,
         offset: Int = 0,
-        limit: Int = 100
+        limit: Int = 100,
+        followTriggers: Boolean = true
     ): Answer<ImpactGraph?> {
         if (maxDepth !in 1..50) throw InvalidQueryException("maxDepth must be between 1 and 50")
         if (offset < 0) throw InvalidQueryException("offset must not be negative")
         if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
         include?.firstOrNull { it == Scope.SELF }?.let { throw InvalidQueryException("Unknown include: SELF") }
         val roleFilter = usageRoles(roles, statuses)
-        return read(timed = true) { connection, _ -> ImpactReader(connection).impact(key, roleFilter, statuses, include, maxDepth, stop, offset, limit) }
+        return read(timed = true) { connection, _ ->
+            ImpactReader(connection).impact(key, roleFilter, statuses, include, maxDepth, stop, offset, limit, followTriggers)
+        }
     }
 
     /**
@@ -128,12 +135,15 @@ class AtlasIndex(val database: Path, val sourcesRoot: Path?, private val queryTi
         roles: Set<String>? = null,
         statuses: Set<String>? = null,
         include: List<Scope>? = null,
-        maxDepth: Int = 10
+        maxDepth: Int = 10,
+        followTriggers: Boolean = true
     ): Answer<ImpactGraph?> {
         if (maxDepth !in 1..50) throw InvalidQueryException("maxDepth must be between 1 and 50")
         include?.firstOrNull { it == Scope.SELF }?.let { throw InvalidQueryException("Unknown include: SELF") }
         val roleFilter = usageRoles(roles, statuses)
-        return read(timed = true) { connection, _ -> ImpactReader(connection).impact(key, roleFilter, statuses, include, maxDepth, null, 0, Int.MAX_VALUE) }
+        return read(timed = true) { connection, _ ->
+            ImpactReader(connection).impact(key, roleFilter, statuses, include, maxDepth, null, 0, Int.MAX_VALUE, followTriggers)
+        }
     }
 
     /** The roles a usage filter keeps: [roles], else every usage role; an unknown role or status is an error. */

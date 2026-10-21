@@ -409,8 +409,9 @@ class McpServerTest {
 
     @Test
     fun `find_impact numbers the nodes of the whole graph, names them and points via at a number`() = mcp { client ->
-        val nodes = client.call("find_impact", args { put("key", impactLeaf) }).json().impactNodes()
-        val graph = index.impact(impactLeaf, include = listOf(Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.IMPACT_DEFAULT).result!!.nodes
+        // Without following triggers: the graph of ImpactTest.
+        val nodes = client.call("find_impact", args { put("key", impactLeaf); put("follow_triggers", false) }).json().impactNodes()
+        val graph = index.impact(impactLeaf, include = listOf(Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.IMPACT_DEFAULT, followTriggers = false).result!!.nodes
         assertThat(nodes.map { it.number() }).isEqualTo((1..graph.size).toList())
         assertThat(nodes.map { it.field("name") }).containsExactly(
             "HR.IMP_FN", "HR.PACK_IMP_A.MID", "HR.PACK_IMP_A.OV", "HR.PACK_IMP_A.PONG", "HR.PACK_IMP_B", "HR.IMP_AMB", "HR.IMP_REC",
@@ -462,12 +463,32 @@ class McpServerTest {
     }
 
     @Test
+    fun `find_impact follows the writes that fire a trigger, and follow_triggers=false stops at it`() = mcp { client ->
+        val key = "db:HR.IT_AUDIT(P_WHAT IN VARCHAR2)"
+        val nodes = client.call("find_impact", args { put("key", key) }).json().impactNodes()
+        val numbers = nodes.associate { it.field("name") to it.number() }
+        val writer = nodes.single { it.field("name") == "HR.IT_P" }
+        assertThat(writer.getValue("via").jsonObject.let { it.field("uses")!!.toInt() to it.field("fires") }).isEqualTo(numbers.getValue("HR.TRG_IT_ORDERS_BI") to "INSERT")
+        assertThat(nodes.single { it.field("name") == "HR.IT_Q" }.getValue("via").jsonObject["fires"]).isNull()
+        val keyed = client.call("find_impact", args { put("key", key); put("keys", true) }).json().impactNodes()
+        assertThat(keyed.map { JsonObject(it - "n") })
+            .isEqualTo(toolAnswer(index.impact(key, include = listOf(Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.IMPACT_DEFAULT)).jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject })
+        val off = client.call("find_impact", args { put("key", key); put("follow_triggers", false); put("keys", true) }).json().impactNodes()
+        assertThat(off.map { JsonObject(it - "n") }).isEqualTo(
+            toolAnswer(index.impact(key, include = listOf(Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.IMPACT_DEFAULT, followTriggers = false))
+                .jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject }
+        )
+        assertThat(off.map { it.field("stop") }.distinct()).containsExactly("TRIGGER")
+        assertThat(client.call("find_impact", args { put("key", key); put("follow_triggers", "yes") }).text()).isEqualTo("follow_triggers must be true or false")
+    }
+
+    @Test
     fun `find_impact under a small cap pages on by offset, each node once`() = mcp(settings = McpSettings(maxAnswerChars = 2_000)) { client ->
         val seen = ArrayList<Int>()
         var offset: Int? = 0
         var cut = 0
         while (offset != null) {
-            val answer = client.call("find_impact", args { put("key", impactLeaf); put("offset", offset!!) }).json().jsonObject
+            val answer = client.call("find_impact", args { put("key", impactLeaf); put("offset", offset!!); put("follow_triggers", false) }).json().jsonObject
             val nodes = answer.impactNodes()
             answer["cutForSize"]?.let { cut++; assertThat(it.jsonObject["kept"]!!.jsonPrimitive.content.toInt()).isEqualTo(nodes.size) }
             seen += nodes.map { it.number() }

@@ -52,8 +52,9 @@ class ImpactTest {
         temp.toFile().deleteRecursively()
     }
 
+    // These graphs stop at triggers: TriggerImpactTest follows them.
     private fun graph(key: String = leaf, maxDepth: Int = 10, stop: ImpactStop? = null, offset: Int = 0, limit: Int = 100) =
-        index.impact(key, maxDepth = maxDepth, stop = stop, offset = offset, limit = limit).result!!
+        index.impact(key, maxDepth = maxDepth, stop = stop, offset = offset, limit = limit, followTriggers = false).result!!
 
     private fun ImpactNode.name() = entity?.key ?: path!!
 

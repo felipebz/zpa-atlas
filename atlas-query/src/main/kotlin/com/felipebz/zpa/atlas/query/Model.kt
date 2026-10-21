@@ -5,6 +5,8 @@
 
 package com.felipebz.zpa.atlas.query
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
 /** The run an answer comes from; every API response carries it. */
@@ -128,11 +130,15 @@ enum class ImpactStop {
     /**
      * Nothing in the index uses the node but itself, or the routines it forms a cycle with (routines that call each
      * other, the entity asked for included): it is called from outside the index (Forms, jobs, other systems) or not
-     * at all. A [FOLLOWED] node can be called from outside the index too.
+     * at all. A [FOLLOWED] node can be called from outside the index too. A DML trigger is an entry point when nothing
+     * in the index writes its table in a way that fires it.
      */
     ENTRY_POINT,
 
-    /** A trigger: it runs when its table is written, which the walk does not follow; [ImpactNode.trigger] gives the table. */
+    /**
+     * A trigger the walk does not follow: a system trigger (DDL or database events), which no write fires, or any
+     * trigger when triggers are not followed. [ImpactNode.trigger] gives its table and events.
+     */
     TRIGGER,
 
     /** Code of the package as a whole (its initialization, a declaration): following every user of the package would list too much. */
@@ -145,9 +151,20 @@ enum class ImpactStop {
     NO_CONTAINER
 }
 
-/** One use on a shortest path to a node: of [uses] (the entity asked for at depth 1), at [path] line [line]. */
+/**
+ * One use on a shortest path to a node: of [uses] (the entity asked for at depth 1), at [path] line [line]. [fires]
+ * is set when the use is a write that fires the trigger [uses]: the trigger's events it fires, such as `INSERT`.
+ */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
-data class ImpactVia(val uses: String, val occurrence: Long, val path: String, val line: Int, val status: String)
+data class ImpactVia(
+    val uses: String,
+    val occurrence: Long,
+    val path: String,
+    val line: Int,
+    val status: String,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val fires: String? = null
+)
 
 /** One event of a trigger node: as [TriggerEvent] without the trigger. */
 @Serializable
