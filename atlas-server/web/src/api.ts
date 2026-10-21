@@ -2,6 +2,8 @@
 // same name and fields. The server writes every field (`explicitNulls`, `encodeDefaults`), so a nullable Kotlin field
 // is `T | null`, never optional; a `Long` or `Int` is a number.
 
+import { signInFor, signInWorked } from "./session";
+
 /** The run an answer comes from; every API response carries it. */
 export interface RunStamp {
   finishedAt: string;
@@ -267,8 +269,10 @@ export async function api<T>(path: string, params?: Record<string, string | numb
     if (v !== null && v !== undefined && v !== "") url.searchParams.set(k, String(v));
   }
   const response = await fetch(url);
+  if (response.status === 401 && await signInFor(response.status)) return new Promise<T>(() => {});
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || response.statusText);
+  signInWorked();
   return body;
 }
 

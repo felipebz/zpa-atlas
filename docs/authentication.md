@@ -18,6 +18,8 @@ zpa-atlas serve --db atlas.db --host 0.0.0.0 \
 | `--public-url`    | The server as clients reach it, without a path. Required with `--oidc-issuer`.                       |
 | `--oidc-audience` | What an access token must carry in `aud`. Default: the resource, `<public url>/mcp`.                 |
 | `--oidc-scope`    | A scope an access token must carry. Default: none.                                                   |
+| `--oidc-client-id` | The page's client id. Turns the page sign-in on.                                                    |
+| `--oidc-client-secret-env` | The environment variable holding that client's secret. Default: none, a public client.     |
 
 At startup the server reads `<issuer>/.well-known/openid-configuration`. If it cannot, it stops with exit code 3: it
 never starts without the authentication it was asked for. Both URLs must be `https`, except on `localhost`, `127.0.0.1`
@@ -46,6 +48,30 @@ The answers:
 - **The provider's keys cannot be read:** 503 with a short message.
 
 The token is never logged.
+
+## Signing in to the page
+
+With `--oidc-client-id`, a person signs in to the page with the same provider. The server runs the authorization code
+flow, with PKCE S256, `state` and `nonce`, and keeps the tokens: the browser holds only a session id, in a cookie.
+
+- **The client:** registered at the provider for the page, with the redirect URI `<public url>/auth/callback`. A
+  confidential client gives its secret through the environment variable named by `--oidc-client-secret-env`, never on
+  the command line; without it, the client is public and uses PKCE alone. The server refuses to start when the client
+  id is the audience.
+- **Signing in:** `/auth/login?return=<path>` sends the browser to the provider, asking for `openid` and the required
+  scope. Back at the callback, the access token the provider gave is checked as a bearer token is: issuer, audience,
+  expiry, scope. A person whose token would be refused on `/mcp` gets a short error page and no session. The ID token
+  must be for the client and carry the nonce of the sign-in.
+- **The session:** the cookie `atlas_session`, `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when the public URL is
+  `https`. When the access token expires, the server refreshes it with the refresh token; without one, or when the
+  provider refuses, the session ends. Sessions are kept in memory: **a restart signs everyone out.**
+- **Where the session counts:** `/api` accepts it, as it accepts a bearer token. `/mcp` never does: it takes only a bearer
+  token.
+- **Signing out:** the page's "Sign out" button posts to `/auth/logout`, which is accepted only with an `Origin` or a
+  `Referer` of the public URL. The session ends; when the provider has an `end_session_endpoint`, the browser goes there
+  with `id_token_hint` and `post_logout_redirect_uri` set to the public URL, so that it comes back signed out.
+- **`/auth/me`** answers the signed-in user's name, or 401. Without the page sign-in it answers 404, as do the other
+  `/auth` paths.
 
 ## The metadata document
 
@@ -93,7 +119,11 @@ In the realm:
    *Valid redirect URIs* set to the client's redirect URI, and *Advanced → Proof Key for Code Exchange Code Challenge
    Method* set to `S256`. Add `atlas.read` to its default client scopes, and make sure `offline_access` is among its
    optional client scopes.
-3. **Dynamic client registration.** Two anonymous policies of *Clients → Client registration* refuse it by default:
+3. **The page's client.** Create a client with *Standard flow* on, *Valid redirect URIs* set to
+   `<public url>/auth/callback`, *Valid post logout redirect URIs* set to `<public url>`, and PKCE method `S256`. Turn
+   *Client authentication* on for a confidential client, and give its secret to the server in the environment variable
+   that `--oidc-client-secret-env` names. Add `atlas.read` to its default client scopes.
+4. **Dynamic client registration.** Two anonymous policies of *Clients → Client registration* refuse it by default:
    - *Trusted Hosts*: add the hosts of the clients' redirect URIs (such as `localhost`), with *Client URIs Must Match*
      on;
    - *Allowed Client Scopes*: allow `atlas.read` and `offline_access`. This is how a registered client gets `atlas.read`.
@@ -101,4 +131,9 @@ In the realm:
    Opening them lets anyone who reaches Keycloak register a client. They still have to sign in as a user of the realm
    to get a token.
 
-Then run the server with `--oidc-issuer https://<keycloak>/realms/<realm>`.
+To let only some users read the index, give the client scope `atlas.read` a role scope mapping (its *Scope* tab), such
+as a realm role `atlas-reader`: Keycloak then puts the scope, and its audience, only into the tokens of users with that
+role. Other users get the error page when they sign in to the page, and 401 or 403 on `/mcp`.
+
+Then run the server with `--oidc-issuer https://<keycloak>/realms/<realm>`. For the page, add
+`--oidc-client-id <client id>` and, for a confidential client, `--oidc-client-secret-env <variable>`.

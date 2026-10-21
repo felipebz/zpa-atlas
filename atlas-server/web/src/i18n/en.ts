@@ -19,6 +19,8 @@ export default {
     other: "{count} files with a recovered parse error (RECOVERED)"
   },
   "banner.separator": "; ",
+  "header.signOut": "Sign out",
+  "header.signedIn": "Signed in as {name}",
   "header.search": "Search…",
 
   "search.placeholder": "Name (prefix) or dotted name (e.g. pack.run_job)",

@@ -13,8 +13,13 @@ import com.auth0.jwk.SigningKeyNotFoundException
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.exceptions.JWTDecodeException
+import com.auth0.jwt.exceptions.IncorrectClaimException
 import com.auth0.jwt.exceptions.JWTVerificationException
+import com.auth0.jwt.exceptions.MissingClaimException
+import com.auth0.jwt.exceptions.SignatureVerificationException
+import com.auth0.jwt.exceptions.TokenExpiredException
 import com.auth0.jwt.interfaces.DecodedJWT
+import com.auth0.jwt.interfaces.Verification
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.decodeURLPart
@@ -30,21 +35,39 @@ import java.security.interfaces.RSAPublicKey
 
 internal class BearerGateConfig {
     lateinit var auth: AuthSettings
-    lateinit var identity: Identity
+    lateinit var verifier: AccessTokenVerifier
+    var sessions: PageSessions? = null
 }
 
 /**
  * Answers 401, 403 or 503 to a request to `/mcp` or `/api` that does not carry an access token this server accepts,
  * before the route that would answer it sees the request. The token is read from the `Authorization` header alone:
  * a query parameter is never looked at. It is never logged.
+ *
+ * With the page sign-in, `/api` also accepts the session cookie of [PageSessions] when there is no `Authorization`
+ * header. That is safe because every `/api` route is GET and the cookie is `SameSite=Lax`: another site can make the
+ * browser send it only on a top-level navigation, whose answer it cannot read. `/mcp` takes POST requests, so it never
+ * accepts the cookie. Any new route that serves data must be under `/api` or `/mcp`, the only paths this gate protects.
  */
 internal val BearerGate = createApplicationPlugin("BearerGate", ::BearerGateConfig) {
     val auth = pluginConfig.auth
-    val verifier = AccessTokenVerifier(pluginConfig.identity, auth.expectedAudience)
+    val verifier = pluginConfig.verifier
+    val sessions = pluginConfig.sessions
     val resourceMetadata = "resource_metadata=\"${auth.metadataUrl}\""
     onCall { call ->
-        if (!isProtected(call)) return@onCall
-        when (val verdict = verifier.verify(call.request.headers.getAll(HttpHeaders.Authorization))) {
+        val area = protectedArea(call) ?: return@onCall
+        val authorization = call.request.headers.getAll(HttpHeaders.Authorization)
+        if (area == "api" && authorization == null && sessions != null) {
+            val id = call.request.cookies[PageSessions.COOKIE]
+            val session = try {
+                id?.let { sessions.access(it) }
+            } catch (e: ProviderUnavailableException) {
+                call.application.log.warn("Session not refreshed: the token endpoint cannot be reached: {}", e.message)
+                return@onCall call.respondJson(ApiError("The identity provider cannot be reached to check the session; try again later"), HttpStatusCode.ServiceUnavailable)
+            }
+            if (session != null) return@onCall
+        }
+        when (val verdict = verifier.verify(authorization)) {
             is TokenVerdict.Valid -> if (auth.scope != null && auth.scope !in verdict.scopes) {
                 call.application.log.debug("Access token refused: scope {} missing", auth.scope)
                 call.response.header(HttpHeaders.WWWAuthenticate, "Bearer error=\"insufficient_scope\", scope=\"${auth.scope}\", $resourceMetadata")
@@ -63,14 +86,14 @@ internal val BearerGate = createApplicationPlugin("BearerGate", ::BearerGateConf
     }
 }
 
-private fun isProtected(call: ApplicationCall): Boolean {
-    val first = call.request.path().split('/').firstOrNull { it.isNotEmpty() } ?: return false
-    val name = try { first.decodeURLPart() } catch (_: Exception) { return true }
-    return name == "mcp" || name == "api"
+private fun protectedArea(call: ApplicationCall): String? {
+    val first = call.request.path().split('/').firstOrNull { it.isNotEmpty() } ?: return null
+    val name = try { first.decodeURLPart() } catch (_: Exception) { return "mcp" }
+    return name.takeIf { it == "mcp" || it == "api" }
 }
 
 internal sealed interface TokenVerdict {
-    class Valid(val scopes: Set<String>) : TokenVerdict
+    class Valid(val jwt: DecodedJWT, val scopes: Set<String>) : TokenVerdict
 
     class Invalid(val reason: String) : TokenVerdict
 
@@ -83,8 +106,24 @@ internal sealed interface TokenVerdict {
  * it is not an ID token, by its `typ` header or `token_use` claim when the provider sets them.
  */
 internal class AccessTokenVerifier(private val identity: Identity, private val audience: String) {
-    suspend fun verify(authorization: List<String>?): TokenVerdict {
-        val token = bearer(authorization) ?: return TokenVerdict.Invalid("no bearer token")
+    suspend fun verify(authorization: List<String>?): TokenVerdict =
+        bearer(authorization)?.let { verifyAccessToken(it) } ?: TokenVerdict.Invalid("no bearer token")
+
+    suspend fun verifyAccessToken(token: String): TokenVerdict {
+        val verdict = verifySigned(token, audience) {}
+        if (verdict !is TokenVerdict.Valid) return verdict
+        val verified = verdict.jwt
+        val tokenUse = verified.getClaim("token_use").asString()
+        if (tokenUse != null && tokenUse.lowercase() !in ACCESS_TOKEN_USES) return TokenVerdict.Invalid("token_use $tokenUse is not an access token")
+        val type = verified.type?.lowercase()?.removePrefix("application/")
+        if (type != null && type !in ACCESS_TOKEN_TYPES) return TokenVerdict.Invalid("typ $type is not an access token")
+        return verdict
+    }
+
+    suspend fun verifyIdToken(token: String, clientId: String, nonce: String): TokenVerdict =
+        verifySigned(token, clientId) { withClaim("nonce", nonce) }
+
+    private suspend fun verifySigned(token: String, audience: String, require: Verification.() -> Unit): TokenVerdict {
         val jwt = try {
             JWT.decode(token)
         } catch (_: JWTDecodeException) {
@@ -112,17 +151,26 @@ internal class AccessTokenVerifier(private val identity: Identity, private val a
                 .withIssuer(identity.issuer())
                 .withAnyOfAudience(audience)
                 .acceptLeeway(CLOCK_SKEW_SECONDS)
+                .apply(require)
                 .build()
                 .verify(jwt)
         } catch (e: JWTVerificationException) {
-            return TokenVerdict.Invalid("verification failed: ${e.javaClass.simpleName}")
+            return TokenVerdict.Invalid(failure(e, audience))
         }
         if (verified.expiresAt == null) return TokenVerdict.Invalid("no exp")
-        val tokenUse = verified.getClaim("token_use").asString()
-        if (tokenUse != null && tokenUse.lowercase() !in ACCESS_TOKEN_USES) return TokenVerdict.Invalid("token_use $tokenUse is not an access token")
-        val type = verified.type?.lowercase()?.removePrefix("application/")
-        if (type != null && type !in ACCESS_TOKEN_TYPES) return TokenVerdict.Invalid("typ $type is not an access token")
-        return TokenVerdict.Valid(scopes(verified))
+        return TokenVerdict.Valid(verified, scopes(verified))
+    }
+
+    private fun failure(e: JWTVerificationException, audience: String) = when (e) {
+        is TokenExpiredException -> "it has expired"
+        is SignatureVerificationException -> "its signature is not valid"
+        is MissingClaimException -> "it has no ${e.claimName}"
+        is IncorrectClaimException -> when (e.claimName) {
+            "aud" -> "it is not for $audience"
+            "iss" -> "it is from another issuer"
+            else -> "its ${e.claimName} is not the expected one"
+        }
+        else -> "it does not verify (${e.javaClass.simpleName})"
     }
 
     private fun bearer(headers: List<String>?): String? {

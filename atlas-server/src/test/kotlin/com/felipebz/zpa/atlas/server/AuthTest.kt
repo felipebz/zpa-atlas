@@ -92,12 +92,12 @@ class AuthTest {
         test: suspend ApplicationTestBuilder.() -> Unit
     ) = testApplication {
         application {
-            atlasModule(index, McpSettings(), auth) { a ->
+            atlasModule(index, McpSettings(), auth, { a ->
                 oidcIdentity(a) {
                     metadata = this@AuthTest.metadata
                     jwt { jwkProviderFactory = { keyProvider ?: signing.jwkProvider } }
                 }
-            }
+            }) { error("The bearer checks call no provider endpoint") }
         }
         test()
     }

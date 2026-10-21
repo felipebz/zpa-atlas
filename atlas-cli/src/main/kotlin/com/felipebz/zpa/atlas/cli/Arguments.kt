@@ -119,4 +119,16 @@ class ServeArguments {
         description = "A scope an access token must carry, in scope or scp (default: none required); a token without it gets 403"
     )
     var oidcScope: String = ""
+
+    @Parameter(
+        names = ["--oidc-client-id"],
+        description = "The page's client id at the provider: turns the page sign-in on (redirect URI <public url>/auth/callback). Needs --oidc-issuer; never the audience"
+    )
+    var oidcClientId: String = ""
+
+    @Parameter(
+        names = ["--oidc-client-secret-env"],
+        description = "Name of the environment variable holding the page client's secret (default: none, a public client with PKCE)"
+    )
+    var oidcClientSecretEnv: String = ""
 }

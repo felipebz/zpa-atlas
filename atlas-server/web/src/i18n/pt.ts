@@ -19,6 +19,8 @@ export default {
     other: "{count} arquivos com erro de parse recuperado (RECOVERED)"
   },
   "banner.separator": "; ",
+  "header.signOut": "Sair",
+  "header.signedIn": "Conectado como {name}",
   "header.search": "Buscar…",
 
   "search.placeholder": "Nome (prefixo) ou nome com ponto (ex.: pack.run_job)",

@@ -6,6 +6,8 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import io.ktor.client.HttpClient
+import io.ktor.server.application.ApplicationStopped
 import com.felipebz.zpa.atlas.query.GroupDimension
 import com.felipebz.zpa.atlas.query.ImpactStop
 import com.felipebz.zpa.atlas.query.InvalidQueryException
@@ -60,9 +62,17 @@ internal suspend inline fun <reified T> ApplicationCall.respondJson(value: T, st
  * @throws AuthDiscoveryException when [auth] is given and its issuer's discovery document cannot be read
  */
 fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null) =
-    atlasModule(index, mcp, auth) { oidcIdentity(it) }
+    atlasModule(index, mcp, auth, { oidcIdentity(it) }) {
+        HttpClient(io.ktor.client.engine.cio.CIO).also { client -> monitor.subscribe(ApplicationStopped) { client.close() } }
+    }
 
-internal fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings, auth: AuthSettings?, identity: IdentityInstaller) {
+internal fun Application.atlasModule(
+    index: AtlasIndex,
+    mcp: McpSettings,
+    auth: AuthSettings?,
+    identity: IdentityInstaller,
+    providerClient: () -> HttpClient
+) {
     install(Compression) {
         gzip { priority = 1.0; minimumSize(COMPRESSION_MINIMUM_BYTES) }
         deflate { priority = 0.9; minimumSize(COMPRESSION_MINIMUM_BYTES) }
@@ -74,7 +84,7 @@ internal fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings, auth: 
         exception<QueryTimeoutException> { call, e -> call.respondJson(ApiError(e.message ?: "The query took too long"), HttpStatusCode.BadRequest) }
         exception<SchemaMismatchException> { call, e -> call.respondJson(ApiError(e.message ?: "Schema mismatch"), HttpStatusCode.ServiceUnavailable) }
     }
-    auth?.let { atlasAuth(it, identity) }
+    auth?.let { atlasAuth(it, identity, providerClient) }
     routing {
         route("/api") {
             get("/run") { call.respondJson(index.run()) }

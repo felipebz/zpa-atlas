@@ -11,6 +11,10 @@ header.top a { color: #fff; font-weight: 600; text-decoration: none; }
 header.top a.nav { font-weight: 400; }
 header.top .run { font-size: 12px; opacity: .85; margin-left: auto; }
 header.top form.find input { width: 320px; max-width: 100%; padding: 3px 6px; font-size: 13px; }
+header.top .user { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+header.top .user-name { max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+header.top .user form { margin: 0; }
+header.top .user button { font-size: 12px; padding: 1px 8px; cursor: pointer; }
 .warn { background: #fff4d6; border-bottom: 1px solid #e8c868; padding: 6px var(--page); font-size: 13px; }
 main { padding: var(--gap) var(--page); }
 a { color: var(--accent); }

@@ -41,5 +41,9 @@ internal fun Application.oidcIdentity(auth: AuthSettings, configure: OidcProvide
     } catch (e: OidcDiscoveryException) {
         throw AuthDiscoveryException("Cannot read the OpenID Connect configuration of ${auth.issuer}: ${e.cause?.message ?: e.message}", e)
     }
-    return Identity(issuer = { provider.currentMetadata().issuer }, keys = { provider.currentJwkProvider() })
+    return Identity(
+        issuer = { provider.currentMetadata().issuer },
+        keys = { provider.currentJwkProvider() },
+        endpoints = { provider.currentMetadata().let { ProviderEndpoints(it.authorizationEndpoint, it.tokenEndpoint, it.endSessionEndpoint) } }
+    )
 }

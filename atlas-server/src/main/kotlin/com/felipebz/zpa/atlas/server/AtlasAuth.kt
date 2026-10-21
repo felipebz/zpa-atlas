@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas.server
 
 import com.auth0.jwk.JwkProvider
+import io.ktor.client.HttpClient
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -31,8 +32,9 @@ import java.net.URI
  * @param audience the value an access token carries in `aud`; the resource by default. It must not be the id of a
  *     client that signs users in: an ID token's `aud` is that, and the audience is what refuses it
  * @param scope a scope an access token must carry, in `scope` or `scp`; none required by default
+ * @param page the client the page signs in with; without it, the page has no sign-in. Its id must not be the audience
  */
-data class AuthSettings(val issuer: String, val publicUrl: String, val audience: String? = null, val scope: String? = null) {
+data class AuthSettings(val issuer: String, val publicUrl: String, val audience: String? = null, val scope: String? = null, val page: PageClient? = null) {
     val base: String = publicUrl.trimEnd('/')
 
     val resource: String = "$base/mcp"
@@ -56,6 +58,9 @@ data class AuthSettings(val issuer: String, val publicUrl: String, val audience:
         }
         require(audience == null || audience.isNotBlank()) { "The audience is empty" }
         require(scope == null || scope.isNotBlank() && scope.none { it.isWhitespace() || it == '"' }) { "The scope is one token, without spaces or quotes" }
+        require(page == null || page.clientId != expectedAudience) {
+            "The page's client id is the audience: ID tokens, whose aud is the client id, would pass as access tokens"
+        }
     }
 
     val publicHost: String = URI(publicUrl).host.let { if (':' in it && !it.startsWith("[")) "[$it]" else it }
@@ -73,15 +78,20 @@ data class AuthSettings(val issuer: String, val publicUrl: String, val audience:
     }
 }
 
-internal class Identity(val issuer: () -> String, val keys: () -> JwkProvider)
+internal class Identity(val issuer: () -> String, val keys: () -> JwkProvider, val endpoints: () -> ProviderEndpoints)
 
 internal typealias IdentityInstaller = Application.(AuthSettings) -> Identity
 
-internal fun Application.atlasAuth(auth: AuthSettings, identity: IdentityInstaller) {
+internal fun Application.atlasAuth(auth: AuthSettings, identity: IdentityInstaller, providerClient: () -> HttpClient) {
+    val provider = identity(auth)
+    val verifier = AccessTokenVerifier(provider, auth.expectedAudience)
+    val sessions = auth.page?.let { PageSessions(auth, it, provider, verifier, providerClient()) }
     install(BearerGate) {
         this.auth = auth
-        this.identity = identity(auth)
+        this.verifier = verifier
+        this.sessions = sessions
     }
+    sessions?.let { pageSignIn(auth, it) }
     val metadata = buildJsonObject {
         put("resource", auth.resource)
         put("authorization_servers", JsonArray(listOf(JsonPrimitive(auth.issuer))))

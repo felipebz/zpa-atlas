@@ -2,8 +2,10 @@
 
 For testing `serve --oidc-issuer` on one machine, not for users. It creates the realm `atlas` with:
 
-- the client scope `atlas.read`, on no realm list, whose audience mapper puts `http://localhost:8090/mcp` in `aud`;
-- the user `ana`, password `ana`;
+- the client scope `atlas.read`, on no realm list, whose audience mapper puts `http://localhost:8090/mcp` in `aud`; it
+  goes only into the tokens of users with the realm role `atlas-reader`;
+- the user `ana`, password `ana`, with `atlas-reader`, and the user `bob`, password `bob`, without it;
+- the page's confidential client `atlas-web`, secret `atlas-web-secret`, redirect URI `http://localhost:8090/auth/callback`;
 - the public client `atlas-mcp`, with `atlas.read` as a default scope, redirect URI `http://localhost:8765/callback`, PKCE S256;
 - the anonymous client registration policies opened for clients on `localhost`.
 
@@ -19,7 +21,8 @@ podman exec keycloak-atlas /opt/keycloak/bin/kcadm.sh update realms/master -s ss
 python3 dev/keycloak/setup-realm.py
 
 zpa-atlas serve --db atlas.db --port 8090 \
-  --oidc-issuer http://localhost:8180/realms/atlas --public-url http://localhost:8090 --oidc-scope atlas.read
+  --oidc-issuer http://localhost:8180/realms/atlas --public-url http://localhost:8090 --oidc-scope atlas.read \
+  --oidc-client-id atlas-web --oidc-client-secret-env ATLAS_WEB_SECRET   # with ATLAS_WEB_SECRET=atlas-web-secret
 ```
 
-`KEYCLOAK_URL` and `ATLAS_RESOURCE` change the Keycloak address and the audience.
+`KEYCLOAK_URL` and `ATLAS_PUBLIC_URL` change the Keycloak address and the server's public URL.

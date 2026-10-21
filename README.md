@@ -136,7 +136,7 @@ zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--thr
   [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]
 zpa-atlas stats <file.db>
 zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080] [--mcp-allowed-host <name>,...] \
-  [--oidc-issuer URL --public-url URL [--oidc-audience VALUE] [--oidc-scope SCOPE]]
+  [--oidc-issuer URL --public-url URL [--oidc-audience VALUE] [--oidc-scope SCOPE] [--oidc-client-id ID [--oidc-client-secret-env VAR]]]
 ```
 
 | Option               | Default                                                                                          |
@@ -154,6 +154,8 @@ zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080
 | `--public-url`       | none; required with `--oidc-issuer`: the server as clients reach it, such as `https://atlas.example.com` |
 | `--oidc-audience`    | the resource, `<public url>/mcp`: what an access token must carry in `aud`                       |
 | `--oidc-scope`       | none: a scope an access token must carry, in `scope` or `scp`                                    |
+| `--oidc-client-id`   | none: the page has no sign-in. With it, people sign in to the page with the provider             |
+| `--oidc-client-secret-env` | none: a public client. The environment variable holding the page client's secret       |
 
 - Oracle options and exit codes are those of zpa-cli: 0 success, 2 invalid usage, 3 execution failure.
 - Without `--oidc-issuer`, `serve` has no authentication: binding to anything but 127.0.0.1 exposes the index and the sources to the network. With it, see [docs/authentication.md](docs/authentication.md).

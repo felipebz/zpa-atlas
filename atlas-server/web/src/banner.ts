@@ -2,10 +2,12 @@ import { api, errorMessage } from "./api";
 import type { Answer, RunSummary, SourceSnippet } from "./api";
 import { esc } from "./html";
 import { formatDate, t } from "./i18n";
+import { signInState } from "./session";
 
 /** Fills the run line and the parse warning; returns the run summary, or null when the index is unavailable. */
 export async function showBanner() {
   const header = document.querySelector<HTMLElement>("header.top .run")!;
+  showUser(header);
   const warn = document.getElementById("warn")!;
   try {
     const answer = await api<Answer<RunSummary>>("api/run");
@@ -28,6 +30,16 @@ export async function showBanner() {
     header.textContent = t("banner.unavailable", { error: errorMessage(e) });
     return null;
   }
+}
+
+async function showUser(after: HTMLElement) {
+  const state = await signInState();
+  if (state.state !== "in") return;
+  const user = document.createElement("span");
+  user.className = "user";
+  user.innerHTML = `<span class="user-name" title="${esc(t("header.signedIn", { name: state.name }))}">${esc(state.name)}</span>` +
+    `<form method="post" action="auth/logout"><button type="submit">${esc(t("header.signOut"))}</button></form>`;
+  after.after(user);
 }
 
 export async function sourceLine(path: string, line: number, target: HTMLElement, context?: number) {

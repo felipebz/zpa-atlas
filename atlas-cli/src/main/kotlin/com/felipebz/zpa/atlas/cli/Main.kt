@@ -22,6 +22,7 @@ import com.felipebz.zpa.atlas.server.AuthDiscoveryException
 import com.felipebz.zpa.atlas.server.AuthSettings
 import com.felipebz.zpa.atlas.server.MCP_LOCAL_HOSTS
 import com.felipebz.zpa.atlas.server.McpSettings
+import com.felipebz.zpa.atlas.server.PageClient
 import com.felipebz.zpa.atlas.stats.Stats
 import com.felipebz.zpa.squid.CcValue
 import com.felipebz.zpa.squid.ConditionalCompilationSettings
@@ -112,7 +113,7 @@ private fun conditionalCompilation(
     return ConditionalCompilationSettings(flags, detected.version) to detected.origin
 }
 
-private fun serve(args: ServeArguments): Int {
+private fun serve(args: ServeArguments, environment: (String) -> String?): Int {
     val database = Path.of(args.db)
     if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: ${args.db}")
     if (args.port !in 1..65535) throw CliValidationException("--port must be between 1 and 65535")
@@ -125,13 +126,16 @@ private fun serve(args: ServeArguments): Int {
     if (mcpHosts.any { it.any { c -> c in "/@?#:" && !(it.startsWith("[") && it.endsWith("]")) } }) {
         throw CliValidationException("--mcp-allowed-host takes host names or addresses, without scheme or port")
     }
-    val auth = authSettings(args)
+    val auth = authSettings(args, environment)
     System.err.println("Serving ${args.db} on http://${args.host}:${args.port}/ (sources: ${sources ?: "not available"})")
     System.err.println("MCP at http://${args.host}:${args.port}/mcp, for Host ${(MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")}")
     if (auth != null) {
         System.err.println("Authentication: /mcp and /api need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
             (auth.scope?.let { " and scope $it" } ?: ""))
         System.err.println("Protected resource metadata: ${auth.metadataUrl}")
+        auth.page?.let {
+            System.err.println("Page sign-in: client ${it.clientId} (${if (it.clientSecret == null) "public" else "confidential"}), redirect URI ${auth.base}/auth/callback")
+        }
     }
     if (args.host !in MCP_LOCAL_HOSTS && mcpHosts.isEmpty() && auth == null) {
         System.err.println("Warning: /mcp accepts only local host names; clients on other machines need --mcp-allowed-host with the name they use")
@@ -141,15 +145,24 @@ private fun serve(args: ServeArguments): Int {
 }
 
 /** The authentication [args] ask for, or null without `--oidc-issuer`; the other options without it are an error. */
-private fun authSettings(args: ServeArguments): AuthSettings? {
+private fun authSettings(args: ServeArguments, environment: (String) -> String?): AuthSettings? {
     if (args.oidcIssuer.isBlank()) {
-        val orphan = listOf("--public-url" to args.publicUrl, "--oidc-audience" to args.oidcAudience, "--oidc-scope" to args.oidcScope).firstOrNull { it.second.isNotBlank() }
+        val orphan = listOf(
+            "--public-url" to args.publicUrl, "--oidc-audience" to args.oidcAudience, "--oidc-scope" to args.oidcScope,
+            "--oidc-client-id" to args.oidcClientId, "--oidc-client-secret-env" to args.oidcClientSecretEnv
+        ).firstOrNull { it.second.isNotBlank() }
         if (orphan != null) throw CliValidationException("${orphan.first} needs --oidc-issuer")
         return null
     }
     if (args.publicUrl.isBlank()) throw CliValidationException("--oidc-issuer needs --public-url, the server's address as clients reach it")
+    val secretEnv = args.oidcClientSecretEnv.trim()
+    if (secretEnv.isNotEmpty() && args.oidcClientId.isBlank()) throw CliValidationException("--oidc-client-secret-env needs --oidc-client-id")
+    val secret = secretEnv.takeIf { it.isNotEmpty() }?.let {
+        environment(it)?.takeIf(String::isNotEmpty) ?: throw CliValidationException("The environment variable $it, named by --oidc-client-secret-env, is not set")
+    }
     return try {
-        AuthSettings(args.oidcIssuer.trim(), args.publicUrl.trim(), args.oidcAudience.trim().ifEmpty { null }, args.oidcScope.trim().ifEmpty { null })
+        val page = args.oidcClientId.trim().takeIf { it.isNotEmpty() }?.let { PageClient(it, secret) }
+        AuthSettings(args.oidcIssuer.trim(), args.publicUrl.trim(), args.oidcAudience.trim().ifEmpty { null }, args.oidcScope.trim().ifEmpty { null }, page)
     } catch (e: IllegalArgumentException) {
         throw CliValidationException(e.message ?: "Invalid authentication options")
     }
@@ -191,7 +204,7 @@ fun execute(args: Array<String>, environment: (String) -> String? = System::gete
         }
         when (commander.parsedCommand) {
             "index" -> index(indexArguments, environment)
-            "serve" -> serve(serveArguments)
+            "serve" -> serve(serveArguments, environment)
             else -> stats(statsArguments)
         }
     } catch (exception: ParameterException) {

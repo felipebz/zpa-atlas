@@ -1,7 +1,8 @@
 """Creates the realm `atlas` for a local test of `serve --oidc-issuer`: see README.md."""
 import json, os, urllib.request, urllib.parse
 KC = os.environ.get("KEYCLOAK_URL", "http://localhost:8180")
-RESOURCE = os.environ.get("ATLAS_RESOURCE", "http://localhost:8090/mcp")
+PUBLIC_URL = os.environ.get("ATLAS_PUBLIC_URL", "http://localhost:8090")
+RESOURCE = PUBLIC_URL + "/mcp"
 def call(method, path, body=None, token=None, form=None):
     data = None; headers = {}
     if form is not None: data = urllib.parse.urlencode(form).encode(); headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -24,8 +25,21 @@ s, _, h = call("POST", "/admin/realms/atlas/client-scopes", {
     "protocolMappers": [{"name": "atlas-audience", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
         "config": {"included.custom.audience": RESOURCE, "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true"}}]}, T)
 scope_id = h["Location"].rsplit("/", 1)[1]; print("scope", s, scope_id)
-print("user", call("POST", "/admin/realms/atlas/users", {"username": "ana", "enabled": True, "email": "ana@example.com", "emailVerified": True, "firstName": "Ana", "lastName": "Souza",
-    "credentials": [{"type": "password", "value": "ana", "temporary": False}]}, T)[0])
+# only users with the role atlas-reader get the scope, and with it the audience
+print("role", call("POST", "/admin/realms/atlas/roles", {"name": "atlas-reader"}, T)[0])
+role = call("GET", "/admin/realms/atlas/roles/atlas-reader", None, T)[1]
+print("scope needs the role", call("POST", f"/admin/realms/atlas/client-scopes/{scope_id}/scope-mappings/realm", [role], T)[0])
+for user, first, reader in [("ana", "Ana", True), ("bob", "Bob", False)]:
+    s, _, h = call("POST", "/admin/realms/atlas/users", {"username": user, "enabled": True, "email": f"{user}@example.com", "emailVerified": True, "firstName": first, "lastName": "Souza",
+        "credentials": [{"type": "password", "value": user, "temporary": False}]}, T)
+    print("user", user, s)
+    if reader:
+        print(" atlas-reader", call("POST", f"/admin/realms/atlas/users/{h['Location'].rsplit('/', 1)[1]}/role-mappings/realm", [role], T)[0])
+# the page's client: confidential, its secret given to serve through --oidc-client-secret-env
+print("page client", call("POST", "/admin/realms/atlas/clients", {"clientId": "atlas-web", "publicClient": False, "secret": "atlas-web-secret",
+    "standardFlowEnabled": True, "directAccessGrantsEnabled": False, "redirectUris": [PUBLIC_URL + "/auth/callback"],
+    "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": PUBLIC_URL},
+    "defaultClientScopes": ["atlas.read", "profile", "email", "roles", "web-origins", "basic"]}, T)[0])
 # a client registered by hand, for a client that does not register itself
 print("client", call("POST", "/admin/realms/atlas/clients", {"clientId": "atlas-mcp", "publicClient": True, "standardFlowEnabled": True, "directAccessGrantsEnabled": False,
     "redirectUris": ["http://localhost:8765/callback"], "attributes": {"pkce.code.challenge.method": "S256"},
