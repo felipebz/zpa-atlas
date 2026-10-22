@@ -202,3 +202,15 @@ table.impact ol.hops { margin: 0; padding-left: 20px; }
 table.impact ol.hops li { padding: 2px 0; }
 .badge.uncertain { background: #fde6c4; }
 button.more-rows { margin-top: 6px; }
+
+/* The text search: one row per line, a long line scrolls inside its own box. */
+.text-front { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
+@media (max-width: 760px) { .text-front { grid-template-columns: minmax(0, 1fr); } }
+ul.text-hits { list-style: none; margin: 8px 0 0; padding: 0; }
+li.text-hit { padding: 6px 0; border-top: 1px solid var(--border); min-width: 0; }
+li.text-hit .where { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: 13px; min-width: 0; }
+li.text-hit .where .path, li.text-hit .where .in { overflow-wrap: anywhere; min-width: 0; }
+pre.text-line { margin: 4px 0 0; padding: 4px 6px; background: var(--bg, #f6f7f9); border-radius: var(--radius); overflow-x: auto; max-width: 100%; white-space: pre; font-size: 12px; }
+pre.text-line mark { background: #ffe58a; color: inherit; border-radius: 2px; }
+.badge.warn-badge { background: #fde6c4; }
+button.more-rows { margin-top: 8px; }

@@ -260,6 +260,23 @@ export interface FileView {
   occurrences: FileOccurrence[];
 }
 
+/** One line a text search found: [id] is what `after` takes; [stale] is null when the server cannot read the file. */
+export interface TextHit {
+  id: number;
+  path: string;
+  line: number;
+  text: string;
+  entity: EntitySummary | null;
+  stale: boolean | null;
+}
+
+export interface TextPage {
+  rows: TextHit[];
+  nextAfter: number | null;
+  total: number;
+  wholeIndex: boolean;
+}
+
 // ---- requests ------------------------------------------------------------------------------------------------------
 
 /** The JSON the API answers is whatever the caller says it is: [T] is the caller's description of the answer. */
