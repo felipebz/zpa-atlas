@@ -185,6 +185,15 @@ class AtlasServerTest {
     }
 
     @Test
+    fun `the text search answers as AtlasIndex searchText, and 400 for a short text`() = api {
+        val answer = client.get("/api/text") { parameter("text", "vFixTag"); parameter("containerName", "text_tags"); parameter("limit", "2") }
+        assertThat(answer.status).isEqualTo(HttpStatusCode.OK)
+        assertThat(answer.bodyAsText()).isEqualTo(ApiJson.encodeToString(index.searchText("vFixTag", containerName = "text_tags", limit = 2)))
+        assertThat(client.get("/api/text") { parameter("text", "vT") }.status).isEqualTo(HttpStatusCode.BadRequest)
+        assertThat(client.get("/api/text").status).isEqualTo(HttpStatusCode.BadRequest)
+    }
+
+    @Test
     fun `bad query parameters are 400 with the reason`() = api {
         for ((name, value) in listOf(
             "roles" to "NOPE", "statuses" to "NOPE", "entityKinds" to "NOPE", "unitKinds" to "NOPE", "origins" to "NOPE", "statementKinds" to "NOPE",

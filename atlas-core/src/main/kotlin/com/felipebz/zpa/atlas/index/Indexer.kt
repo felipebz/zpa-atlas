@@ -189,6 +189,7 @@ class Indexer internal constructor(
                 "The acquired metadata cannot list its relations: only relations named by code are entities, and views are recorded as TABLE")
         }
 
+        val texts = sources.associate { it.relativePath to it.text }
         AtlasWriter.writeAtomically(options.output) { writer ->
             writer.write(
                 RunInfo(
@@ -204,7 +205,7 @@ class Indexer internal constructor(
                     startedAt = startedAt.toString(),
                     finishedAt = clock().toString()
                 ),
-                facts, globalEntities, globalRelations, globalCoverage
+                facts, globalEntities, globalRelations, globalCoverage, texts::get
             )
         }
         val finished = System.nanoTime()

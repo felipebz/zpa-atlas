@@ -20,8 +20,14 @@ import java.sql.DriverManager
  */
 class AtlasWriter private constructor(private val connection: Connection) : AutoCloseable {
 
-    /** Writes every row; the caller ([writeAtomically]) owns the transaction, the indexes and the commit. */
-    fun write(run: RunInfo, files: List<FileFacts>, globalEntities: List<EntityFact>, globalRelations: List<RelationFact>, globalCoverage: List<CoverageFact>) {
+    /**
+     * Writes every row; the caller ([writeAtomically]) owns the transaction, the indexes and the commit. [texts] gives
+     * the decoded text of each file by path, for the `source_line` table.
+     */
+    fun write(
+        run: RunInfo, files: List<FileFacts>, globalEntities: List<EntityFact>, globalRelations: List<RelationFact>, globalCoverage: List<CoverageFact>,
+        texts: (String) -> String?
+    ) {
         val globalRows = GlobalRows(connection)
         globalRows.insertRun(run)
         val sortedFiles = files.sortedBy { it.path }
@@ -29,12 +35,16 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         globalRows.insertRelations((globalRelations + sortedFiles.flatMap { it.relations }), entityIds)
         globalRows.insertTriggerEvents(sortedFiles.flatMap { it.triggerEvents }, entityIds)
         FileRows(connection).write(sortedFiles, entityIds, globalCoverage)
+        val entities = globalEntities + sortedFiles.flatMap { it.entities }
+        val containerKeys = entities.filter { it.kind in SourceLines.CONTAINER_KINDS }.map { it.key }.toSet()
+        val subprogramKeys = entities.filter { it.kind == EntityKind.PROCEDURE || it.kind == EntityKind.FUNCTION }.map { it.key }.toSet()
+        SourceLines(connection).write(sortedFiles, entityIds, containerKeys, subprogramKeys, texts)
     }
 
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 12
+        const val SCHEMA_VERSION = 13
 
         /**
          * Writes the index to a temporary file beside [target] and moves it over [target] when everything succeeded.

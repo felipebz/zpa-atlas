@@ -226,6 +226,25 @@ class AtlasIndex(
      */
     fun file(path: String): Answer<FileView?> = read { connection, _ -> SourceReader(connection, sourcesRoot).file(path) }
 
+    /**
+     * The lines of the indexed files that contain [text], a literal piece of text compared without case (`*` and every
+     * other character stand for themselves), in file and line order. The text is the one the indexer decoded, whole
+     * files with comments, strings and inactive conditional branches; one line at a time, so a text that spans a line
+     * break is never found. [path] (a prefix, or a pattern with `*`), [container] (a key) and [containerName] (a dotted
+     * name) narrow it, a container with its contents; [TextPage.wholeIndex] says none was given.
+     *
+     * @throws InvalidQueryException when [text] has fewer than three characters, which a trigram index cannot find
+     */
+    fun searchText(text: String, path: String? = null, container: String? = null, containerName: String? = null, after: Long? = null, limit: Int = 100): Answer<TextPage> {
+        if (text.codePointCount(0, text.length) < MIN_TEXT) throw InvalidQueryException("The text must have at least $MIN_TEXT characters: the text index cannot find a shorter one")
+        if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
+        if (after != null && after < 0) throw InvalidQueryException("after must not be negative")
+        if (containerName != null && containerName.split('.').size > OccurrenceQuerySql.MAX_SEGMENTS) {
+            throw InvalidQueryException("containerName has more than ${OccurrenceQuerySql.MAX_SEGMENTS} segments")
+        }
+        return read(timed = true) { connection, _ -> TextSearchReader(connection, sourcesRoot).search(text, path, container, containerName, after, limit) }
+    }
+
     // ---- the occurrence query -----------------------------------------------------------------------------------
 
     /**
@@ -265,7 +284,10 @@ class AtlasIndex(
         val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 12
+        const val SCHEMA_VERSION = 13
+
+        /** The fewest characters a text search takes: one trigram. */
+        const val MIN_TEXT = 3
 
         /** The most nodes [impactView] answers by default. */
         const val MAX_VIEW_NODES = 50_000

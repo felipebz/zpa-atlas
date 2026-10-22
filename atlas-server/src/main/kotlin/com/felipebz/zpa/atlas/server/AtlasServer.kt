@@ -192,6 +192,10 @@ internal fun Application.atlasModule(
                     call.int("context") ?: 3)
                 if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
             }
+            get("/text") {
+                call.respondJson(index.searchText(call.required("text"), call.optional("path"), call.optional("container"),
+                    call.optional("containerName"), call.long("after"), call.int("limit") ?: 100))
+            }
             get("/file") {
                 val answer = index.file(call.required("path"))
                 if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)

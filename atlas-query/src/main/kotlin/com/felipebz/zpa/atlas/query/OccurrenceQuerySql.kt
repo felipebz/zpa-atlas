@@ -223,16 +223,16 @@ internal class OccurrenceQuerySql(query: OccurrenceQuery, entityId: Long?, conta
 
         /** A segment of a dotted name filter on [column]: exact and case-insensitive, or a `*` pattern. */
         @Suppress("UNUSED_PARAMETER")
-        private fun segmentMatch(column: String, segment: String, last: Boolean): Pair<String, List<Any?>> =
+        fun segmentMatch(column: String, segment: String, last: Boolean): Pair<String, List<Any?>> =
             if ('*' in segment) "$column LIKE ? ESCAPE '\\'" to listOf(pattern(segment)) else "$column = ? COLLATE NOCASE" to listOf(segment)
 
         /**
          * The recursive step of a common table expression [cte] of entity ids: the entities they contain. The
          * `CROSS JOIN` keeps the order and so the lookup by the primary key (`from_id`, `kind`). Left to choose, SQLite
-         * planned the step with an automatic index on `relation` by `kind` when a value filter was beside it: on MODELO,
-         * one package's 1,655 entities took 38 s that way, against 0.2 s with this order.
+         * planned the step with an automatic index on `relation` by `kind` when a value filter was beside it: on a
+         * real index, one package's 1,655 entities took 38 s that way, against 0.2 s with this order.
          */
-        private fun contained(cte: String) =
+        fun contained(cte: String) =
             "SELECT r.to_id FROM $cte s CROSS JOIN relation r ON r.from_id = s.id AND r.kind = 'CONTAINS'"
 
         fun marks(count: Int) = List(count) { "?" }.joinToString(",")

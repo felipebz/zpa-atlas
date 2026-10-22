@@ -36,9 +36,13 @@ class DeterminismTest {
     private fun assertSameRows(first: Path, second: Path) {
         val tables = Fixture.query(first, "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
         assertThat(tables).contains("entity", "occurrence", "relation", "run", "source_file", "sql_statement", "unit", "coverage_note")
-        for (table in tables) {
-            val sql = if (table == "run") "SELECT id, schema_version, atlas_version, zpa_version, sources_root, metadata_origin, compilation_schema FROM run"
-            else "SELECT * FROM $table ORDER BY rowid"
+        // The shadow tables of the full-text table hold its index, built from its rows: the rows are compared.
+        for (table in tables.filterNot { it.startsWith("source_line_") }) {
+            val sql = when (table) {
+                "run" -> "SELECT id, schema_version, atlas_version, zpa_version, sources_root, metadata_origin, compilation_schema FROM run"
+                "source_line" -> "SELECT rowid, * FROM source_line ORDER BY rowid"
+                else -> "SELECT * FROM $table ORDER BY rowid"
+            }
             assertThat(Fixture.query(second, sql)).describedAs(table).isEqualTo(Fixture.query(first, sql))
         }
         assertThat(Fixture.query(first, "SELECT count(*) FROM occurrence").single().toInt()).isGreaterThan(100)

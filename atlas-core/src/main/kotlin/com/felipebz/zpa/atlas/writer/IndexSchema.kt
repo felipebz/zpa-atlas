@@ -193,6 +193,12 @@ internal fun tableDdl(): List<String> = listOf(
         event TEXT NOT NULL,
         column_id INTEGER NULL REFERENCES entity(id)
     )
+    """,
+    // The text of every file, one row per line, for a search of any piece of text (trigram tokens, case folded). The
+    // rowids follow the files in path order and their lines in order; a line shorter than a trigram has no row.
+    // entity_id is the innermost container of the line (see SourceLines), null outside any.
+    """
+    CREATE VIRTUAL TABLE source_line USING fts5(text, file_id UNINDEXED, line UNINDEXED, entity_id UNINDEXED, tokenize = 'trigram')
     """
 ).map { it.trimIndent() }
 

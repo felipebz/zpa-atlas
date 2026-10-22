@@ -124,11 +124,11 @@ class McpServerTest {
         assertThat(client.serverVersion!!.version).matches("\\d+\\.\\d+\\.\\d+.*")
         val tools = client.listTools().tools.associateBy { it.name }
         assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_occurrences", "find_usages", "group_occurrences", "group_usages", "get_source",
-            "get_values", "find_value_sites", "find_impact")
+            "get_values", "find_value_sites", "find_impact", "search_text")
         assertThat(tools.mapValues { it.value.inputSchema.required.orEmpty() }).isEqualTo(mapOf(
             "search_entities" to listOf("query"), "get_entity" to listOf("key"), "find_occurrences" to emptyList(),
             "find_usages" to listOf("key"), "group_occurrences" to listOf("group_by"), "group_usages" to listOf("key", "group_by"), "get_source" to listOf("path", "line"),
-            "get_values" to listOf("key"), "find_value_sites" to listOf("key", "value_kind"), "find_impact" to listOf("key")
+            "get_values" to listOf("key"), "find_value_sites" to listOf("key", "value_kind"), "find_impact" to listOf("key"), "search_text" to listOf("text")
         ))
         assertThat(tools.values).allMatch { it.annotations?.readOnlyHint == true }
         // Every enum of every schema, arrays' items included.
@@ -483,6 +483,37 @@ class McpServerTest {
     }
 
     @Test
+    fun `search_text answers what AtlasIndex searchText answers, and refuses a short text`() = mcp { client ->
+        // Scoped: the same rows, and no wholeIndex key, as group_occurrences leaves it out when filtered.
+        val scoped = toolAnswer(index.searchText("vFixTag", container = "db:HR.TEXT_TAGS", limit = AtlasMcpTools.TEXT_DEFAULT)).jsonObject
+        assertThat(client.call("search_text", args { put("text", "vFixTag"); put("container", "db:HR.TEXT_TAGS") }).json())
+            .isEqualTo(JsonObject(scoped + ("result" to JsonObject(scoped.getValue("result").jsonObject - "wholeIndex"))))
+        // Unscoped: wholeIndex, and how to narrow it.
+        val whole = client.call("search_text", args { put("text", "vfixtag") }).json().jsonObject["result"]!!.jsonObject
+        assertThat(whole["wholeIndex"]!!.jsonPrimitive.content).isEqualTo("true")
+        assertThat(whole["narrow"]!!.jsonPrimitive.content).contains("container_name", "path").doesNotContain("search_entities")
+        assertThat(whole["total"]!!.jsonPrimitive.content).isEqualTo("4")
+        assertThat(client.call("search_text", args { put("text", "vT") }).text())
+            .isEqualTo("The text must have at least 3 characters: the text index cannot find a shorter one")
+    }
+
+    @Test
+    fun `search_text under a small cap pages on by after, each line once`() = mcp(settings = McpSettings(maxAnswerChars = 700)) { client ->
+        val seen = ArrayList<String>()
+        var after: Long? = null
+        var cut = 0
+        do {
+            val answer = client.call("search_text", args { put("text", "vFixTag"); after?.let { put("after", it) } }).json().jsonObject
+            val rows = answer["result"]!!.jsonObject["rows"]!!.jsonArray.map { it.jsonObject }
+            if (answer["cutForSize"] != null) cut++
+            seen += rows.map { "${it["path"]!!.jsonPrimitive.content}:${it["line"]!!.jsonPrimitive.content}" }
+            after = answer["result"]!!.jsonObject["nextAfter"]?.jsonPrimitive?.content?.toLong()
+        } while (after != null)
+        assertThat(cut).isGreaterThan(0)
+        assertThat(seen).containsExactly("hr/text_tags.sql:6", "hr/text_tags.sql:10", "hr/text_tags.sql:12", "scripts/text_tags.sql:1")
+    }
+
+    @Test
     fun `find_impact under a small cap pages on by offset, each node once`() = mcp(settings = McpSettings(maxAnswerChars = 2_000)) { client ->
         val seen = ArrayList<Int>()
         var offset: Int? = 0
@@ -735,7 +766,7 @@ class McpServerTest {
             assertThat(listing.headers().firstValue("Content-Encoding")).hasValue("gzip")
             val listed = Json.parseToJsonElement(GZIPInputStream(listing.body()).readAllBytes().decodeToString())
                 .jsonObject["result"]!!.jsonObject["tools"]!!.jsonArray
-            assertThat(listed).hasSize(10)
+            assertThat(listed).hasSize(11)
             assertThat(listed.map { it.jsonObject["inputSchema"]!!.jsonObject["additionalProperties"] }).containsOnly(JsonPrimitive(false))
             val stream = http.sendAsync(
                 HttpRequest.newBuilder(url).header("Accept", "text/event-stream").header("Accept-Encoding", "gzip, deflate")

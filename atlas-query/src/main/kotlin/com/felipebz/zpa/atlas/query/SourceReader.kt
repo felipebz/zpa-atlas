@@ -52,6 +52,9 @@ internal class SourceReader(private val connection: Connection, private val sour
         return FileView(path, false, text.lines, entityIndexes.keys.map { summaries.getValue(it) }, occurrences)
     }
 
+    /** Whether the file [path] changed since indexing, or null when there is no sources root or no such file. */
+    fun stale(path: String): Boolean? = readSource(sourceFile(path))?.stale
+
     private class SourceFile(val id: Long, val path: String, val sha256: String, val encoding: String)
 
     private class SourceText(val lines: List<String>, val stale: Boolean)

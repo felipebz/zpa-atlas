@@ -98,10 +98,13 @@ internal object McpAnswers {
     private fun cutMarker(kept: Int, of: Int) = JsonObject(mapOf("kept" to JsonPrimitive(kept), "of" to JsonPrimitive(of)))
 
     /** [snippet]'s lines with each text cut so its JSON string is at most [SOURCE_LINE_MAX] characters; `cutForSize` counts them. */
-    fun fitSource(snippet: JsonObject): JsonObject {
+    fun fitSource(snippet: JsonObject): JsonObject = fitLines(snippet, "lines")
+
+    /** The `text` of each item of the result's [list] cut as [fitSource] cuts a line. */
+    fun fitLines(snippet: JsonObject, list: String): JsonObject {
         val result = snippet.getValue("result").jsonObject
         var cut = 0
-        val lines = JsonArray(result.getValue("lines").jsonArray.map { line ->
+        val lines = JsonArray(result.getValue(list).jsonArray.map { line ->
             val text = line.jsonObject.getValue("text").jsonPrimitive.content
             if (length(JsonPrimitive(text)) <= SOURCE_LINE_MAX) return@map line
             cut++
@@ -110,7 +113,7 @@ internal object McpAnswers {
             JsonObject(line.jsonObject + ("text" to JsonPrimitive(text.take(end) + "…")))
         })
         if (cut == 0) return snippet
-        return JsonObject(snippet + ("result" to JsonObject(result + ("lines" to lines))) + ("cutForSize" to JsonObject(mapOf("lines" to JsonPrimitive(cut)))))
+        return JsonObject(snippet + ("result" to JsonObject(result + (list to lines))) + ("cutForSize" to JsonObject(mapOf("lines" to JsonPrimitive(cut)))))
     }
 
     fun length(element: JsonElement) = ToolJson.encodeToString(JsonElement.serializer(), element).length

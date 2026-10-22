@@ -189,7 +189,7 @@ The schema can change between versions (the stored version is in `run`), so quer
 - `atlas-query`: the read API over an index, and the dependency comparison.
 - `atlas-server`: the web page and its JSON API (`/api/run`, `/api/codes`, `/api/entities`, `/api/entity`,
   `/api/occurrences`, `/api/source`, `/api/file`, `/api/values`, `/api/value-sites`, `/api/query`,
-  `/api/query/summary`, `/api/query/groups`, `/api/impact`, `/api/impact/graph`), and the MCP endpoint `/mcp` over the same calls. `/api/codes` lists the
+  `/api/query/summary`, `/api/query/groups`, `/api/impact`, `/api/impact/graph`, `/api/text`), and the MCP endpoint `/mcp` over the same calls. `/api/codes` lists the
   stored codes and reads no index.
 - `atlas-cli`: the `zpa-atlas` command.
 - `atlas-devtools`: measurement tools.

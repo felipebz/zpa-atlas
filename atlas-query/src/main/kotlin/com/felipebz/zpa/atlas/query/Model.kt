@@ -390,6 +390,21 @@ data class FileOccurrence(val at: List<Int>, val roles: List<String>, val status
 @Serializable
 data class FileView(val path: String, val stale: Boolean, val lines: List<String>, val entities: List<EntitySummary>, val occurrences: List<FileOccurrence>)
 
+/**
+ * One line a text search found: [line] of [path], its [text] as indexed, and [entity], the innermost container of the
+ * line when the index knows it. [id] orders the lines (file, then line) and is what `after` takes. [stale] is true when
+ * the file changed since indexing, null when the server cannot read it.
+ */
+@Serializable
+data class TextHit(val id: Long, val path: String, val line: Int, val text: String, val entity: EntitySummary?, val stale: Boolean?)
+
+/**
+ * A page of a text search: [rows] in file and line order, [nextAfter] to pass as `after` for the next page (null on the
+ * last), [total] lines found, and [wholeIndex] when no path or container narrowed the search.
+ */
+@Serializable
+data class TextPage(val rows: List<TextHit>, val nextAfter: Long?, val total: Long, val wholeIndex: Boolean)
+
 /** A request the index cannot answer as asked (an unknown role, a limit out of range, a path outside the index). */
 class InvalidQueryException(message: String) : RuntimeException(message)
 

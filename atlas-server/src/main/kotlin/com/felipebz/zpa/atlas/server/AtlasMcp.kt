@@ -148,6 +148,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         add("group_usages", GROUP_USAGES, groupUsagesSchema(), ::groupUsages)
         add("group_occurrences", GROUP, groupSchema(), ::groupOccurrences)
         add("get_source", SOURCE, sourceSchema(), ::getSource)
+        add("search_text", TEXT, textSchema(), ::searchText)
         add("get_values", VALUES, valuesSchema(), ::getValues)
         add("find_value_sites", VALUE_SITES, valueSitesSchema(), ::findValueSites)
         add("find_impact", IMPACT, impactSchema(), ::findImpact)
@@ -329,6 +330,23 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         return setOf(parameter.key) + twins.map { it.key }
     }
 
+    private fun searchText(args: Arguments): JsonElement {
+        val answer = index.searchText(
+            args.requiredString("text"), args.string("path"), args.string("container"), args.string("container_name"),
+            args.long("after"), args.int("limit", 1..TEXT_MAX) ?: TEXT_DEFAULT
+        )
+        // A scoped search leaves wholeIndex out, as group_occurrences does; an unscoped one says how to narrow it.
+        val full = toolAnswer(answer)
+        val scoped = if (answer.result.wholeIndex) full.withResult("narrow", JsonPrimitive(NARROW))
+        else JsonObject(full + ("result" to JsonObject(full.result() - "wholeIndex")))
+        // Long lines are cut first, as get_source cuts them; then rows, the page going on after the last row kept.
+        val lines = McpAnswers.fitLines(scoped, "rows")
+        val fitted = McpAnswers.fitList(lines, maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
+            a.withResult("nextAfter", rows.last().jsonObject.getValue("id"))
+        }
+        return fitted
+    }
+
     private fun getSource(args: Arguments): JsonElement {
         val path = args.requiredString("path")
         val answer = index.source(path, args.requiredInt("line"), args.int("context", 0..SOURCE_CONTEXT_MAX) ?: SOURCE_CONTEXT_DEFAULT)
@@ -456,6 +474,15 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         integer("limit", 1..GROUP_MAX, GROUP_DEFAULT, "The first groups by count; totalGroups counts them all.")
     }
 
+    private fun textSchema() = schema(listOf("text")) {
+        string("text", "A literal piece of text, 3 characters or more, compared without case; * is a character like any other.")
+        string("path", "Only files whose path starts with this, or with * a pattern of the whole path.")
+        string("container", "Only lines inside this entity key (a package, a subprogram), its contents included.")
+        string("container_name", "Only lines inside every entity this dotted name matches (pack, pack.proc, * as wildcard), contents included.")
+        integer("after", null, null, "The nextAfter of the previous page.")
+        integer("limit", 1..TEXT_MAX, TEXT_DEFAULT)
+    }
+
     private fun sourceSchema() = schema(listOf("path", "line")) {
         string("path", "A file path as an answer gives it (relative to the sources folder).")
         integer("line", 1..Int.MAX_VALUE, null, "The line, from 1.")
@@ -581,6 +608,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         const val VALUES_MAX = 200
         const val SOURCE_CONTEXT_DEFAULT = 3
         const val SOURCE_CONTEXT_MAX = 50
+        const val TEXT_DEFAULT = 50
+        const val TEXT_MAX = 200
 
         /** The JSON of a tool answer: the `/api` model, a null field left out to save the agent's context. */
         val ToolJson = Json { explicitNulls = false; encodeDefaults = true }
@@ -610,14 +639,22 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "not on the local disk.\n" +
                 "- find_impact: impact analysis, who calls the callers up to the entry points; nodes are numbered (n), " +
                 "keys=true gives their full keys.\n" +
+                "- search_text: other text (XML tags, messages, comments, SQL in strings). In one call, pass the " +
+                "package or routine the question names as container_name, or a file or folder as path; whole index " +
+                "only if it names none.\n" +
                 "Usual order: a group_ tool for the summary, then a find_ tool for the lines, then get_source for the text.\n" +
-                "What the index does not answer, to say so: find_impact does not follow package-level " +
-                "code; dynamic SQL is partial; Forms, reports and code outside the " +
-                "indexed sources are not indexed; a status other than RESOLVED means the index is not sure.\n" +
                 "Every answer carries the run it was read from; null fields are left out, and so is an entity's " +
                 "display when it is its key without db:. An answer over ${McpAnswers.MAX_CHARS} " +
                 "characters is cut, and cutForSize says how: the rows kept (page on from nextAfter), the lower list " +
                 "limit of an entity, or the source lines shortened. A usage tool's included lists what it followed."
+
+        /** How an unscoped text search is narrowed. */
+        private const val NARROW = "The whole index was searched: pass the package or routine name as container_name, or a " +
+            "file or folder as path, to search only there."
+
+        /** What the index does not answer, said by the tools that would otherwise seem to. */
+        private const val NOT_ANSWERED = "Not indexed: Forms, reports and code outside the indexed sources; dynamic SQL is partial. " +
+            "A status other than RESOLVED means the index is not sure: say so in the answer."
 
         private const val PATHS = "Its paths are on the server, relative to its sources folder: read the text with get_source, not from a local disk."
 
@@ -652,7 +689,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "facets counted over every match. Pages: pass " +
             "the answer's nextAfter as after; nextAfter is absent on the last page. Each row has its status and " +
             "reason; facets.byStatus counts the statuses of every match. A call's arguments name their parameter " +
-            "(P_A); its key is the row's entity key, a dot and that name. $PATHS $STATUSES $ROLES"
+            "(P_A); its key is the row's entity key, a dot and that name. $PATHS $STATUSES $ROLES $NOT_ANSWERED"
 
         const val USAGES = "Who calls, reads or writes one entity, for impact analysis: use it instead of " +
             "find_occurrences for one entity, following its spec or body and the views built on it. For a table, " +
@@ -660,7 +697,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "in source order, definitions and declarations left out unless roles asks for them; viaView is true on a row " +
             "reached through a view (a view column computed from the entity, or a view reading it), viaCandidate on an " +
             "AMBIGUOUS row where the entity is one of the candidates. One hop only: for the callers of the callers, up to " +
-            "the entry points, use find_impact. Pages as in find_occurrences. $PATHS $STATUSES"
+            "the entry points, use find_impact. Pages as in find_occurrences. $PATHS $STATUSES $NOT_ANSWERED"
 
         const val IMPACT = "Impact analysis: who calls the callers of an entity, transitively, up to the entry " +
             "points (code nothing in the index calls, run from Forms, jobs or other systems). The first hop is who uses " +
@@ -733,7 +770,20 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "SQL_SELECT, SQL_INSERT, SQL_UPDATE, SQL_DELETE, group_by CONTAINER, ENTITY, ROLE. ROLE counts an " +
             "occurrence once per role. A group value without entity is an occurrence tied to no entity; add STATUS " +
             "to group_by to tell proven occurrences from the others. To follow an entity's spec or body, contents or " +
-            "views, use group_usages. Without any filter it counts the whole index, and the answer has wholeIndex. $STATUSES"
+            "views, use group_usages. Without any filter it counts the whole index, and the answer has wholeIndex. $STATUSES $NOT_ANSWERED"
+
+        const val TEXT = "Lines of the indexed sources that contain a piece of text, compared without case: for text " +
+            "that is not an entity or a value, such as an XML tag ('<vFixTag>' or XMLElement(\"vFixTag\")), a message, " +
+            "a comment or SQL inside a string. Scope it in the same call: when the question names a package or " +
+            "routine, pass that name as container_name (pack or pack.proc, as written); a file or folder, as path. " +
+            "Search the whole index only when the question names no unit. Then call get_source on a row's path and line to read around " +
+            "it. The text is literal, * included, and has at least 3 characters; each line is searched alone, so a text " +
+            "across a line break is never found. Whole files are searched as indexed: comments, strings and inactive " +
+            "conditional compilation branches included. path, container (a key) and container_name narrow the search, " +
+            "combined with AND, a container with its contents; without them the whole index is searched, and the " +
+            "answer has wholeIndex and narrow. Each row has path, line, text, and entity: the innermost package, " +
+            "routine, trigger, view, type or cursor the line is in, when known. Rows come in file and line order; total counts every line found; pages: " +
+            "pass nextAfter as after. stale is true when the file changed since indexing. $PATHS"
 
         const val SOURCE = "The source text of an indexed file around a line, as the index read it; stale is true " +
             "when the file changed since it was indexed. The files are on the server, not on the local disk: path is " +
