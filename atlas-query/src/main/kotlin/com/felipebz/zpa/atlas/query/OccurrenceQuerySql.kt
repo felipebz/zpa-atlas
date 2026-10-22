@@ -33,7 +33,7 @@ internal class OccurrenceQuerySql(query: OccurrenceQuery, entityId: Long?, conta
             val entityParameters = ArrayList<Any?>()
             if (entityId != null) {
                 if (query.inside) {
-                    ctes += "subject(id) AS (SELECT ? UNION SELECT r.to_id FROM relation r JOIN subject s ON r.from_id = s.id WHERE r.kind = 'CONTAINS')"
+                    ctes += "subject(id) AS (SELECT ? UNION ${contained("subject")})"
                     cteParameters += entityId
                     entityConditions += "e.id IN (SELECT id FROM subject)"
                 } else {
@@ -84,7 +84,7 @@ internal class OccurrenceQuerySql(query: OccurrenceQuery, entityId: Long?, conta
         }
         if (containerId != null) {
             if (query.containerInside) {
-                ctes += "within(id) AS (SELECT ? UNION SELECT r.to_id FROM relation r JOIN within w ON r.from_id = w.id WHERE r.kind = 'CONTAINS')"
+                ctes += "within(id) AS (SELECT ? UNION ${contained("within")})"
                 cteParameters += containerId
                 conditions += "o.container_entity_id IN (SELECT id FROM within)"
             } else {
@@ -96,7 +96,7 @@ internal class OccurrenceQuerySql(query: OccurrenceQuery, entityId: Long?, conta
             val (joins, match, parameters) = parentChain("c", query.containerName.split('.'), ::segmentMatch)
             val named = "SELECT c.id FROM entity c $joins WHERE $match"
             if (query.containerInside) {
-                ctes += "within_named(id) AS ($named UNION SELECT r.to_id FROM relation r JOIN within_named w ON r.from_id = w.id WHERE r.kind = 'CONTAINS')"
+                ctes += "within_named(id) AS ($named UNION ${contained("within_named")})"
                 cteParameters.addAll(parameters)
                 conditions += "o.container_entity_id IN (SELECT id FROM within_named)"
             } else {
@@ -225,6 +225,15 @@ internal class OccurrenceQuerySql(query: OccurrenceQuery, entityId: Long?, conta
         @Suppress("UNUSED_PARAMETER")
         private fun segmentMatch(column: String, segment: String, last: Boolean): Pair<String, List<Any?>> =
             if ('*' in segment) "$column LIKE ? ESCAPE '\\'" to listOf(pattern(segment)) else "$column = ? COLLATE NOCASE" to listOf(segment)
+
+        /**
+         * The recursive step of a common table expression [cte] of entity ids: the entities they contain. The
+         * `CROSS JOIN` keeps the order and so the lookup by the primary key (`from_id`, `kind`). Left to choose, SQLite
+         * planned the step with an automatic index on `relation` by `kind` when a value filter was beside it: on MODELO,
+         * one package's 1,655 entities took 38 s that way, against 0.2 s with this order.
+         */
+        private fun contained(cte: String) =
+            "SELECT r.to_id FROM $cte s CROSS JOIN relation r ON r.from_id = s.id AND r.kind = 'CONTAINS'"
 
         fun marks(count: Int) = List(count) { "?" }.joinToString(",")
 
