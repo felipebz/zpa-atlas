@@ -8,6 +8,7 @@ import {
   csvText, groupByDepth, groupByOwner, MAX_DEPTH, nodeText, pathOf, pathText, readState, shownNodes, stateSearch, STOPS, viewOf
 } from "./impact-model";
 import type { ImpactAnswer, ImpactTrigger, ImpactView, NodeGroup } from "./impact-model";
+import { setPageTitle } from "./project";
 
 // The impact page: the whole graph of an entity, loaded once; its options, tab and filters live in the URL.
 
@@ -76,7 +77,7 @@ async function load() {
 }
 
 function renderHead(view: ImpactView) {
-  document.title = t("page.impact.titleWith", { name: view.entity.name });
+  setPageTitle(t("page.impact.titleWith", { name: view.entity.name }));
   document.getElementById("title")!.innerHTML = `<h1><a href="${entityHref(view.entity.key)}">${nameHtml(view.entity, { noBadge: true })}</a> ` +
     `<span class="badge">${esc(kindLabel(view.entity.kind))}</span></h1>`;
   document.getElementById("included")!.textContent = view.included.length

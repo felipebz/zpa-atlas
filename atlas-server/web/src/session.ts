@@ -1,3 +1,5 @@
+import { baseUrl, currentProject, toBase } from "./project";
+
 /** Whether the page signs in: "off" when the server has no sign-in, else whether this browser is signed in. */
 export type SignIn = { state: "off" } | { state: "out" } | { state: "in"; name: string };
 
@@ -8,7 +10,7 @@ const ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
 let signIn: Promise<SignIn> | null = null;
 
 export function signInState(): Promise<SignIn> {
-  signIn ??= fetch("auth/me", { cache: "no-store" }).then(async response => {
+  signIn ??= fetch(baseUrl("auth/me"), { cache: "no-store" }).then(async response => {
     if (response.status === 404) return { state: "off" } as const;
     if (!response.ok) return { state: "out" } as const;
     const body = await response.json();
@@ -23,10 +25,13 @@ export function attemptPending(stored: string | null, now: number): boolean {
   return stored !== null && Number.isFinite(started) && now - started >= 0 && now - started < ATTEMPT_WINDOW_MS;
 }
 
-/** Where an answer of [status] sends the page: the sign-in, returning to [location]; null to show the error. */
-export function loginRedirect(status: number, state: SignIn["state"], attempted: boolean, location: { pathname: string; search: string }): string | null {
+/**
+ * Where an answer of [status] sends the page: the sign-in, returning to [location]; null to show the error. [base] leads
+ * from the page's folder to the base path, where the sign-in is.
+ */
+export function loginRedirect(status: number, state: SignIn["state"], attempted: boolean, location: { pathname: string; search: string }, base: string): string | null {
   if (status !== 401 || state === "off" || attempted) return null;
-  return "auth/login?return=" + encodeURIComponent(location.pathname + location.search);
+  return base + "auth/login?return=" + encodeURIComponent(location.pathname + location.search);
 }
 
 export interface SignInContext {
@@ -34,13 +39,16 @@ export interface SignInContext {
   location: { pathname: string; search: string; assign(url: string): void };
   state(): Promise<SignIn>;
   now(): number;
+  /** From the page's folder to the base path. */
+  base(): string;
 }
 
 const browserContext: SignInContext = {
   storage: { getItem: key => sessionStorage.getItem(key), setItem: (key, value) => sessionStorage.setItem(key, value) },
   location: { get pathname() { return window.location.pathname; }, get search() { return window.location.search; }, assign: url => window.location.assign(url) },
   state: signInState,
-  now: () => Date.now()
+  now: () => Date.now(),
+  base: () => toBase(currentProject())
 };
 
 /**
@@ -49,7 +57,7 @@ const browserContext: SignInContext = {
  */
 export async function signInFor(status: number, context: SignInContext = browserContext): Promise<boolean> {
   const attempted = attemptPending(context.storage.getItem(ATTEMPT_KEY), context.now());
-  const target = loginRedirect(status, (await context.state()).state, attempted, context.location);
+  const target = loginRedirect(status, (await context.state()).state, attempted, context.location, context.base());
   if (target === null) return false;
   context.storage.setItem(ATTEMPT_KEY, String(context.now()));
   context.location.assign(target);

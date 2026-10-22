@@ -86,8 +86,15 @@ internal val BearerGate = createApplicationPlugin("BearerGate", ::BearerGateConf
 }
 
 private fun protectedArea(call: ApplicationCall, basePath: BasePath): String? {
-    val name = basePath.firstBelow(call.request.path()) ?: return null
+    val path = call.request.path()
+    val name = basePath.firstBelow(path) ?: return null
     if (name == BasePath.UNDECODABLE) return "mcp"
+    // A project's API, `p/<name>/api/…`, is `/api` as well: its session rules are those of `/api`.
+    if (name == PROJECTS_SEGMENT) {
+        val (_, project, area) = basePath.below(path, 3) ?: return null
+        if (project == BasePath.UNDECODABLE || area == BasePath.UNDECODABLE) return "mcp"
+        return area.takeIf { it == "api" }
+    }
     return name.takeIf { it == "mcp" || it == "api" }
 }
 

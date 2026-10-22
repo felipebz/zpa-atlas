@@ -24,6 +24,9 @@ import com.felipebz.zpa.atlas.server.BasePath
 import com.felipebz.zpa.atlas.server.MCP_LOCAL_HOSTS
 import com.felipebz.zpa.atlas.server.McpSettings
 import com.felipebz.zpa.atlas.server.PageClient
+import com.felipebz.zpa.atlas.server.ProjectState
+import com.felipebz.zpa.atlas.server.ServedProject
+import com.felipebz.zpa.atlas.server.serveProjects
 import com.felipebz.zpa.atlas.stats.Stats
 import com.felipebz.zpa.squid.CcValue
 import com.felipebz.zpa.squid.ConditionalCompilationSettings
@@ -180,19 +183,28 @@ private fun conditionalCompilation(
 
 /** What `serve` starts, once its options are checked. */
 internal class ServeLaunch(
-    val database: Path,
+    /** The index of `--db`; null with `--projects`. */
+    val database: Path?,
     val sources: Path?,
     val host: String,
     val port: Int,
     val mcp: McpSettings,
     val auth: AuthSettings?,
-    val basePath: BasePath
+    val basePath: BasePath,
+    /** The projects of `--projects`; empty with `--db`. */
+    val projects: List<ServedProject> = emptyList()
 )
 
-private fun launch(serve: ServeLaunch) =
-    com.felipebz.zpa.atlas.server.serve(AtlasIndex(serve.database, serve.sources), serve.host, serve.port, serve.mcp, serve.auth, serve.basePath)
+private fun launch(serve: ServeLaunch) {
+    if (serve.projects.isNotEmpty()) {
+        serveProjects(serve.projects, serve.host, serve.port, serve.auth, serve.basePath)
+    } else {
+        com.felipebz.zpa.atlas.server.serve(AtlasIndex(serve.database!!, serve.sources), serve.host, serve.port, serve.mcp, serve.auth, serve.basePath)
+    }
+}
 
-private fun serve(args: ServeArguments, environment: (String) -> String?, launch: (ServeLaunch) -> Unit): Int {
+private fun serve(args: ServeArguments, environment: (String) -> String?, launch: (ServeLaunch) -> Unit, given: Set<String>): Int {
+    if (args.projects.isNotBlank()) return serveProjects(args, environment, launch, given)
     if (args.db.isBlank()) throw CliValidationException("The option is required: --db (or ${environmentName("--db")})")
     val database = Path.of(args.db)
     if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: ${args.db}")
@@ -227,6 +239,63 @@ private fun serve(args: ServeArguments, environment: (String) -> String?, launch
         System.err.println("Warning: /mcp accepts only local host names; clients on other machines need --mcp-allowed-host with the name they use")
     }
     launch(ServeLaunch(database, sources, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath))
+    return 0
+}
+
+/**
+ * `serve --projects`: every project file of the folder, each served with its index and sources. `--db` and `--sources`
+ * beside it on the command line are refused; from the environment (the container image sets them) they are ignored.
+ */
+private fun serveProjects(args: ServeArguments, environment: (String) -> String?, launch: (ServeLaunch) -> Unit, given: Set<String>): Int {
+    for (option in listOf("--db", "--sources")) {
+        if (option in given) throw CliValidationException("$option and --projects both say what to serve: give --projects alone, as each project file names its index and sources")
+    }
+    if (args.port !in 1..65535) throw CliValidationException("--port must be between 1 and 65535")
+    val mcpHosts = args.mcpAllowedHosts.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    if (mcpHosts.any { it.any { c -> c in "/@?#:" && !(it.startsWith("[") && it.endsWith("]")) } }) {
+        throw CliValidationException("--mcp-allowed-host takes host names or addresses, without scheme or port")
+    }
+    val basePath = try {
+        BasePath.parse(args.basePath.trim())
+    } catch (e: IllegalArgumentException) {
+        throw CliValidationException(e.message ?: "Invalid base path")
+    }
+    val auth = authSettings(args, environment, basePath)
+    val folder = ProjectFolder.read(Path.of(args.projects.trim()))
+    val projects = folder.projects.map { project ->
+        val sources = Path.of(project["sources"]!!)
+        ServedProject(project.name, Path.of(project["index"]!!), sources.takeIf { Files.isDirectory(it) })
+    }
+    val ignored = listOf("--db", "--sources").map(::environmentName).filter { !environment(it).isNullOrBlank() }
+    if (ignored.isNotEmpty()) System.err.println("Ignoring ${ignored.joinToString(" and ")}: --projects says what to serve")
+    val address = "http://${args.host}:${args.port}"
+    System.err.println("Serving ${projects.size} project${if (projects.size == 1) "" else "s"} of ${folder.folder} on $address${basePath.of("/")}")
+    val warnings = ArrayList(folder.warnings)
+    for ((served, file) in projects.zip(folder.projects)) {
+        val summary = served.summary()
+        val state = when (summary.state) {
+            ProjectState.READY -> "indexed ${summary.finishedAt}, ${summary.files} files"
+            ProjectState.NOT_INDEXED -> "not indexed yet"
+            ProjectState.UNAVAILABLE -> "unavailable: ${summary.error}"
+        }
+        System.err.println("Project ${served.name} at $address${basePath.of("/p/${served.name}/")}: index ${served.indexFile}, sources ${served.sources ?: "not available"}; $state")
+        if (summary.state == ProjectState.NOT_INDEXED) {
+            warnings += "Warning: project ${served.name} is not indexed yet: its index ${served.indexFile} does not exist; its API answers 503 until " +
+                "`zpa-atlas index --project ${file.file}` writes it"
+        }
+        if (served.sources == null) warnings += "Warning: project ${served.name}: sources folder ${file["sources"]} does not exist here; it is served without sources"
+    }
+    System.err.println("MCP at $address${basePath.of("/mcp")}: not served with --projects in this version")
+    if (auth != null) {
+        System.err.println("Authentication: /api and every project's API need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
+            (auth.scope?.let { " and scope $it" } ?: ""))
+        System.err.println("Protected resource metadata: ${auth.metadataUrl}")
+        auth.page?.let {
+            System.err.println("Page sign-in: client ${it.clientId} (${if (it.clientSecret == null) "public" else "confidential"}), redirect URI ${auth.base}/auth/callback")
+        }
+    }
+    warnings.forEach { System.err.println(if (it.startsWith("Warning: ")) it else "Warning: $it") }
+    launch(ServeLaunch(null, null, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, projects))
     return 0
 }
 
@@ -313,7 +382,7 @@ internal fun execute(args: Array<String>, environment: (String) -> String?, laun
         }
         when (commander.parsedCommand) {
             "index" -> index(indexArguments, environment, commander.commands.getValue("index").parameters.filter { it.isAssigned }.map { it.longestName }.toSet())
-            "serve" -> serve(serveArguments, environment, launch)
+            "serve" -> serve(serveArguments, environment, launch, commander.commands.getValue("serve").parameters.filter { it.isAssigned }.map { it.longestName }.toSet())
             else -> stats(statsArguments)
         }
     } catch (exception: ParameterException) {

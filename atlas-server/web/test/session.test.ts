@@ -6,19 +6,24 @@ const here = { pathname: "/entity.html", search: "?key=db:HR.COMPANY&lang=pt" };
 
 describe("loginRedirect", () => {
   it("sends a 401 to the sign-in, returning to the page and its query", () => {
-    expect(loginRedirect(401, "out", false, here)).toBe("auth/login?return=%2Fentity.html%3Fkey%3Ddb%3AHR.COMPANY%26lang%3Dpt");
-    expect(loginRedirect(401, "in", false, { pathname: "/", search: "" })).toBe("auth/login?return=%2F");
+    expect(loginRedirect(401, "out", false, here, "")).toBe("auth/login?return=%2Fentity.html%3Fkey%3Ddb%3AHR.COMPANY%26lang%3Dpt");
+    expect(loginRedirect(401, "in", false, { pathname: "/", search: "" }, "")).toBe("auth/login?return=%2F");
+  });
+
+  it("from a project page, sends to the sign-in at the base path, returning to the project page", () => {
+    const page = { pathname: "/atlas/p/hr/entity.html", search: "?key=x" };
+    expect(loginRedirect(401, "out", false, page, "../../")).toBe("../../auth/login?return=%2Fatlas%2Fp%2Fhr%2Fentity.html%3Fkey%3Dx");
   });
 
   it("does not redirect again right after a sign-in, so a refused sign-in shows the error instead of looping", () => {
-    expect(loginRedirect(401, "in", true, here)).toBeNull();
-    expect(loginRedirect(401, "out", true, here)).toBeNull();
+    expect(loginRedirect(401, "in", true, here, "")).toBeNull();
+    expect(loginRedirect(401, "out", true, here, "")).toBeNull();
   });
 
   it("does not redirect without the sign-in, or for another status", () => {
-    expect(loginRedirect(401, "off", false, here)).toBeNull();
-    expect(loginRedirect(403, "out", false, here)).toBeNull();
-    expect(loginRedirect(503, "in", false, here)).toBeNull();
+    expect(loginRedirect(401, "off", false, here, "")).toBeNull();
+    expect(loginRedirect(403, "out", false, here, "")).toBeNull();
+    expect(loginRedirect(503, "in", false, here, "../../")).toBeNull();
   });
 });
 
@@ -38,7 +43,7 @@ describe("attemptPending", () => {
 });
 
 describe("signInFor", () => {
-  function page(state: SignIn["state"]) {
+  function page(state: SignIn["state"], base = "") {
     const stored = new Map<string, string>();
     const sent: string[] = [];
     let now = 1_000_000_000;
@@ -46,7 +51,8 @@ describe("signInFor", () => {
       storage: { getItem: key => stored.get(key) ?? null, setItem: (key, value) => void stored.set(key, value) },
       location: { pathname: "/entity.html", search: "?key=x", assign: url => void sent.push(url) },
       state: async () => (state === "in" ? { state, name: "ana" } : { state }) as SignIn,
-      now: () => now
+      now: () => now,
+      base: () => base
     };
     return { context, sent, later: (ms: number) => { now += ms; } };
   }
@@ -68,6 +74,12 @@ describe("signInFor", () => {
     later(6 * 60 * 1000);
     expect(await signInFor(401, context)).toBe(true);
     expect(sent).toHaveLength(2);
+  });
+
+  it("sends a project page to the sign-in at the base path", async () => {
+    const { context, sent } = page("out", "../../");
+    expect(await signInFor(401, context)).toBe(true);
+    expect(sent).toEqual(["../../auth/login?return=%2Fentity.html%3Fkey%3Dx"]);
   });
 
   it("never sends to sign in without the sign-in", async () => {

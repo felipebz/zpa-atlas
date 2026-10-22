@@ -57,6 +57,34 @@ Open http://127.0.0.1:8080. `--read-only` keeps the image's files unchanged; `/d
 `/tmp` needs `exec`: the SQLite driver copies its native library to `/tmp` and loads it from there, and Docker mounts a
 tmpfs `noexec` unless told otherwise.
 
+## Serve several projects
+
+Mount a folder of project files (see the [README](../README.md#project-files)) with their indexes and sources, and set
+`ZPA_ATLAS_PROJECTS`. The image's `ZPA_ATLAS_DB` and `ZPA_ATLAS_SOURCES` are then ignored. Paths in the project files
+are relative to the files, so the same folder works on the host and in the container:
+
+```text
+atlas/
+  projects/hr.yaml        sources: ../src/hr       index: ../data/hr.db
+  projects/billing.yaml   sources: ../src/billing  index: ../data/billing.db
+  src/hr/ …  src/billing/ …
+  data/                   (the indexes, written by index --project)
+```
+
+```sh
+cd atlas
+for p in hr billing; do
+  docker run --rm --no-healthcheck --user "$(id -u):$(id -g)" -v "$PWD:/atlas" \
+    ghcr.io/felipebz/zpa-atlas index --project /atlas/projects/$p.yaml
+done
+docker run -d --name atlas --read-only --tmpfs /tmp:exec -p 127.0.0.1:8080:8080 --user "$(id -u):$(id -g)" \
+  -v "$PWD/projects:/atlas/projects:ro" -v "$PWD/src:/atlas/src:ro" -v "$PWD/data:/atlas/data" \
+  -e ZPA_ATLAS_PROJECTS=/atlas/projects ghcr.io/felipebz/zpa-atlas
+```
+
+Open http://127.0.0.1:8080 for the list of projects. The health check answers 200 while a project waits for its first
+index, so the container is not restarted before it has one.
+
 ## Serve with OpenID Connect
 
 Set the options of [authentication](authentication.md) as variables. The issuer and the public URL must be `https`

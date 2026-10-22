@@ -4,6 +4,7 @@ import { showBanner } from "./banner";
 import { kindLabel, nameNodes, roleLabel } from "./entity-html";
 import { getOrPut, langSuffix } from "./html";
 import { initI18n, t } from "./i18n";
+import { setPageTitle } from "./project";
 
 // The whole of an indexed file; every indexed name is clickable and opens a popover with its entity, status,
 // definitions and who uses it. File text only ever enters the DOM as text nodes.
@@ -214,7 +215,7 @@ window.addEventListener("hashchange", () => {
   showBanner();
   const header = document.getElementById("header")!;
   if (!path) { header.textContent = t("file.missingPath"); return; }
-  document.title = t("page.file.titleWith", { path });
+  setPageTitle(t("page.file.titleWith", { path }));
   try {
     view = (await api<Answer<FileView>>("api/file", { path })).result;
   } catch (e) {

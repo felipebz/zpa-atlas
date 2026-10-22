@@ -11,6 +11,10 @@ header.top a { color: #fff; font-weight: 600; text-decoration: none; }
 header.top a.nav { font-weight: 400; }
 header.top .run { font-size: 12px; opacity: .85; margin-left: auto; }
 header.top form.find input { width: 320px; max-width: 100%; padding: 3px 6px; font-size: 13px; }
+header.top .push { margin-left: auto; }
+/* On a project's page: the project after the home link, a picker once the server's projects load. */
+header.top .project { font-weight: 600; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+header.top select.project { max-width: min(16em, 100%); padding: 2px 6px; font-size: 13px; text-overflow: ellipsis; }
 header.top .user { display: flex; gap: 8px; align-items: center; font-size: 12px; }
 header.top .user-name { max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 header.top .user form { margin: 0; }
@@ -63,6 +67,14 @@ ol.hits li:last-child { border-bottom: 0; }
 .hit-name { flex: 1 1 auto; min-width: 0; font-weight: 600; }
 .hit-uses { color: var(--muted); white-space: nowrap; }
 .hit-in { margin-top: 2px; font-size: 13px; }
+
+/* Projects: one row per project, its facts wrapping under the name on a narrow screen. */
+ul.projects { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+ul.projects li { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+ul.projects li:last-child { border-bottom: 0; }
+ul.projects .project-name { flex: 1 1 12em; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+ul.projects .project-date, ul.projects .project-files { color: var(--muted); white-space: nowrap; }
+ul.projects .project-state { color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
 
 /* Entity: the identity sidebar, sticky beside the content column; one column on narrow screens. */
 main.entity { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: var(--gap); align-items: start; }

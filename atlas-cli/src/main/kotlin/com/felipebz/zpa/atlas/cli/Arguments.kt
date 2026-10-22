@@ -82,7 +82,14 @@ class StatsArguments {
         "variable named next to it (ZPA_ATLAS_ and the option's name); the command line wins, a blank variable is unset"
 )
 class ServeArguments {
-    @Parameter(names = ["--db"], description = "Index database to serve [env ZPA_ATLAS_DB]", required = true)
+    @Parameter(
+        names = ["--projects"],
+        description = "Folder of project files (<name>.yaml), each served under /p/<name>/ with its index and sources, instead of " +
+            "--db and --sources; read once, at startup [env ZPA_ATLAS_PROJECTS]"
+    )
+    var projects: String = ""
+
+    @Parameter(names = ["--db"], description = "Index database to serve, unless --projects is given [env ZPA_ATLAS_DB]", required = true)
     var db: String = ""
 
     @Parameter(names = ["--sources"], description = "Folder of the indexed sources (default: the folder recorded in the index, when it exists) [env ZPA_ATLAS_SOURCES]")

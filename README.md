@@ -161,7 +161,7 @@ oracle:                         # optional
 - **Refused:** an unknown key, a value of the wrong type, a missing `sources` or `index`, and a password in the file;
   each message names the file and the key.
 
-Coming versions of `serve` will read the same files.
+`serve --projects` serves a folder of these files: see [Serving several projects](#serving-several-projects).
 
 ## Command reference
 
@@ -171,6 +171,7 @@ zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--thr
   [--database-version 19] [--ccflags 'name:value, ...'] \
   [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]
 zpa-atlas stats <file.db>
+zpa-atlas serve --projects <folder> [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [authentication options as below]
 zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [--mcp-allowed-host <name>,...] \
   [--oidc-issuer URL --public-url URL [--oidc-audience VALUE] [--oidc-scope SCOPE] [--oidc-client-id ID [--oidc-client-secret-env VAR]]]
 ```
@@ -234,6 +235,29 @@ location /atlas/ {
 The server checks the `Host` header of `/mcp` requests: pass it, and name the host with `--mcp-allowed-host`, or with
 `--public-url` when authentication is on. With authentication, `--public-url` carries the base path, such as
 `https://atlas.example.com/atlas`; see [docs/authentication.md](docs/authentication.md#2-run-the-server).
+
+### Serving several projects
+
+`serve --projects <folder>` (or `ZPA_ATLAS_PROJECTS`) serves every project file directly in the folder, each from the
+index and sources its file names; their other keys are checked and otherwise unused. The folder is read once, at
+startup: adding or removing a project takes a restart.
+
+| URL (under the base path) | What |
+|---|---|
+| `/` and `/api/projects` | The list of projects: name, date of the index, file count, or "not indexed yet" |
+| `/p/<name>/` | The project's pages, with a picker to switch project |
+| `/p/<name>/api/…` | The API of `/api` over the project's index; an unknown project answers 404 |
+| `/health` | 200 when the index of every project that has one opens; one line per project |
+
+- **Refused at startup:** a project file the reader refuses (every such file is listed), a folder without project files,
+  and two projects with the same index file.
+- **Warned at startup:** a project whose index does not exist yet (its API answers 503 until `index --project` writes
+  it, without a restart), a project whose sources folder is not on this machine (served without sources), and a `.yml`
+  file (not read: rename it to `.yaml`).
+- **`--db` and `--sources`** beside `--projects` on the command line are refused. From the environment they are
+  ignored, with a startup line: the container image sets them.
+- **The MCP endpoint** is not served with `--projects` yet. With authentication, one gate covers every project's API
+  and the list, and sign-in stays at the base path.
 
 ## Querying the index with SQL
 

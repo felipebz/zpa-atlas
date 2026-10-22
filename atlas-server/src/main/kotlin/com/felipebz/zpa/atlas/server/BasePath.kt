@@ -22,20 +22,32 @@ class BasePath private constructor(val path: String) {
      * The first segment of [requestPath] below the base path, decoded as the router decodes it; null when the path is
      * outside the base path or has nothing below it. A segment that does not decode gives [UNDECODABLE].
      */
-    internal fun firstBelow(requestPath: String): String? {
+    internal fun firstBelow(requestPath: String): String? = below(requestPath, 1)?.single()
+
+    /**
+     * The first [count] segments of [requestPath] below the base path, decoded as the router decodes them; null when
+     * the path is outside the base path or has fewer segments below it. A segment that does not decode is [UNDECODABLE].
+     */
+    internal fun below(requestPath: String, count: Int): List<String>? {
         val raw = requestPath.split('/').filter { it.isNotEmpty() }
-        if (raw.size <= segments.size) return null
-        // Only the segments compared are decoded: the base path's, then the one below it.
-        for (i in 0..segments.size) {
+        if (raw.size < segments.size + count) return null
+        // Only the segments compared are decoded: the base path's, then those below it.
+        val found = ArrayList<String>(count)
+        for (i in 0 until segments.size + count) {
             val decoded = try {
                 raw[i].decodeURLPart()
             } catch (_: Exception) {
-                return UNDECODABLE
+                UNDECODABLE
             }
-            if (i == segments.size) return decoded
-            if (decoded != segments[i]) return null
+            if (i >= segments.size) {
+                found += decoded
+            } else if (decoded == UNDECODABLE) {
+                return List(count) { UNDECODABLE }
+            } else if (decoded != segments[i]) {
+                return null
+            }
         }
-        return null
+        return found
     }
 
     override fun equals(other: Any?) = other is BasePath && other.path == path

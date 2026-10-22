@@ -40,6 +40,7 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
+import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.head
 import io.ktor.server.routing.route
@@ -93,6 +94,30 @@ internal fun Application.atlasModule(
     basePath: BasePath = BasePath.ROOT,
     providerClient: () -> HttpClient
 ) {
+    atlasCommon(auth, identity, basePath, providerClient)
+    routing {
+        route(basePath.of("/api")) { indexApi(index) }
+        // Outside the gate: a probe has no token. It answers whether the index opens, nothing of what is in it.
+        route(basePath.of("/health")) {
+            get { call.health(index, head = false) }
+            head { call.health(index, head = true) }
+        }
+        staticResources(basePath.of("/"), "web", index = "index.html")
+    }
+    atlasMcp(index, mcp, auth, basePath)
+}
+
+/**
+ * What every way of serving installs: the redirect of the bare base path, compression, the error answers of the API
+ * and, with [auth], the gate, the sign-in and the protected resource metadata.
+ */
+internal fun Application.atlasCommon(
+    auth: AuthSettings?,
+    identity: IdentityInstaller,
+    basePath: BasePath,
+    providerClient: () -> HttpClient,
+    notFound: (suspend (ApplicationCall) -> Unit)? = null
+) {
     require(auth == null || auth.basePath == basePath) { "The authentication settings are for base path ${auth?.basePath}, not $basePath" }
     if (basePath != BasePath.ROOT) install(BareBasePathRedirect) { path = basePath.path }
     install(Compression) {
@@ -105,118 +130,112 @@ internal fun Application.atlasModule(
         exception<InvalidQueryException> { call, e -> call.respondJson(ApiError(e.message ?: "Bad request"), HttpStatusCode.BadRequest) }
         exception<QueryTimeoutException> { call, e -> call.respondJson(ApiError(e.message ?: "The query took too long"), HttpStatusCode.BadRequest) }
         exception<SchemaMismatchException> { call, e -> call.respondJson(ApiError(e.message ?: "Schema mismatch"), HttpStatusCode.ServiceUnavailable) }
+        notFound?.let { answer -> status(HttpStatusCode.NotFound) { call, _ -> answer(call) } }
     }
     auth?.let { atlasAuth(it, identity, providerClient) }
-    routing {
-        route(basePath.of("/api")) {
-            get("/run") { call.respondJson(index.run()) }
-            // The code lists read no index: this answers without one, so it has no run stamp.
-            get("/codes") { call.respondJson(indexCodes()) }
-            get("/entities") {
-                val q = call.required("q")
-                call.respondJson(index.searchEntities(q, call.optional("kind"), call.optional("external")?.toBooleanStrictOrNull() ?: true,
-                    call.int("limit") ?: 50))
-            }
-            get("/entity") {
-                val answer = index.entity(call.required("key"))
-                if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
-            }
-            get("/occurrences") {
-                val scope = call.list("scope")?.map { value ->
-                    Scope.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown scope: $value")
-                }?.toSet() ?: setOf(Scope.SELF)
-                val answer = index.occurrences(
-                    key = call.required("key"),
-                    roles = call.list("roles")?.toSet(),
-                    statuses = call.list("status")?.toSet(),
-                    scope = scope,
-                    includeCandidates = call.optional("candidates")?.toBooleanStrictOrNull() ?: true,
-                    after = call.long("after"),
-                    limit = call.int("limit") ?: 100
-                )
-                if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
-            }
-            get("/impact") {
-                val scope = call.list("scope")?.map { value ->
-                    Scope.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown scope: $value")
-                }?.filter { it != Scope.SELF }
-                val stop = call.optional("stop")?.let { value ->
-                    ImpactStop.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown stop: $value")
-                }
-                val answer = index.impact(
-                    key = call.required("key"),
-                    roles = call.list("roles")?.toSet(),
-                    statuses = call.list("status")?.toSet(),
-                    include = scope,
-                    maxDepth = call.int("maxDepth") ?: 10,
-                    stop = stop,
-                    offset = call.int("offset") ?: 0,
-                    limit = call.int("limit") ?: 100,
-                    followTriggers = call.boolean("triggers") ?: true
-                )
-                if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
-            }
-            // The whole graph at once, for the impact page; a graph past the time limit or over the node limit says
-            // so, so the page can suggest a smaller depth.
-            get("/impact/graph") {
-                val scope = call.list("scope")?.map { value ->
-                    Scope.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown scope: $value")
-                }?.filter { it != Scope.SELF }
-                val key = call.required("key")
-                val maxDepth = call.int("maxDepth") ?: 10
-                val triggers = call.boolean("triggers") ?: true
-                val answer = try {
-                    index.impactView(key, scope, maxDepth, triggers)
-                } catch (e: QueryTimeoutException) {
-                    call.respondJson(ApiTimeout(e.message ?: "The query took too long"), HttpStatusCode.BadRequest)
-                    return@get
-                } catch (e: GraphTooLargeException) {
-                    call.respondJson(ApiTooLarge(e.message!!, e.nodes, e.limit), HttpStatusCode.BadRequest)
-                    return@get
-                }
-                if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
-            }
-            get("/query") {
-                call.respondJson(index.queryOccurrences(call.occurrenceQuery(), call.long("after"), call.int("limit") ?: 100, call.boolean("summary") ?: true))
-            }
-            get("/query/summary") { call.respondJson(index.querySummary(call.occurrenceQuery())) }
-            get("/query/groups") {
-                val dimensions = (call.list("groupBy") ?: throw InvalidQueryException("Missing parameter: groupBy")).map { value ->
-                    GroupDimension.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown groupBy dimension: $value")
-                }
-                call.respondJson(index.groupOccurrences(call.occurrenceQuery(), dimensions, call.int("limit") ?: 100))
-            }
-            get("/values") {
-                val answer = index.values(call.required("key"))
-                if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
-            }
-            get("/value-sites") {
-                val answer = index.valueSites(call.required("key"), call.required("kind"), call.request.queryParameters["value"],
-                    call.long("after"), call.int("limit") ?: 100)
-                if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
-            }
-            get("/source") {
-                val answer = index.source(call.required("path"), call.int("line") ?: throw InvalidQueryException("Missing parameter: line"),
-                    call.int("context") ?: 3)
-                if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
-            }
-            get("/text") {
-                call.respondJson(index.searchText(call.required("text"), call.optional("path"), call.optional("container"),
-                    call.optional("containerName"), call.long("after"), call.int("limit") ?: 100))
-            }
-            get("/file") {
-                val answer = index.file(call.required("path"))
-                if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
-            }
-        }
-        // Outside the gate: a probe has no token. It answers whether the index opens, nothing of what is in it.
-        route(basePath.of("/health")) {
-            get { call.health(index, head = false) }
-            head { call.health(index, head = true) }
-        }
-        staticResources(basePath.of("/"), "web", index = "index.html")
+}
+
+/** The HTTP API of one index, under the current route: what `/api` answers, and each project's `/p/<name>/api`. */
+internal fun Route.indexApi(index: AtlasIndex) {
+    get("/run") { call.respondJson(index.run()) }
+    // The code lists read no index: this answers without one, so it has no run stamp.
+    get("/codes") { call.respondJson(indexCodes()) }
+    get("/entities") {
+        val q = call.required("q")
+        call.respondJson(index.searchEntities(q, call.optional("kind"), call.optional("external")?.toBooleanStrictOrNull() ?: true,
+            call.int("limit") ?: 50))
     }
-    atlasMcp(index, mcp, auth, basePath)
+    get("/entity") {
+        val answer = index.entity(call.required("key"))
+        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+    }
+    get("/occurrences") {
+        val scope = call.list("scope")?.map { value ->
+            Scope.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown scope: $value")
+        }?.toSet() ?: setOf(Scope.SELF)
+        val answer = index.occurrences(
+            key = call.required("key"),
+            roles = call.list("roles")?.toSet(),
+            statuses = call.list("status")?.toSet(),
+            scope = scope,
+            includeCandidates = call.optional("candidates")?.toBooleanStrictOrNull() ?: true,
+            after = call.long("after"),
+            limit = call.int("limit") ?: 100
+        )
+        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+    }
+    get("/impact") {
+        val scope = call.list("scope")?.map { value ->
+            Scope.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown scope: $value")
+        }?.filter { it != Scope.SELF }
+        val stop = call.optional("stop")?.let { value ->
+            ImpactStop.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown stop: $value")
+        }
+        val answer = index.impact(
+            key = call.required("key"),
+            roles = call.list("roles")?.toSet(),
+            statuses = call.list("status")?.toSet(),
+            include = scope,
+            maxDepth = call.int("maxDepth") ?: 10,
+            stop = stop,
+            offset = call.int("offset") ?: 0,
+            limit = call.int("limit") ?: 100,
+            followTriggers = call.boolean("triggers") ?: true
+        )
+        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+    }
+    // The whole graph at once, for the impact page; a graph past the time limit or over the node limit says
+    // so, so the page can suggest a smaller depth.
+    get("/impact/graph") {
+        val scope = call.list("scope")?.map { value ->
+            Scope.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown scope: $value")
+        }?.filter { it != Scope.SELF }
+        val key = call.required("key")
+        val maxDepth = call.int("maxDepth") ?: 10
+        val triggers = call.boolean("triggers") ?: true
+        val answer = try {
+            index.impactView(key, scope, maxDepth, triggers)
+        } catch (e: QueryTimeoutException) {
+            call.respondJson(ApiTimeout(e.message ?: "The query took too long"), HttpStatusCode.BadRequest)
+            return@get
+        } catch (e: GraphTooLargeException) {
+            call.respondJson(ApiTooLarge(e.message!!, e.nodes, e.limit), HttpStatusCode.BadRequest)
+            return@get
+        }
+        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+    }
+    get("/query") {
+        call.respondJson(index.queryOccurrences(call.occurrenceQuery(), call.long("after"), call.int("limit") ?: 100, call.boolean("summary") ?: true))
+    }
+    get("/query/summary") { call.respondJson(index.querySummary(call.occurrenceQuery())) }
+    get("/query/groups") {
+        val dimensions = (call.list("groupBy") ?: throw InvalidQueryException("Missing parameter: groupBy")).map { value ->
+            GroupDimension.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown groupBy dimension: $value")
+        }
+        call.respondJson(index.groupOccurrences(call.occurrenceQuery(), dimensions, call.int("limit") ?: 100))
+    }
+    get("/values") {
+        val answer = index.values(call.required("key"))
+        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+    }
+    get("/value-sites") {
+        val answer = index.valueSites(call.required("key"), call.required("kind"), call.request.queryParameters["value"],
+            call.long("after"), call.int("limit") ?: 100)
+        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+    }
+    get("/source") {
+        val answer = index.source(call.required("path"), call.int("line") ?: throw InvalidQueryException("Missing parameter: line"),
+            call.int("context") ?: 3)
+        if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
+    }
+    get("/text") {
+        call.respondJson(index.searchText(call.required("text"), call.optional("path"), call.optional("container"),
+            call.optional("containerName"), call.long("after"), call.int("limit") ?: 100))
+    }
+    get("/file") {
+        val answer = index.file(call.required("path"))
+        if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
+    }
 }
 
 private class BareBasePathConfig {
@@ -236,7 +255,7 @@ private val BareBasePathRedirect = createApplicationPlugin("BareBasePathRedirect
     }
 }
 
-private suspend fun ApplicationCall.health(index: AtlasIndex, head: Boolean) {
+internal suspend fun ApplicationCall.health(index: AtlasIndex, head: Boolean) {
     val ready = try {
         index.stamp()
         true

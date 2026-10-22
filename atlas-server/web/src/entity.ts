@@ -6,6 +6,7 @@ import { entityLink, kindLabel, nameHtml, roleLabel } from "./entity-html";
 import { entityHref, esc, getOrPut, impactHref, lineLink, literalText, queryHref, scrollTable, statusBadge } from "./html";
 import { formatNumber, initI18n, t } from "./i18n";
 import { displayParts, parentKeyOf } from "./names";
+import { setPageTitle } from "./project";
 import { renderChips, setupSourceToggle, usesBlock } from "./uses";
 import type { UsesBlock } from "./uses";
 
@@ -140,7 +141,7 @@ function triggersHtml(entity: EntityDetail, own: boolean) {
 }
 
 function renderEntity(entity: EntityDetail) {
-  document.title = t("page.entity.titleWith", { name: entity.name });
+  setPageTitle(t("page.entity.titleWith", { name: entity.name }));
   const set = (id: string, html: string) => { document.getElementById(id)!.innerHTML = html; };
   set("header", headerHtml(entity));
   set("definitions", definitionsHtml(entity));
