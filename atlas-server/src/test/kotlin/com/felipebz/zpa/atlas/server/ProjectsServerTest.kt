@@ -83,7 +83,7 @@ class ProjectsServerTest {
         basePath: BasePath = BasePath.ROOT,
         test: suspend ApplicationTestBuilder.(HttpClient) -> Unit
     ) = testApplication {
-        application { atlasProjectsModule(projects, null, basePath) }
+        application { atlasProjectsModule(projects, McpSettings(), null, basePath) }
         test(createClient { followRedirects = false })
     }
 
@@ -137,7 +137,6 @@ class ProjectsServerTest {
         assertThat(client.get("/p/nope/").status).isEqualTo(HttpStatusCode.NotFound)
         assertThat(client.get("/api/run").status).isEqualTo(HttpStatusCode.NotFound)
         assertThat(client.get("/entity.html").status).isEqualTo(HttpStatusCode.NotFound)
-        assertThat(client.get("/mcp").status).isEqualTo(HttpStatusCode.NotFound)
     }
 
     @Test
@@ -209,7 +208,7 @@ class ProjectsServerTest {
         val idp = createClient { }
         val basePath = BasePath.parse("/atlas")
         application {
-            atlasProjectsModule(projects(), AuthSettings(issuer, "https://atlas.example.com/atlas", page = PageClient("atlas-web"), basePath = basePath), { a ->
+            atlasProjectsModule(projects(), McpSettings(), AuthSettings(issuer, "https://atlas.example.com/atlas", page = PageClient("atlas-web"), basePath = basePath), { a ->
                 oidcIdentity(a) {
                     metadata = this@ProjectsServerTest.metadata
                     jwt { jwkProviderFactory = { keys.jwkProvider } }

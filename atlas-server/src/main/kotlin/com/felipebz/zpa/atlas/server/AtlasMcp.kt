@@ -82,7 +82,11 @@ val MCP_LOCAL_HOSTS = listOf("localhost", "127.0.0.1", "[::1]")
  * [MCP_LOCAL_HOSTS], [McpSettings.allowedHosts] and the host of [AuthSettings.publicUrl] are refused. The token check
  * of [AuthSettings] is not here: it answers before this route is reached.
  */
-fun Application.atlasMcp(index: AtlasIndex, settings: McpSettings, auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT) {
+fun Application.atlasMcp(index: AtlasIndex, settings: McpSettings, auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT) =
+    mountMcp(settings, auth, basePath) { atlasMcpServer(index, settings.maxAnswerChars) }
+
+/** `/mcp` as [atlasMcp] mounts it, each session served by a new [server]. */
+internal fun Application.mountMcp(settings: McpSettings, auth: AuthSettings?, basePath: BasePath, server: () -> Server) {
     val hosts = (MCP_LOCAL_HOSTS + settings.allowedHosts + listOfNotNull(auth?.publicHost)).distinct()
     install(ClosedToolSchemas) { path = basePath.of("/mcp") }
     mcpStreamableHttp(
@@ -91,7 +95,7 @@ fun Application.atlasMcp(index: AtlasIndex, settings: McpSettings, auth: AuthSet
         // With hosts of its own the SDK checks no Origin: check it against the same names.
         allowedOrigins = hosts.map { "http://$it" },
         sseHeartbeatConfig = { period = settings.heartbeat }
-    ) { atlasMcpServer(index, settings.maxAnswerChars) }
+    ) { server() }
 }
 
 /**
@@ -141,23 +145,29 @@ internal fun atlasMcpServer(index: AtlasIndex, maxAnswerChars: Int = McpAnswers.
 internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars: Int = McpAnswers.MAX_CHARS) {
     private val codes = indexCodes()
 
+    /** One tool: what `tools/list` shows of it, and what answers a call, from the call's [Arguments]. */
+    class Tool(val name: String, val description: String, val schema: ToolSchema, val body: (Arguments) -> JsonElement)
+
+    /** The tools, in the order `tools/list` gives them, each answering from this index. */
+    val tools: List<Tool> = listOf(
+        Tool("search_entities", SEARCH, searchSchema(), ::searchEntities),
+        Tool("get_entity", ENTITY, entitySchema(), ::getEntity),
+        Tool("find_occurrences", FIND, findSchema(), ::findOccurrences),
+        Tool("find_usages", USAGES, usagesSchema(), ::findUsages),
+        Tool("group_usages", GROUP_USAGES, groupUsagesSchema(), ::groupUsages),
+        Tool("group_occurrences", GROUP, groupSchema(), ::groupOccurrences),
+        Tool("get_source", SOURCE, sourceSchema(), ::getSource),
+        Tool("search_text", TEXT, textSchema(), ::searchText),
+        Tool("get_values", VALUES, valuesSchema(), ::getValues),
+        Tool("find_value_sites", VALUE_SITES, valueSitesSchema(), ::findValueSites),
+        Tool("find_impact", IMPACT, impactSchema(), ::findImpact)
+    )
+
     fun register(server: Server) {
-        val readOnly = ToolAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true, openWorldHint = false)
-        fun add(name: String, description: String, schema: ToolSchema, body: (Arguments) -> JsonElement) {
-            val accepted = schema.properties?.keys.orEmpty()
-            server.addTool(name, description, schema, toolAnnotations = readOnly) { call { body(Arguments(name, accepted, it.arguments)) } }
+        for (tool in tools) {
+            val accepted = tool.schema.properties?.keys.orEmpty()
+            server.addTool(tool.name, tool.description, tool.schema, toolAnnotations = READ_ONLY) { call { tool.body(Arguments(tool.name, accepted, it.arguments)) } }
         }
-        add("search_entities", SEARCH, searchSchema(), ::searchEntities)
-        add("get_entity", ENTITY, entitySchema(), ::getEntity)
-        add("find_occurrences", FIND, findSchema(), ::findOccurrences)
-        add("find_usages", USAGES, usagesSchema(), ::findUsages)
-        add("group_usages", GROUP_USAGES, groupUsagesSchema(), ::groupUsages)
-        add("group_occurrences", GROUP, groupSchema(), ::groupOccurrences)
-        add("get_source", SOURCE, sourceSchema(), ::getSource)
-        add("search_text", TEXT, textSchema(), ::searchText)
-        add("get_values", VALUES, valuesSchema(), ::getValues)
-        add("find_value_sites", VALUE_SITES, valueSitesSchema(), ::findValueSites)
-        add("find_impact", IMPACT, impactSchema(), ::findImpact)
     }
 
     // ---- the calls --------------------------------------------------------------------------------------------------
@@ -384,7 +394,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     }
 
     /** Runs [body] off the request thread; a refused request is an error result the agent can act on, not a protocol error. */
-    private suspend fun call(body: () -> JsonElement): CallToolResult = withContext(Dispatchers.IO) {
+    internal suspend fun call(body: () -> JsonElement): CallToolResult = withContext(Dispatchers.IO) {
         try {
             CallToolResult(content = listOf(TextContent(ToolJson.encodeToString(JsonElement.serializer(), body()))))
         } catch (e: ToolException) {
@@ -522,7 +532,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     // ---- reading the arguments ---------------------------------------------------------------------------------------
 
     /** The arguments of one call; a value of the wrong type is refused with the argument's name. */
-    private class Arguments(tool: String, accepted: Set<String>, arguments: JsonObject?) {
+    class Arguments(tool: String, accepted: Set<String>, arguments: JsonObject?) {
         private val values = arguments ?: JsonObject(emptyMap())
 
         init {
@@ -593,7 +603,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         )
     }
 
-    private class ToolException(message: String) : RuntimeException(message)
+    internal class ToolException(message: String) : RuntimeException(message)
 
     companion object {
         // The limits keep an answer within what an agent reads at once: a typical page under about 10,000 tokens, the
@@ -631,6 +641,9 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         /** The arguments of find_occurrences and group_occurrences that narrow the occurrences. */
         private val QUERY_FILTERS = listOf("entity", "entity_kinds", "name", "schema", "external", "container", "container_name",
             "unit_kinds", "path", "roles", "statuses", "reasons", "origins", "statement_kinds", "value_kind", "value")
+
+        /** Every tool only reads the index. */
+        val READ_ONLY = ToolAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true, openWorldHint = false)
 
         const val INSTRUCTIONS =
             "zpa-atlas is an index of the PL/SQL code of an Oracle database (packages, procedures, functions, " +

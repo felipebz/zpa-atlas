@@ -197,7 +197,7 @@ internal class ServeLaunch(
 
 private fun launch(serve: ServeLaunch) {
     if (serve.projects.isNotEmpty()) {
-        serveProjects(serve.projects, serve.host, serve.port, serve.auth, serve.basePath)
+        serveProjects(serve.projects, serve.host, serve.port, serve.mcp, serve.auth, serve.basePath)
     } else {
         com.felipebz.zpa.atlas.server.serve(AtlasIndex(serve.database!!, serve.sources), serve.host, serve.port, serve.mcp, serve.auth, serve.basePath)
     }
@@ -285,9 +285,10 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
         }
         if (served.sources == null) warnings += "Warning: project ${served.name}: sources folder ${file["sources"]} does not exist here; it is served without sources"
     }
-    System.err.println("MCP at $address${basePath.of("/mcp")}: not served with --projects in this version")
+    System.err.println("MCP at $address${basePath.of("/mcp")}, for Host ${(MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")}: " +
+        "every project, picked by the tools' project argument${if (projects.size == 1) " (optional with one project)" else ""}")
     if (auth != null) {
-        System.err.println("Authentication: /api and every project's API need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
+        System.err.println("Authentication: /mcp, /api and every project's API need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
             (auth.scope?.let { " and scope $it" } ?: ""))
         System.err.println("Protected resource metadata: ${auth.metadataUrl}")
         auth.page?.let {

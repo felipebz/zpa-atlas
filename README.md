@@ -248,6 +248,7 @@ startup: adding or removing a project takes a restart.
 | `/p/<name>/` | The project's pages, with a picker to switch project |
 | `/p/<name>/api/…` | The API of `/api` over the project's index; an unknown project answers 404 |
 | `/health` | 200 when the index of every project that has one opens; one line per project |
+| `/mcp` | The MCP endpoint over every project, picked by each tool's `project` argument |
 
 - **Refused at startup:** a project file the reader refuses (every such file is listed), a folder without project files,
   and two projects with the same index file.
@@ -256,8 +257,12 @@ startup: adding or removing a project takes a restart.
   file (not read: rename it to `.yaml`).
 - **`--db` and `--sources`** beside `--projects` on the command line are refused. From the environment they are
   ignored, with a startup line: the container image sets them.
-- **The MCP endpoint** is not served with `--projects` yet. With authentication, one gate covers every project's API
-  and the list, and sign-in stays at the base path.
+- **The MCP endpoint** stays at `/mcp`, one for every project. Every tool takes a `project` argument, the project's
+  name: required with several projects (a call without it is refused with the names), optional with one. The tool
+  `list_projects` gives each project's name, state, index date and file count, and the instructions name the projects.
+  A project not indexed yet is refused, as its API answers 503.
+- **With authentication,** one gate covers `/mcp`, every project's API and the list, with the same token: a token reads
+  every project. Sign-in stays at the base path.
 
 ## Querying the index with SQL
 

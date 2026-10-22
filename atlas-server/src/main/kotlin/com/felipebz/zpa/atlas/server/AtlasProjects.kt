@@ -92,18 +92,25 @@ private val PAGES = listOf("index.html", "entity.html", "file.html", "query.html
 
 /**
  * Several [projects], each under `<base path>/p/<name>/`: its pages, and its API at `p/<name>/api/…`, the API of `/api`
- * over its own index. The list of projects is the page at the base path and `/api/projects`. With [auth], one gate
- * covers every project's API and the list, and the sign-in stays at the base path. No MCP endpoint is served.
+ * over its own index. The list of projects is the page at the base path and `/api/projects`, and `/mcp` serves every
+ * project, picked by the tools' `project` argument. With [auth], one gate covers every project's API, the list and
+ * `/mcp`, and the sign-in stays at the base path.
  *
  * @throws AuthDiscoveryException when [auth] is given and its issuer's discovery document cannot be read
  */
-fun Application.atlasProjectsModule(projects: List<ServedProject>, auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT) =
-    atlasProjectsModule(projects, auth, { oidcIdentity(it) }, basePath) {
+fun Application.atlasProjectsModule(
+    projects: List<ServedProject>,
+    mcp: McpSettings = McpSettings(),
+    auth: AuthSettings? = null,
+    basePath: BasePath = BasePath.ROOT
+) =
+    atlasProjectsModule(projects, mcp, auth, { oidcIdentity(it) }, basePath) {
         HttpClient(io.ktor.client.engine.cio.CIO).also { client -> monitor.subscribe(ApplicationStopped) { client.close() } }
     }
 
 internal fun Application.atlasProjectsModule(
     projects: List<ServedProject>,
+    mcp: McpSettings,
     auth: AuthSettings?,
     identity: IdentityInstaller,
     basePath: BasePath = BasePath.ROOT,
@@ -145,6 +152,7 @@ internal fun Application.atlasProjectsModule(
         get(basePath.of("/projects.html")) { call.page("projects.html", null) }
         staticResources(basePath.of("/assets"), "web/assets", index = null)
     }
+    mountMcp(mcp, auth, basePath) { projectsMcpServer(sorted, mcp.maxAnswerChars) }
 }
 
 private class ProjectIndexedConfig {
@@ -156,10 +164,7 @@ private val ProjectIndexed = createRouteScopedPlugin("ProjectIndexed", ::Project
     val project = pluginConfig.project
     onCall { call ->
         if (!project.indexed) {
-            call.respondJson(
-                ApiError("The project ${project.name} is not indexed yet: its index ${project.indexFile} does not exist"),
-                HttpStatusCode.ServiceUnavailable
-            )
+            call.respondJson(ApiError(notIndexed(project)), HttpStatusCode.ServiceUnavailable)
         }
     }
 }
@@ -207,8 +212,15 @@ private suspend fun ApplicationCall.projectsHealth(projects: List<ServedProject>
  * @throws AuthDiscoveryException when [auth] is given and its issuer's discovery document cannot be read: the server
  *     does not start
  */
-fun serveProjects(projects: List<ServedProject>, host: String, port: Int, auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT) {
-    val server = embeddedServer(CIO, host = host, port = port) { atlasProjectsModule(projects, auth, basePath) }
+fun serveProjects(
+    projects: List<ServedProject>,
+    host: String,
+    port: Int,
+    mcp: McpSettings = McpSettings(),
+    auth: AuthSettings? = null,
+    basePath: BasePath = BasePath.ROOT
+) {
+    val server = embeddedServer(CIO, host = host, port = port) { atlasProjectsModule(projects, mcp, auth, basePath) }
     try {
         server.start(wait = true)
     } catch (e: Throwable) {

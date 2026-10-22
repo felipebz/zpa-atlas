@@ -68,7 +68,7 @@ class ServeProjectsTest {
         )
         assertThat(lines[2]).startsWith("Project hr at http://127.0.0.1:8080/p/hr/: index ${directory.resolve("data/hr.db").toAbsolutePath().normalize()}, " +
             "sources ${directory.resolve("src/hr").toAbsolutePath().normalize()}; unavailable: ")
-        assertThat(lines[3]).isEqualTo("MCP at http://127.0.0.1:8080/mcp: not served with --projects in this version")
+        assertThat(lines[3]).isEqualTo("MCP at http://127.0.0.1:8080/mcp, for Host localhost, 127.0.0.1, [::1]: every project, picked by the tools' project argument")
         assertThat(lines).contains(
             "Warning: project billing is not indexed yet: its index ${directory.resolve("data/billing.db").toAbsolutePath().normalize()} does not exist; " +
                 "its API answers 503 until `zpa-atlas index --project ${projects.resolve("billing.yaml")}` writes it",
