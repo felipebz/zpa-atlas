@@ -620,8 +620,13 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         /** The JSON of a tool answer: the `/api` model, a null field left out to save the agent's context. */
         val ToolJson = Json { explicitNulls = false; encodeDefaults = true }
 
-        /** [answer] as a tool gives it, before any cut for size: its JSON made compact by [McpAnswers.compact]. */
-        internal inline fun <reified T> toolAnswer(answer: T): JsonObject = McpAnswers.compact(ToolJson.encodeToJsonElement(answer)).jsonObject
+        /**
+         * [answer] as a tool gives it, before any cut for size: its JSON made compact by [McpAnswers.compact], without
+         * the run stamp the page shows in its banner. Nothing in it changes an agent's next call: a changed file is
+         * told per row (stale), and the atlas version is in serverInfo.
+         */
+        internal inline fun <reified T> toolAnswer(answer: T): JsonObject =
+            JsonObject(McpAnswers.compact(ToolJson.encodeToJsonElement(answer)).jsonObject - "run")
 
         /** The arguments of find_occurrences and group_occurrences that narrow the occurrences. */
         private val QUERY_FILTERS = listOf("entity", "entity_kinds", "name", "schema", "external", "container", "container_name",
@@ -649,7 +654,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "package or routine the question names as container_name, or a file or folder as path; whole index " +
                 "only if it names none.\n" +
                 "Usual order: a group_ tool for the summary, then a find_ tool for the lines, then get_source for the text.\n" +
-                "Every answer carries the run it was read from; null fields are left out, and so is an entity's " +
+                "Null fields are left out of an answer, and so is an entity's " +
                 "display when it is its key without db:. An answer over ${McpAnswers.MAX_CHARS} " +
                 "characters is cut, and cutForSize says how: the rows kept (page on from nextAfter), the lower list " +
                 "limit of an entity, or the source lines shortened. A usage tool's included lists what it followed."

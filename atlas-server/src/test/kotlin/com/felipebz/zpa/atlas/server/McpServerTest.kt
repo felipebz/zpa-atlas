@@ -601,6 +601,29 @@ class McpServerTest {
         return text()
     }
 
+    @Test
+    fun `no tool answer carries the run stamp`() = mcp { client ->
+        val calls = listOf(
+            "search_entities" to args { put("query", "run_job") },
+            "get_entity" to args { put("key", "db:HR.COMPANY") },
+            "find_occurrences" to args { put("container", "db:HR.PACK_PROCESS") },
+            "group_occurrences" to args { put("group_by", strings("ROLE")) },
+            "find_usages" to args { put("key", "db:HR.COMPANY") },
+            "group_usages" to args { put("key", "db:HR.COMPANY"); put("group_by", strings("ROLE")) },
+            "find_impact" to args { put("key", "db:HR.PACK_IMP_A.LEAF(P_N IN NUMBER)") },
+            "get_source" to args { put("path", "hr/pack_process.pkb"); put("line", 10) },
+            "get_values" to args { put("key", stActive) },
+            "find_value_sites" to args { put("key", stActive); put("value_kind", "STRING"); put("value", "S") },
+            "search_text" to args { put("text", "vFixTag") }
+        )
+        assertThat(calls.map { it.first }).containsExactlyInAnyOrderElementsOf(client.listTools().tools.map { it.name })
+        for ((name, arguments) in calls) {
+            val answer = client.call(name, arguments)
+            assertThat(answer.isError).describedAs(name).isNotEqualTo(true)
+            assertThat(answer.json().jsonObject).describedAs(name).containsKey("result").doesNotContainKey("run")
+        }
+    }
+
     private fun JsonElement.result() = jsonObject["result"]!!.jsonObject
 
     @Test
@@ -608,7 +631,6 @@ class McpServerTest {
         for (key in listOf(stActive, pCode, pCodeBody)) {
             val answer = client.call("get_values", args { put("key", key) }).json()
             val api = toolAnswer(index.values(key))
-            assertThat(answer.jsonObject["run"]).isEqualTo(api["run"])
             assertThat(answer.result()["groups"]).describedAs(key).isEqualTo(api["result"])
             assertThat(answer.result()["totalGroups"]!!.jsonPrimitive.content.toInt()).isEqualTo(api["result"]!!.jsonArray.size)
         }
