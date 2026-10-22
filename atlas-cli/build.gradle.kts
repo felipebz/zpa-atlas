@@ -34,6 +34,15 @@ application {
     applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
+tasks.startScripts {
+    doLast {
+        val script = windowsScript
+        val lines = script.readLines()
+        check(lines.count { it.startsWith("set CLASSPATH=") } == 1) { "The Windows start script has no single classpath line to shorten" }
+        script.writeText(lines.joinToString("\r\n", postfix = "\r\n") { if (it.startsWith("set CLASSPATH=")) "set CLASSPATH=%APP_HOME%\\lib\\*" else it })
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
 }
