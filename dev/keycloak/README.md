@@ -1,13 +1,17 @@
 # Keycloak for a local authentication test
 
-For testing `serve --oidc-issuer` on one machine, not for users. It creates the realm `atlas` with:
+For testing `serve --oidc-issuer` on one machine, not for users. It creates, with a script, the realm that
+[docs/authentication.md](../../docs/authentication.md) sets up by hand, plus test users. The realm `atlas` has:
 
 - the client scope `atlas.read`, on no realm list, whose audience mapper puts `http://localhost:8090/mcp` in `aud`; it
   goes only into the tokens of users with the realm role `atlas-reader`;
 - the user `ana`, password `ana`, with `atlas-reader`, and the user `bob`, password `bob`, without it;
 - the page's confidential client `atlas-web`, secret `atlas-web-secret`, redirect URI `http://localhost:8090/auth/callback`;
-- the public client `atlas-mcp`, with `atlas.read` as a default scope, redirect URI `http://localhost:8765/callback`, PKCE S256;
-- the anonymous client registration policies opened for clients on `localhost`.
+- the agents' public client `atlas-agent`, with `atlas.read` as a default scope, `offline_access` as an optional one,
+  redirect URI `http://localhost:8765/callback`, PKCE S256;
+- anonymous client registration allowed for clients whose redirect URIs are on `localhost`. *Host Sending Client
+  Registration Request Must Match* is off: Keycloak in a container sees requests from the host as coming from the
+  container network's gateway, not from `localhost`. Do not copy this to a shared Keycloak: see the guide.
 
 Run again, it deletes the realm and creates it anew.
 

@@ -41,10 +41,11 @@ print("page client", call("POST", "/admin/realms/atlas/clients", {"clientId": "a
     "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": PUBLIC_URL},
     "defaultClientScopes": ["atlas.read", "profile", "email", "roles", "web-origins", "basic"]}, T)[0])
 # a client registered by hand, for a client that does not register itself
-print("client", call("POST", "/admin/realms/atlas/clients", {"clientId": "atlas-mcp", "publicClient": True, "standardFlowEnabled": True, "directAccessGrantsEnabled": False,
+print("client", call("POST", "/admin/realms/atlas/clients", {"clientId": "atlas-agent", "publicClient": True, "standardFlowEnabled": True, "directAccessGrantsEnabled": False,
     "redirectUris": ["http://localhost:8765/callback"], "attributes": {"pkce.code.challenge.method": "S256"},
     "defaultClientScopes": ["atlas.read", "profile", "email", "roles", "web-origins", "basic"], "optionalClientScopes": ["offline_access"]}, T)[0])
-# anonymous client registration: from clients on localhost, which get atlas.read through Allowed Client Scopes
+# anonymous client registration of clients on localhost, which get atlas.read through Allowed Client Scopes; the sender
+# is not checked, since a container sees the host's requests as coming from its network's gateway
 s, comps, _ = call("GET", "/admin/realms/atlas/components?type=org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy", None, T)
 for c in comps:
     if c["providerId"] == "trusted-hosts" and c["subType"] == "anonymous":
