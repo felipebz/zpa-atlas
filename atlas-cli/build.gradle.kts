@@ -20,6 +20,8 @@ dependencies {
     implementation(project(":atlas-core"))
     implementation(project(":atlas-server"))
     implementation("org.jcommander:jcommander:3.0")
+    // Project files: YAML read as nodes, so that every key and value is checked with a message of its own.
+    implementation("com.charleskorn.kaml:kaml:0.79.0")
     implementation("org.slf4j:slf4j-jdk14:2.0.20")
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")

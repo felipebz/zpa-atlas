@@ -129,9 +129,44 @@ zpa-atlas index --sources path/to/sources --out atlas.db --compilation-schema HR
   --oracle-url jdbc:oracle:thin:@//host:1521/SERVICE --oracle-user HR --oracle-schemas HR
 ```
 
+## Project files
+
+A project is one codebase, indexed into one index file from its own sources with its own options. Instead of
+repeating the options, describe the project in `<name>.yaml` and index it with `zpa-atlas index --project <name>.yaml`:
+
+```yaml
+# the project "hr": hr.yaml
+sources: ../src/hr              # required
+index: ../data/hr.db            # required: the index file `index` writes
+extensions: [sql, pks, pkb]     # default: index's default list
+encoding: auto
+compilationSchema: HR
+databaseVersion: "19"
+ccflags: "debug:TRUE, level:2"
+oracle:                         # optional
+  url: jdbc:oracle:thin:@//db.example.com:1521/orcl
+  user: atlas_reader
+  passwordEnv: HR_DB_PASSWORD   # the password itself never goes in the file
+  schemas: [hr, common]
+  relations: [other.some_table]
+```
+
+- **The name** is the file's name without `.yaml`: lower-case letters, digits, `-` and `_`, starting with a letter or a
+  digit.
+- **Each key is an option** of `index`, with the same values and checks: `index` is `--out`, `compilationSchema` is
+  `--compilation-schema`, `oracle.passwordEnv` is `--oracle-password-env`, and so on. `--threads` belongs to the
+  machine and stays on the command line.
+- **Paths** are relative to the file's folder. **Lists** are YAML lists or the comma-separated text the option takes.
+- **An option given beside `--project` wins** over the file's key: `--out other.db` writes elsewhere.
+- **Refused:** an unknown key, a value of the wrong type, a missing `sources` or `index`, and a password in the file;
+  each message names the file and the key.
+
+Coming versions of `serve` will read the same files.
+
 ## Command reference
 
 ```sh
+zpa-atlas index --project <name>.yaml [any option below, which wins over the file] [--threads N]
 zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--threads N] [--encoding auto|<charset>] \
   [--database-version 19] [--ccflags 'name:value, ...'] \
   [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]

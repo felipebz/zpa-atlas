@@ -34,6 +34,12 @@ class MainArguments {
 
 @Parameters(commandNames = ["index"], commandDescription = "Index a source tree into a new SQLite database")
 class IndexArguments {
+    @Parameter(
+        names = ["--project"],
+        description = "Project file <name>.yaml whose keys give the options below (but --threads); an option given beside it wins over its key"
+    )
+    var project: String = ""
+
     @Parameter(names = ["--sources"], description = "Folder with files", required = true)
     var sources: String = ""
 

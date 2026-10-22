@@ -33,23 +33,33 @@ import java.nio.file.Path
 import kotlin.io.path.extension
 import kotlin.io.path.name
 
-private fun index(args: IndexArguments, environment: (String) -> String?): Int {
-    requireOptions(args)
-    if (Files.isDirectory(Path.of(args.out))) throw CliValidationException("--out names a folder: ${args.out}; give the path of the index file to create")
-    val sources = Path.of(args.sources)
-    if (!Files.isDirectory(sources)) throw CliValidationException("Sources folder does not exist or is not a directory: ${args.sources}")
-    if (args.threads < 1) throw CliValidationException("--threads must be at least 1")
-    val encoding = try {
-        SourceDecoding.validate(args.encoding.trim())
-    } catch (e: IllegalArgumentException) {
-        throw CliValidationException(e.message ?: "Unknown encoding")
+private fun index(args: IndexArguments, environment: (String) -> String?, given: Set<String>): Int {
+    val project = args.project.takeIf { it.isNotBlank() }?.let { ProjectFile.read(Path.of(it.trim())) }
+    val taken = project?.let { args.take(it, given) }.orEmpty()
+    // A message about a value of the file names the file and the key, not the option.
+    fun about(option: String, message: String) = if (option in taken) "$option: $message" else message
+    val checked = try {
+        requireOptions(args)
+        if (Files.isDirectory(Path.of(args.out))) throw CliValidationException("--out names a folder: ${args.out}; give the path of the index file to create")
+        val sources = Path.of(args.sources)
+        if (!Files.isDirectory(sources)) throw CliValidationException(about("--sources", "Sources folder does not exist or is not a directory: ${args.sources}"))
+        if (args.threads < 1) throw CliValidationException("--threads must be at least 1")
+        val encoding = try {
+            SourceDecoding.validate(args.encoding.trim())
+        } catch (e: IllegalArgumentException) {
+            throw CliValidationException(about("--encoding", e.message ?: "Unknown encoding"))
+        }
+        val explicitVersion = args.databaseVersion.takeIf { it.isNotBlank() }?.let {
+            validated("--database-version") { ConditionalCompilationSettings.parseVersion(it) }
+        }
+        val flags = validated("--ccflags") { ConditionalCompilationSettings.parseFlags(args.ccflags) }
+        val settings = OracleSettings.from(args.oracle, ::about, environment)
+        val compilationSchema = OracleSettings.compilationSchema(args)
+        CheckedIndex(sources, encoding, explicitVersion, flags, settings, compilationSchema)
+    } catch (e: CliValidationException) {
+        throw CliValidationException(project?.let { inFile(it, taken, e.message.orEmpty()) } ?: e.message.orEmpty())
     }
-    val explicitVersion = args.databaseVersion.takeIf { it.isNotBlank() }?.let {
-        validated("--database-version") { ConditionalCompilationSettings.parseVersion(it) }
-    }
-    val flags = validated("--ccflags") { ConditionalCompilationSettings.parseFlags(args.ccflags) }
-    val settings = OracleSettings.from(args.oracle, environment)
-    val compilationSchema = OracleSettings.compilationSchema(args)
+    val (sources, encoding, explicitVersion, flags, settings, compilationSchema) = checked
     val oracle = settings?.let {
         val writtenNames = SourceIdentifiers.scan(sources, args.extensions.split(','))
         it to OracleMetadataLoader.load(it, compilationSchema, applicationHome().resolve("drivers"), writtenNames)
@@ -74,9 +84,61 @@ private fun index(args: IndexArguments, environment: (String) -> String?): Int {
             databaseVersionOrigin = databaseVersionOrigin
         )
     )
-    System.err.println("Indexed ${summary.files} files into ${args.out}: scan ${summary.parseMillis} ms, write ${summary.writeMillis} ms, total ${summary.totalMillis} ms")
+    val indexed = if (project == null) "Indexed" else "Indexed project ${project.name}:"
+    System.err.println("$indexed ${summary.files} files into ${args.out}: scan ${summary.parseMillis} ms, write ${summary.writeMillis} ms, total ${summary.totalMillis} ms")
     if (summary.failedFiles > 0) System.err.println("${summary.failedFiles} file(s) failed extraction and were indexed as FAILED (see stats)")
     return 0
+}
+
+private data class CheckedIndex(
+    val sources: Path,
+    val encoding: String,
+    val explicitVersion: DatabaseVersion?,
+    val flags: Map<String, CcValue>,
+    val settings: OracleSettings?,
+    val compilationSchema: String?
+)
+
+/**
+ * Sets the options [project] gives a key for, but those [given] on the command line, which win: the options taken
+ * from the file, each with its key.
+ */
+private fun IndexArguments.take(project: ProjectFile, given: Set<String>): Map<String, String> {
+    val taken = LinkedHashMap<String, String>()
+    for ((key, option) in ProjectFile.KEYS) {
+        val value = project[key] ?: continue
+        if (option in given) continue
+        when (option) {
+            "--sources" -> sources = value
+            "--out" -> out = value
+            "--extensions" -> extensions = value
+            "--encoding" -> encoding = value
+            "--compilation-schema" -> compilationSchema = value
+            "--database-version" -> databaseVersion = value
+            "--ccflags" -> ccflags = value
+            "--oracle-url" -> oracle.oracleUrl = value
+            "--oracle-user" -> oracle.oracleUser = value
+            "--oracle-password-env" -> oracle.oraclePasswordEnv = value
+            "--oracle-schemas" -> oracle.oracleSchemas = value
+            "--oracle-relations" -> oracle.oracleRelations = value
+            else -> error("No option field for $option")
+        }
+        taken[option] = key
+    }
+    return taken
+}
+
+private val OPTION_NAME = Regex("--[a-z][a-z-]*")
+
+private val KEY_OF_OPTION = ProjectFile.KEYS.entries.associate { (key, option) -> option to key }
+
+/**
+ * [message] after the file, with every option named as its key, when it names an option [taken] from [project];
+ * unchanged otherwise, as it is about an option of the command line.
+ */
+private fun inFile(project: ProjectFile, taken: Map<String, String>, message: String): String {
+    if (OPTION_NAME.findAll(message).none { it.value in taken }) return message
+    return "${project.file}: " + OPTION_NAME.replace(message) { match -> KEY_OF_OPTION[match.value] ?: match.value }
 }
 
 /** The result of [parse], or a [CliValidationException] naming [option] with the parser's message. */
@@ -250,7 +312,7 @@ internal fun execute(args: Array<String>, environment: (String) -> String?, laun
             return if (main.help) 0 else 2
         }
         when (commander.parsedCommand) {
-            "index" -> index(indexArguments, environment)
+            "index" -> index(indexArguments, environment, commander.commands.getValue("index").parameters.filter { it.isAssigned }.map { it.longestName }.toSet())
             "serve" -> serve(serveArguments, environment, launch)
             else -> stats(statsArguments)
         }

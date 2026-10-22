@@ -36,8 +36,15 @@ class OracleSettings(
     companion object {
         private val CREDENTIALS_IN_URL = Regex("^jdbc:oracle:[a-z0-9]+:[^@]*/[^@]*@|password\\s*=", RegexOption.IGNORE_CASE)
 
-        /** The settings when Oracle metadata is requested (`--oracle-url`), null otherwise. */
-        fun from(args: OracleOptions, environment: (String) -> String?): OracleSettings? {
+        /**
+         * The settings when Oracle metadata is requested (`--oracle-url`), null otherwise. [about] gives the message of a
+         * value that does not name its option, with that option: unchanged by default.
+         */
+        fun from(
+            args: OracleOptions,
+            about: (option: String, message: String) -> String = { _, message -> message },
+            environment: (String) -> String?
+        ): OracleSettings? {
             val anyOption = args.oracleUrl.isNotBlank() || args.oracleUser.isNotBlank() || args.oracleSchemas.isNotBlank() ||
                 args.oracleRelations.isNotBlank()
             if (!anyOption) return null
@@ -63,7 +70,7 @@ class OracleSettings(
             if (variable.isBlank()) throw CliValidationException("--oracle-password-env must name an environment variable")
             val password = environment(variable)
             if (password.isNullOrEmpty()) {
-                throw CliValidationException("The database password environment variable '$variable' is not set")
+                throw CliValidationException(about("--oracle-password-env", "The database password environment variable '$variable' is not set"))
             }
             return OracleSettings(args.oracleUrl, args.oracleUser, password, schemas, relations)
         }

@@ -27,7 +27,7 @@ private fun compareDeps(args: CompareArguments, environment: (String) -> String?
     }
     val index = Path.of(args.db)
     if (!Files.isRegularFile(index)) throw CliValidationException("Index file does not exist: ${args.db}")
-    val settings = OracleSettings.from(args.oracle, environment)
+    val settings = OracleSettings.from(args.oracle, environment = environment)
     if ((settings == null) == args.dependencies.isBlank()) {
         throw CliValidationException("compare-deps needs either the --oracle-* options or --dependencies <file>")
     }
