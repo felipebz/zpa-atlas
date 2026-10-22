@@ -26,3 +26,16 @@ zpa-atlas serve --db atlas.db --port 8090 \
 ```
 
 `KEYCLOAK_URL` and `ATLAS_PUBLIC_URL` change the Keycloak address and the server's public URL.
+
+Under a base path, behind a reverse proxy at `http://localhost:8088/atlas/` (see the main README), give the realm the
+public URL with its path, and the server the same:
+
+```bash
+ATLAS_PUBLIC_URL=http://localhost:8088/atlas python3 dev/keycloak/setup-realm.py
+zpa-atlas serve --db atlas.db --port 8090 --base-path /atlas \
+  --oidc-issuer http://localhost:8180/realms/atlas --public-url http://localhost:8088/atlas --oidc-scope atlas.read \
+  --oidc-client-id atlas-web --oidc-client-secret-env ATLAS_WEB_SECRET
+```
+
+The realm then registers `http://localhost:8088/atlas/auth/callback`, the post logout redirect URI
+`http://localhost:8088/atlas`, and the audience `http://localhost:8088/atlas/mcp`.

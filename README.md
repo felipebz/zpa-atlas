@@ -136,7 +136,7 @@ zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--thr
   [--database-version 19] [--ccflags 'name:value, ...'] \
   [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]
 zpa-atlas stats <file.db>
-zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080] [--mcp-allowed-host <name>,...] \
+zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [--mcp-allowed-host <name>,...] \
   [--oidc-issuer URL --public-url URL [--oidc-audience VALUE] [--oidc-scope SCOPE] [--oidc-client-id ID [--oidc-client-secret-env VAR]]]
 ```
 
@@ -150,9 +150,10 @@ zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080
 | `--host`             | `127.0.0.1`                                                                                      |
 | `--port`             | `8080`                                                                                           |
 | `serve --sources`    | the folder recorded in the index                                                                 |
+| `--base-path`        | none: everything at the root. With `/atlas`, everything under `/atlas/` and nothing outside it   |
 | `--mcp-allowed-host` | none: `/mcp` accepts only the `Host` names `localhost`, `127.0.0.1` and `[::1]`                  |
 | `--oidc-issuer`      | none: no authentication. With it, `/mcp` and `/api` need an access token of that provider        |
-| `--public-url`       | none; required with `--oidc-issuer`: the server as clients reach it, such as `https://atlas.example.com` |
+| `--public-url`       | none; required with `--oidc-issuer`: the server as clients reach it, such as `https://atlas.example.com`, plus the base path when there is one |
 | `--oidc-audience`    | the resource, `<public url>/mcp`: what an access token must carry in `aud`                       |
 | `--oidc-scope`       | none: a scope an access token must carry, in `scope` or `scp`                                    |
 | `--oidc-client-id`   | none: the page has no sign-in. With it, people sign in to the page with the provider             |
@@ -163,8 +164,41 @@ zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080
 - In a container: see [docs/container.md](docs/container.md).
 - Without `--oidc-issuer`, `serve` has no authentication: binding to anything but 127.0.0.1 exposes the index and the sources to the network. With it, see [docs/authentication.md](docs/authentication.md).
 - `serve` opens the index for each request only, so `index` can replace the file while the server runs.
+- Under a path, behind a reverse proxy: see [Serving under a base path](#serving-under-a-base-path).
 - The output is a new SQLite file per run, written to a temporary file and renamed at the end.
 - A schema change means re-indexing.
+
+### Serving under a base path
+
+Several applications can share one host, each under its own path, behind one reverse proxy. `--base-path /atlas` (or
+`ZPA_ATLAS_BASE_PATH=/atlas`) serves everything under `/atlas/`: the pages, `/atlas/api/…`, `/atlas/mcp`,
+`/atlas/health`, and, with authentication, the sign-in routes and the metadata document. Any other path answers 404.
+`/atlas` and `/atlas/` are the same base path, and it may have several segments (`/tools/atlas`). It must be a plain
+path: a leading `/`, no `.` or `..` segment, no `//`, `%`, `?`, `#`, backslash, space or control character.
+
+**The proxy passes the path unchanged:** the server receives `/atlas/api/run`, not `/api/run`. A proxy that strips the
+prefix is not supported. The bare `/atlas` redirects to `/atlas/`, keeping the query string: the pages link relatively
+and need the trailing slash. With nginx:
+
+```nginx
+# proxy_pass without a path: the request's path reaches the server as it came
+location = /atlas {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $http_host;
+}
+location /atlas/ {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $http_host;
+    proxy_http_version 1.1;
+    # /atlas/mcp streams events: pass them as they come, and keep a quiet stream open
+    proxy_buffering off;
+    proxy_read_timeout 1h;
+}
+```
+
+The server checks the `Host` header of `/mcp` requests: pass it, and name the host with `--mcp-allowed-host`, or with
+`--public-url` when authentication is on. With authentication, `--public-url` carries the base path, such as
+`https://atlas.example.com/atlas`; see [docs/authentication.md](docs/authentication.md#under-a-base-path).
 
 ## Querying the index with SQL
 

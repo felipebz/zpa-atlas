@@ -109,9 +109,18 @@ docker run -d --name atlas -m 4g -e JAVA_OPTS="-XX:MaxRAMPercentage=75" -p 127.0
 ## Health
 
 `GET /health` (or `HEAD`) answers 200 when the index opens and has the schema version the server reads, and 503
-otherwise. It needs no token or session. The image's `HEALTHCHECK` calls it, on `ZPA_ATLAS_PORT` when that is set, so
-`docker ps` shows the container as healthy. Change the port with `ZPA_ATLAS_PORT`, not with `--port`: the health
-check reads only the variable, and with the option it keeps asking 8080 and the container never becomes healthy.
+otherwise. It needs no token or session. The image's `HEALTHCHECK` calls it, on `ZPA_ATLAS_PORT` and under
+`ZPA_ATLAS_BASE_PATH` when they are set, so `docker ps` shows the container as healthy. Change the port with
+`ZPA_ATLAS_PORT` and the base path with `ZPA_ATLAS_BASE_PATH`, not with `--port` or `--base-path`: the health check reads
+only the variables, and with the options it keeps asking `/health` on 8080 and the container never becomes healthy.
+
+Under a reverse proxy, at `/atlas/` (see the [README](../README.md#serving-under-a-base-path)):
+
+```sh
+docker run -d --name atlas -e ZPA_ATLAS_BASE_PATH=/atlas -e ZPA_ATLAS_MCP_ALLOWED_HOST=server.example.com \
+  -p 127.0.0.1:8080:8080 -v "$PWD/data:/data" -v "$PWD/path/to/sources:/sources:ro" ghcr.io/felipebz/zpa-atlas
+curl -i http://127.0.0.1:8080/atlas/health
+```
 
 ```sh
 curl -i http://127.0.0.1:8080/health

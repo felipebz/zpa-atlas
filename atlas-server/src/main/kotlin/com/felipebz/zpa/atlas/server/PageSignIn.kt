@@ -239,19 +239,66 @@ internal class PageSessions(
             return tokens.firstNotNullOfOrNull { it.subject } ?: "?"
         }
 
-        /** [value] when it is a path on this server: one leading `/`, not `//` or `/\`, no control characters. */
-        fun safeReturn(value: String?): String {
+        /**
+         * [value] when it is a path on this server: one leading `/`, not `//` or `/\`, no control characters. Under
+         * [basePath] its path, with the dot segments resolved as the browser resolves them, must be below it, and is
+         * given relative to it (`/atlas/entity.html` is `/entity.html`), so that the public URL, which ends with the
+         * base path, is not doubled. Anything else is the home page, `/`.
+         */
+        fun safeReturn(value: String?, basePath: BasePath = BasePath.ROOT): String {
             if (value == null || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return "/"
-            return value.takeIf { v -> v.none { it < ' ' || it == '\u007f' } } ?: "/"
+            if (value.any { it < ' ' || it == '\u007f' }) return "/"
+            if (basePath == BasePath.ROOT) return value
+            val end = value.indexOfAny(charArrayOf('?', '#')).let { if (it < 0) value.length else it }
+            val path = resolveDots(value.substring(0, end))
+            val below = when {
+                path == basePath.path -> "/"
+                path.startsWith(basePath.path + "/") -> path.substring(basePath.path.length)
+                else -> return "/"
+            }
+            return safeReturn(below + value.substring(end))
+        }
+
+        /**
+         * [path] with its dot segments resolved as a browser resolves those of an http URL: `\` separates segments as
+         * `/` does, `%2e` in either case is `.`, and a `..` at the root stays at the root.
+         */
+        internal fun resolveDots(path: String): String {
+            val segments = path.replace('\\', '/').split('/').drop(1)
+            val resolved = ArrayList<String>()
+            for ((i, segment) in segments.withIndex()) {
+                val dots = segment.lowercase().replace("%2e", ".")
+                when (dots) {
+                    ".." -> resolved.removeLastOrNull()
+                    "." -> {}
+                    else -> resolved += segment
+                }
+                // A path that ends in a dot segment names a folder: it keeps its trailing `/`.
+                if (i == segments.lastIndex && (dots == "." || dots == "..")) resolved += ""
+            }
+            return "/" + resolved.joinToString("/")
         }
     }
 }
 
 internal class ProviderUnavailableException(cause: Throwable) : RuntimeException(cause.message, cause)
 
+/**
+ * Every value of the cookie [name] in the request. A browser sends one for each path that matches, ports aside: under a
+ * base path, the session cookie of a server at the root of the same host comes too, and only one is this server's.
+ */
+internal fun ApplicationCall.cookieValues(name: String): List<String> =
+    request.headers.getAll(HttpHeaders.Cookie).orEmpty().flatMap { it.split(';') }.map { it.trim() }
+        .filter { it.startsWith("$name=") }.map { it.substring(name.length + 1) }
+
 internal fun Application.pageSignIn(auth: AuthSettings, sessions: PageSessions) {
     val secure = URI(auth.publicUrl).scheme == "https"
     val origin = URI(auth.publicUrl).let { "${it.scheme}://${it.rawAuthority}" }
+    val base = auth.basePath
+    val home = base.of("/")
+    // The cookies go only to this server's paths: another application on the host, or another base path, never gets them.
+    val cookiePath = base.path.ifEmpty { "/" }
+    val loginCookiePath = base.of("/auth")
 
     fun ApplicationCall.cookie(name: String, value: String, path: String, maxAge: Int? = null) = response.headers.append(
         HttpHeaders.SetCookie,
@@ -265,22 +312,22 @@ internal fun Application.pageSignIn(auth: AuthSettings, sessions: PageSessions) 
         response.header(HttpHeaders.CacheControl, "no-store")
         respondText(
             "<!doctype html><html><head><meta charset=\"utf-8\"><title>zpa-atlas</title></head><body>" +
-                "<h1>Sign-in refused</h1><p>${escapeHtml(message)}</p><p><a href=\"/\">zpa-atlas</a></p></body></html>",
+                "<h1>Sign-in refused</h1><p>${escapeHtml(message)}</p><p><a href=\"${escapeHtml(home)}\">zpa-atlas</a></p></body></html>",
             ContentType.Text.Html.withParameter("charset", "utf-8"), status
         )
     }
 
     routing {
-        get("/auth/login") {
-            val (state, url) = sessions.login(PageSessions.safeReturn(call.request.queryParameters["return"]))
-            call.cookie(PageSessions.LOGIN_COOKIE, state, "/auth", maxAge = 600)
+        get(base.of("/auth/login")) {
+            val (state, url) = sessions.login(PageSessions.safeReturn(call.request.queryParameters["return"], base))
+            call.cookie(PageSessions.LOGIN_COOKIE, state, loginCookiePath, maxAge = 600)
             call.response.header(HttpHeaders.CacheControl, "no-store")
             call.respondRedirect(url)
         }
-        get(PageSessions.CALLBACK) {
+        get(base.of(PageSessions.CALLBACK)) {
             val query = call.request.queryParameters
             val bound = call.request.cookies[PageSessions.LOGIN_COOKIE]
-            call.cookie(PageSessions.LOGIN_COOKIE, "", "/auth", maxAge = 0)
+            call.cookie(PageSessions.LOGIN_COOKIE, "", loginCookiePath, maxAge = 0)
             query["error"]?.let { return@get call.refuse(HttpStatusCode.Forbidden, "The identity provider refused the sign-in: $it.") }
             val state = query["state"]
             val code = query["code"]
@@ -300,25 +347,25 @@ internal fun Application.pageSignIn(auth: AuthSettings, sessions: PageSessions) 
                     call.refuse(result.status, result.message)
                 }
                 is PageSessions.SignIn.Done -> {
-                    call.cookie(PageSessions.COOKIE, result.sessionId, "/")
+                    call.cookie(PageSessions.COOKIE, result.sessionId, cookiePath)
                     call.respondRedirect("${auth.base}${result.returnTo}")
                 }
             }
         }
-        post("/auth/logout") {
+        post(base.of("/auth/logout")) {
             val requestOrigin = call.request.headers[HttpHeaders.Origin]
             val referer = call.request.headers[HttpHeaders.Referrer]
             val sameSite = if (requestOrigin != null) requestOrigin == origin else referer != null && (referer == auth.base || referer.startsWith("${auth.base}/"))
             if (!sameSite) return@post call.respondJson(ApiError("Sign out from the page of this server"), HttpStatusCode.Forbidden)
-            val ended = call.request.cookies[PageSessions.COOKIE]?.let { sessions.end(it) }
-            call.cookie(PageSessions.COOKIE, "", "/", maxAge = 0)
+            val ended = call.cookieValues(PageSessions.COOKIE).firstNotNullOfOrNull { sessions.end(it) }
+            call.cookie(PageSessions.COOKIE, "", cookiePath, maxAge = 0)
             call.response.header(HttpHeaders.Location, sessions.logoutUrl(ended))
             call.respondText("", status = HttpStatusCode.SeeOther)
         }
-        get("/auth/me") {
+        get(base.of("/auth/me")) {
             call.response.header(HttpHeaders.CacheControl, "no-store")
             val session = try {
-                call.request.cookies[PageSessions.COOKIE]?.let { sessions.access(it) }
+                call.cookieValues(PageSessions.COOKIE).firstNotNullOfOrNull { sessions.access(it) }
             } catch (_: ProviderUnavailableException) {
                 null
             }

@@ -27,14 +27,23 @@ import java.net.URI
  *
  * @param issuer the provider's issuer URL: its discovery document, at `<issuer>/.well-known/openid-configuration`,
  *     names its signing keys, and an access token's `iss` must be this
- * @param publicUrl the server as clients reach it, such as `https://atlas.example.com`: no path. `http` is allowed
- *     for a loopback host only. The resource a token is for is this plus `/mcp`
+ * @param publicUrl the server as clients reach it, such as `https://atlas.example.com`: no path but [basePath]
+ *     (`https://atlas.example.com/atlas` under `/atlas`). `http` is allowed for a loopback host only. The resource a
+ *     token is for is this plus `/mcp`
  * @param audience the value an access token carries in `aud`; the resource by default. It must not be the id of a
  *     client that signs users in: an ID token's `aud` is that, and the audience is what refuses it
  * @param scope a scope an access token must carry, in `scope` or `scp`; none required by default
  * @param page the client the page signs in with; without it, the page has no sign-in. Its id must not be the audience
+ * @param basePath the path the server is served under, which the public URL's path must be
  */
-data class AuthSettings(val issuer: String, val publicUrl: String, val audience: String? = null, val scope: String? = null, val page: PageClient? = null) {
+data class AuthSettings(
+    val issuer: String,
+    val publicUrl: String,
+    val audience: String? = null,
+    val scope: String? = null,
+    val page: PageClient? = null,
+    val basePath: BasePath = BasePath.ROOT
+) {
     val base: String = publicUrl.trimEnd('/')
 
     val resource: String = "$base/mcp"
@@ -53,8 +62,13 @@ data class AuthSettings(val issuer: String, val publicUrl: String, val audience:
         require(publicUri.scheme == "https" || publicUri.scheme == "http" && isLoopback(publicUri.host)) {
             "The public URL must be https, or http for localhost: $publicUrl"
         }
-        require(publicUri.host != null && publicUri.rawPath.orEmpty().trim('/').isEmpty() && publicUri.rawQuery == null && publicUri.rawFragment == null && publicUri.rawUserInfo == null) {
+        require(publicUri.host != null && publicUri.rawQuery == null && publicUri.rawFragment == null && publicUri.rawUserInfo == null) {
             "The public URL is the server's address alone, such as https://atlas.example.com: $publicUrl"
+        }
+        val path = publicUri.rawPath.orEmpty().trimEnd('/')
+        require(path == basePath.path) {
+            if (basePath == BasePath.ROOT) "The public URL is the server's address alone, such as https://atlas.example.com, unless a base path is set: $publicUrl"
+            else "The public URL's path ${path.ifEmpty { "(none)" }} is not the base path ${basePath.path}: $publicUrl"
         }
         require(audience == null || audience.isNotBlank()) { "The audience is empty" }
         require(scope == null || scope.isNotBlank() && scope.none { it.isWhitespace() || it == '"' }) { "The scope is one token, without spaces or quotes" }
@@ -99,7 +113,7 @@ internal fun Application.atlasAuth(auth: AuthSettings, identity: IdentityInstall
         put("bearer_methods_supported", JsonArray(listOf(JsonPrimitive("header"))))
     }.toString()
     routing {
-        get("/${AuthSettings.METADATA_PATH}/mcp") {
+        get(auth.basePath.of("/${AuthSettings.METADATA_PATH}/mcp")) {
             call.response.header(HttpHeaders.CacheControl, "no-store")
             call.respondText(metadata, ContentType.Application.Json, HttpStatusCode.OK)
         }

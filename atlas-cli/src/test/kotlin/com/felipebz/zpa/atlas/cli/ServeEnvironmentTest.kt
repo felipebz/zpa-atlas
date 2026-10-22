@@ -105,6 +105,22 @@ class ServeEnvironmentTest {
     }
 
     @Test
+    fun `the base path comes from the environment, a bad one stops serve, and the public URL must carry it`() {
+        val base = mapOf("ZPA_ATLAS_DB" to database().toString(), "ZPA_ATLAS_SOURCES" to sources().toString())
+        val (code, launch) = serve(base + ("ZPA_ATLAS_BASE_PATH" to "/tools/atlas/"))
+        assertThat(code).isEqualTo(0)
+        assertThat(launch!!.basePath.path).isEqualTo("/tools/atlas")
+        assertThat(serve(base).second!!.basePath.path).isEmpty()
+        assertThat(serve(base, "--base-path", "atlas").first).isEqualTo(2)
+        assertThat(serve(base + ("ZPA_ATLAS_BASE_PATH" to "/atlas/../x")).first).isEqualTo(2)
+        val signedIn = base + oidc + ("ZPA_ATLAS_BASE_PATH" to "/atlas")
+        assertThat(serve(signedIn).first).isEqualTo(2)
+        val (withPath, auth) = serve(signedIn + ("ZPA_ATLAS_PUBLIC_URL" to "https://atlas.example.com/atlas"))
+        assertThat(withPath).isEqualTo(0)
+        assertThat(auth!!.auth!!.resource).isEqualTo("https://atlas.example.com/atlas/mcp")
+    }
+
+    @Test
     fun `the help names the variable of every option of serve, and none is the start script's`() {
         val options = ServeArguments::class.java.declaredFields.mapNotNull { it.getAnnotation(Parameter::class.java) }
         assertThat(options).isNotEmpty.allSatisfy { option ->

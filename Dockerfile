@@ -49,9 +49,9 @@ WORKDIR /data
 VOLUME ["/data"]
 EXPOSE 8080
 
-# On the port the server listens on: ZPA_ATLAS_PORT when it is set.
+# On the port the server listens on, ZPA_ATLAS_PORT when it is set, and under ZPA_ATLAS_BASE_PATH when that is set.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD wget -q -O /dev/null "http://127.0.0.1:${ZPA_ATLAS_PORT:-8080}/health" || exit 1
+    CMD wget -q -O /dev/null "http://127.0.0.1:${ZPA_ATLAS_PORT:-8080}${ZPA_ATLAS_BASE_PATH%/}/health" || exit 1
 
 # The start script ends in `exec java`: java is PID 1 and gets the stop signal.
 ENTRYPOINT ["/opt/zpa-atlas/bin/zpa-atlas"]

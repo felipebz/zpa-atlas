@@ -15,7 +15,7 @@ zpa-atlas serve --db atlas.db --host 0.0.0.0 \
 | Option            | Meaning                                                                                              |
 |-------------------|------------------------------------------------------------------------------------------------------|
 | `--oidc-issuer`   | The provider's issuer URL. Turns authentication on.                                                  |
-| `--public-url`    | The server as clients reach it, without a path. Required with `--oidc-issuer`.                       |
+| `--public-url`    | The server as clients reach it, without a path but the base path. Required with `--oidc-issuer`.     |
 | `--oidc-audience` | What an access token must carry in `aud`. Default: the resource, `<public url>/mcp`.                 |
 | `--oidc-scope`    | A scope an access token must carry. Default: none.                                                   |
 | `--oidc-client-id` | The page's client id. Turns the page sign-in on.                                                    |
@@ -65,7 +65,7 @@ flow, with PKCE S256, `state` and `nonce`, and keeps the tokens: the browser hol
   scope. Back at the callback, the access token the provider gave is checked as a bearer token is: issuer, audience,
   expiry, scope. A person whose token would be refused on `/mcp` gets a short error page and no session. The ID token
   must be for the client and carry the nonce of the sign-in.
-- **The session:** the cookie `atlas_session`, `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when the public URL is
+- **The session:** the cookie `atlas_session`, `HttpOnly`, `SameSite=Lax`, `Path=/` (the base path, under one), and `Secure` when the public URL is
   `https`. When the access token expires, the server refreshes it with the refresh token; without one, or when the
   provider refuses, the session ends. Sessions are kept in memory: **a restart signs everyone out.**
 - **Where the session counts:** `/api` accepts it, as it accepts a bearer token. `/mcp` never does: it takes only a bearer
@@ -90,6 +90,40 @@ flow, with PKCE S256, `state` and `nonce`, and keeps the tokens: the browser hol
 ```
 
 `scopes_supported` is present only with `--oidc-scope`.
+
+## Under a base path
+
+With `--base-path /atlas` (see the [README](../README.md#serving-under-a-base-path)), the public URL is the address
+clients use, base path included, and the server refuses to start when its path is another one:
+
+```sh
+zpa-atlas serve --db atlas.db --host 0.0.0.0 --base-path /atlas \
+  --oidc-issuer https://id.example.com/realms/atlas \
+  --public-url https://atlas.example.com/atlas \
+  --oidc-client-id atlas-web
+```
+
+Everything above then holds under the base path:
+
+- **The resource and default audience** are `https://atlas.example.com/atlas/mcp`.
+- **The metadata document** is at `https://atlas.example.com/atlas/.well-known/oauth-protected-resource/mcp`, and the
+  `resource_metadata` of `WWW-Authenticate` points there. Its `resource` is the `/mcp` URL the client used.
+- **At the provider,** register the page's redirect URI `https://atlas.example.com/atlas/auth/callback` and the post
+  logout redirect URI `https://atlas.example.com/atlas`. The audience mapper gives `https://atlas.example.com/atlas/mcp`.
+- **The cookies** have `Path=/atlas` (and `/atlas/auth` while a sign-in runs): another application on the host, or
+  another atlas under `/atlas2`, never receives them. After sign-in the browser lands on the page it came from, under
+  the base path; a return path outside it lands on the base path's home page.
+- **A client that ignores the header.** RFC 9728 derives the metadata location from the resource by inserting the
+  well-known path after the host: `https://atlas.example.com/.well-known/oauth-protected-resource/atlas/mcp`. That is
+  outside the base path, so the server cannot answer it. The MCP authorization spec makes a client use the header's URL
+  when there is one; for a client that does not, route the derived location to the server's document at the proxy:
+
+  ```nginx
+  location = /.well-known/oauth-protected-resource/atlas/mcp {
+      proxy_pass http://127.0.0.1:8080/atlas/.well-known/oauth-protected-resource/mcp;
+      proxy_set_header Host $http_host;
+  }
+  ```
 
 ## What the provider must give
 

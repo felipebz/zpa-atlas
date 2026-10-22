@@ -82,11 +82,11 @@ val MCP_LOCAL_HOSTS = listOf("localhost", "127.0.0.1", "[::1]")
  * [MCP_LOCAL_HOSTS], [McpSettings.allowedHosts] and the host of [AuthSettings.publicUrl] are refused. The token check
  * of [AuthSettings] is not here: it answers before this route is reached.
  */
-fun Application.atlasMcp(index: AtlasIndex, settings: McpSettings, auth: AuthSettings? = null) {
+fun Application.atlasMcp(index: AtlasIndex, settings: McpSettings, auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT) {
     val hosts = (MCP_LOCAL_HOSTS + settings.allowedHosts + listOfNotNull(auth?.publicHost)).distinct()
-    install(ClosedToolSchemas)
+    install(ClosedToolSchemas) { path = basePath.of("/mcp") }
     mcpStreamableHttp(
-        path = "/mcp",
+        path = basePath.of("/mcp"),
         allowedHosts = hosts,
         // With hosts of its own the SDK checks no Origin: check it against the same names.
         allowedOrigins = hosts.map { "http://$it" },
@@ -98,10 +98,16 @@ fun Application.atlasMcp(index: AtlasIndex, settings: McpSettings, auth: AuthSet
  * Adds `"additionalProperties": false` to every input schema of a `tools/list` answer on `/mcp`. The tools refuse an
  * argument they do not know; the SDK's `ToolSchema` has no field to say so, so the answer's JSON is completed here.
  */
-private val ClosedToolSchemas = createApplicationPlugin("ClosedToolSchemas") {
+private class ClosedToolSchemasConfig {
+    /** The path of the MCP endpoint, under the base path. */
+    var path = "/mcp"
+}
+
+private val ClosedToolSchemas = createApplicationPlugin("ClosedToolSchemas", ::ClosedToolSchemasConfig) {
+    val path = pluginConfig.path
     // Installed before the SDK's ContentNegotiation, so the answer is still the SDK's object here, not compressed bytes.
     onCallRespond { call, body ->
-        if (call.request.path() != "/mcp" || body !is JSONRPCResponse || body.result !is ListToolsResult) return@onCallRespond
+        if (call.request.path() != path || body !is JSONRPCResponse || body.result !is ListToolsResult) return@onCallRespond
         transformBody {
             val answer = McpJson.encodeToJsonElement(JSONRPCResponse.serializer(), body).jsonObject
             val result = answer.getValue("result").jsonObject

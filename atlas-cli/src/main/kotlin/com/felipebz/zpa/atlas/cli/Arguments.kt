@@ -89,6 +89,13 @@ class ServeArguments {
     var port: Int = 8080
 
     @Parameter(
+        names = ["--base-path"],
+        description = "The path to serve everything under, such as /atlas, behind a reverse proxy that passes the path unchanged " +
+            "(default: the root). Nothing outside it is answered [env ZPA_ATLAS_BASE_PATH]"
+    )
+    var basePath: String = ""
+
+    @Parameter(
         names = ["--mcp-allowed-host"],
         description = "A host name /mcp accepts besides localhost, 127.0.0.1 and [::1]: the name or address clients on other machines " +
             "use to reach this server (comma-separated or repeated). /mcp refuses any other Host, against DNS rebinding [env ZPA_ATLAS_MCP_ALLOWED_HOST]"
@@ -104,7 +111,8 @@ class ServeArguments {
 
     @Parameter(
         names = ["--public-url"],
-        description = "The server's address as clients reach it, such as https://atlas.example.com (no path; http only for localhost). " +
+        description = "The server's address as clients reach it, such as https://atlas.example.com (no path but --base-path, as in " +
+            "https://atlas.example.com/atlas; http only for localhost). " +
             "Required with --oidc-issuer: the resource is this plus /mcp, and its host is accepted by /mcp [env ZPA_ATLAS_PUBLIC_URL]"
     )
     var publicUrl: String = ""

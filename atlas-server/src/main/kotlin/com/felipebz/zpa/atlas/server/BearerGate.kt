@@ -47,7 +47,7 @@ internal class BearerGateConfig {
  * With the page sign-in, `/api` also accepts the session cookie of [PageSessions] when there is no `Authorization`
  * header. That is safe because every `/api` route is GET and the cookie is `SameSite=Lax`: another site can make the
  * browser send it only on a top-level navigation, whose answer it cannot read. `/mcp` takes POST requests, so it never
- * accepts the cookie. Any new route that serves data must be under `/api` or `/mcp`, the only paths this gate protects.
+ * accepts the cookie. Any new route that serves data must be under `/api` or `/mcp` of the base path, the only paths this gate protects.
  */
 internal val BearerGate = createApplicationPlugin("BearerGate", ::BearerGateConfig) {
     val auth = pluginConfig.auth
@@ -55,12 +55,11 @@ internal val BearerGate = createApplicationPlugin("BearerGate", ::BearerGateConf
     val sessions = pluginConfig.sessions
     val resourceMetadata = "resource_metadata=\"${auth.metadataUrl}\""
     onCall { call ->
-        val area = protectedArea(call) ?: return@onCall
+        val area = protectedArea(call, auth.basePath) ?: return@onCall
         val authorization = call.request.headers.getAll(HttpHeaders.Authorization)
         if (area == "api" && authorization == null && sessions != null) {
-            val id = call.request.cookies[PageSessions.COOKIE]
             val session = try {
-                id?.let { sessions.access(it) }
+                call.cookieValues(PageSessions.COOKIE).firstNotNullOfOrNull { sessions.access(it) }
             } catch (e: ProviderUnavailableException) {
                 call.application.log.warn("Session not refreshed: the token endpoint cannot be reached: {}", e.message)
                 return@onCall call.respondJson(ApiError("The identity provider cannot be reached to check the session; try again later"), HttpStatusCode.ServiceUnavailable)
@@ -86,9 +85,9 @@ internal val BearerGate = createApplicationPlugin("BearerGate", ::BearerGateConf
     }
 }
 
-private fun protectedArea(call: ApplicationCall): String? {
-    val first = call.request.path().split('/').firstOrNull { it.isNotEmpty() } ?: return null
-    val name = try { first.decodeURLPart() } catch (_: Exception) { return "mcp" }
+private fun protectedArea(call: ApplicationCall, basePath: BasePath): String? {
+    val name = basePath.firstBelow(call.request.path()) ?: return null
+    if (name == BasePath.UNDECODABLE) return "mcp"
     return name.takeIf { it == "mcp" || it == "api" }
 }
 

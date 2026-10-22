@@ -20,6 +20,7 @@ import com.felipebz.zpa.atlas.index.SourceIdentifiers
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.server.AuthDiscoveryException
 import com.felipebz.zpa.atlas.server.AuthSettings
+import com.felipebz.zpa.atlas.server.BasePath
 import com.felipebz.zpa.atlas.server.MCP_LOCAL_HOSTS
 import com.felipebz.zpa.atlas.server.McpSettings
 import com.felipebz.zpa.atlas.server.PageClient
@@ -116,10 +117,18 @@ private fun conditionalCompilation(
 }
 
 /** What `serve` starts, once its options are checked. */
-internal class ServeLaunch(val database: Path, val sources: Path?, val host: String, val port: Int, val mcp: McpSettings, val auth: AuthSettings?)
+internal class ServeLaunch(
+    val database: Path,
+    val sources: Path?,
+    val host: String,
+    val port: Int,
+    val mcp: McpSettings,
+    val auth: AuthSettings?,
+    val basePath: BasePath
+)
 
 private fun launch(serve: ServeLaunch) =
-    com.felipebz.zpa.atlas.server.serve(AtlasIndex(serve.database, serve.sources), serve.host, serve.port, serve.mcp, serve.auth)
+    com.felipebz.zpa.atlas.server.serve(AtlasIndex(serve.database, serve.sources), serve.host, serve.port, serve.mcp, serve.auth, serve.basePath)
 
 private fun serve(args: ServeArguments, environment: (String) -> String?, launch: (ServeLaunch) -> Unit): Int {
     if (args.db.isBlank()) throw CliValidationException("The option is required: --db (or ${environmentName("--db")})")
@@ -135,9 +144,15 @@ private fun serve(args: ServeArguments, environment: (String) -> String?, launch
     if (mcpHosts.any { it.any { c -> c in "/@?#:" && !(it.startsWith("[") && it.endsWith("]")) } }) {
         throw CliValidationException("--mcp-allowed-host takes host names or addresses, without scheme or port")
     }
-    val auth = authSettings(args, environment)
-    System.err.println("Serving ${args.db} on http://${args.host}:${args.port}/ (sources: ${sources ?: "not available"})")
-    System.err.println("MCP at http://${args.host}:${args.port}/mcp, for Host ${(MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")}")
+    val basePath = try {
+        BasePath.parse(args.basePath.trim())
+    } catch (e: IllegalArgumentException) {
+        throw CliValidationException(e.message ?: "Invalid base path")
+    }
+    val auth = authSettings(args, environment, basePath)
+    val address = "http://${args.host}:${args.port}"
+    System.err.println("Serving ${args.db} on $address${basePath.of("/")} (sources: ${sources ?: "not available"})")
+    System.err.println("MCP at $address${basePath.of("/mcp")}, for Host ${(MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")}")
     if (auth != null) {
         System.err.println("Authentication: /mcp and /api need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
             (auth.scope?.let { " and scope $it" } ?: ""))
@@ -149,12 +164,12 @@ private fun serve(args: ServeArguments, environment: (String) -> String?, launch
     if (args.host !in MCP_LOCAL_HOSTS && mcpHosts.isEmpty() && auth == null) {
         System.err.println("Warning: /mcp accepts only local host names; clients on other machines need --mcp-allowed-host with the name they use")
     }
-    launch(ServeLaunch(database, sources, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth))
+    launch(ServeLaunch(database, sources, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath))
     return 0
 }
 
 /** The authentication [args] ask for, or null without `--oidc-issuer`; the other options without it are an error. */
-private fun authSettings(args: ServeArguments, environment: (String) -> String?): AuthSettings? {
+private fun authSettings(args: ServeArguments, environment: (String) -> String?, basePath: BasePath): AuthSettings? {
     if (args.oidcIssuer.isBlank()) {
         val orphan = listOf(
             "--public-url" to args.publicUrl, "--oidc-audience" to args.oidcAudience, "--oidc-scope" to args.oidcScope,
@@ -174,7 +189,7 @@ private fun authSettings(args: ServeArguments, environment: (String) -> String?)
     }
     return try {
         val page = args.oidcClientId.trim().takeIf { it.isNotEmpty() }?.let { PageClient(it, secret) }
-        AuthSettings(args.oidcIssuer.trim(), args.publicUrl.trim(), args.oidcAudience.trim().ifEmpty { null }, args.oidcScope.trim().ifEmpty { null }, page)
+        AuthSettings(args.oidcIssuer.trim(), args.publicUrl.trim(), args.oidcAudience.trim().ifEmpty { null }, args.oidcScope.trim().ifEmpty { null }, page, basePath)
     } catch (e: IllegalArgumentException) {
         throw CliValidationException(e.message ?: "Invalid authentication options")
     }

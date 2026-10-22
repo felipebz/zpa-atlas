@@ -22,6 +22,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.ApplicationStopped
+import io.ktor.server.application.createApplicationPlugin
 import io.ktor.server.application.install
 import io.ktor.server.application.log
 import io.ktor.server.cio.CIO
@@ -33,8 +34,11 @@ import io.ktor.server.plugins.compression.excludeContentType
 import io.ktor.server.plugins.compression.gzip
 import io.ktor.server.plugins.compression.minimumSize
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.path
+import io.ktor.server.request.queryString
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.head
@@ -73,10 +77,11 @@ internal suspend inline fun <reified T> ApplicationCall.respondJson(value: T, st
  * @param mcp the host names `/mcp` accepts besides the local ones, and its stream settings
  * @param auth when given, `/mcp` and `/api` answer only requests with an access token of that issuer, and the
  *     protected resource metadata is served; the static page stays open. Without it, nothing is checked
+ * @param basePath the path everything is served under; outside it, nothing is answered. [auth]'s must be the same
  * @throws AuthDiscoveryException when [auth] is given and its issuer's discovery document cannot be read
  */
-fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null) =
-    atlasModule(index, mcp, auth, { oidcIdentity(it) }) {
+fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT) =
+    atlasModule(index, mcp, auth, { oidcIdentity(it) }, basePath) {
         HttpClient(io.ktor.client.engine.cio.CIO).also { client -> monitor.subscribe(ApplicationStopped) { client.close() } }
     }
 
@@ -85,8 +90,11 @@ internal fun Application.atlasModule(
     mcp: McpSettings,
     auth: AuthSettings?,
     identity: IdentityInstaller,
+    basePath: BasePath = BasePath.ROOT,
     providerClient: () -> HttpClient
 ) {
+    require(auth == null || auth.basePath == basePath) { "The authentication settings are for base path ${auth?.basePath}, not $basePath" }
+    if (basePath != BasePath.ROOT) install(BareBasePathRedirect) { path = basePath.path }
     install(Compression) {
         gzip { priority = 1.0; minimumSize(COMPRESSION_MINIMUM_BYTES) }
         deflate { priority = 0.9; minimumSize(COMPRESSION_MINIMUM_BYTES) }
@@ -100,7 +108,7 @@ internal fun Application.atlasModule(
     }
     auth?.let { atlasAuth(it, identity, providerClient) }
     routing {
-        route("/api") {
+        route(basePath.of("/api")) {
             get("/run") { call.respondJson(index.run()) }
             // The code lists read no index: this answers without one, so it has no run stamp.
             get("/codes") { call.respondJson(indexCodes()) }
@@ -202,13 +210,30 @@ internal fun Application.atlasModule(
             }
         }
         // Outside the gate: a probe has no token. It answers whether the index opens, nothing of what is in it.
-        route("/health") {
+        route(basePath.of("/health")) {
             get { call.health(index, head = false) }
             head { call.health(index, head = true) }
         }
-        staticResources("/", "web", index = "index.html")
+        staticResources(basePath.of("/"), "web", index = "index.html")
     }
-    atlasMcp(index, mcp, auth)
+    atlasMcp(index, mcp, auth, basePath)
+}
+
+private class BareBasePathConfig {
+    var path = ""
+}
+
+/**
+ * The bare base path (`/atlas`) answers with a redirect to `/atlas/`, its query string kept: the pages link and ask
+ * relatively, and against `/atlas` they would resolve against the host's root.
+ */
+private val BareBasePathRedirect = createApplicationPlugin("BareBasePathRedirect", ::BareBasePathConfig) {
+    val path = pluginConfig.path
+    onCall { call ->
+        if (call.request.path() != path) return@onCall
+        val query = call.request.queryString()
+        call.respondRedirect(path + "/" + if (query.isEmpty()) "" else "?$query")
+    }
 }
 
 private suspend fun ApplicationCall.health(index: AtlasIndex, head: Boolean) {
@@ -268,8 +293,8 @@ private fun ApplicationCall.long(name: String): Long? =
  * @throws AuthDiscoveryException when [auth] is given and its issuer's discovery document cannot be read: the server
  *     does not start
  */
-fun serve(index: AtlasIndex, host: String, port: Int, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null) {
-    val server = embeddedServer(CIO, host = host, port = port) { atlasModule(index, mcp, auth) }
+fun serve(index: AtlasIndex, host: String, port: Int, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT) {
+    val server = embeddedServer(CIO, host = host, port = port) { atlasModule(index, mcp, auth, basePath) }
     try {
         server.start(wait = true)
     } catch (e: Throwable) {
