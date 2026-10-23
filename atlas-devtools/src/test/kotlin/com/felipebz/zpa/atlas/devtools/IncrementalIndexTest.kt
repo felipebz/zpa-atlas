@@ -149,4 +149,43 @@ class IncrementalIndexTest {
         assertThat(result.identical).describedAs(result.lines.filterNot { it.contains(": same (") }.joinToString("\n")).isTrue()
         assertThat(Fixture.query(full, "SELECT count(*) FROM relation WHERE kind = 'SYNONYM_FOR'").single().toInt()).isGreaterThan(0)
     }
+
+    private val upperCaseLonger = """
+        create or replace function f_straße(p number) return number is
+        begin
+          return p;
+        end;
+        /
+    """.trimIndent() + "\n"
+
+    private val callerOfIt = """
+        create or replace procedure uses_it is
+          v number;
+        begin
+          v := f_straße(1);
+        end;
+        /
+    """.trimIndent() + "\n"
+
+    /** Sources of their own instead of the fixture's. */
+    private fun ownSources(vararg files: Pair<String, String>) {
+        sources = Files.createDirectory(temp.resolve("own"))
+        files.forEach { (name, text) -> sources.resolve(name).writeText(text) }
+    }
+
+    @Test
+    fun `a caller of a name whose upper case is longer is walked when its signature changes`() {
+        ownSources("f.fun" to upperCaseLonger, "u.prc" to callerOfIt)
+        bothRuns("first run")
+        edit("f.fun", "f_straße(p number)", "f_straße(p number, q number default 0)")
+        assertThat(walkedIn(bothRuns("signature changed"))).isEqualTo(2)
+    }
+
+    @Test
+    fun `a caller of a name whose upper case is longer is walked when the name appears`() {
+        ownSources("u.prc" to callerOfIt)
+        bothRuns("first run")
+        sources.resolve("f.fun").writeText(upperCaseLonger)
+        assertThat(walkedIn(bothRuns("declaration added"))).isEqualTo(2)
+    }
 }

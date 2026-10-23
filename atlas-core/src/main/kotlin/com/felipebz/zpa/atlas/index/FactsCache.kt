@@ -15,6 +15,7 @@ import com.felipebz.zpa.atlas.model.CoverageFact
 import com.felipebz.zpa.atlas.model.EntityFact
 import com.felipebz.zpa.atlas.model.FileFacts
 import com.felipebz.zpa.atlas.model.OccurrenceFact
+import com.felipebz.zpa.atlas.model.ParseStatus
 import com.felipebz.zpa.atlas.model.RelationFact
 import com.felipebz.zpa.atlas.model.SourceSpan
 import com.felipebz.zpa.atlas.model.StatementFact
@@ -29,9 +30,6 @@ import java.io.EOFException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.security.DigestInputStream
-import java.security.DigestOutputStream
-import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
 import java.util.zip.Deflater
 import java.util.zip.GZIPOutputStream
@@ -53,8 +51,13 @@ internal class CachedFile(
     val declarations: List<CachedDeclaration>,
     /** What the run's declaration catalog gives this file (keys, roles, implemented specifications), positions left out. */
     val catalogDigest: String,
-    val facts: FileFacts
+    /** The file's facts, without their dictionary relations: those come back from the run's dictionary, by [relations]. */
+    val facts: FileFacts,
+    val relations: List<RelationReference>
 )
+
+/** A dictionary relation a file resolved, as written in the cache: the spellings to look it up by, and its key. */
+internal class RelationReference(val schema: String, val name: String, val key: String)
 
 /** An object type spec as the walks read it: its members and its supertype. */
 internal class TypeSummary(val members: String, val supertype: String?)
@@ -79,17 +82,19 @@ internal class CacheContents(
 
 internal class DamagedCacheException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
-/** The cache was written with other [inputs][CacheContents.inputs]: [input] is the first that differs. */
-internal class CacheMismatchException(val input: String) : Exception(input)
-
 /**
  * The facts cache of `index --incremental`, beside the index file. Gzip-compressed; strings are written once and then
- * referred to by number. It ends with the SHA-256 of what precedes it: a cache cut short or altered is refused, and it
- * is written to a temporary file moved over the old one, so a run killed midway leaves the old cache or none.
+ * referred to by number. It ends with a marker, and is read to the end of the gzip stream, whose checksum and length
+ * gzip checks: a cache cut short or altered is refused. It is written to a temporary file moved over the old one, so a
+ * run killed midway leaves the old cache or none.
+ *
+ * Reading it needs nothing of the run: its [inputs][CacheContents.inputs] are compared, and its dictionary relations
+ * taken back, by the caller. So it can be read while the dictionary is still loading.
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 1
+    private const val FORMAT = 2
+    private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
     fun pathFor(index: Path): Path = index.resolveSibling(index.fileName.toString() + ".facts")
@@ -97,17 +102,16 @@ internal object FactsCache {
     fun write(target: Path, contents: CacheContents) {
         val temporary = Files.createTempFile(target.toAbsolutePath().parent, target.fileName.toString(), ".tmp")
         try {
-            val digest = MessageDigest.getInstance("SHA-256")
             // The fastest level: the cache is written on every run, and its strings are already written once each.
             object : GZIPOutputStream(BufferedOutputStream(Files.newOutputStream(temporary)), 1 shl 16) {
                 init {
                     def.setLevel(Deflater.BEST_SPEED)
                 }
             }.use { gzip ->
-                val out = Output(DataOutputStream(DigestOutputStream(gzip, digest)))
+                val out = Output(DataOutputStream(BufferedOutputStream(gzip, 1 shl 16)))
                 out.contents(contents)
+                out.data.writeUTF(END)
                 out.data.flush()
-                gzip.write(digest.digest())
             }
             Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
         } finally {
@@ -116,30 +120,44 @@ internal object FactsCache {
     }
 
     /**
-     * The cache at [source], when it was written with [inputs]. Its dictionary relations are taken back from
-     * [dictionary], the one [inputs] describes.
+     * The cache at [source].
      *
-     * @throws CacheMismatchException when it was written with other inputs
      * @throws DamagedCacheException when it is not a whole cache of this format
      */
-    fun read(source: Path, dictionary: AtlasDictionary, inputs: Map<String, String>): CacheContents = try {
-        val digest = MessageDigest.getInstance("SHA-256")
-        GZIPInputStream(BufferedInputStream(Files.newInputStream(source)), 1 shl 16).use { gzip ->
-            val input = Input(DataInputStream(DigestInputStream(gzip, digest)), dictionary, inputs)
-            val contents = input.contents()
-            val expected = digest.digest()
-            val stored = gzip.readNBytes(expected.size)
-            if (!stored.contentEquals(expected) || gzip.read() != -1) throw DamagedCacheException("its checksum does not match")
+    fun read(source: Path): CacheContents = try {
+        GZIPInputStream(BufferedInputStream(Files.newInputStream(source), 1 shl 16), 1 shl 16).use { gzip ->
+            val data = DataInputStream(BufferedInputStream(gzip, 1 shl 16))
+            val contents = Input(data).contents()
+            // Reading past the marker makes gzip check its checksum and length.
+            if (data.readUTF() != END || data.read() != -1) throw DamagedCacheException("it does not end where it should")
             contents
         }
     } catch (e: DamagedCacheException) {
-        throw e
-    } catch (e: CacheMismatchException) {
         throw e
     } catch (e: EOFException) {
         throw DamagedCacheException("it ends early", e)
     } catch (e: Exception) {
         throw DamagedCacheException(e.message ?: e.javaClass.simpleName, e)
+    }
+
+    /**
+     * The facts of [file] with their dictionary relations taken back from [dictionary], the one the cache was written
+     * with.
+     *
+     * @throws DamagedCacheException when [dictionary] lacks one of them
+     */
+    fun withRelations(file: CachedFile, dictionary: AtlasDictionary, byKey: Map<String, ProjectExternalRelation>): FileFacts {
+        if (file.relations.isEmpty()) return file.facts
+        val relations = file.relations.map { reference ->
+            byKey[reference.key] ?: dictionary.metadata.findRelation(ProjectIdentifier.fromSource(reference.schema), ProjectIdentifier.fromSource(reference.name))
+                .relation.orElse(null)?.takeIf { RelationResolver.dictionaryKey(it) == reference.key }
+            ?: throw DamagedCacheException("the dictionary has no relation ${reference.key}")
+        }
+        val facts = file.facts
+        return FileFacts(
+            facts.path, facts.sha256, facts.sizeBytes, facts.encoding, facts.parseStatus, facts.recoveredRegions, facts.compilationSchema, facts.units,
+            facts.statements, facts.occurrences, facts.entities, facts.relations, facts.coverage, relations, facts.dictionarySynonyms, facts.triggerEvents
+        )
     }
 
     private class Output(val data: DataOutputStream) {
@@ -265,23 +283,26 @@ internal object FactsCache {
         }
     }
 
-    private class Input(val data: DataInputStream, private val dictionary: AtlasDictionary, private val expected: Map<String, String>) {
+    private class Input(val data: DataInputStream) {
         private val pool = ArrayList<String>()
-        private val relations by lazy { dictionary.relations.associate { RelationResolver.dictionaryKey(it.relation) to it.relation } }
 
         fun contents(): CacheContents {
             if (data.readUTF() != MAGIC) throw DamagedCacheException("it is not a facts cache")
             val format = data.readInt()
             if (format != FORMAT) throw DamagedCacheException("its format is $format, not $FORMAT")
             val inputs = map()
-            (expected.keys.firstOrNull { inputs[it] != expected[it] } ?: inputs.keys.firstOrNull { it !in expected })?.let { throw CacheMismatchException(it) }
             val preparation = string()
             val schemas = strings().toSet()
             val omitted = strings().toSet()
             val types = count()
             val global = CacheGlobal(preparation, schemas, omitted, buildMap { repeat(types) { put(string(), TypeSummary(string(), nullable())) } })
             val files = List(count()) {
-                CachedFile(string(), string(), List(count()) { CachedDeclaration(string(), string(), strings().toSet()) }, string(), facts())
+                val path = string()
+                val sha256 = string()
+                val declarations = List(count()) { CachedDeclaration(string(), string(), strings().toSet()) }
+                val digest = string()
+                val (facts, relations) = facts()
+                CachedFile(path, sha256, declarations, digest, facts, relations)
             }
             return CacheContents(inputs, global, files)
         }
@@ -312,24 +333,28 @@ internal object FactsCache {
 
         fun <T> list(read: () -> T): List<T> = List(count()) { read() }
 
-        fun facts(): FileFacts = FileFacts(
-            path = string(),
-            sha256 = string(),
-            sizeBytes = data.readLong(),
-            encoding = string(),
-            parseStatus = enumValueOf(string()),
-            recoveredRegions = data.readInt(),
-            compilationSchema = nullable(),
-            units = list { UnitFact(enumValueOf(string()), string(), nullable(), span(), nullable()) },
-            statements = list { StatementFact(data.readInt(), data.readInt(), nullable(), enumValueOf(string()), span(), string()) },
-            occurrences = list { occurrence() },
-            entities = list { EntityFact(string(), enumValueOf(string()), nullable(), string(), nullable(), string(), data.readBoolean(), data.readInt()) },
-            relations = list { RelationFact(string(), enumValueOf(string()), string()) },
-            coverage = list { CoverageFact(string(), string()) },
-            dictionaryRelations = list { relation(string(), string(), string()) },
-            dictionarySynonyms = list { DictionarySynonym(string(), string(), string(), string(), string()) },
-            triggerEvents = list { TriggerEventFact(string(), enumValueOf(string()), nullable()?.let { enumValueOf(it) }, string(), nullable()) }
-        )
+        fun facts(): Pair<FileFacts, List<RelationReference>> {
+            val path = string()
+            val sha256 = string()
+            val sizeBytes = data.readLong()
+            val encoding = string()
+            val parseStatus = enumValueOf<ParseStatus>(string())
+            val recoveredRegions = data.readInt()
+            val compilationSchema = nullable()
+            val units = list { UnitFact(enumValueOf(string()), string(), nullable(), span(), nullable()) }
+            val statements = list { StatementFact(data.readInt(), data.readInt(), nullable(), enumValueOf(string()), span(), string()) }
+            val occurrences = list { occurrence() }
+            val entities = list { EntityFact(string(), enumValueOf(string()), nullable(), string(), nullable(), string(), data.readBoolean(), data.readInt()) }
+            val relations = list { RelationFact(string(), enumValueOf(string()), string()) }
+            val coverage = list { CoverageFact(string(), string()) }
+            val dictionaryRelations = list { RelationReference(string(), string(), string()) }
+            val synonyms = list { DictionarySynonym(string(), string(), string(), string(), string()) }
+            val triggerEvents = list { TriggerEventFact(string(), enumValueOf(string()), nullable()?.let { enumValueOf(it) }, string(), nullable()) }
+            return FileFacts(
+                path, sha256, sizeBytes, encoding, parseStatus, recoveredRegions, compilationSchema, units, statements, occurrences, entities,
+                relations, coverage, emptyList(), synonyms, triggerEvents
+            ) to dictionaryRelations
+        }
 
         fun occurrence() = OccurrenceFact(
             unitIndex = data.readInt(),
@@ -347,13 +372,5 @@ internal object FactsCache {
             nameSpan = if (data.readBoolean()) span() else null,
             writtenValues = list { WrittenValueFact(data.readInt(), enumValueOf(string()), nullable(), span()) }
         )
-
-        /** A dictionary relation a file resolved, taken back from the run's dictionary by its schema and name. */
-        fun relation(schema: String, name: String, key: String): ProjectExternalRelation {
-            relations[key]?.let { return it }
-            val lookup = dictionary.metadata.findRelation(ProjectIdentifier.fromSource(schema), ProjectIdentifier.fromSource(name))
-            return lookup.relation.orElse(null)?.takeIf { RelationResolver.dictionaryKey(it) == key }
-                ?: throw DamagedCacheException("the dictionary has no relation $key")
-        }
     }
 }

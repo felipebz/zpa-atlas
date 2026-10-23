@@ -65,6 +65,9 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
         throw CliValidationException(project?.let { inFile(it, taken, e.message.orEmpty()) } ?: e.message.orEmpty())
     }
     val (sources, encoding, explicitVersion, flags, settings, compilationSchema) = checked
+    val indexer = Indexer()
+    // Read while the dictionary loads: the cache does not need it until the plan.
+    val cache = if (args.incremental) indexer.readFactsCache(Path.of(args.out)) else null
     val oracle = settings?.let {
         phases?.start(PhaseTimes.DICTIONARY_NAMES)
         val writtenNames = SourceIdentifiers.scan(sources, args.extensions.split(','))
@@ -79,7 +82,7 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
     phases?.stop()
     val (conditionalCompilation, databaseVersionOrigin) = conditionalCompilation(explicitVersion, flags, oracle)
     if (conditionalCompilation.isActive) System.err.println(ConditionalCompilationText.describe(conditionalCompilation, databaseVersionOrigin))
-    val summary = Indexer().index(
+    val summary = indexer.index(
         IndexOptions(
             sources = sources,
             output = Path.of(args.out),
@@ -92,7 +95,8 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
             databaseVersionOrigin = databaseVersionOrigin
         ),
         phases,
-        args.incremental
+        args.incremental,
+        cache
     )
     val indexed = if (project == null) "Indexed" else "Indexed project ${project.name}:"
     System.err.println("$indexed ${summary.files} files into ${args.out}: scan ${summary.parseMillis} ms, write ${summary.writeMillis} ms, total ${summary.totalMillis} ms")

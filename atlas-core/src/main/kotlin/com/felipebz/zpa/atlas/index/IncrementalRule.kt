@@ -40,7 +40,7 @@ import java.util.Locale
  * - **An omitted standalone callable appeared or disappeared:** its name is touched.
  * - **An object type spec changed,** or a type under it: its name is touched.
  * - **The catalog gives a file something else** (keys, roles, implemented specifications): that file is walked, and
- *   its declarations' names are touched.
+ *   the names in what changed are touched: other files reach those keys through these names.
  *
  * Every file whose text writes a touched name, as an identifier anywhere (comments and strings included, case
  * ignored), is walked as *affected*. Line shifts alone touch nothing: a walk reads the positions of its own file only.
@@ -65,18 +65,16 @@ internal object IncrementalRule {
         "com.felipebz.zpa.project.SourceRange", "com.felipebz.zpa.api.project.ProjectSourceRange", "com.felipebz.zpa.api.project.ProjectDeclarationId"
     )
 
-    /** Each file's declarations in [snapshot], as the cache keeps them, for the files [wanted] accepts. */
-    fun declarations(snapshot: ProjectSnapshot, wanted: (String) -> Boolean): Map<String, List<CachedDeclaration>> {
-        val result = HashMap<String, MutableList<CachedDeclaration>>()
-        for (view in snapshot.declarations) {
-            if (!wanted(view.fileId)) continue
-            val rendering = Rendering(SKIPPED)
-            val text = rendering.render(view)
-            val name = view.qualifiedName.last.originalSpelling.removeSurrounding("\"").uppercase(Locale.ROOT)
-            result.getOrPut(view.fileId) { ArrayList() } += CachedDeclaration(sha256(text), name, rendering.strings + name)
-        }
-        return result
-    }
+    /** The declarations of each of [paths] in [snapshot], as the cache keeps them; rendered in parallel, one file per task. */
+    fun declarations(snapshot: ProjectSnapshot, paths: Collection<String>): Map<String, List<CachedDeclaration>> =
+        paths.parallelStream().map { path ->
+            path to snapshot.declarationsFor(path).declarations.map { view ->
+                val rendering = Rendering(SKIPPED)
+                val text = rendering.render(view)
+                val name = view.qualifiedName.last.originalSpelling.removeSurrounding("\"").uppercase(Locale.ROOT)
+                CachedDeclaration(sha256(text), name, rendering.strings + name)
+            }
+        }.toList().filter { it.second.isNotEmpty() }.toMap()
 
     /** The project-wide inputs; [CacheGlobal.omitted] holds `?` when ZPA's omitted callables cannot be read. */
     fun global(snapshot: ProjectSnapshot, catalog: DeclarationCatalog, typeMembers: ObjectTypeMembers): CacheGlobal = CacheGlobal(
@@ -91,16 +89,12 @@ internal object IncrementalRule {
      * accessor, so they are read through its fields; `?` when that fails, and the rule then walks every file.
      */
     private fun omittedCallables(snapshot: ProjectSnapshot): Set<String> = try {
-        val result = field(snapshot, "preparationResult")
+        val result = Rendering.field(snapshot, "preparationResult")!!
         val index = result.javaClass.getMethod("getIndex").invoke(result)
-        (field(index, "omittedStandaloneCallables") as Set<*>).mapTo(HashSet()) { Rendering().render(it) }
+        (Rendering.field(index, "omittedStandaloneCallables") as Set<*>).mapTo(HashSet()) { Rendering().render(it) }
     } catch (_: Exception) {
         setOf(UNREADABLE)
     }
-
-    private fun field(owner: Any, name: String): Any =
-        generateSequence(owner.javaClass) { it.superclass }.firstNotNullOf { type -> type.declaredFields.firstOrNull { it.name == name } }
-            .also { it.isAccessible = true }.get(owner)
 
     private const val UNREADABLE = "?"
 
@@ -138,8 +132,9 @@ internal object IncrementalRule {
         touched += changedTypes(cached.global.typeMembers, global.typeMembers).map { it.substringAfterLast('.') }
         val catalogChanged = current.filter { it.path !in changed && it.path !in new && before.getValue(it.path).catalogDigest != digests[it.path] }
             .mapTo(HashSet()) { it.path }
-        for (path in catalogChanged) declarations[path].orEmpty().forEach { touched += it.name }
+        for (path in catalogChanged) touched += catalogNames(before.getValue(path).catalogDigest, digests.getValue(path))
 
+        if (touched.isEmpty()) return Plan(changed + new + catalogChanged, changed.size, new.size, catalogChanged.size, removed.size, null, emptyList())
         // Close over the snapshot and the synonyms: what refers to a touched name, or names it, is touched.
         val byReference = HashMap<String, MutableList<String>>()
         for (list in declarations.values) for (declaration in list) for (name in declaration.references) byReference.getOrPut(name) { ArrayList() } += declaration.name
@@ -151,13 +146,45 @@ internal object IncrementalRule {
             }
         }
 
-        val affected = if (touched.isEmpty()) catalogChanged else current.filter { source ->
-            source.path !in changed && source.path !in new && (source.path in catalogChanged || identifiers(source.text).any { it in touched })
-        }.mapTo(HashSet()) { it.path }
+        val affected = run {
+            val lengths = touched.mapTo(HashSet()) { it.length }
+            current.parallelStream().filter { source ->
+                source.path !in changed && source.path !in new && (source.path in catalogChanged || writesAny(source.text, touched, lengths))
+            }.map { it.path }.toList().toHashSet()
+        }
         return Plan(changed + new + affected, changed.size, new.size, affected.size, removed.size, null, touched.take(TOUCHED_SHOWN))
     }
 
     private const val TOUCHED_SHOWN = 5
+
+    /**
+     * The names in the lines that differ between two catalog digests of a file (see [DeclarationCatalog.digests]): the
+     * written name and the entity's name of a declaration line, the entities' names of an `implements` line. A note
+     * line names nothing other files read.
+     */
+    private fun catalogNames(before: String, now: String): Set<String> {
+        val old = before.lines().toSet()
+        val new = now.lines().toSet()
+        val names = HashSet<String>()
+        for (line in (old - new) + (new - old)) {
+            when {
+                line.startsWith(IMPLEMENTS) -> line.removePrefix(IMPLEMENTS).split(" -> ").forEach { names += keyName(it) }
+                '|' in line -> {
+                    val (written, key) = line.split('|')
+                    names += written.removeSurrounding("\"").uppercase(Locale.ROOT)
+                    names += keyName(key)
+                }
+            }
+        }
+        names -= ""
+        return names
+    }
+
+    private const val IMPLEMENTS = "implements "
+
+    /** The name of the entity [key] (`db:S.P.F(P_A IN NUMBER)@BODY#2` is `F`), upper-cased. */
+    private fun keyName(key: String): String =
+        key.substringBefore('(').substringBefore('@').substringBefore('#').substringAfterLast('.').removeSurrounding("\"").uppercase(Locale.ROOT)
 
     /** The type keys whose spec changed, appeared or disappeared, and every type under one of them. */
     private fun changedTypes(before: Map<String, TypeSummary>, now: Map<String, TypeSummary>): Set<String> {
@@ -176,9 +203,52 @@ internal object IncrementalRule {
 
     private fun <T> Set<T>.symmetricDifference(other: Set<T>): Set<T> = (this - other) + (other - this)
 
-    private val IDENTIFIER = Regex("\"[^\"\\r\\n]+\"|[\\p{L}_\$#][\\p{L}\\p{N}_\$#]*")
+    /**
+     * Whether [text] writes one of [names] (upper-cased) as an identifier-like word anywhere, quoted or not, case
+     * ignored: it may write more than the names it uses, never fewer. A word starts with a letter, `_`, `$` or `#` and
+     * goes on with letters, numbers of any script, `_`, `$` and `#`, supplementary characters included; a quoted word is
+     * anything between double quotes on one line. [lengths] are the names' lengths: an ASCII word of another length is
+     * skipped without being copied. A word with other characters is always compared, as its upper case may be longer
+     * (`ß` is `SS`).
+     */
+    fun writesAny(text: String, names: Set<String>, lengths: Set<Int>): Boolean {
+        fun matches(from: Int, to: Int, ascii: Boolean) =
+            (!ascii || to - from in lengths) && text.substring(from, to).uppercase(Locale.ROOT) in names
+        var i = 0
+        val end = text.length
+        while (i < end) {
+            val c = text.codePointAt(i)
+            if (c == '"'.code) {
+                val close = text.indexOf('"', i + 1)
+                val line = text.indexOf('\n', i + 1).let { if (it < 0) end else it }
+                if (close in (i + 2)..<line && matches(i + 1, close, (i + 1 until close).all { text[it].code < 0x80 })) return true
+                i++
+                continue
+            }
+            if (startsWord(c)) {
+                var ascii = c < 0x80
+                var j = i + Character.charCount(c)
+                while (j < end) {
+                    val next = text.codePointAt(j)
+                    if (!continuesWord(next)) break
+                    if (next >= 0x80) ascii = false
+                    j += Character.charCount(next)
+                }
+                if (matches(i, j, ascii)) return true
+                i = j
+                continue
+            }
+            i += Character.charCount(c)
+        }
+        return false
+    }
 
-    /** Every identifier-like word of [text], upper-cased and unquoted: more than the names it uses, never fewer. */
-    fun identifiers(text: String): Set<String> =
-        IDENTIFIER.findAll(text).mapTo(HashSet()) { it.value.removeSurrounding("\"").uppercase(Locale.ROOT) }
+    /** Whether [c] may start a word: what `[\p{L}_$#]` matches. */
+    private fun startsWord(c: Int) = Character.isLetter(c) || c == '_'.code || c == '$'.code || c == '#'.code
+
+    /** Whether [c] may go on a word: what `[\p{L}\p{N}_$#]` matches. */
+    private fun continuesWord(c: Int) = startsWord(c) || when (Character.getType(c).toByte()) {
+        Character.DECIMAL_DIGIT_NUMBER, Character.LETTER_NUMBER, Character.OTHER_NUMBER -> true
+        else -> false
+    }
 }

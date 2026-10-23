@@ -38,6 +38,9 @@ class PhaseTimes(private val started: Long = System.nanoTime()) {
 
     val files: MutableList<FileTime> = Collections.synchronizedList(ArrayList())
 
+    /** Lines printed after the table: what ran beside the phases. */
+    val notes: MutableList<String> = Collections.synchronizedList(ArrayList())
+
     /** The threads the file walks ran on. */
     var walkThreads = 0
 
@@ -69,6 +72,7 @@ class PhaseTimes(private val started: Long = System.nanoTime()) {
             append(row(GAP, total - phases.sumOf { it.nanos }, ""))
             append(row(TOTAL, total, ""))
             walks()?.let { append(it) }
+            notes.forEach { append(it).append('\n') }
         }
     }
 
@@ -98,7 +102,12 @@ class PhaseTimes(private val started: Long = System.nanoTime()) {
         const val READING = "reading the sources"
         const val PREPARATION = "project preparation"
         const val TYPE_MEMBERS = "object type members"
-        const val INCREMENTAL_PLAN = "incremental: reading the facts cache, plan"
+        const val PLAN_CATALOG = "incremental: waiting for the catalog"
+        const val PLAN_INPUTS = "incremental: waiting for the inputs (dictionary)"
+        const val PLAN_GLOBAL = "incremental: project-wide inputs"
+        const val PLAN_WAIT = "incremental: waiting for the cache read"
+        const val PLAN_DECLARATIONS = "incremental: declarations of changed files"
+        const val PLAN_RULE = "incremental: the rule"
         const val FILE_WALKS = "file walks"
         const val GLOBAL_FACTS = "global facts"
         const val WRITING_TABLES = "writing: tables"

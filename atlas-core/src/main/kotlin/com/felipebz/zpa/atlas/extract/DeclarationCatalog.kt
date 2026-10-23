@@ -89,20 +89,22 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
     fun occurrencesFor(fileId: String): List<DeclarationOccurrence> = occurrences[fileId].orEmpty()
 
     /**
-     * What this catalog gives the walk of [fileId], positions left out: the keys, roles and containers of its
+     * What this catalog gives the walk of each of [fileIds], positions left out: the keys, roles and containers of its
      * declarations, the specifications its body subprograms implement, and the notes made for it so far.
      */
-    fun digestFor(fileId: String): String {
-        val own = occurrencesFor(fileId)
-        val keys = own.mapTo(HashSet()) { it.entityKey }
-        return buildString {
-            own.forEach { append(it.written).append('|').append(it.entityKey).append('|').append(it.role).append('|').append(it.containerKey).append('\n') }
-            implementations.filter { it.fromKey in keys }.forEach { append("implements ").append(it.fromKey).append(" -> ").append(it.toKey).append('\n') }
-            coverageFor(fileId).forEach { append(it.kind).append(": ").append(it.message).append('\n') }
+    fun digests(fileIds: Collection<String>): Map<String, String> {
+        val implemented = relations.filter { it.kind == RelationKind.IMPLEMENTS }.groupBy { it.fromKey }
+        return fileIds.associateWith { fileId ->
+            buildString {
+                val own = occurrencesFor(fileId)
+                own.forEach { append(it.written).append('|').append(it.entityKey).append('|').append(it.role).append('|').append(it.containerKey).append('\n') }
+                own.mapTo(LinkedHashSet()) { it.entityKey }.forEach { key ->
+                    implemented[key]?.forEach { append("implements ").append(it.fromKey).append(" -> ").append(it.toKey).append('\n') }
+                }
+                coverageFor(fileId).forEach { append(it.kind).append(": ").append(it.message).append('\n') }
+            }
         }
     }
-
-    private val implementations: List<RelationFact> by lazy { relations.filter { it.kind == RelationKind.IMPLEMENTS } }
 
     fun coverageFor(fileId: String): List<CoverageFact> = synchronized(fileCoverage) { fileCoverage[fileId].orEmpty().toList() }
 

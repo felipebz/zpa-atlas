@@ -224,7 +224,8 @@ by a change elsewhere, and the files removed; or, for a full run, why.
   dictionary (the Oracle metadata, including relations the sources name for the first time), and when it is damaged or
   cut short. A run killed midway leaves the old cache or none, never a wrong one.
 - **What is still done in full:** the dictionary load, the project preparation, the object type members pass and the
-  writing of the whole index. The cache is rewritten on every run; it is about a twentieth of the index's size.
+  writing of the whole index. The cache is read while the dictionary loads and written while the index is, and is
+  rewritten on every run; it is about a twentieth of the index's size. `--phase-times` shows the plan's parts.
 - `serve` never reads the cache. Without `--incremental`, `index` neither reads nor writes it.
 
 ### Serving under a base path

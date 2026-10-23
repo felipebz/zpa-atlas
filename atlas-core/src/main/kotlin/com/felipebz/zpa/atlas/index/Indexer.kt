@@ -116,11 +116,12 @@ class Indexer internal constructor(
      * it walks only the files a change can affect (see [IncrementalRule]), takes the other files' facts from the facts
      * cache beside the index, and writes that cache; the index is the one a full run writes.
      */
-    fun index(options: IndexOptions, phases: PhaseTimes? = null, incremental: Boolean = false): IndexSummary {
+    fun index(options: IndexOptions, phases: PhaseTimes? = null, incremental: Boolean = false, cache: PendingFactsCache? = null): IndexSummary {
         val startedAt = clock()
         val started = System.nanoTime()
         val root = options.sources.toAbsolutePath().normalize()
-        val cache = if (incremental) IncrementalRun.readCache(options) else null
+        val pending = if (incremental) cache ?: IncrementalRun.readCache(options.output) else null
+        val inputs = if (incremental) IncrementalRun.inputs(options, phases) else null
         phases?.start(PhaseTimes.READING)
         val sources = discover(root, options.extensions, options.encoding)
 
@@ -135,6 +136,7 @@ class Indexer internal constructor(
         else prepared.withExternalContext(ProjectExternalContext.of(options.dictionary.metadata, compilationSchema))
 
         val scanner = AstScanner(emptyList(), null, true, StandardCharsets.UTF_8, context, options.conditionalCompilation)
+        val planCatalog = if (incremental) IncrementalRun.catalog(options, context, sources.map { it.relativePath }, phases) else null
         // The members of the object types, read before any type body is walked.
         val typeMembers = ObjectTypeMembers()
         phases?.start(PhaseTimes.TYPE_MEMBERS)
@@ -145,8 +147,8 @@ class Indexer internal constructor(
         }
         val hashes = sources.associate { it.relativePath to sha256(it.bytes) }
         val run = if (!incremental) null else {
-            phases?.start(PhaseTimes.INCREMENTAL_PLAN)
-            IncrementalRun.plan(options, context, typeMembers, sources.map { IncrementalRule.Current(it.relativePath, hashes.getValue(it.relativePath), it.text) }, cache!!)
+            val current = sources.map { IncrementalRule.Current(it.relativePath, hashes.getValue(it.relativePath), it.text) }
+            IncrementalRun.plan(options, typeMembers, current, pending!!, inputs!!, planCatalog!!, phases)
         }
         val toWalk = if (run == null) sources else sources.filter { it.relativePath in run.walk }
         phases?.start(PhaseTimes.FILE_WALKS)
@@ -278,6 +280,12 @@ class Indexer internal constructor(
             at = System.nanoTime()
         }
     }
+
+    /**
+     * Starts reading the facts cache of the index [output] on its own thread, for [index] with `incremental`: started
+     * before the dictionary is loaded, the reading overlaps that load.
+     */
+    fun readFactsCache(output: Path): PendingFactsCache = IncrementalRun.readCache(output)
 
     /** The catalog of the run's snapshot, built once by the first file walk (every walk sees the same snapshot). */
     private class CatalogHolder(private val compilationSchema: String?) {

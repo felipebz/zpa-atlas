@@ -79,6 +79,11 @@ internal class Rendering(private val skipped: Set<String> = emptySet()) {
     }
 
     companion object {
+        /** The value of the field [name] of [owner], declared by its class or a superclass, whatever its visibility. */
+        fun field(owner: Any, name: String): Any? =
+            generateSequence<Class<*>>(owner.javaClass) { it.superclass }.firstNotNullOf { type -> type.declaredFields.firstOrNull { it.name == name } }
+                .also { it.isAccessible = true }.get(owner)
+
         private val FIELDS = ConcurrentHashMap<Class<*>, List<Field>>()
 
         private fun fieldsOf(type: Class<*>): List<Field> = FIELDS.getOrPut(type) {
