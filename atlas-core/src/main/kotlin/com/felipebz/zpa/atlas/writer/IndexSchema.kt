@@ -194,13 +194,17 @@ internal fun tableDdl(): List<String> = listOf(
         column_id INTEGER NULL REFERENCES entity(id)
     )
     """,
-    // The text of every file, one row per line, for a search of any piece of text (trigram tokens, case folded). The
-    // rowids follow the files in path order and their lines in order; a line shorter than a trigram has no row.
-    // entity_id is the innermost container of the line (see SourceLines), null outside any.
-    """
-    CREATE VIRTUAL TABLE source_line USING fts5(text, file_id UNINDEXED, line UNINDEXED, entity_id UNINDEXED, tokenize = 'trigram')
-    """
+    SOURCE_LINE_DDL
 ).map { it.trimIndent() }
+
+/**
+ * The text of every file, one row per line, for a search of any piece of text (trigram tokens, case folded). The
+ * rowids follow the files in path order and their lines in order; a line shorter than a trigram has no row.
+ * entity_id is the innermost container of the line (see [SourceLines]), null outside any. [SourceTextIndex] builds
+ * the same table apart, so its shadow tables can be copied: the statement must be the same in both.
+ */
+internal const val SOURCE_LINE_DDL =
+    "CREATE VIRTUAL TABLE source_line USING fts5(text, file_id UNINDEXED, line UNINDEXED, entity_id UNINDEXED, tokenize = 'trigram')"
 
 /** The secondary indexes, created after the rows are loaded. Readers do not depend on their creation order. */
 internal fun indexDdl(): List<String> = listOf(

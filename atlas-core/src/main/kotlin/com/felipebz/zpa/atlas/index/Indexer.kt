@@ -24,6 +24,7 @@ import com.felipebz.zpa.atlas.model.FileFacts
 import com.felipebz.zpa.atlas.model.RelationFact
 import com.felipebz.zpa.atlas.writer.AtlasWriter
 import com.felipebz.zpa.atlas.writer.RunInfo
+import com.felipebz.zpa.atlas.writer.SourceTextIndex
 import com.felipebz.zpa.project.FileId
 import com.felipebz.zpa.project.ProjectAnalysisContext
 import com.felipebz.zpa.project.ProjectDeclarationExtractor
@@ -40,6 +41,7 @@ import java.time.Instant
 import java.util.Locale
 import java.util.Properties
 import java.util.TreeMap
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.Executors
 import kotlin.io.path.extension
@@ -124,7 +126,18 @@ class Indexer internal constructor(
         val inputs = if (incremental) IncrementalRun.inputs(options, phases) else null
         phases?.start(PhaseTimes.READING)
         val sources = discover(root, options.extensions, options.encoding)
+        // The text index needs only the texts: it is built on its own thread while the files are walked.
+        SourceTextIndex.prepare(options.output, sources.map { it.relativePath to it.text }).use { textIndex ->
+            // An incremental run walks few files, if any: the build overlaps the phases before the walks instead.
+            if (incremental) textIndex.start()
+            return index(options, phases, incremental, startedAt, started, root, pending, inputs, sources, textIndex)
+        }
+    }
 
+    private fun index(
+        options: IndexOptions, phases: PhaseTimes?, incremental: Boolean, startedAt: Instant, started: Long, root: Path,
+        pending: PendingFactsCache?, inputs: CompletableFuture<Map<String, String>>?, sources: List<Source>, textIndex: SourceTextIndex
+    ): IndexSummary {
         phases?.start(PhaseTimes.PREPARATION)
 
         val prepared = ProjectAnalysisContext.prepared(
@@ -152,6 +165,8 @@ class Indexer internal constructor(
         }
         val toWalk = if (run == null) sources else sources.filter { it.relativePath in run.walk }
         phases?.start(PhaseTimes.FILE_WALKS)
+        // In a full run, started with the walks, not before: beside the single-threaded phases before them it slowed them down.
+        textIndex.start()
         phases?.walkThreads = options.threads.coerceAtLeast(1)
         val catalogHolder = CatalogHolder(options.compilationSchema)
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
@@ -234,7 +249,7 @@ class Indexer internal constructor(
         // The cache is written while the index is: neither reads what the other writes.
         val saving = run?.save(facts)
         try {
-            AtlasWriter.writeAtomically(options.output, phase) { writer ->
+            AtlasWriter.writeAtomically(options.output, textIndex, phase) { writer ->
                 writer.write(
                     RunInfo(
                         atlasVersion = VERSIONS.getProperty("atlas", "unknown"),

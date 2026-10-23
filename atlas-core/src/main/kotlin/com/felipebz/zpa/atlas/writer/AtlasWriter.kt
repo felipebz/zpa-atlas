@@ -19,7 +19,7 @@ import java.sql.DriverManager
  * schema change means re-indexing. Ids are assigned in a sorted order (entity key; file path, then source position),
  * never in thread-completion order, so two runs over the same input produce identical rows.
  */
-class AtlasWriter private constructor(private val connection: Connection) : AutoCloseable {
+class AtlasWriter private constructor(private val connection: Connection, private val textIndex: SourceTextIndex) : AutoCloseable {
 
     /**
      * Writes every row; the caller ([writeAtomically]) owns the transaction, the indexes and the commit. [texts] gives
@@ -43,7 +43,7 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
         val entities = globalEntities + sortedFiles.flatMap { it.entities }
         val containerKeys = entities.filter { it.kind in SourceLines.CONTAINER_KINDS }.map { it.key }.toSet()
         val subprogramKeys = entities.filter { it.kind == EntityKind.PROCEDURE || it.kind == EntityKind.FUNCTION }.map { it.key }.toSet()
-        SourceLines(connection).write(sortedFiles, entityIds, containerKeys, subprogramKeys, texts)
+        SourceLines(connection).write(sortedFiles, entityIds, containerKeys, subprogramKeys, texts, textIndex)
     }
 
     override fun close() = connection.close()
@@ -53,9 +53,10 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
 
         /**
          * Writes the index to a temporary file beside [target] and moves it over [target] when everything succeeded.
-         * [phase] is told each step as it starts.
+         * [phase] is told each step as it starts. [textIndex], started earlier for the same files, gives the text index
+         * of `source_line`, which is not built here.
          */
-        fun writeAtomically(target: Path, phase: (String) -> Unit = {}, body: (AtlasWriter) -> Unit) {
+        fun writeAtomically(target: Path, textIndex: SourceTextIndex, phase: (String) -> Unit = {}, body: (AtlasWriter) -> Unit) {
             phase(PhaseTimes.WRITING_TABLES)
             val absolute = target.toAbsolutePath()
             require(!Files.isDirectory(absolute)) { "Cannot write the index to $absolute: it is a folder" }
@@ -64,10 +65,14 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
             try {
                 Files.delete(temporary)
                 DriverManager.getConnection("jdbc:sqlite:${temporary}").use { connection ->
-                    // One transaction: the tables, the rows, then the secondary indexes (cheaper on loaded tables).
+                    // The CHECKs of the schema are made from the enums the rows are written from, so every row meets them;
+                    // evaluated on each insert, they were most of SQLite's time on the file rows. Readers still see them.
+                    connection.createStatement().use { it.execute("PRAGMA ignore_check_constraints = ON") }
+                    // One transaction: the tables, the rows, then the secondary indexes (cheaper on loaded tables). With a
+                    // text index built apart, two: see SourceLines.
                     connection.autoCommit = false
                     execute(connection, tableDdl())
-                    body(AtlasWriter(connection))
+                    body(AtlasWriter(connection, textIndex))
                     phase(PhaseTimes.WRITING_INDEXES)
                     execute(connection, indexDdl())
                     phase(PhaseTimes.WRITING_COMMIT)
