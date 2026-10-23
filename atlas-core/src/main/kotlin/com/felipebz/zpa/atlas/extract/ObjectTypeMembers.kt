@@ -21,6 +21,11 @@ class ObjectTypeMembers {
 
     private val specs = ConcurrentHashMap<String, Spec>()
 
+    /** Each specified type's own attributes and methods, as text, and its supertype key, by type key. */
+    fun summaries(): Map<String, Pair<String, String?>> = specs.mapValues { (_, spec) ->
+        "attributes ${spec.attributes.sorted()} methods ${spec.methods.sorted()}" to spec.supertype
+    }
+
     /** Every attribute and method name of [typeKey] and its supertypes; empty for a type no source specifies. */
     fun of(typeKey: String): Set<String> = collect(typeKey) { it.attributes + it.methods }
 

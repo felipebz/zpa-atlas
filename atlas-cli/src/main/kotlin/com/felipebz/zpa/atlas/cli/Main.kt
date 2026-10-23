@@ -91,11 +91,13 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
             conditionalCompilation = conditionalCompilation,
             databaseVersionOrigin = databaseVersionOrigin
         ),
-        phases
+        phases,
+        args.incremental
     )
     val indexed = if (project == null) "Indexed" else "Indexed project ${project.name}:"
     System.err.println("$indexed ${summary.files} files into ${args.out}: scan ${summary.parseMillis} ms, write ${summary.writeMillis} ms, total ${summary.totalMillis} ms")
     if (summary.failedFiles > 0) System.err.println("${summary.failedFiles} file(s) failed extraction and were indexed as FAILED (see stats)")
+    summary.incremental?.let { System.err.println(it.line()) }
     phases?.let { System.err.print(it.report()) }
     return 0
 }

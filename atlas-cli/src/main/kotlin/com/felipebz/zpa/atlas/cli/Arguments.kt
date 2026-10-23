@@ -36,7 +36,7 @@ class MainArguments {
 class IndexArguments {
     @Parameter(
         names = ["--project"],
-        description = "Project file <name>.yaml whose keys give the options below (but --threads and --phase-times); an option given beside it wins over its key"
+        description = "Project file <name>.yaml whose keys give the options below (but --threads, --incremental and --phase-times); an option given beside it wins over its key"
     )
     var project: String = ""
 
@@ -54,6 +54,13 @@ class IndexArguments {
 
     @Parameter(names = ["--threads"], description = "Number of files parsed concurrently")
     var threads: Int = Runtime.getRuntime().availableProcessors()
+
+    @Parameter(
+        names = ["--incremental"],
+        description = "Keep each file's facts in a cache beside the index (<index>.facts) and walk only the files a change can affect; " +
+            "the index is the one a full run writes. Without a usable cache, a full run that writes it"
+    )
+    var incremental: Boolean = false
 
     @Parameter(names = ["--phase-times"], description = "Print to stderr, after the usual lines, the time and peak heap of each phase of the run")
     var phaseTimes: Boolean = false

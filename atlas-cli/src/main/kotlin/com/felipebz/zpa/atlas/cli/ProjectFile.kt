@@ -19,7 +19,7 @@ import java.nio.file.Path
 
 /**
  * A project: one codebase, indexed into one index file from its own sources with its own options. It is described by
- * `<name>.yaml`, whose keys are the options of `index` that make the index (not `--threads` or `--phase-times`, the machine's),
+ * `<name>.yaml`, whose keys are the options of `index` that make the index (not `--threads`, `--incremental` or `--phase-times`, the machine's),
  * so that one file rebuilds the same index every time. Its paths are relative to the file's folder.
  *
  * Every value is kept as the option's text (a list joined with commas), to be checked by `index` as the option is.
@@ -60,7 +60,7 @@ class ProjectFile(
         private val REQUIRED = listOf("sources", "index")
 
         /** The options of `index` that belong to the machine, by the key a project file might give them under. */
-        private val MACHINE_OPTIONS = mapOf("threads" to "--threads", "phaseTimes" to "--phase-times")
+        private val MACHINE_OPTIONS = mapOf("threads" to "--threads", "incremental" to "--incremental", "phaseTimes" to "--phase-times")
 
         /** The keys whose value is a list: a YAML list, or the comma-separated text the option takes. */
         private val LISTS = setOf("extensions", "oracle.schemas", "oracle.relations")

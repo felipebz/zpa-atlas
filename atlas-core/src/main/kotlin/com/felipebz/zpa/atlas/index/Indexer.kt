@@ -40,6 +40,7 @@ import java.time.Instant
 import java.util.Locale
 import java.util.Properties
 import java.util.TreeMap
+import java.util.concurrent.CompletionException
 import java.util.concurrent.Executors
 import kotlin.io.path.extension
 import kotlin.io.path.invariantSeparatorsPathString
@@ -69,7 +70,15 @@ data class IndexOptions(
     }
 }
 
-data class IndexSummary(val files: Int, val failedFiles: Int, val parseMillis: Long, val writeMillis: Long, val totalMillis: Long)
+data class IndexSummary(
+    val files: Int,
+    val failedFiles: Int,
+    val parseMillis: Long,
+    val writeMillis: Long,
+    val totalMillis: Long,
+    /** What `--incremental` did; null without it. */
+    val incremental: IncrementalReport? = null
+)
 
 /**
  * Drives ZPA as zpa-cli does: project preparation once over every source, then one [AstScanner] walk per file with
@@ -102,11 +111,16 @@ class Indexer internal constructor(
         override fun toString(): String = relativePath
     }
 
-    /** Indexes [options]; with [phases], it records where the time goes, and the index is the same. */
-    fun index(options: IndexOptions, phases: PhaseTimes? = null): IndexSummary {
+    /**
+     * Indexes [options]; with [phases], it records where the time goes, and the index is the same. With [incremental],
+     * it walks only the files a change can affect (see [IncrementalRule]), takes the other files' facts from the facts
+     * cache beside the index, and writes that cache; the index is the one a full run writes.
+     */
+    fun index(options: IndexOptions, phases: PhaseTimes? = null, incremental: Boolean = false): IndexSummary {
         val startedAt = clock()
         val started = System.nanoTime()
         val root = options.sources.toAbsolutePath().normalize()
+        val cache = if (incremental) IncrementalRun.readCache(options) else null
         phases?.start(PhaseTimes.READING)
         val sources = discover(root, options.extensions, options.encoding)
 
@@ -129,18 +143,24 @@ class Indexer internal constructor(
                 scanner.scanFile(source, listOf(typeMembers.collector(options.compilationSchema)), source.relativePath)
             }
         }
+        val hashes = sources.associate { it.relativePath to sha256(it.bytes) }
+        val run = if (!incremental) null else {
+            phases?.start(PhaseTimes.INCREMENTAL_PLAN)
+            IncrementalRun.plan(options, context, typeMembers, sources.map { IncrementalRule.Current(it.relativePath, hashes.getValue(it.relativePath), it.text) }, cache!!)
+        }
+        val toWalk = if (run == null) sources else sources.filter { it.relativePath in run.walk }
         phases?.start(PhaseTimes.FILE_WALKS)
         phases?.walkThreads = options.threads.coerceAtLeast(1)
         val catalogHolder = CatalogHolder(options.compilationSchema)
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
         fun extractor(source: Source) = FileExtractor(
-            source.relativePath, sha256(source.bytes), source.bytes.size.toLong(), source.charset.name(), source.text.lines().size,
+            source.relativePath, hashes.getValue(source.relativePath), source.bytes.size.toLong(), source.charset.name(), source.text.lines().size,
             options.dictionary, options.compilationSchema, catalogHolder::get,
             jsonBuiltIn = (options.conditionalCompilation.databaseVersion?.version ?: 0) >= JSON_BUILT_IN_VERSION,
             typeMembers = typeMembers
         )
         val walked: List<Result<FileFacts>> = try {
-            sources.map { source ->
+            toWalk.map { source ->
                 executor.submit<Result<FileFacts>> {
                     try {
                         val taskStarted = System.nanoTime()
@@ -162,25 +182,28 @@ class Indexer internal constructor(
             executor.shutdown()
         }
         // Built after every walk, from the run's catalog: a failed walk may have died before or after creating it.
-        val facts = sources.zip(walked).map { (source, result) ->
-            result.getOrElse { e ->
+        val walkedFacts = toWalk.zip(walked).associate { (source, result) ->
+            source.relativePath to result.getOrElse { e ->
                 val message = e.message?.lineSequence()?.firstOrNull().orEmpty()
-                extractor(source).failedFacts(catalogHolder.catalog, CoverageFact("EXTRACTION_FAILED", "${e.javaClass.name}: $message"))
+                extractor(source).failedFacts(catalogHolder.catalog, CoverageFact(EXTRACTION_FAILED, "${e.javaClass.name}: $message"))
             }
         }
-        val failedFiles = walked.count { it.isFailure }
+        val facts = sources.map { walkedFacts[it.relativePath] ?: run!!.cachedFacts(it.relativePath) }
+        val failedFiles = walked.count { it.isFailure } +
+            facts.count { it.path !in walkedFacts && it.coverage.any { coverage -> coverage.kind == EXTRACTION_FAILED } }
         val parsed = System.nanoTime()
 
         phases?.start(PhaseTimes.GLOBAL_FACTS)
         val globalEntities = ArrayList<EntityFact>()
         val globalRelations = ArrayList<RelationFact>()
         val globalCoverage = ArrayList<CoverageFact>()
-        catalogHolder.catalog?.let {
+        // A run that walks nothing has no catalog of its own walks: the plan's, built from the same declarations, is the same.
+        (catalogHolder.catalog ?: run?.catalog)?.let {
             globalEntities += it.entities
             globalRelations += it.relations
             globalCoverage += it.coverage
         }
-        catalogHolder.snapshot?.failures?.forEach {
+        (catalogHolder.snapshot ?: run?.snapshot)?.failures?.forEach {
             globalCoverage += CoverageFact("PREPARATION_FAILED", "Project index preparation failed for ${it.fileId}")
         }
         globalCoverage += CoverageFact("CALL_SCOPE_LEGACY",
@@ -206,27 +229,42 @@ class Indexer internal constructor(
 
         val texts = sources.associate { it.relativePath to it.text }
         val phase: (String) -> Unit = { phases?.start(it) }
-        AtlasWriter.writeAtomically(options.output, phase) { writer ->
-            writer.write(
-                RunInfo(
-                    atlasVersion = VERSIONS.getProperty("atlas", "unknown"),
-                    zpaVersion = VERSIONS.getProperty("zpa", "unknown"),
-                    sourcesRoot = root.invariantSeparatorsPathString,
-                    sourceEncoding = SourceDecoding.validate(options.encoding),
-                    metadataOrigin = dictionary.metadata.origin.orElse(null),
-                    compilationSchema = options.compilationSchema,
-                    databaseVersion = options.conditionalCompilation.databaseVersion?.let { ConditionalCompilationText.version(it) },
-                    databaseVersionOrigin = options.databaseVersionOrigin?.takeIf { options.conditionalCompilation.databaseVersion != null }?.name,
-                    ccflags = ConditionalCompilationText.flags(options.conditionalCompilation.flags),
-                    startedAt = startedAt.toString(),
-                    finishedAt = clock().toString()
-                ),
-                facts, globalEntities, globalRelations, globalCoverage, texts::get, phase
-            )
+        // The cache is written while the index is: neither reads what the other writes.
+        val saving = run?.save(facts)
+        try {
+            AtlasWriter.writeAtomically(options.output, phase) { writer ->
+                writer.write(
+                    RunInfo(
+                        atlasVersion = VERSIONS.getProperty("atlas", "unknown"),
+                        zpaVersion = VERSIONS.getProperty("zpa", "unknown"),
+                        sourcesRoot = root.invariantSeparatorsPathString,
+                        sourceEncoding = SourceDecoding.validate(options.encoding),
+                        metadataOrigin = dictionary.metadata.origin.orElse(null),
+                        compilationSchema = options.compilationSchema,
+                        databaseVersion = options.conditionalCompilation.databaseVersion?.let { ConditionalCompilationText.version(it) },
+                        databaseVersionOrigin = options.databaseVersionOrigin?.takeIf { options.conditionalCompilation.databaseVersion != null }?.name,
+                        ccflags = ConditionalCompilationText.flags(options.conditionalCompilation.flags),
+                        startedAt = startedAt.toString(),
+                        finishedAt = clock().toString()
+                    ),
+                    facts, globalEntities, globalRelations, globalCoverage, texts::get, phase
+                )
+            }
+        } catch (e: Throwable) {
+            runCatching { saving?.join() }
+            throw e
+        }
+        if (saving != null) {
+            phases?.start(PhaseTimes.WRITING_CACHE)
+            try {
+                saving.join()
+            } catch (e: CompletionException) {
+                throw e.cause ?: e
+            }
         }
         phases?.stop()
         val finished = System.nanoTime()
-        return IndexSummary(sources.size, failedFiles, (parsed - started) / 1_000_000, (finished - parsed) / 1_000_000, (finished - started) / 1_000_000)
+        return IndexSummary(sources.size, failedFiles, (parsed - started) / 1_000_000, (finished - parsed) / 1_000_000, (finished - started) / 1_000_000, run?.report)
     }
 
     /**
@@ -272,6 +310,11 @@ class Indexer internal constructor(
     companion object {
         /** The first Oracle version with the built-in `JSON` type: from it on, a type named `JSON` cannot exist. */
         private const val JSON_BUILT_IN_VERSION = 21
+
+        private const val EXTRACTION_FAILED = "EXTRACTION_FAILED"
+
+        /** The version of `atlas` or `zpa` this build was made with. */
+        internal fun version(name: String): String = VERSIONS.getProperty(name, "unknown")
 
         private val VERSIONS = Properties().apply {
             Indexer::class.java.getResourceAsStream("/zpa-atlas-version.properties")?.use { load(it) }
