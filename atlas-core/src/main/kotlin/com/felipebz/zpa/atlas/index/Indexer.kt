@@ -102,11 +102,15 @@ class Indexer internal constructor(
         override fun toString(): String = relativePath
     }
 
-    fun index(options: IndexOptions): IndexSummary {
+    /** Indexes [options]; with [phases], it records where the time goes, and the index is the same. */
+    fun index(options: IndexOptions, phases: PhaseTimes? = null): IndexSummary {
         val startedAt = clock()
         val started = System.nanoTime()
         val root = options.sources.toAbsolutePath().normalize()
+        phases?.start(PhaseTimes.READING)
         val sources = discover(root, options.extensions, options.encoding)
+
+        phases?.start(PhaseTimes.PREPARATION)
 
         val prepared = ProjectAnalysisContext.prepared(
             ProjectIndexPreparation(ProjectDeclarationExtractor(PlSqlConfiguration(StandardCharsets.UTF_8, true, options.conditionalCompilation)))
@@ -119,11 +123,14 @@ class Indexer internal constructor(
         val scanner = AstScanner(emptyList(), null, true, StandardCharsets.UTF_8, context, options.conditionalCompilation)
         // The members of the object types, read before any type body is walked.
         val typeMembers = ObjectTypeMembers()
+        phases?.start(PhaseTimes.TYPE_MEMBERS)
         for (source in sources) {
             if (ObjectTypeMembers.MAY_SPECIFY_OBJECT.containsMatchIn(source.text)) {
                 scanner.scanFile(source, listOf(typeMembers.collector(options.compilationSchema)), source.relativePath)
             }
         }
+        phases?.start(PhaseTimes.FILE_WALKS)
+        phases?.walkThreads = options.threads.coerceAtLeast(1)
         val catalogHolder = CatalogHolder(options.compilationSchema)
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
         fun extractor(source: Source) = FileExtractor(
@@ -136,8 +143,15 @@ class Indexer internal constructor(
             sources.map { source ->
                 executor.submit<Result<FileFacts>> {
                     try {
+                        val taskStarted = System.nanoTime()
                         val extractor = extractor(source)
-                        scanner.scanFile(source, visitors(source.relativePath, extractor), source.relativePath)
+                        val walkStart = WalkStart()
+                        val checks = visitors(source.relativePath, extractor)
+                        scanner.scanFile(source, if (phases == null) checks else listOf(walkStart) + checks, source.relativePath)
+                        if (phases != null) {
+                            val walked = System.nanoTime()
+                            phases.files += PhaseTimes.FileTime(source.relativePath, source.text.lines().size, walkStart.at - taskStarted, walked - walkStart.at)
+                        }
                         Result.success(extractor.facts())
                     } catch (e: Exception) {
                         Result.failure(e)
@@ -157,6 +171,7 @@ class Indexer internal constructor(
         val failedFiles = walked.count { it.isFailure }
         val parsed = System.nanoTime()
 
+        phases?.start(PhaseTimes.GLOBAL_FACTS)
         val globalEntities = ArrayList<EntityFact>()
         val globalRelations = ArrayList<RelationFact>()
         val globalCoverage = ArrayList<CoverageFact>()
@@ -190,7 +205,8 @@ class Indexer internal constructor(
         }
 
         val texts = sources.associate { it.relativePath to it.text }
-        AtlasWriter.writeAtomically(options.output) { writer ->
+        val phase: (String) -> Unit = { phases?.start(it) }
+        AtlasWriter.writeAtomically(options.output, phase) { writer ->
             writer.write(
                 RunInfo(
                     atlasVersion = VERSIONS.getProperty("atlas", "unknown"),
@@ -205,11 +221,24 @@ class Indexer internal constructor(
                     startedAt = startedAt.toString(),
                     finishedAt = clock().toString()
                 ),
-                facts, globalEntities, globalRelations, globalCoverage, texts::get
+                facts, globalEntities, globalRelations, globalCoverage, texts::get, phase
             )
         }
+        phases?.stop()
         val finished = System.nanoTime()
         return IndexSummary(sources.size, failedFiles, (parsed - started) / 1_000_000, (finished - parsed) / 1_000_000, (finished - started) / 1_000_000)
+    }
+
+    /**
+     * Notes when the scanner starts a file's walk: it is the first check of the walk, which [AstScanner] runs under its
+     * global lock once the file is parsed.
+     */
+    private class WalkStart : PlSqlCheck() {
+        var at = 0L
+
+        override fun init() {
+            at = System.nanoTime()
+        }
     }
 
     /** The catalog of the run's snapshot, built once by the first file walk (every walk sees the same snapshot). */

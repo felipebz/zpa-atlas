@@ -5,6 +5,7 @@
 
 package com.felipebz.zpa.atlas.writer
 
+import com.felipebz.zpa.atlas.index.PhaseTimes
 import com.felipebz.zpa.atlas.model.*
 import java.nio.file.Files
 import java.nio.file.Path
@@ -22,19 +23,23 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
 
     /**
      * Writes every row; the caller ([writeAtomically]) owns the transaction, the indexes and the commit. [texts] gives
-     * the decoded text of each file by path, for the `source_line` table.
+     * the decoded text of each file by path, for the `source_line` table. [phase] is told each step as it starts.
      */
     fun write(
         run: RunInfo, files: List<FileFacts>, globalEntities: List<EntityFact>, globalRelations: List<RelationFact>, globalCoverage: List<CoverageFact>,
-        texts: (String) -> String?
+        texts: (String) -> String?,
+        phase: (String) -> Unit = {}
     ) {
+        phase(PhaseTimes.WRITING_ENTITIES)
         val globalRows = GlobalRows(connection)
         globalRows.insertRun(run)
         val sortedFiles = files.sortedBy { it.path }
         val entityIds = globalRows.insertEntities(globalEntities + sortedFiles.flatMap { it.entities })
         globalRows.insertRelations((globalRelations + sortedFiles.flatMap { it.relations }), entityIds)
         globalRows.insertTriggerEvents(sortedFiles.flatMap { it.triggerEvents }, entityIds)
+        phase(PhaseTimes.WRITING_FILES)
         FileRows(connection).write(sortedFiles, entityIds, globalCoverage)
+        phase(PhaseTimes.WRITING_LINES)
         val entities = globalEntities + sortedFiles.flatMap { it.entities }
         val containerKeys = entities.filter { it.kind in SourceLines.CONTAINER_KINDS }.map { it.key }.toSet()
         val subprogramKeys = entities.filter { it.kind == EntityKind.PROCEDURE || it.kind == EntityKind.FUNCTION }.map { it.key }.toSet()
@@ -48,8 +53,10 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
 
         /**
          * Writes the index to a temporary file beside [target] and moves it over [target] when everything succeeded.
+         * [phase] is told each step as it starts.
          */
-        fun writeAtomically(target: Path, body: (AtlasWriter) -> Unit) {
+        fun writeAtomically(target: Path, phase: (String) -> Unit = {}, body: (AtlasWriter) -> Unit) {
+            phase(PhaseTimes.WRITING_TABLES)
             val absolute = target.toAbsolutePath()
             require(!Files.isDirectory(absolute)) { "Cannot write the index to $absolute: it is a folder" }
             Files.createDirectories(absolute.parent)
@@ -61,7 +68,9 @@ class AtlasWriter private constructor(private val connection: Connection) : Auto
                     connection.autoCommit = false
                     execute(connection, tableDdl())
                     body(AtlasWriter(connection))
+                    phase(PhaseTimes.WRITING_INDEXES)
                     execute(connection, indexDdl())
+                    phase(PhaseTimes.WRITING_COMMIT)
                     connection.commit()
                 }
                 replace(temporary, absolute)

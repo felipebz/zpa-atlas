@@ -125,6 +125,8 @@ class ProjectFileTest {
         )
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\nthreads: 4"))
             .endsWith("hr.yaml, line 3: threads belongs to the machine, not to the project: give --threads to index instead")
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\nphaseTimes: true"))
+            .endsWith("hr.yaml, line 3: phaseTimes belongs to the machine, not to the project: give --phase-times to index instead")
     }
 
     @Test

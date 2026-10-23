@@ -154,8 +154,8 @@ oracle:                         # optional
 - **The name** is the file's name without `.yaml`: lower-case letters, digits, `-` and `_`, starting with a letter or a
   digit.
 - **Each key is an option** of `index`, with the same values and checks: `index` is `--out`, `compilationSchema` is
-  `--compilation-schema`, `oracle.passwordEnv` is `--oracle-password-env`, and so on. `--threads` belongs to the
-  machine and stays on the command line.
+  `--compilation-schema`, `oracle.passwordEnv` is `--oracle-password-env`, and so on. `--threads` and `--phase-times`
+  belong to the machine and stay on the command line.
 - **Paths** are relative to the file's folder. **Lists** are YAML lists or the comma-separated text the option takes.
 - **An option given beside `--project` wins** over the file's key: `--out other.db` writes elsewhere.
 - **Refused:** an unknown key, a value of the wrong type, a missing `sources` or `index`, and a password in the file;
@@ -166,8 +166,8 @@ oracle:                         # optional
 ## Command reference
 
 ```sh
-zpa-atlas index --project <name>.yaml [any option below, which wins over the file] [--threads N]
-zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--threads N] [--encoding auto|<charset>] \
+zpa-atlas index --project <name>.yaml [any option below, which wins over the file] [--threads N] [--phase-times]
+zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--threads N] [--phase-times] [--encoding auto|<charset>] \
   [--database-version 19] [--ccflags 'name:value, ...'] \
   [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]
 zpa-atlas stats <file.db>
@@ -181,6 +181,7 @@ zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080
 | `--extensions`       | `sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps`                                            |
 | `--encoding`         | `auto` (per file: strict UTF-8, else windows-1252), or a charset name forced for every file      |
 | `--threads`          | the number of processors                                                                         |
+| `--phase-times`      | off. With it, `index` prints to stderr the time, share and peak heap of each phase, and the slowest files |
 | `--database-version` | the version of the `--oracle-url` database, else none                                            |
 | `--ccflags`          | none                                                                                             |
 | `--host`             | `127.0.0.1`                                                                                      |

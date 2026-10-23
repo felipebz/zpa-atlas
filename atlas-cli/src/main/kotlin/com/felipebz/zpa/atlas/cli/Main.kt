@@ -15,6 +15,7 @@ import com.felipebz.zpa.atlas.index.ConditionalCompilationText
 import com.felipebz.zpa.atlas.index.DatabaseVersionOrigin
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.index.PhaseTimes
 import com.felipebz.zpa.atlas.index.SourceDecoding
 import com.felipebz.zpa.atlas.index.SourceIdentifiers
 import com.felipebz.zpa.atlas.query.AtlasIndex
@@ -37,6 +38,7 @@ import kotlin.io.path.extension
 import kotlin.io.path.name
 
 private fun index(args: IndexArguments, environment: (String) -> String?, given: Set<String>): Int {
+    val phases = if (args.phaseTimes) PhaseTimes() else null
     val project = args.project.takeIf { it.isNotBlank() }?.let { ProjectFile.read(Path.of(it.trim())) }
     val taken = project?.let { args.take(it, given) }.orEmpty()
     // A message about a value of the file names the file and the key, not the option.
@@ -64,7 +66,9 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
     }
     val (sources, encoding, explicitVersion, flags, settings, compilationSchema) = checked
     val oracle = settings?.let {
+        phases?.start(PhaseTimes.DICTIONARY_NAMES)
         val writtenNames = SourceIdentifiers.scan(sources, args.extensions.split(','))
+        phases?.start(PhaseTimes.DICTIONARY_METADATA)
         it to OracleMetadataLoader.load(it, compilationSchema, applicationHome().resolve("drivers"), writtenNames)
     }
     val dictionary = oracle?.let { (oracleSettings, loaded) ->
@@ -72,6 +76,7 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
         AtlasDictionary.lookupOnly(loaded.result.metadata, schemas, loaded.synonyms, loaded.objects)
     }
         ?: AtlasDictionary.NONE
+    phases?.stop()
     val (conditionalCompilation, databaseVersionOrigin) = conditionalCompilation(explicitVersion, flags, oracle)
     if (conditionalCompilation.isActive) System.err.println(ConditionalCompilationText.describe(conditionalCompilation, databaseVersionOrigin))
     val summary = Indexer().index(
@@ -85,11 +90,13 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
             encoding = encoding,
             conditionalCompilation = conditionalCompilation,
             databaseVersionOrigin = databaseVersionOrigin
-        )
+        ),
+        phases
     )
     val indexed = if (project == null) "Indexed" else "Indexed project ${project.name}:"
     System.err.println("$indexed ${summary.files} files into ${args.out}: scan ${summary.parseMillis} ms, write ${summary.writeMillis} ms, total ${summary.totalMillis} ms")
     if (summary.failedFiles > 0) System.err.println("${summary.failedFiles} file(s) failed extraction and were indexed as FAILED (see stats)")
+    phases?.let { System.err.print(it.report()) }
     return 0
 }
 
