@@ -171,7 +171,7 @@ zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--thr
   [--database-version 19] [--ccflags 'name:value, ...'] \
   [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]
 zpa-atlas stats <file.db>
-zpa-atlas serve --projects <folder> [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [authentication options as below]
+zpa-atlas serve --projects <folder> [--default-project <name>] [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [authentication options as below]
 zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [--mcp-allowed-host <name>,...] \
   [--oidc-issuer URL --public-url URL [--oidc-audience VALUE] [--oidc-scope SCOPE] [--oidc-client-id ID [--oidc-client-secret-env VAR]]]
 ```
@@ -281,6 +281,10 @@ startup: adding or removing a project takes a restart.
   file (not read: rename it to `.yaml`).
 - **`--db` and `--sources`** beside `--projects` on the command line are refused. From the environment they are
   ignored, with a startup line: the container image sets them.
+- **`--default-project <name>`** (or `ZPA_ATLAS_DEFAULT_PROJECT`, only with `--projects`) makes `project` optional
+  on every tool: a call without it reads that project, and its answer starts with `"project": "<name>"` (an error ends
+  with a sentence saying so). A fork shares most names with its origin, so an answer read from the wrong project would
+  look right: saying which one it read lets the agent notice. `list_projects` and the list page mark the default.
 - **The MCP endpoint** stays at `/mcp`, one for every project. Every tool takes a `project` argument, the project's
   name: required with several projects (a call without it is refused with the names), optional with one. The tool
   `list_projects` gives each project's name, state, index date and file count, and the instructions name the projects.

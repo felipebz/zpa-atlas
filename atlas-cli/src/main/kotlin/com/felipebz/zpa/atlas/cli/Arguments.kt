@@ -99,6 +99,13 @@ class ServeArguments {
     )
     var projects: String = ""
 
+    @Parameter(
+        names = ["--default-project"],
+        description = "With --projects: the project an MCP tool reads when the call names none; its answer then says which " +
+            "project it read [env ZPA_ATLAS_DEFAULT_PROJECT]"
+    )
+    var defaultProject: String = ""
+
     @Parameter(names = ["--db"], description = "Index database to serve, unless --projects is given [env ZPA_ATLAS_DB]", required = true)
     var db: String = ""
 

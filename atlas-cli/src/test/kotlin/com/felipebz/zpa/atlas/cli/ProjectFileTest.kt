@@ -94,6 +94,30 @@ class ProjectFileTest {
     }
 
     @Test
+    fun `a title and a description are read, trimmed, and are no option of index`() {
+        val project = ProjectFile.read(file("core.yaml", "sources: src\nindex: x.db\ntitle: '  Core platform '\ndescription: >\n  The main codebase:\n  billing, jobs and reports.\n"))
+
+        assertThat(project.name).isEqualTo("core")
+        assertThat(project.title).isEqualTo("Core platform")
+        assertThat(project.description).isEqualTo("The main codebase: billing, jobs and reports.")
+        assertThat(ProjectFile.KEYS.keys).doesNotContain("title", "description")
+        assertThat(ProjectFile.read(file("bare.yaml", "sources: src\nindex: x.db")).title).isNull()
+    }
+
+    @Test
+    fun `a title is one line of at most 80 characters, a description at most 500, neither blank nor a list`() {
+        assertThat(ProjectFile.read(file("ok.yaml", "sources: src\nindex: x.db\ntitle: ${"t".repeat(80)}\ndescription: ${"d".repeat(500)}")).title).hasSize(80)
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ntitle: ${"t".repeat(81)}")).endsWith("hr.yaml, line 3: title is at most 80 characters; it has 81")
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ndescription: ${"d".repeat(501)}"))
+            .endsWith("hr.yaml, line 3: description is at most 500 characters; it has 501")
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ntitle: |\n  Core\n  platform")).endsWith("hr.yaml, line 3: title is one line")
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ntitle: '  '")).endsWith("hr.yaml, line 3: title has no value")
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ndescription:")).endsWith("hr.yaml, line 3: description has no value")
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ntitle: [a, b]")).endsWith("hr.yaml, line 3: title takes one value, not a list")
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ndescription:\n  a: b")).endsWith("hr.yaml, line 4: description takes one value, not a map")
+    }
+
+    @Test
     fun `a byte order mark before the first key is not part of it`() {
         val file = directory.resolve("hr.yaml")
         Files.writeString(file, "\uFEFFsources: src\nindex: x.db\n")
@@ -118,7 +142,7 @@ class ProjectFileTest {
     @Test
     fun `an unknown key is refused with the known keys, at the top and under oracle`() {
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\nsorces: src")).endsWith(
-            "hr.yaml, line 3: unknown key 'sorces'; the keys are: sources, index, extensions, encoding, compilationSchema, databaseVersion, ccflags, oracle"
+            "hr.yaml, line 3: unknown key 'sorces'; the keys are: sources, index, extensions, encoding, compilationSchema, databaseVersion, ccflags, oracle, title, description"
         )
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\noracle:\n  urll: x")).endsWith(
             "hr.yaml, line 4: unknown key 'oracle.urll'; the keys are: oracle.url, oracle.user, oracle.passwordEnv, oracle.schemas, oracle.relations"
@@ -150,7 +174,7 @@ class ProjectFileTest {
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\nextensions: []")).endsWith("hr.yaml, line 3: extensions has no value")
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ncompilationSchema: \"\"")).endsWith("hr.yaml, line 3: compilationSchema has no value")
         assertThat(refusal("hr.yaml", "index: x.db")).endsWith("hr.yaml: the key 'sources' is required")
-        assertThat(refusal("hr.yaml", "- sources")).endsWith("hr.yaml: a project file is a map of keys: sources, index, extensions, encoding, compilationSchema, databaseVersion, ccflags, oracle")
+        assertThat(refusal("hr.yaml", "- sources")).endsWith("hr.yaml: a project file is a map of keys: sources, index, extensions, encoding, compilationSchema, databaseVersion, ccflags, oracle, title, description")
         assertThat(refusal("hr.yaml", "sources: src\nsources: other\nindex: x.db")).contains("hr.yaml, line 2: Duplicate key 'sources'")
     }
 

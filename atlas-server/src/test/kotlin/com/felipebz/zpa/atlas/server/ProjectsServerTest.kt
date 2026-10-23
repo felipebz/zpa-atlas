@@ -130,6 +130,20 @@ class ProjectsServerTest {
     }
 
     @Test
+    fun `the list gives a title and description only when a project has them, and marks the default`() = testApplication {
+        val core = ServedProject("core", hrIndex, Fixture.sources, "Core \"platform\"", "The main codebase.")
+        application { atlasProjectsModule(listOf(core, ServedProject("billing", billingIndex, billingSources)), McpSettings(), null, BasePath.ROOT, "core") }
+        val client = createClient { }
+        val list = client.get("/api/projects").json().jsonObject["projects"]!!.jsonArray.map { it.jsonObject }
+        assertThat(list[0].keys).containsExactly("name", "path", "state", "finishedAt", "files", "error")
+        assertThat(list[1].keys).containsExactly("name", "path", "state", "finishedAt", "files", "error", "title", "description", "default")
+        assertThat(list[1]["default"].toString()).isEqualTo("true")
+        assertThat(client.get("/p/core/").bodyAsText())
+            .contains("<meta name=\"atlas-project\" content=\"core\"><meta name=\"atlas-project-title\" content=\"Core &quot;platform&quot;\">")
+        assertThat(client.get("/p/billing/").bodyAsText()).doesNotContain("atlas-project-title")
+    }
+
+    @Test
     fun `an unknown project is not found, and nothing of a single index is served at the root`() = server { client ->
         val unknown = client.get("/p/nope/api/run")
         assertThat(unknown.status).isEqualTo(HttpStatusCode.NotFound)

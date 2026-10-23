@@ -35,6 +35,12 @@ class ProjectFile(
     /** The file's [key] and its option's text, or null when the file leaves the key out. */
     operator fun get(key: String): String? = values[key]
 
+    /** The project's readable name, one line; its [name] stays what URLs and the MCP's `project` argument use. */
+    val title: String? get() = values["title"]
+
+    /** What the codebase is, in a sentence or two, for the people and agents that pick a project. */
+    val description: String? get() = values["description"]
+
     companion object {
         /** A project name: it goes into URLs and into an MCP argument. */
         private val NAME = Regex("[a-z0-9][a-z0-9_-]*")
@@ -56,6 +62,9 @@ class ProjectFile(
             "oracle.schemas" to "--oracle-schemas",
             "oracle.relations" to "--oracle-relations"
         )
+
+        /** The keys that describe the project to people and agents, not options of `index`, with their longest length. */
+        private val DESCRIPTIVE: Map<String, Int> = linkedMapOf("title" to 80, "description" to 500)
 
         private val REQUIRED = listOf("sources", "index")
 
@@ -124,6 +133,10 @@ class ProjectFile(
                     read(shown, value, "oracle.", folder, values)
                     continue
                 }
+                DESCRIPTIVE[key]?.let { max ->
+                    values[key] = descriptive(shown, key, value, max)
+                    continue
+                }
                 if (key !in KEYS) {
                     val known = if (prefix.isEmpty()) topKeys() else keysUnder(prefix).map { prefix + it }
                     throw CliValidationException("$shown, line $line: unknown key '$key'; the keys are: ${known.joinToString(", ")}")
@@ -153,9 +166,18 @@ class ProjectFile(
             }
         }
 
+        /** The text of a [DESCRIPTIVE] key: one value of at most [max] characters, and for `title` one line. */
+        private fun descriptive(shown: String, key: String, node: YamlNode, max: Int): String {
+            val line = node.location.line
+            val text = text(shown, key, node, Path.of("")).trim()
+            if (key == "title" && text.any { it == '\n' || it == '\r' }) throw CliValidationException("$shown, line $line: title is one line")
+            if (text.length > max) throw CliValidationException("$shown, line $line: $key is at most $max characters; it has ${text.length}")
+            return text
+        }
+
         private fun untagged(node: YamlNode): YamlNode = if (node is YamlTaggedNode) untagged(node.innerNode) else node
 
-        private fun topKeys() = KEYS.keys.map { it.substringBefore('.') }.distinct()
+        private fun topKeys() = KEYS.keys.map { it.substringBefore('.') }.distinct() + DESCRIPTIVE.keys
 
         private fun keysUnder(prefix: String) = KEYS.keys.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
     }

@@ -72,7 +72,11 @@ ol.hits li:last-child { border-bottom: 0; }
 ul.projects { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 ul.projects li { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; padding: 8px 16px; border-bottom: 1px solid var(--border); }
 ul.projects li:last-child { border-bottom: 0; }
-ul.projects .project-name { flex: 1 1 12em; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+ul.projects .project-head { flex: 1 1 12em; min-width: 0; display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; }
+ul.projects .project-name { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+ul.projects .project-id { color: var(--muted); font-size: 12px; font-family: var(--mono, monospace); }
+ul.projects .project-default { font-size: 11px; padding: 0 6px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); }
+ul.projects .project-description { flex-basis: 100%; margin: 2px 0 0; color: var(--fg, inherit); font-size: 13px; overflow-wrap: anywhere; }
 ul.projects .project-date, ul.projects .project-files { color: var(--muted); white-space: nowrap; }
 ul.projects .project-state { color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
 

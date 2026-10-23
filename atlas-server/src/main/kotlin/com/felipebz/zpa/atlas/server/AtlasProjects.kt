@@ -30,6 +30,12 @@ import io.ktor.server.routing.head
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.putJsonArray
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -39,9 +45,10 @@ internal const val PROJECTS_SEGMENT = "p"
 /**
  * A project the server serves: [name] is a segment of its URLs, [indexFile] the index `index --project` writes, and
  * [sources] its sources folder, null when it is not on this machine. The index file may not exist yet: the project is
- * then not indexed, and is served as soon as the file appears.
+ * then not indexed, and is served as soon as the file appears. [title] and [description] tell people and agents which
+ * codebase it is.
  */
-class ServedProject(val name: String, val indexFile: Path, val sources: Path?) {
+class ServedProject(val name: String, val indexFile: Path, val sources: Path?, val title: String? = null, val description: String? = null) {
     init {
         require(NAME.matches(name)) { "A project name is lower-case letters, digits, '-' and '_', starting with a letter or a digit: $name" }
     }
@@ -54,12 +61,12 @@ class ServedProject(val name: String, val indexFile: Path, val sources: Path?) {
     /** The project as the list of projects shows it, read now. */
     fun summary(): ProjectSummary {
         val path = "$PROJECTS_SEGMENT/$name/"
-        if (!indexed) return ProjectSummary(name, path, ProjectState.NOT_INDEXED, null, null, null)
+        if (!indexed) return ProjectSummary(name, path, ProjectState.NOT_INDEXED, null, null, null, title, description)
         return try {
             val answer = index.run()
-            ProjectSummary(name, path, ProjectState.READY, answer.run.finishedAt, answer.result.filesByParseStatus.sumOf { it.count }, null)
+            ProjectSummary(name, path, ProjectState.READY, answer.run.finishedAt, answer.result.filesByParseStatus.sumOf { it.count }, null, title, description)
         } catch (e: Exception) {
-            ProjectSummary(name, path, ProjectState.UNAVAILABLE, null, null, e.message ?: e.javaClass.simpleName)
+            ProjectSummary(name, path, ProjectState.UNAVAILABLE, null, null, e.message ?: e.javaClass.simpleName, title, description)
         }
     }
 
@@ -81,11 +88,26 @@ data class ProjectSummary(
     val state: ProjectState,
     val finishedAt: String?,
     val files: Long?,
-    val error: String?
+    val error: String?,
+    val title: String? = null,
+    val description: String? = null
 )
 
-@Serializable
-data class ProjectList(val projects: List<ProjectSummary>)
+/**
+ * The JSON of `/api/projects`: the fields of [ProjectSummary], but `title` and `description` only when the project has
+ * them, and `"default": true` only on the [defaultProject].
+ */
+private fun projectsJson(summaries: List<ProjectSummary>, defaultProject: String?): String = buildJsonObject {
+    putJsonArray("projects") {
+        for (summary in summaries) {
+            val fields = ApiJson.encodeToJsonElement(ProjectSummary.serializer(), summary).jsonObject
+            add(JsonObject(fields.filter { (key, value) -> key !in OMITTED_WHEN_NULL || value != JsonNull } +
+                if (summary.name == defaultProject) mapOf("default" to JsonPrimitive(true)) else emptyMap()))
+        }
+    }
+}.toString()
+
+private val OMITTED_WHEN_NULL = setOf("title", "description")
 
 /** The pages a project serves with its name in a `<meta name="atlas-project">`: the page knows its project only from it. */
 private val PAGES = listOf("index.html", "entity.html", "file.html", "query.html", "impact.html", "text.html")
@@ -102,9 +124,10 @@ fun Application.atlasProjectsModule(
     projects: List<ServedProject>,
     mcp: McpSettings = McpSettings(),
     auth: AuthSettings? = null,
-    basePath: BasePath = BasePath.ROOT
+    basePath: BasePath = BasePath.ROOT,
+    defaultProject: String? = null
 ) =
-    atlasProjectsModule(projects, mcp, auth, { oidcIdentity(it) }, basePath) {
+    atlasProjectsModule(projects, mcp, auth, { oidcIdentity(it) }, basePath, defaultProject) {
         HttpClient(io.ktor.client.engine.cio.CIO).also { client -> monitor.subscribe(ApplicationStopped) { client.close() } }
     }
 
@@ -114,9 +137,11 @@ internal fun Application.atlasProjectsModule(
     auth: AuthSettings?,
     identity: IdentityInstaller,
     basePath: BasePath = BasePath.ROOT,
+    defaultProject: String? = null,
     providerClient: () -> HttpClient
 ) {
     require(projects.isNotEmpty()) { "No project to serve" }
+    require(defaultProject == null || projects.any { it.name == defaultProject }) { "The default project $defaultProject is not one of the projects" }
     require(projects.map { it.name }.toSet().size == projects.size) { "Two projects have the same name" }
     val sorted = projects.sortedBy { it.name }
     val names = sorted.map { it.name }.toSet()
@@ -127,7 +152,9 @@ internal fun Application.atlasProjectsModule(
     }
     routing {
         route(basePath.of("/api")) {
-            get("/projects") { call.respondJson(ProjectList(sorted.map { it.summary() })) }
+            get("/projects") {
+                call.respondText(projectsJson(sorted.map { it.summary() }, defaultProject), ContentType.Application.Json)
+            }
         }
         for (project in sorted) {
             val root = basePath.of("/$PROJECTS_SEGMENT/${project.name}")
@@ -152,7 +179,7 @@ internal fun Application.atlasProjectsModule(
         get(basePath.of("/projects.html")) { call.page("projects.html", null) }
         staticResources(basePath.of("/assets"), "web/assets", index = null)
     }
-    mountMcp(mcp, auth, basePath) { projectsMcpServer(sorted, mcp.maxAnswerChars) }
+    mountMcp(mcp, auth, basePath) { projectsMcpServer(sorted, defaultProject, mcp.maxAnswerChars) }
 }
 
 private class ProjectIndexedConfig {
@@ -171,17 +198,24 @@ private val ProjectIndexed = createRouteScopedPlugin("ProjectIndexed", ::Project
 
 private val pageTexts = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-/** The page [name] of the bundle, with [project]'s name in a meta tag right after `<head>` when there is one. */
-private suspend fun ApplicationCall.page(name: String, project: String?) {
+/**
+ * The page [name] of the bundle, with [project]'s name in a meta tag right after `<head>` when there is one, and its
+ * [title] in another when it has one.
+ */
+private suspend fun ApplicationCall.page(name: String, project: String?, title: String? = null) {
     val text = pageTexts.computeIfAbsent(name) {
         val resource = ServedProject::class.java.classLoader.getResource("web/$it") ?: error("The page $it is not in the bundle")
         resource.readText()
     }
-    val served = if (project == null) text else text.replaceFirst("<head>", "<head><meta name=\"atlas-project\" content=\"$project\">")
+    val titled = title?.let { "<meta name=\"atlas-project-title\" content=\"${attribute(it)}\">" }.orEmpty()
+    val served = if (project == null) text else text.replaceFirst("<head>", "<head><meta name=\"atlas-project\" content=\"$project\">$titled")
     respondText(served, ContentType.Text.Html.withParameter("charset", "utf-8"))
 }
 
-private suspend fun ApplicationCall.projectPage(project: ServedProject, name: String) = page(name, project.name)
+private suspend fun ApplicationCall.projectPage(project: ServedProject, name: String) = page(name, project.name, project.title)
+
+/** [text] as the value of a double-quoted HTML attribute. */
+private fun attribute(text: String) = text.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
 
 /**
  * 200 when the index of every project that has one opens; a project not indexed yet does not fail it, so that a
@@ -218,9 +252,10 @@ fun serveProjects(
     port: Int,
     mcp: McpSettings = McpSettings(),
     auth: AuthSettings? = null,
-    basePath: BasePath = BasePath.ROOT
+    basePath: BasePath = BasePath.ROOT,
+    defaultProject: String? = null
 ) {
-    val server = embeddedServer(CIO, host = host, port = port) { atlasProjectsModule(projects, mcp, auth, basePath) }
+    val server = embeddedServer(CIO, host = host, port = port) { atlasProjectsModule(projects, mcp, auth, basePath, defaultProject) }
     try {
         server.start(wait = true)
     } catch (e: Throwable) {

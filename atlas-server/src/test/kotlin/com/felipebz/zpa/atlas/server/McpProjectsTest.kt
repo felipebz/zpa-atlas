@@ -231,6 +231,91 @@ class McpProjectsTest {
         }
     }
 
+    private fun withDefault(defaultProject: String, vararg projects: ServedProject, test: suspend ApplicationTestBuilder.(Client) -> Unit) =
+        mcp({ atlasProjectsModule(projects.toList(), McpSettings(), null, defaultProject = defaultProject) }, test = test)
+
+    private val titledHr get() = ServedProject("hr", hrIndex, Fixture.sources, "Human resources", "Payroll, jobs and the company tables.")
+
+    @Test
+    fun `a call without project reads the default, and answers as the index alone with project first`() {
+        val alone = ArrayList<String>()
+        mcp({ atlasModule(AtlasIndex(hrIndex, Fixture.sources)) }) { client -> for ((name, arguments) in hrCalls) alone += client.call(name, arguments).text() }
+        val aloneResults = single(hrIndex, Fixture.sources, hrCalls)
+        withDefault("hr", hr, billing) { client ->
+            for ((tool, schema) in client.listTools().tools.filter { it.name != "list_projects" }.map { it.name to it.inputSchema }) {
+                assertThat(schema.required.orEmpty()).describedAs(tool).doesNotContain("project")
+                assertThat(schema.properties!!["project"].toString()).describedAs(tool).contains("without it, the tool reads the default project, hr.")
+            }
+            for ((i, call) in hrCalls.withIndex()) {
+                val answer = client.call(call.first, call.second)
+                assertThat(answer.text()).describedAs(call.first).isEqualTo("{\"project\":\"hr\"," + alone[i].removePrefix("{"))
+                // Naming the project, the default's name included, answers as without a default.
+                assertThat(Json.encodeToString(CallToolResult.serializer(), client.call(call.first, call.second.with("hr")))).isEqualTo(aloneResults[i])
+            }
+            assertThat(client.call("search_entities", args { put("query", "close_invoice") }.with("billing")).text()).contains("CLOSE_INVOICE").doesNotContain("\"project\"")
+        }
+    }
+
+    @Test
+    fun `an error read from the default says so, an unknown entity first of all`() = withDefault("hr", hr, billing) { client ->
+        val notice = " This call read the default project, hr; pass project to read another."
+        val unknown = client.call("get_entity", args { put("key", "db:BILLING.INVOICE") })
+        assertThat(unknown.isError).isTrue()
+        assertThat(unknown.text()).isEqualTo("Unknown entity: db:BILLING.INVOICE. Entity keys come from search_entities or from earlier answers.$notice")
+        assertThat(client.call("find_occurrences").text()).startsWith("find_occurrences needs at least one filter").endsWith(notice)
+        assertThat(client.call("get_source", args { put("path", "nope.sql"); put("line", 1) }).text()).endsWith(notice)
+        assertThat(client.call("find_usages", args { put("key", "db:HR.COMPANY"); put("limit", 100) }).text()).isEqualTo("limit must be between 1 and 40.$notice")
+        // Named, the same error is as without a default.
+        assertThat(client.call("get_entity", args { put("key", "db:BILLING.INVOICE") }.with("hr")).text())
+            .isEqualTo("Unknown entity: db:BILLING.INVOICE. Entity keys come from search_entities or from earlier answers.")
+    }
+
+    @Test
+    fun `a default not indexed yet is refused as a call naming it is, saying it was the default`() {
+        val pending = ServedProject("pending", temp.resolve("pending.db"), null)
+        withDefault("pending", hr, pending) { client ->
+            assertThat(client.call("search_entities", args { put("query", "x") }).text()).isEqualTo(
+                "The project pending is not indexed yet: its index ${temp.resolve("pending.db")} does not exist. " +
+                    "This call read the default project, pending; pass project to read another."
+            )
+        }
+    }
+
+    @Test
+    fun `list_projects and the instructions name the default, the titles and the descriptions`() =
+        withDefault("hr", titledHr, billing) { client ->
+            val projects = Json.parseToJsonElement(client.call("list_projects").text()).jsonObject["projects"]!!.jsonArray.map { it.jsonObject }
+            assertThat(projects[0].keys).containsExactly("name", "state", "finishedAt", "files")
+            assertThat(projects[1].keys).containsExactly("name", "default", "title", "description", "state", "finishedAt", "files")
+            assertThat(projects[1]["default"].toString()).isEqualTo("true")
+            assertThat(projects[1]["title"]!!.jsonPrimitive.content).isEqualTo("Human resources")
+            assertThat(projects[1]["description"]!!.jsonPrimitive.content).isEqualTo("Payroll, jobs and the company tables.")
+            assertThat(client.listTools().tools.first { it.name == "list_projects" }.description)
+                .endsWith(" Also its title and description when it has them, and default: true on the default project.")
+            assertThat(client.serverInstructions).startsWith(
+                "This server holds several projects, separate codebases indexed apart: billing, hr (Human resources). The default " +
+                    "project is hr: a tool without project reads it, and its answer says \"project\": \"hr\". When the question is " +
+                    "about another project, pass its name as project. The projects may share names: a key found in one does not " +
+                    "show that the question was about it. An entity key, a path or a node number of one project means nothing in another.\n"
+            ).endsWith(AtlasMcpTools.INSTRUCTIONS).doesNotContain("Payroll")
+        }
+
+    @Test
+    fun `the instructions stay within 4096 characters with ten projects of long names and titles`() {
+        val projects = (1..10).map { i ->
+            ServedProject("project-with-a-rather-long-name-number-$i", hrIndex, null, "T".repeat(79) + i % 10, "D".repeat(500))
+        }
+        val instructions = projectsInstructions(projects, projects.first().name)
+        assertThat(instructions.length).isLessThanOrEqualTo(4_096)
+        assertThat(instructions).doesNotContain("DDDD")
+    }
+
+    @Test
+    fun `without a default, titles change only the names in the instructions`() = projects(titledHr, billing) { client ->
+        assertThat(client.serverInstructions).startsWith("This server holds several projects, separate codebases indexed apart: billing, hr (Human resources). Every tool")
+        assertThat(client.call("get_entity", args { put("key", "db:HR.COMPANY") }).text()).startsWith("Missing argument: project.")
+    }
+
     @Test
     fun `with --db, no tool has project and there is no list_projects`() = mcp({ atlasModule(AtlasIndex(hrIndex, Fixture.sources)) }) { client ->
         val tools = client.listTools().tools

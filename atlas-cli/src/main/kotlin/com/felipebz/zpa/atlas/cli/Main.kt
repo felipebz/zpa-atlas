@@ -205,12 +205,14 @@ internal class ServeLaunch(
     val auth: AuthSettings?,
     val basePath: BasePath,
     /** The projects of `--projects`; empty with `--db`. */
-    val projects: List<ServedProject> = emptyList()
+    val projects: List<ServedProject> = emptyList(),
+    /** The project an MCP call without `project` reads; null without `--default-project`. */
+    val defaultProject: String? = null
 )
 
 private fun launch(serve: ServeLaunch) {
     if (serve.projects.isNotEmpty()) {
-        serveProjects(serve.projects, serve.host, serve.port, serve.mcp, serve.auth, serve.basePath)
+        serveProjects(serve.projects, serve.host, serve.port, serve.mcp, serve.auth, serve.basePath, serve.defaultProject)
     } else {
         com.felipebz.zpa.atlas.server.serve(AtlasIndex(serve.database!!, serve.sources), serve.host, serve.port, serve.mcp, serve.auth, serve.basePath)
     }
@@ -218,6 +220,8 @@ private fun launch(serve: ServeLaunch) {
 
 private fun serve(args: ServeArguments, environment: (String) -> String?, launch: (ServeLaunch) -> Unit, given: Set<String>): Int {
     if (args.projects.isNotBlank()) return serveProjects(args, environment, launch, given)
+    if ("--default-project" in given) throw CliValidationException("--default-project needs --projects: with --db there is one index")
+    if (args.defaultProject.isNotBlank()) System.err.println("Ignoring ${environmentName("--default-project")}: it applies only with --projects")
     if (args.db.isBlank()) throw CliValidationException("The option is required: --db (or ${environmentName("--db")})")
     val database = Path.of(args.db)
     if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: ${args.db}")
@@ -277,7 +281,11 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
     val folder = ProjectFolder.read(Path.of(args.projects.trim()))
     val projects = folder.projects.map { project ->
         val sources = Path.of(project["sources"]!!)
-        ServedProject(project.name, Path.of(project["index"]!!), sources.takeIf { Files.isDirectory(it) })
+        ServedProject(project.name, Path.of(project["index"]!!), sources.takeIf { Files.isDirectory(it) }, project.title, project.description)
+    }
+    val defaultProject = args.defaultProject.trim().ifEmpty { null }
+    if (defaultProject != null && projects.none { it.name == defaultProject }) {
+        throw CliValidationException("The default project $defaultProject is not one of the projects: ${projects.joinToString(", ") { it.name }}")
     }
     val ignored = listOf("--db", "--sources").map(::environmentName).filter { !environment(it).isNullOrBlank() }
     if (ignored.isNotEmpty()) System.err.println("Ignoring ${ignored.joinToString(" and ")}: --projects says what to serve")
@@ -299,7 +307,11 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
         if (served.sources == null) warnings += "Warning: project ${served.name}: sources folder ${file["sources"]} does not exist here; it is served without sources"
     }
     System.err.println("MCP at $address${basePath.of("/mcp")}, for Host ${(MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")}: " +
-        "every project, picked by the tools' project argument${if (projects.size == 1) " (optional with one project)" else ""}")
+        "every project, picked by the tools' project argument" + when {
+            defaultProject != null -> "; without it, the default project $defaultProject"
+            projects.size == 1 -> " (optional with one project)"
+            else -> ""
+        })
     if (auth != null) {
         System.err.println("Authentication: /mcp, /api and every project's API need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
             (auth.scope?.let { " and scope $it" } ?: ""))
@@ -309,7 +321,7 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
         }
     }
     warnings.forEach { System.err.println(if (it.startsWith("Warning: ")) it else "Warning: $it") }
-    launch(ServeLaunch(null, null, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, projects))
+    launch(ServeLaunch(null, null, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, projects, defaultProject))
     return 0
 }
 

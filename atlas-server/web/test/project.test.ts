@@ -55,16 +55,25 @@ describe("stateMark", () => {
 describe("projectsHtml", () => {
   it("links each project to its home page, with its index date and files when ready", () => {
     expect(projectsHtml([hr], texts, "")).toBe(
-      `<ul class="projects"><li><a class="project-name" href="p/hr/">hr</a>` +
+      `<ul class="projects"><li><span class="project-head"><a class="project-name" href="p/hr/">hr</a></span>` +
       `<span class="project-date">projects.indexed{&quot;date&quot;:&quot;date(2026-10-22T14:47:16.372Z)&quot;}</span>` +
       `<span class="project-files">home.files{&quot;count&quot;:101}</span></li></ul>`);
   });
 
   it("shows a project without an index by its state, without a date, and escapes the error", () => {
     const html = projectsHtml([web, billing], texts, "");
-    expect(html).toContain(`<a class="project-name" href="p/web/">web</a><span class="project-state">projects.notIndexed</span></li>`);
+    expect(html).toContain(`<a class="project-name" href="p/web/">web</a></span><span class="project-state">projects.notIndexed</span></li>`);
     expect(html).toContain(`<span class="project-state">projects.unavailable{&quot;error&quot;:&quot;cannot open &lt;db&gt;&quot;}</span>`);
     expect(html).not.toContain("project-date");
+  });
+
+  it("shows a title as the link, with the name beside it, the default marked and the description below, escaped", () => {
+    const core: ProjectInfo = { ...hr, name: "core", path: "p/core/", title: "Core <platform>", description: "The main codebase & its jobs.", default: true };
+    const html = projectsHtml([core], texts, "");
+    expect(html).toContain(`<span class="project-head"><a class="project-name" href="p/core/">Core &lt;platform&gt;</a>` +
+      `<span class="project-id">core</span><span class="project-default">projects.default</span></span>`);
+    expect(html).toContain(`<p class="project-description">The main codebase &amp; its jobs.</p></li>`);
+    expect(projectsHtml([hr], texts, "")).not.toContain("project-id");
   });
 
   it("keeps the language in the links", () => {

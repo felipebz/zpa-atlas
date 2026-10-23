@@ -128,6 +128,35 @@ class ServeProjectsTest {
     }
 
     @Test
+    fun `a default project names one of the projects, is named by the MCP line, and is refused or ignored with --db`() {
+        project("core", "sources: ../src/hr\nindex: ../data/core.db\ntitle: Core platform\ndescription: The main codebase.")
+        val run = serve("--projects", projects.toString(), "--default-project", "core")
+        assertThat(run.code).describedAs(run.stderr).isEqualTo(0)
+        assertThat(run.launch!!.defaultProject).isEqualTo("core")
+        val core = run.launch.projects.single { it.name == "core" }
+        assertThat(listOf(core.title, core.description)).containsExactly("Core platform", "The main codebase.")
+        assertThat(run.stderr).contains(
+            "MCP at http://127.0.0.1:8080/mcp, for Host localhost, 127.0.0.1, [::1]: every project, picked by the tools' project argument; " +
+                "without it, the default project core"
+        )
+        // Not indexed yet, it is still accepted, with the usual warning.
+        assertThat(run.stderr).contains("Warning: project core is not indexed yet")
+
+        val unknown = serve("--projects", projects.toString(), "--default-project", "payroll")
+        assertThat(unknown.code).isEqualTo(2)
+        assertThat(unknown.stderr).startsWith("The default project payroll is not one of the projects: billing, core, hr")
+
+        val db = listOf("--db", directory.resolve("data/hr.db").toString(), "--sources", directory.resolve("src/hr").toString())
+        val beside = serve(*db.toTypedArray(), "--default-project", "core")
+        assertThat(beside.code).isEqualTo(2)
+        assertThat(beside.stderr).startsWith("--default-project needs --projects: with --db there is one index")
+        val fromEnvironment = serve(*db.toTypedArray(), environment = mapOf("ZPA_ATLAS_DEFAULT_PROJECT" to "core"))
+        assertThat(fromEnvironment.code).isEqualTo(0)
+        assertThat(fromEnvironment.stderr.lines().first()).isEqualTo("Ignoring ZPA_ATLAS_DEFAULT_PROJECT: it applies only with --projects")
+        assertThat(fromEnvironment.launch!!.database).isEqualTo(directory.resolve("data/hr.db"))
+    }
+
+    @Test
     fun `without --projects, serve is the single index it was`() {
         val run = serve("--db", directory.resolve("data/hr.db").toString(), "--sources", directory.resolve("src/hr").toString())
 

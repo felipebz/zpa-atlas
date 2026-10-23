@@ -31,6 +31,7 @@ export default {
   "projects.indexed": "Índice de {date}",
   "projects.notIndexed": "Ainda não indexado",
   "projects.unavailable": "Indisponível: {error}",
+  "projects.default": "padrão",
   "projects.empty": "Nenhum projeto.",
 
   "search.placeholder": "Nome (prefixo) ou nome com ponto (ex.: pack.run_job)",

@@ -12,6 +12,11 @@ export interface ProjectInfo {
   finishedAt: string | null;
   files: number | null;
   error: string | null;
+  /** Present only when the project file has them. */
+  title?: string;
+  description?: string;
+  /** Present, true, only on the project an MCP call without `project` reads. */
+  default?: true;
 }
 
 export interface ProjectList {
@@ -27,6 +32,16 @@ export interface ProjectTexts {
 /** The project the server marked this page with; null at the base path. */
 export function currentProject(): string | null {
   return document.querySelector<HTMLMetaElement>('meta[name="atlas-project"]')?.content || null;
+}
+
+/** The title of this page's project when its file gives one, else its name; null at the base path. */
+export function currentProjectTitle(): string | null {
+  return document.querySelector<HTMLMetaElement>('meta[name="atlas-project-title"]')?.content || currentProject();
+}
+
+/** How a project is named to people: its title, else its name. */
+export function projectLabel(project: Pick<ProjectInfo, "name" | "title">): string {
+  return project.title || project.name;
 }
 
 /** From the folder of a page of [project] to the base path. */
@@ -46,7 +61,7 @@ export function projectTitle(project: string | null, title: string): string {
 
 /** Sets the tab title to [title], after the project of the page. */
 export function setPageTitle(title: string) {
-  document.title = projectTitle(currentProject(), title);
+  document.title = projectTitle(currentProjectTitle(), title);
 }
 
 /** `?lang=…` when [search] has one, so that a link to another page keeps the language. */
@@ -86,7 +101,11 @@ export function projectsHtml(projects: ProjectInfo[], texts: ProjectTexts, searc
     } else {
       facts.push(`<span class="project-state">${esc(p.state)}</span>`);
     }
-    return `<li><a class="project-name" href="${esc(p.path + lang)}">${esc(p.name)}</a>${facts.join("")}</li>`;
+    const name = p.title ? `<span class="project-id">${esc(p.name)}</span>` : "";
+    const mark = p.default ? `<span class="project-default">${esc(texts.t("projects.default"))}</span>` : "";
+    const description = p.description ? `<p class="project-description">${esc(p.description)}</p>` : "";
+    return `<li><span class="project-head"><a class="project-name" href="${esc(p.path + lang)}">${esc(projectLabel(p))}</a>${name}${mark}</span>` +
+      `${facts.join("")}${description}</li>`;
   });
   return `<ul class="projects">${items.join("")}</ul>`;
 }

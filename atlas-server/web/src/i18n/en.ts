@@ -32,6 +32,7 @@ export default {
   "projects.notIndexed": "Not indexed yet",
   "projects.unavailable": "Unavailable: {error}",
   "projects.empty": "No projects.",
+  "projects.default": "default",
 
   "search.placeholder": "Name (prefix) or dotted name (e.g. pack.run_job)",
   "search.allKinds": "all kinds",
