@@ -79,7 +79,9 @@ data class IndexSummary(
     val writeMillis: Long,
     val totalMillis: Long,
     /** What `--incremental` did; null without it. */
-    val incremental: IncrementalReport? = null
+    val incremental: IncrementalReport? = null,
+    /** The files left out because a symbolic link leads them outside the sources folder, by relative path. */
+    val outsideRoot: List<String> = emptyList()
 )
 
 /**
@@ -123,6 +125,7 @@ class Indexer internal constructor(
         internal val encoding: String,
         internal val output: Path,
         internal val sources: List<Source>,
+        internal val outsideRoot: List<String>,
         internal val textIndex: SourceTextIndex,
         internal val startedAt: Instant,
         internal val started: Long
@@ -136,9 +139,9 @@ class Indexer internal constructor(
         val startedAt = clock()
         val started = System.nanoTime()
         val root = sources.toAbsolutePath().normalize()
-        val read = discover(root, extensions, encoding)
+        val (read, outsideRoot) = discover(root, extensions, encoding)
         val textIndex = SourceTextIndex.start(output, read.map { it.relativePath to it.text })
-        return ReadSources(root, extensions, encoding, output.toAbsolutePath().normalize(), read, textIndex, startedAt, started)
+        return ReadSources(root, extensions, encoding, output.toAbsolutePath().normalize(), read, outsideRoot, textIndex, startedAt, started)
     }
 
     /**
@@ -310,7 +313,7 @@ class Indexer internal constructor(
         }
         phases?.stop()
         val finished = System.nanoTime()
-        return IndexSummary(sources.size, failedFiles, (parsed - started) / 1_000_000, (finished - parsed) / 1_000_000, (finished - started) / 1_000_000, run?.report)
+        return IndexSummary(sources.size, failedFiles, (parsed - started) / 1_000_000, (finished - parsed) / 1_000_000, (finished - started) / 1_000_000, run?.report, read.outsideRoot)
     }
 
     /**
@@ -350,13 +353,30 @@ class Indexer internal constructor(
         }
     }
 
-    private fun discover(root: Path, extensions: List<String>, encoding: String): List<Source> {
+    /**
+     * The sources under [root] with one of [extensions], read, in path order; and the relative paths of the files left
+     * out because they are symbolic links that lead outside the real [root]. A link that stays inside is read through;
+     * folder links are not walked into. The server serves a file only where the same rule holds, so the index never
+     * holds the text of a file outside the sources folder.
+     */
+    private fun discover(root: Path, extensions: List<String>, encoding: String): Pair<List<Source>, List<String>> {
         require(Files.isDirectory(root)) { "Sources folder does not exist or is not a directory: $root" }
         val accepted = extensions.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotEmpty() }.toSet()
-        return Files.walk(root).use { paths ->
+        val realRoot = root.toRealPath()
+        val found = Files.walk(root).use { paths ->
             paths.filter { it.isRegularFile() && it.extension.lowercase(Locale.ROOT) in accepted }.toList()
-        }.map { Source(root.relativize(it).invariantSeparatorsPathString, it, Files.readAllBytes(it), encoding) }
-            .sortedBy { it.relativePath }
+        }
+        val outside = ArrayList<String>()
+        val sources = found.mapNotNull { path ->
+            val relative = root.relativize(path).invariantSeparatorsPathString
+            val real = path.toRealPath()
+            if (!real.startsWith(realRoot)) {
+                outside += relative
+                return@mapNotNull null
+            }
+            Source(relative, path, Files.readAllBytes(real), encoding)
+        }
+        return sources.sortedBy { it.relativePath } to outside.sorted()
     }
 
     companion object {

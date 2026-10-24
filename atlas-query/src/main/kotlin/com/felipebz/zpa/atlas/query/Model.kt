@@ -406,7 +406,7 @@ data class TextHit(val id: Long, val path: String, val line: Int, val text: Stri
 data class TextPage(val rows: List<TextHit>, val nextAfter: Long?, val total: Long, val wholeIndex: Boolean)
 
 /** A request the index cannot answer as asked (an unknown role, a limit out of range, a path outside the index). */
-class InvalidQueryException(message: String) : RuntimeException(message)
+open class InvalidQueryException(message: String) : RuntimeException(message)
 
 /** An impact graph of [nodes] nodes, more than [limit]: a smaller depth gives a smaller one. */
 class GraphTooLargeException(val nodes: Int, val limit: Int) :

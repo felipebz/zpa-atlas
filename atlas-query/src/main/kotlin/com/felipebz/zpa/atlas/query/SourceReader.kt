@@ -5,7 +5,9 @@
 
 package com.felipebz.zpa.atlas.query
 
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.sql.Connection
@@ -52,8 +54,15 @@ internal class SourceReader(private val connection: Connection, private val sour
         return FileView(path, false, text.lines, entityIndexes.keys.map { summaries.getValue(it) }, occurrences)
     }
 
-    /** Whether the file [path] changed since indexing, or null when there is no sources root or no such file. */
-    fun stale(path: String): Boolean? = readSource(sourceFile(path))?.stale
+    /**
+     * Whether the file [path] changed since indexing, or null when there is no sources root, no such file, or the file
+     * now resolves outside the sources root: a search answers its other rows, and never reads that file.
+     */
+    fun stale(path: String): Boolean? = try {
+        readSource(sourceFile(path))?.stale
+    } catch (_: LeavesRootException) {
+        null
+    }
 
     private class SourceFile(val id: Long, val path: String, val sha256: String, val encoding: String)
 
@@ -64,13 +73,27 @@ internal class SourceReader(private val connection: Connection, private val sour
             SourceFile(it.getLong(1), path, it.getString(2), it.getString(3))
         }.singleOrNull() ?: throw InvalidQueryException("Not a file of the index: $path")
 
-    /** The lines of [file] under the sources root, or null when there is no root or no such file. */
+    private class LeavesRootException(path: String) : InvalidQueryException("Path leaves the sources root: $path")
+
+    /**
+     * The lines of [file] under the sources root, or null when there is no root or no such file. The path is checked
+     * by its name, then by where it really leads: a symbolic link (of the file or of a folder above it) that leaves the
+     * real sources root is refused, one that stays inside is followed.
+     */
     private fun readSource(file: SourceFile): SourceText? {
         val root = sourcesRoot?.toAbsolutePath()?.normalize() ?: return null
         val resolved = root.resolve(file.path).normalize()
-        if (!resolved.startsWith(root)) throw InvalidQueryException("Path leaves the sources root: ${file.path}")
-        if (!Files.isRegularFile(resolved)) return null
-        val bytes = Files.readAllBytes(resolved)
+        if (!resolved.startsWith(root)) throw LeavesRootException(file.path)
+        val real = try {
+            val real = resolved.toRealPath()
+            if (!real.startsWith(root.toRealPath())) throw LeavesRootException(file.path)
+            real
+        } catch (_: IOException) {
+            // No such file, a dangling link, or a root that is gone.
+            return null
+        }
+        if (!Files.isRegularFile(real, LinkOption.NOFOLLOW_LINKS)) return null
+        val bytes = Files.readAllBytes(real)
         // The charset the indexer decoded this file with, so lines and columns match the stored spans.
         return SourceText(AtlasIndex.decode(bytes, file.encoding).lines(), sha256(bytes) != file.sha256)
     }

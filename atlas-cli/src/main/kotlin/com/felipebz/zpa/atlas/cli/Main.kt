@@ -116,10 +116,17 @@ private fun index(
     val indexed = if (project == null) "Indexed" else "Indexed project ${project.name}:"
     System.err.println("$indexed ${summary.files} files into ${args.out}: scan ${summary.parseMillis} ms, write ${summary.writeMillis} ms, total ${summary.totalMillis} ms")
     if (summary.failedFiles > 0) System.err.println("${summary.failedFiles} file(s) failed extraction and were indexed as FAILED (see stats)")
+    if (summary.outsideRoot.isNotEmpty()) {
+        val shown = summary.outsideRoot.take(OUTSIDE_SHOWN).joinToString(", ") + if (summary.outsideRoot.size > OUTSIDE_SHOWN) ", …" else ""
+        System.err.println("Warning: ${summary.outsideRoot.size} file(s) left out: symbolic links that lead outside the sources folder ($shown)")
+    }
     summary.incremental?.let { System.err.println(it.line()) }
     phases?.let { System.err.print(it.report()) }
     return 0
 }
+
+/** How many of the files left out the warning names. */
+private const val OUTSIDE_SHOWN = 10
 
 private data class CheckedIndex(
     val sources: Path,
