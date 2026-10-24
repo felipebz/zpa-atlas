@@ -84,7 +84,7 @@ private fun index(
     val (sources, encoding, explicitVersion, flags, settings, compilationSchema) = checked
     val oracle = settings?.let {
         phases?.start(PhaseTimes.DICTIONARY_NAMES)
-        val writtenNames = SourceIdentifiers.scan(sources, args.extensions.split(','))
+        val writtenNames = SourceIdentifiers.scan(read, args.threads)
         phases?.start(PhaseTimes.DICTIONARY_METADATA)
         it to OracleMetadataLoader.load(it, compilationSchema, applicationHome().resolve("drivers"), writtenNames)
     }
