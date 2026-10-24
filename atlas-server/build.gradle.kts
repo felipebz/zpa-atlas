@@ -114,3 +114,12 @@ tasks.processResources {
 tasks.check {
     dependsOn(webTypecheck, webTest)
 }
+
+sonar {
+    properties {
+        fun existing(key: String) = (properties[key] as Collection<*>).map { file(it!!) }.filter { it.exists() }
+        val pages = webDir.asFileTree.matching { include("*.html", "*.css") }.files.sorted()
+        properties["sonar.sources"] = existing("sonar.sources") + webDir.dir("src").asFile + pages
+        properties["sonar.tests"] = existing("sonar.tests") + webDir.dir("test").asFile
+    }
+}

@@ -2,6 +2,14 @@ plugins {
     kotlin("jvm") version "2.4.21" apply false
     kotlin("plugin.serialization") version "2.4.21" apply false
     id("com.diffplug.spotless") version "8.10.4" apply false
+    id("org.sonarqube") version "7.5.0.8588"
+}
+
+sonar {
+    properties {
+        property("sonar.projectKey", "com.felipebz.zpa:zpa-atlas")
+        property("sonar.projectName", "ZPA Atlas")
+    }
 }
 
 allprojects {
@@ -27,6 +35,18 @@ allprojects {
 
 subprojects {
     apply(plugin = "com.diffplug.spotless")
+    apply(plugin = "jacoco")
+
+    configure<JacocoPluginExtension> {
+        toolVersion = "0.8.15"
+    }
+
+    tasks.withType<Test>().matching { it.name == "test" }.configureEach {
+        finalizedBy(tasks.named("jacocoTestReport"))
+    }
+    tasks.withType<JacocoReport>().configureEach {
+        reports.xml.required.set(true)
+    }
 
     configure<com.diffplug.gradle.spotless.SpotlessExtension> {
         kotlin {
