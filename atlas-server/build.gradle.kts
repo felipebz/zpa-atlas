@@ -1,13 +1,10 @@
 import com.github.gradle.node.npm.task.NpmTask
 
-val ktorVersion = "3.6.0"
-val mcpVersion = "0.15.0"
-
 plugins {
     kotlin("jvm")
     kotlin("plugin.serialization")
     `java-library`
-    id("com.github.node-gradle.node") version "7.1.0"
+    alias(libs.plugins.node.gradle)
 }
 
 java {
@@ -18,25 +15,25 @@ java {
 
 dependencies {
     // The MCP SDK is built against an older Ktor: the BOM keeps every Ktor module, the SDK's included, on one version.
-    implementation(platform("io.ktor:ktor-bom:$ktorVersion"))
-    testImplementation(platform("io.ktor:ktor-bom:$ktorVersion"))
+    implementation(platform(libs.ktor.bom))
+    testImplementation(platform(libs.ktor.bom))
     api(project(":atlas-query"))
-    api("io.ktor:ktor-server-core:$ktorVersion")
-    implementation("io.ktor:ktor-server-cio:$ktorVersion")
-    implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
-    implementation("io.ktor:ktor-server-compression:$ktorVersion")
-    implementation("io.ktor:ktor-server-auth-oidc:$ktorVersion")
-    implementation("io.ktor:ktor-client-cio:$ktorVersion")
-    implementation("com.auth0:java-jwt:4.6.2")
-    implementation("com.auth0:jwks-rsa:0.24.1")
-    implementation("io.modelcontextprotocol:kotlin-sdk-server:$mcpVersion")
-    testImplementation("io.modelcontextprotocol:kotlin-sdk-client:$mcpVersion")
-    testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
+    api(libs.ktor.server.core)
+    implementation(libs.ktor.server.cio)
+    implementation(libs.ktor.server.status.pages)
+    implementation(libs.ktor.server.compression)
+    implementation(libs.ktor.server.auth.oidc)
+    implementation(libs.ktor.client.cio)
+    implementation(libs.java.jwt)
+    implementation(libs.jwks.rsa)
+    implementation(libs.mcp.server)
+    testImplementation(libs.mcp.client)
+    testImplementation(libs.ktor.server.test.host)
     testImplementation(testFixtures(project(":atlas-core")))
-    testImplementation(platform("org.junit:junit-bom:6.1.3"))
-    testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation("org.assertj:assertj-core:3.27.7")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.assertj)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 tasks.test {

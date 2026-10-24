@@ -1,0 +1,53 @@
+[versions]
+kotlin = "2.4.21"
+spotless = "8.10.4"
+sonarscanner = "7.5.0.8588"
+node-gradle = "7.1.0"
+
+# libs
+jcommander = "3.0"
+kaml = "0.79.0"
+kotlinx-serialization = "1.12.0"
+ktor = "3.6.0"
+java-jwt = "4.6.2"
+jwks-rsa = "0.24.1"
+mcp = "0.15.0"
+slf4j = "2.0.20"
+sqlite-jdbc = "3.53.4.0"
+
+# testing
+assertj = "3.27.7"
+junit = "6.1.3"
+ojdbc = "23.26.3.0.0"
+
+[libraries]
+jcommander = { module = "org.jcommander:jcommander", version.ref = "jcommander" }
+kaml = { module = "com.charleskorn.kaml:kaml", version.ref = "kaml" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+ktor-bom = { module = "io.ktor:ktor-bom", version.ref = "ktor" }
+ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
+ktor-server-auth-oidc = { module = "io.ktor:ktor-server-auth-oidc", version.ref = "ktor" }
+ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
+ktor-server-compression = { module = "io.ktor:ktor-server-compression", version.ref = "ktor" }
+ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
+ktor-server-status-pages = { module = "io.ktor:ktor-server-status-pages", version.ref = "ktor" }
+ktor-server-test-host = { module = "io.ktor:ktor-server-test-host", version.ref = "ktor" }
+java-jwt = { module = "com.auth0:java-jwt", version.ref = "java-jwt" }
+jwks-rsa = { module = "com.auth0:jwks-rsa", version.ref = "jwks-rsa" }
+mcp-client = { module = "io.modelcontextprotocol:kotlin-sdk-client", version.ref = "mcp" }
+mcp-server = { module = "io.modelcontextprotocol:kotlin-sdk-server", version.ref = "mcp" }
+slf4j-jdk14 = { module = "org.slf4j:slf4j-jdk14", version.ref = "slf4j" }
+sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
+
+assertj = { module = "org.assertj:assertj-core", version.ref = "assertj" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+ojdbc = { module = "com.oracle.database.jdbc:ojdbc17", version.ref = "ojdbc" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+node-gradle = { id = "com.github.node-gradle.node", version.ref = "node-gradle" }
+sonarqube = { id = "org.sonarqube", version.ref = "sonarscanner" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

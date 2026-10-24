@@ -15,15 +15,15 @@ dependencies {
     implementation(project(":atlas-query"))
     // The database version read by the CLI is a zpa-core type, printed as the indexer does.
     implementation(project(":atlas-core"))
-    implementation("org.jcommander:jcommander:3.0")
-    implementation("org.xerial:sqlite-jdbc:3.53.4.0")
-    implementation("org.slf4j:slf4j-jdk14:2.0.20")
+    implementation(libs.jcommander)
+    implementation(libs.sqlite.jdbc)
+    implementation(libs.slf4j.jdk14)
 
     testImplementation(testFixtures(project(":atlas-core")))
-    testImplementation(platform("org.junit:junit-bom:6.1.3"))
-    testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation("org.assertj:assertj-core:3.27.7")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.assertj)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 tasks.test {
@@ -53,12 +53,12 @@ val integrationTest = sourceSets.create("integrationTest") {
 }
 
 dependencies {
-    "integrationTestImplementation"(platform("org.junit:junit-bom:6.1.3"))
-    "integrationTestImplementation"("org.junit.jupiter:junit-jupiter")
-    "integrationTestImplementation"("org.assertj:assertj-core:3.27.7")
-    "integrationTestRuntimeOnly"("org.junit.platform:junit-platform-launcher")
+    "integrationTestImplementation"(platform(libs.junit.bom))
+    "integrationTestImplementation"(libs.junit.jupiter)
+    "integrationTestImplementation"(libs.assertj)
+    "integrationTestRuntimeOnly"(libs.junit.platform.launcher)
     // The driver is never a runtime dependency of the tools: users put it in the `drivers` folder.
-    "integrationTestRuntimeOnly"("com.oracle.database.jdbc:ojdbc17:23.26.3.0.0")
+    "integrationTestRuntimeOnly"(libs.ojdbc)
 }
 
 tasks.register<Test>("integrationTest") {

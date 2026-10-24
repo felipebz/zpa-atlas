@@ -1,8 +1,8 @@
 plugins {
-    kotlin("jvm") version "2.4.21" apply false
-    kotlin("plugin.serialization") version "2.4.21" apply false
-    id("com.diffplug.spotless") version "8.10.4" apply false
-    id("org.sonarqube") version "7.5.0.8588"
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.kotlin.serialization) apply false
+    alias(libs.plugins.spotless) apply false
+    alias(libs.plugins.sonarqube)
 }
 
 sonar {

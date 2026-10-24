@@ -22,11 +22,11 @@ kotlin {
 dependencies {
     api("com.felipebz.zpa:zpa-core:$zpaVersion")
     api("com.felipebz.zpa:zpa-oracle-metadata:$zpaVersion")
-    implementation("org.xerial:sqlite-jdbc:3.53.4.0")
-    testImplementation(platform("org.junit:junit-bom:6.1.3"))
-    testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation("org.assertj:assertj-core:3.27.7")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    implementation(libs.sqlite.jdbc)
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.assertj)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 tasks.processResources {

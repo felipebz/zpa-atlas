@@ -11,14 +11,14 @@ java {
 }
 
 dependencies {
-    api("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
-    implementation("org.xerial:sqlite-jdbc:3.53.4.0")
+    api(libs.kotlinx.serialization.json)
+    implementation(libs.sqlite.jdbc)
     // Tests build the fixture index with the indexer; the main code never depends on it.
     testImplementation(testFixtures(project(":atlas-core")))
-    testImplementation(platform("org.junit:junit-bom:6.1.3"))
-    testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation("org.assertj:assertj-core:3.27.7")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.assertj)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 tasks.test {
