@@ -102,7 +102,7 @@ class Indexer internal constructor(
      * of `PlSqlConfiguration`/`AstScanner` is only used by the lexer to read files and URLs, so one value for the run is
      * enough.
      */
-    private class Source(val relativePath: String, val absolute: Path, val bytes: ByteArray, encoding: String) : PlSqlFile {
+    internal class Source(val relativePath: String, val absolute: Path, val bytes: ByteArray, encoding: String) : PlSqlFile {
         private val decoded = SourceDecoding.decode(bytes, encoding)
         val text = decoded.text
         val charset = decoded.charset
@@ -114,30 +114,60 @@ class Indexer internal constructor(
     }
 
     /**
-     * Indexes [options]; with [phases], it records where the time goes, and the index is the same. With [incremental],
-     * it walks only the files a change can affect (see [IncrementalRule]), takes the other files' facts from the facts
-     * cache beside the index, and writes that cache; the index is the one a full run writes.
+     * The sources of a run, read, with the build of their text index started: it needs only their texts, in path
+     * order. Read before the dictionary loads ([readSources]), the build overlaps that load as well.
      */
-    fun index(options: IndexOptions, phases: PhaseTimes? = null, incremental: Boolean = false, cache: PendingFactsCache? = null): IndexSummary {
+    class ReadSources internal constructor(
+        internal val root: Path,
+        internal val extensions: List<String>,
+        internal val encoding: String,
+        internal val output: Path,
+        internal val sources: List<Source>,
+        internal val textIndex: SourceTextIndex,
+        internal val startedAt: Instant,
+        internal val started: Long
+    ) : AutoCloseable {
+        /** Waits for the build and deletes its file. */
+        override fun close() = textIndex.close()
+    }
+
+    /** Reads the sources [index] will index with the same folder, extensions and encoding, and starts their text index for [output]. */
+    fun readSources(sources: Path, extensions: List<String>, encoding: String, output: Path): ReadSources {
         val startedAt = clock()
         val started = System.nanoTime()
-        val root = options.sources.toAbsolutePath().normalize()
+        val root = sources.toAbsolutePath().normalize()
+        val read = discover(root, extensions, encoding)
+        val textIndex = SourceTextIndex.start(output, read.map { it.relativePath to it.text })
+        return ReadSources(root, extensions, encoding, output.toAbsolutePath().normalize(), read, textIndex, startedAt, started)
+    }
+
+    /**
+     * Indexes [options]; with [phases], it records where the time goes, and the index is the same. With [incremental],
+     * it walks only the files a change can affect (see [IncrementalRule]), takes the other files' facts from the facts
+     * cache beside the index, and writes that cache; the index is the one a full run writes. [read] gives the sources
+     * when the caller read them first ([readSources], the caller closes it); else they are read here.
+     */
+    fun index(
+        options: IndexOptions, phases: PhaseTimes? = null, incremental: Boolean = false, cache: PendingFactsCache? = null, read: ReadSources? = null
+    ): IndexSummary {
         val pending = if (incremental) cache ?: IncrementalRun.readCache(options.output) else null
         val inputs = if (incremental) IncrementalRun.inputs(options, phases) else null
-        phases?.start(PhaseTimes.READING)
-        val sources = discover(root, options.extensions, options.encoding)
-        // The text index needs only the texts: it is built on its own thread while the files are walked.
-        SourceTextIndex.prepare(options.output, sources.map { it.relativePath to it.text }).use { textIndex ->
-            // An incremental run walks few files, if any: the build overlaps the phases before the walks instead.
-            if (incremental) textIndex.start()
-            return index(options, phases, incremental, startedAt, started, root, pending, inputs, sources, textIndex)
+        if (read != null) {
+            require(read.root == options.sources.toAbsolutePath().normalize() && read.extensions == options.extensions && read.encoding == options.encoding &&
+                read.output == options.output.toAbsolutePath().normalize()) { "The sources were read for another run" }
+            return index(options, phases, incremental, pending, inputs, read)
         }
+        phases?.start(PhaseTimes.READING)
+        readSources(options.sources, options.extensions, options.encoding, options.output).use { return index(options, phases, incremental, pending, inputs, it) }
     }
 
     private fun index(
-        options: IndexOptions, phases: PhaseTimes?, incremental: Boolean, startedAt: Instant, started: Long, root: Path,
-        pending: PendingFactsCache?, inputs: CompletableFuture<Map<String, String>>?, sources: List<Source>, textIndex: SourceTextIndex
+        options: IndexOptions, phases: PhaseTimes?, incremental: Boolean, pending: PendingFactsCache?, inputs: CompletableFuture<Map<String, String>>?,
+        read: ReadSources
     ): IndexSummary {
+        val (root, sources, textIndex) = Triple(read.root, read.sources, read.textIndex)
+        val startedAt = read.startedAt
+        val started = read.started
         phases?.start(PhaseTimes.PREPARATION)
 
         val prepared = ProjectAnalysisContext.prepared(
@@ -165,8 +195,6 @@ class Indexer internal constructor(
         }
         val toWalk = if (run == null) sources else sources.filter { it.relativePath in run.walk }
         phases?.start(PhaseTimes.FILE_WALKS)
-        // In a full run, started with the walks, not before: beside the single-threaded phases before them it slowed them down.
-        textIndex.start()
         phases?.walkThreads = options.threads.coerceAtLeast(1)
         val catalogHolder = CatalogHolder(options.compilationSchema)
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
@@ -271,6 +299,7 @@ class Indexer internal constructor(
             runCatching { saving?.join() }
             throw e
         }
+        phases?.notes?.add("Text index: built on its own thread in ${textIndex.buildMillis} ms, from the end of the reading; the writer waited ${textIndex.waitedMillis} ms for it")
         if (saving != null) {
             phases?.start(PhaseTimes.WRITING_CACHE)
             try {

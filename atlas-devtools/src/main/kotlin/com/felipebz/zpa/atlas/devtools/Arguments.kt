@@ -55,4 +55,10 @@ class TimingsArguments {
 class SameRowsArguments {
     @Parameter(description = "<first.db> <second.db>", required = true)
     var databases: List<String> = ArrayList()
+
+    @Parameter(
+        names = ["--except"],
+        description = "Comma-separated tables left out of the comparison, such as the FTS5 index tables after a change of its settings"
+    )
+    var except: String = ""
 }

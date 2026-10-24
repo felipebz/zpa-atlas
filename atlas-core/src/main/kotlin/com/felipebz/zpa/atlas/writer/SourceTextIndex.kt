@@ -13,33 +13,35 @@ import java.util.concurrent.CompletionException
 
 /**
  * The text index of `source_line` (its FTS5 shadow tables but the content), built on a thread and in a file of its
- * own while the files are walked. The trigram index of every line was most of the writing, and depends on nothing a
+ * own from the moment the sources are read, before the dictionary loads. The trigram index of every line was most of the writing, and depends on nothing a
  * walk finds: only on the texts and their order.
  *
  * The writer attaches the file, which it can do only between two transactions and once the build is done: it commits
  * the rows it wrote before the lines, waits for the build, attaches, copies the shadow tables over its own and writes
  * the content rows, whose `entity_id` needs the entities.
  *
- * The rows are those of inserting into one `source_line` the lines [SourceLines] inserts, in the same order, through
- * the same statement in batches of the same size, in one transaction: FTS5 lays out its index by what it is given
- * and when it flushes, never by the table it is in.
+ * The rows are those of inserting into one `source_line`, with [SOURCE_LINE_SETTINGS], the lines [SourceLines]
+ * inserts, in the same order, through the same statement in batches of the same size, in one transaction: FTS5 lays
+ * out its index by what it is given, its settings and when it flushes, never by the table it is in.
  *
  * @property paths the files of the texts, in file id order: the writer checks that they are its files
  */
-class SourceTextIndex private constructor(val file: Path, val paths: List<String>, private val thread: Thread, private val build: CompletableFuture<Unit>) :
-    AutoCloseable {
+class SourceTextIndex private constructor(val file: Path, val paths: List<String>, private val build: CompletableFuture<Long>) : AutoCloseable {
 
-    /** Starts the build, once; [await] and [close] start it when nothing did. */
-    @Synchronized
-    fun start() {
-        if (thread.state == Thread.State.NEW) thread.start()
-    }
+    /** How long the build took on its thread, in ms; null while it runs. */
+    val buildMillis: Long? get() = build.getNow(null)
+
+    /** How long the writer waited for the build, in ms. */
+    @Volatile
+    var waitedMillis = 0L
+        private set
 
     /** Waits for the build; throws what it failed with. */
     internal fun await() {
-        start()
+        val waiting = System.nanoTime()
         try {
             build.join()
+            waitedMillis = (System.nanoTime() - waiting) / 1_000_000
         } catch (e: CompletionException) {
             throw e.cause ?: e
         }
@@ -47,7 +49,6 @@ class SourceTextIndex private constructor(val file: Path, val paths: List<String
 
     /** Waits for the build, whatever it gave, and deletes its file. */
     override fun close() {
-        start()
         runCatching { build.join() }
         Files.deleteIfExists(file)
     }
@@ -57,31 +58,36 @@ class SourceTextIndex private constructor(val file: Path, val paths: List<String
         internal const val SCHEMA = "atlas_text"
 
         /**
-         * The text index of [texts] (path and decoded text, any order), to build in a temporary file beside [target],
-         * the index file it is for; [start] starts the build.
+         * Starts building the text index of [texts] (path and decoded text, any order) in a temporary file beside
+         * [target], the index file it is for.
          */
-        fun prepare(target: Path, texts: List<Pair<String, String>>): SourceTextIndex {
+        fun start(target: Path, texts: List<Pair<String, String>>): SourceTextIndex {
             val absolute = target.toAbsolutePath()
             Files.createDirectories(absolute.parent)
             val file = Files.createTempFile(absolute.parent, absolute.fileName.toString(), ".text.tmp")
             val sorted = texts.sortedBy { it.first }
-            val build = CompletableFuture<Unit>()
+            val build = CompletableFuture<Long>()
             val thread = Thread({
+                val started = System.nanoTime()
                 try {
                     Files.delete(file)
                     DriverManager.getConnection("jdbc:sqlite:$file").use { connection ->
                         connection.autoCommit = false
-                        connection.createStatement().use { it.execute(SOURCE_LINE_DDL) }
+                        connection.createStatement().use { statement ->
+                            statement.execute(SOURCE_LINE_DDL)
+                            SOURCE_LINE_SETTINGS.forEach(statement::execute)
+                        }
                         SourceLines.insertLines(connection, sorted.size) { sorted[it].second }
                         connection.commit()
                     }
-                    build.complete(Unit)
+                    build.complete((System.nanoTime() - started) / 1_000_000)
                 } catch (e: Throwable) {
                     build.completeExceptionally(e)
                 }
             }, "atlas-text-index")
             thread.isDaemon = true
-            return SourceTextIndex(file, sorted.map { it.first }, thread, build)
+            thread.start()
+            return SourceTextIndex(file, sorted.map { it.first }, build)
         }
     }
 }

@@ -77,7 +77,8 @@ private fun sameRows(args: SameRowsArguments): Int {
     if (args.databases.size != 2) throw CliValidationException("same-rows takes exactly two index files")
     val (first, second) = args.databases.map { Path.of(it) }
     for (file in listOf(first, second)) if (!Files.isRegularFile(file)) throw CliValidationException("Index file does not exist: $file")
-    val result = SameRows.compare(first, second)
+    val except = args.except.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    val result = SameRows.compare(first, second, except)
     result.lines.forEach(::println)
     if (!result.identical) throw CliExecutionException("The indexes differ")
     return 0

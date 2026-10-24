@@ -56,7 +56,8 @@ class PhaseTimesTest {
         assertThat(rows.last()[3]).isEqualTo("100.0")
         val walks = timed.drop(3 + rows.size)
         assertThat(walks.first()).matches("""File walks: \d+ files on 2 threads, wall \d+ ms; the sum of the per-file times is \d+ ms:""")
-        val slowest = walks.dropWhile { it != "Slowest files:" }.drop(2)
+        val slowest = walks.dropWhile { it != "Slowest files:" }.drop(2).dropLast(1)
+        assertThat(walks.last()).matches("""Text index: built on its own thread in \d+ ms, from the end of the reading; the writer waited \d+ ms for it""")
         assertThat(slowest).hasSize(10).allMatch { Regex("""  +\d+ +\d+ +\d+ +\d+  \S+""").matches(it) }
 
         val result = SameRows.compare(without, with)

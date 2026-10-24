@@ -23,7 +23,7 @@ atlas-devtools compare-deps --db <file.db> --out <dir> \
   (--oracle-url URL --oracle-user USER --oracle-schemas A,B [--oracle-password-env VAR] | --dependencies deps.csv) \
   [--save-dependencies deps.csv] [--sources <dir>] [--default-owner X] [--builtins file]
 atlas-devtools timings <file.db> [--sources <dir>]
-atlas-devtools same-rows <first.db> <second.db>
+atlas-devtools same-rows <first.db> <second.db> [--except table,...]
 ```
 
 Every command exits with 0 on success, 2 on invalid usage and 3 when something fails while running.
@@ -141,7 +141,7 @@ The file view reads the sources from `--sources`, or by default from the folder 
 
 ## same-rows
 
-`same-rows` compares two indexes table by table and prints one line per table. It exits with 3 when anything differs.
+`same-rows` compares two indexes table by table and prints one line per table. It exits with 3 when anything differs. `--except` leaves tables out, listed as `left out`: after a change of the FTS5 settings, for instance, `source_line_data,source_line_idx,source_line_config`.
 Timestamps are ignored, so the same corpus indexed twice compares equal.
 
 Use it to show that a change to the indexer leaves its output unchanged: index the same corpus with the old and the

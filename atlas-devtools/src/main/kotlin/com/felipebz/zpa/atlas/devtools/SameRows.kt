@@ -11,7 +11,7 @@ import java.sql.Connection
 import java.sql.ResultSet
 
 /**
- * `same-rows`: whether two indexes have the same rows in every table, every column compared, rows ordered by primary
+ * `same-rows`: whether two indexes have the same rows in every table (or every table but some, left out), every column compared, rows ordered by primary
  * key. The run timestamps (`run.started_at`, `run.finished_at`) are skipped and the acquisition time at the end of
  * `run.metadata_origin` (`… at <instant>`) is ignored: they differ between any two runs.
  */
@@ -22,7 +22,8 @@ object SameRows {
     /** One line per table (`same` or the first difference); [identical] tells whether every table matched. */
     class Result(val lines: List<String>, val identical: Boolean)
 
-    fun compare(first: Path, second: Path): Result = open(first).use { a ->
+    /** Compares every table of [first] and [second] but those of [except], which are listed as left out. */
+    fun compare(first: Path, second: Path, except: Set<String> = emptySet()): Result = open(first).use { a ->
         open(second).use { b ->
             val tablesA = tables(a)
             val tablesB = tables(b)
@@ -30,6 +31,10 @@ object SameRows {
             var identical = tablesA == tablesB
             if (!identical) lines += "tables differ: $tablesA vs $tablesB"
             for (table in tablesA.intersect(tablesB.toSet())) {
+                if (table in except) {
+                    lines += "$table: left out"
+                    continue
+                }
                 val line = compareTable(a, b, table)
                 if (!line.startsWith("same")) identical = false
                 lines += "$table: $line"

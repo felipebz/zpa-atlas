@@ -30,5 +30,9 @@ class SameRowsTest {
         val changed = SameRows.compare(first, second)
         assertThat(changed.identical).isFalse()
         assertThat(changed.lines).anyMatch { it.startsWith("call_argument: row ") && it.contains("differs in label") }
+        // A table left out is not compared, and is listed as such.
+        val except = SameRows.compare(first, second, setOf("call_argument"))
+        assertThat(except.identical).isTrue()
+        assertThat(except.lines).contains("call_argument: left out")
     }
 }

@@ -15,6 +15,7 @@ import com.felipebz.zpa.atlas.index.ConditionalCompilationText
 import com.felipebz.zpa.atlas.index.DatabaseVersionOrigin
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.index.PendingFactsCache
 import com.felipebz.zpa.atlas.index.PhaseTimes
 import com.felipebz.zpa.atlas.index.SourceDecoding
 import com.felipebz.zpa.atlas.index.SourceIdentifiers
@@ -68,6 +69,19 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
     val indexer = Indexer()
     // Read while the dictionary loads: the cache does not need it until the plan.
     val cache = if (args.incremental) indexer.readFactsCache(Path.of(args.out)) else null
+    val extensions = args.extensions.split(',').map { it.trim() }
+    // The sources first, so that the build of their text index overlaps the dictionary load too.
+    phases?.start(PhaseTimes.READING)
+    indexer.readSources(sources, extensions, encoding, Path.of(args.out)).use { read ->
+        return index(args, project, phases, indexer, cache, read, extensions, checked)
+    }
+}
+
+private fun index(
+    args: IndexArguments, project: ProjectFile?, phases: PhaseTimes?, indexer: Indexer, cache: PendingFactsCache?, read: Indexer.ReadSources,
+    extensions: List<String>, checked: CheckedIndex
+): Int {
+    val (sources, encoding, explicitVersion, flags, settings, compilationSchema) = checked
     val oracle = settings?.let {
         phases?.start(PhaseTimes.DICTIONARY_NAMES)
         val writtenNames = SourceIdentifiers.scan(sources, args.extensions.split(','))
@@ -86,7 +100,7 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
         IndexOptions(
             sources = sources,
             output = Path.of(args.out),
-            extensions = args.extensions.split(',').map { it.trim() },
+            extensions = extensions,
             compilationSchema = compilationSchema,
             dictionary = dictionary,
             threads = args.threads,
@@ -96,7 +110,8 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
         ),
         phases,
         args.incremental,
-        cache
+        cache,
+        read
     )
     val indexed = if (project == null) "Indexed" else "Indexed project ${project.name}:"
     System.err.println("$indexed ${summary.files} files into ${args.out}: scan ${summary.parseMillis} ms, write ${summary.writeMillis} ms, total ${summary.totalMillis} ms")
