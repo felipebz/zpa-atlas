@@ -95,9 +95,11 @@ internal class McpImpact(private val root: EntitySummary, private val nodes: Lis
             quoted = false
             for (i in open until display.length) {
                 val c = display[i]
-                if (c == '"') quoted = !quoted
-                else if (!quoted && c == '(') depth++
-                else if (!quoted && c == ')' && --depth == 0) return display.substring(0, open) + display.substring(i + 1)
+                when {
+                    c == '"' -> quoted = !quoted
+                    !quoted && c == '(' -> depth++
+                    !quoted && c == ')' && --depth == 0 -> return display.substring(0, open) + display.substring(i + 1)
+                }
             }
             return display.substring(0, open)
         }

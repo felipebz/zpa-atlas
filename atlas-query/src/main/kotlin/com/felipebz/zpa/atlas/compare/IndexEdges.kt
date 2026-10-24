@@ -156,9 +156,8 @@ private fun mapUnits(connection: Connection, runSchema: String?, defaultOwner: S
         }
         IndexUnit(rs.getLong(1), kind, name, rs.getString(4), rs.getString(10), intArrayOf(rs.getInt(6), rs.getInt(7), rs.getInt(8), rs.getInt(9)), obj)
     }
-    if (missingOwner.isNotEmpty()) {
-        throw IllegalArgumentException("Units without owner (no written owner, no compilation schema, no --default-owner):\n" +
-            missingOwner.sorted().joinToString("\n"))
+    require(missingOwner.isEmpty()) {
+        "Units without owner (no written owner, no compilation schema, no --default-owner):\n" + missingOwner.sorted().joinToString("\n")
     }
     return units
 }

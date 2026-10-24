@@ -55,6 +55,7 @@ tasks.test {
  * ZPA and FLR are LGPL-3.0-or-later: their entries point to `licenses/LGPL-3.0.txt`.
  */
 val thirdPartyNotice = tasks.register("thirdPartyNotice") {
+    group = "distribution"
     description = "Writes THIRD-PARTY.md, the license of every JAR in the distribution's lib/ directory."
     val runtime = configurations.runtimeClasspath
     val jar = tasks.jar.flatMap { it.archiveFileName }

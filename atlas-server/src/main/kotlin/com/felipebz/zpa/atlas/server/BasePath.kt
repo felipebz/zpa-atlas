@@ -39,12 +39,10 @@ class BasePath private constructor(val path: String) {
             } catch (_: Exception) {
                 UNDECODABLE
             }
-            if (i >= segments.size) {
-                found += decoded
-            } else if (decoded == UNDECODABLE) {
-                return List(count) { UNDECODABLE }
-            } else if (decoded != segments[i]) {
-                return null
+            when {
+                i >= segments.size -> found += decoded
+                decoded == UNDECODABLE -> return List(count) { UNDECODABLE }
+                decoded != segments[i] -> return null
             }
         }
         return found

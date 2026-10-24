@@ -15,10 +15,9 @@ java {
 
 dependencies {
     // The MCP SDK is built against an older Ktor: the BOM keeps every Ktor module, the SDK's included, on one version.
-    implementation(platform(libs.ktor.bom))
-    testImplementation(platform(libs.ktor.bom))
     api(project(":atlas-query"))
     api(libs.ktor.server.core)
+    implementation(platform(libs.ktor.bom))
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.status.pages)
     implementation(libs.ktor.server.compression)
@@ -27,6 +26,7 @@ dependencies {
     implementation(libs.java.jwt)
     implementation(libs.jwks.rsa)
     implementation(libs.mcp.server)
+    testImplementation(platform(libs.ktor.bom))
     testImplementation(libs.mcp.client)
     testImplementation(libs.ktor.server.test.host)
     testImplementation(testFixtures(project(":atlas-core")))
@@ -47,6 +47,7 @@ node {
     nodeProjectDir.set(layout.projectDirectory.dir("web"))
 }
 
+val WEB_GROUP = "web"
 val webDir = layout.projectDirectory.dir("web")
 val webBundle = layout.buildDirectory.dir("web-bundle")
 val webSources = webDir.asFileTree.matching {
@@ -57,6 +58,7 @@ val webSources = webDir.asFileTree.matching {
 val webTestSources = webDir.asFileTree.matching { include("test/**") }
 
 val webInstall = tasks.register<NpmTask>("webInstall") {
+    group = WEB_GROUP
     description = "Installs the web page's dependencies from package-lock.json (npm ci)."
     npmCommand.set(listOf("ci"))
     args.set(listOf("--no-audit", "--no-fund"))
@@ -66,6 +68,7 @@ val webInstall = tasks.register<NpmTask>("webInstall") {
 }
 
 val webTypecheck = tasks.register<NpmTask>("webTypecheck") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Type-checks the web page (tsc --noEmit); an error fails the build."
     dependsOn(webInstall)
     npmCommand.set(listOf("run", "typecheck"))
@@ -78,6 +81,7 @@ val webTypecheck = tasks.register<NpmTask>("webTypecheck") {
 }
 
 val webTest = tasks.register<NpmTask>("webTest") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Runs the web page's unit tests (vitest run); a failure fails the build."
     dependsOn(webInstall)
     npmCommand.set(listOf("run", "test"))
@@ -90,6 +94,7 @@ val webTest = tasks.register<NpmTask>("webTest") {
 }
 
 val webBuild = tasks.register<NpmTask>("webBuild") {
+    group = WEB_GROUP
     description = "Bundles the web page with Vite into build/web-bundle."
     dependsOn(webInstall)
     npmCommand.set(listOf("run", "build"))

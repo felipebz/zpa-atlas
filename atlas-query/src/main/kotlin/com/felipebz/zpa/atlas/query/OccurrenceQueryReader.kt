@@ -197,8 +197,8 @@ internal fun validate(query: OccurrenceQuery) {
     check(query.origins, ORIGINS, "origin")
     check(query.statementKinds, STATEMENT_KINDS, "statement kind")
     check(listOfNotNull(query.valueKind), VALUE_KINDS, "value kind")
-    if (query.value != null) {
-        if (query.valueKind != null && query.valueKind !in OccurrenceQuerySql.TEXT_VALUE_KINDS) throw InvalidQueryException("A ${query.valueKind} value has no text to match")
+    if (query.value != null && query.valueKind != null && query.valueKind !in OccurrenceQuerySql.TEXT_VALUE_KINDS) {
+        throw InvalidQueryException("A ${query.valueKind} value has no text to match")
     }
     for ((name, text) in listOf(
         "name" to query.name, "containerName" to query.containerName, "schema" to query.schema, "path" to query.path, "value" to query.value
