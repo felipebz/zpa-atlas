@@ -265,9 +265,9 @@ hr/it_writers.sql	69:0-72:4	it_stage_load	db:HR.IT_STAGE_LOAD(P_ID IN NUMBER)	DE
 hr/it_writers.sql	69:42-69:53	p_id	db:HR.IT_STAGE_LOAD(P_ID IN NUMBER).P_ID	DEFINITION	RESOLVED	-	db:HR.IT_STAGE_LOAD(P_ID IN NUMBER)	-
 hr/it_writers.sql	71:14-71:22	it_stage	db:HR.IT_STAGE	SQL_INSERT	RESOLVED	-	db:HR.IT_STAGE_LOAD(P_ID IN NUMBER)	INSERT
 hr/it_writers.sql	71:24-71:26	id	db:HR.IT_STAGE.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.IT_STAGE_LOAD(P_ID IN NUMBER)	INSERT
-hr/json_holder.typ	1:0-5:3	json_holder	db:HR.JSON_HOLDER	DEFINITION	RESOLVED	-	db:HR.JSON_HOLDER	-
+hr/json_holder.typ	1:0-3:1	json_holder	db:HR.JSON_HOLDER	DEFINITION	RESOLVED	-	db:HR.JSON_HOLDER	-
 hr/json_holder.typ	2:6-2:10	json	db:HR.JSON	TYPE_USE	RESOLVED	-	db:HR.JSON_HOLDER	-
-hr/json_type.typ	1:0-7:3	json	db:HR.JSON	DEFINITION	RESOLVED	-	db:HR.JSON	-
+hr/json_type.typ	1:0-5:1	json	db:HR.JSON	DEFINITION	RESOLVED	-	db:HR.JSON	-
 hr/mv_company.sql	1:0-3:63	mv_company_log	db:HR.MV_COMPANY_LOG	DEFINITION	RESOLVED	-	db:HR.MV_COMPANY_LOG	-
 hr/mv_company.sql	2:9-2:13	c.id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.MV_COMPANY_LOG	SELECT
 hr/mv_company.sql	2:11-2:13	id	db:HR.MV_COMPANY_LOG.ID	DEFINITION	RESOLVED	-	db:HR.MV_COMPANY_LOG	-
@@ -1477,9 +1477,9 @@ hr/ty_bag.tpb	1:0-13:4	ty_bag	db:HR.TY_BAG	DEFINITION	RESOLVED	-	db:HR.TY_BAG	-
 hr/ty_bag.tpb	8:9-8:10	g	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TY_BAG	-
 hr/ty_bag.tpb	9:9-9:15	self.g	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TY_BAG	-
 hr/ty_bag.tpb	10:17-10:33	pack_methods.f_x	db:HR.PACK_METHODS.F_X(P IN NUMBER)	CALL	RESOLVED	-	db:HR.TY_BAG	-
-hr/ty_bag.typ	1:0-7:3	ty_bag	db:HR.TY_BAG	DEFINITION	RESOLVED	-	db:HR.TY_BAG	-
+hr/ty_bag.typ	1:0-5:1	ty_bag	db:HR.TY_BAG	DEFINITION	RESOLVED	-	db:HR.TY_BAG	-
 hr/ty_bag.typ	2:10-2:21	ty_num_list	db:HR.TY_NUM_LIST	TYPE_USE	RESOLVED	-	db:HR.TY_BAG	-
-hr/ty_num_list.typ	1:0-3:3	ty_num_list	db:HR.TY_NUM_LIST	DEFINITION	RESOLVED	-	db:HR.TY_NUM_LIST	-
+hr/ty_num_list.typ	1:0-1:53	ty_num_list	db:HR.TY_NUM_LIST	DEFINITION	RESOLVED	-	db:HR.TY_NUM_LIST	-
 hr/ty_owned.typ	1:0-1:56	ty_owned	db:HR.TY_OWNED	DEFINITION	RESOLVED	-	db:HR.TY_OWNED	-
 hr/ty_point.typ	1:0-1:53	ty_point	db:HR.TY_POINT	DEFINITION	RESOLVED	-	db:HR.TY_POINT	-
 hr/ty_refs.sql	1:0-1:92	ty_shape_link	db:HR.TY_SHAPE_LINK	DEFINITION	RESOLVED	-	db:HR.TY_SHAPE_LINK	-
@@ -1927,8 +1927,8 @@ hr/it_writers.sql	59:35-59:46	p_id	59:35-59:39
 hr/it_writers.sql	64:0-67:4	it_truncate	64:28-64:39
 hr/it_writers.sql	69:0-72:4	it_stage_load	69:28-69:41
 hr/it_writers.sql	69:42-69:53	p_id	69:42-69:46
-hr/json_holder.typ	1:0-5:3	json_holder	1:23-1:34
-hr/json_type.typ	1:0-7:3	json	1:23-1:27
+hr/json_holder.typ	1:0-3:1	json_holder	1:23-1:34
+hr/json_type.typ	1:0-5:1	json	1:23-1:27
 hr/mv_company.sql	1:0-3:63	mv_company_log	1:25-1:39
 hr/nested_calls.sql	1:0-4:4	md5	1:27-1:30
 hr/nested_calls.sql	1:31-1:41	p	1:31-1:32
@@ -2257,8 +2257,8 @@ hr/trg_forms.trg	51:0-55:4	trg_company_stmt	51:26-51:42
 hr/trg_imp.trg	1:0-6:4	trg_imp	1:26-1:33
 hr/trg_syn_company.trg	1:0-4:4	trg_syn_company	1:26-1:41
 hr/ty_bag.tpb	1:0-13:4	ty_bag	1:28-1:34
-hr/ty_bag.typ	1:0-7:3	ty_bag	1:23-1:29
-hr/ty_num_list.typ	1:0-3:3	ty_num_list	1:23-1:34
+hr/ty_bag.typ	1:0-5:1	ty_bag	1:23-1:29
+hr/ty_num_list.typ	1:0-1:53	ty_num_list	1:23-1:34
 hr/ty_owned.typ	1:0-1:56	ty_owned	1:26-1:34
 hr/ty_point.typ	1:0-1:53	ty_point	1:23-1:31
 hr/ty_refs.sql	1:0-1:92	ty_shape_link	1:23-1:36
