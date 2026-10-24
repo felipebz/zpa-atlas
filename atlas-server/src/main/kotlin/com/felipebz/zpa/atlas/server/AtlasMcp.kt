@@ -379,7 +379,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
      * so a package with hundreds of members stays one answer the agent can read.
      */
     private fun truncateLists(answer: JsonObject, limit: Int): JsonObject {
-        val result = answer["result"]!!.jsonObject
+        val result = answer.getValue("result").jsonObject
         val cut = LinkedHashMap<String, Int>()
         val lists = result.mapValues { (name, value) ->
             if (value is JsonArray && value.size > limit) {
@@ -422,30 +422,30 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     }
 
     private fun entitySchema() = schema(listOf("key")) {
-        string("key", "An entity key, as search_entities or another answer gives it.")
+        string("key", KEY_DESCRIPTION)
         integer("list_limit", 1..LIST_MAX, LIST_DEFAULT, "Items kept in each list of the answer; `truncated` gives the size of a cut list.")
     }
 
     private fun findSchema() = schema(emptyList()) {
         queryFilters()
-        integer("after", null, null, "The nextAfter of the previous page.")
+        integer("after", null, null, AFTER_DESCRIPTION)
         integer("limit", 1..FIND_MAX, FIND_DEFAULT)
     }
 
     private fun usagesSchema() = schema(listOf("key")) {
         usageFilters()
-        integer("after", null, null, "The nextAfter of the previous page.")
+        integer("after", null, null, AFTER_DESCRIPTION)
         integer("limit", 1..FIND_MAX, FIND_DEFAULT)
     }
 
     private fun groupUsagesSchema() = schema(listOf("key", "group_by")) {
         usageFilters()
         enumArray("group_by", codesOf(codes.groupDimensions), "One to three dimensions, as in group_occurrences.", minItems = 1, maxItems = 3)
-        integer("limit", 1..GROUP_MAX, GROUP_DEFAULT, "The first groups by count; totalGroups counts them all.")
+        integer("limit", 1..GROUP_MAX, GROUP_DEFAULT, GROUP_LIMIT_DESCRIPTION)
     }
 
     private fun impactSchema() = schema(listOf("key")) {
-        string("key", "An entity key, as search_entities or another answer gives it.")
+        string("key", KEY_DESCRIPTION)
         enumArray("include", USAGE_SCOPES.map { it.name }, "What the first hop adds to the entity, as in find_usages; the same default by kind.")
         enumArray("roles", produced(codes.roles), "The first hop's uses have any of these roles. Without it, every role but DEFINITION and DECLARATION.")
         enumArray("statuses", produced(codes.statuses), "The first hop's uses have one of these statuses.")
@@ -459,7 +459,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
 
     private fun valuesSchema() = schema(listOf("key")) {
         string("key", "A PARAMETER or COLUMN key, as search_entities or another answer gives it.")
-        integer("limit", 1..VALUES_MAX, VALUES_DEFAULT, "The first groups by count; totalGroups counts them all.")
+        integer("limit", 1..VALUES_MAX, VALUES_DEFAULT, GROUP_LIMIT_DESCRIPTION)
     }
 
     private fun valueSitesSchema() = schema(listOf("key", "value_kind")) {
@@ -467,12 +467,12 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         enumString("value_kind", produced(codes.valueKinds), "The valueKind of a get_values group.")
         string("value", "The value of that group, exactly as get_values gives it: S, not 'S'. Required for STRING, " +
             "NUMBER, BOOLEAN and NAME; ignored for the other kinds.")
-        integer("after", null, null, "The nextAfter of the previous page.")
+        integer("after", null, null, AFTER_DESCRIPTION)
         integer("limit", 1..FIND_MAX, FIND_DEFAULT)
     }
 
     private fun SchemaBuilder.usageFilters() {
-        string("key", "An entity key, as search_entities or another answer gives it.")
+        string("key", KEY_DESCRIPTION)
         enumArray("include", USAGE_SCOPES.map { it.name }, "Entities added to the one asked for: IMPLEMENTATIONS its spec or " +
             "body, CHILDREN its contents, VIEWS the view columns computed from it and the views reading it, transitively. " +
             "Default by kind, as the entity page: IMPLEMENTATIONS for a procedure or function, IMPLEMENTATIONS and CHILDREN " +
@@ -487,7 +487,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     private fun groupSchema() = schema(listOf("group_by")) {
         queryFilters()
         enumArray("group_by", codesOf(codes.groupDimensions), "One to three dimensions.", minItems = 1, maxItems = 3)
-        integer("limit", 1..GROUP_MAX, GROUP_DEFAULT, "The first groups by count; totalGroups counts them all.")
+        integer("limit", 1..GROUP_MAX, GROUP_DEFAULT, GROUP_LIMIT_DESCRIPTION)
     }
 
     private fun textSchema() = schema(listOf("text")) {
@@ -495,7 +495,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         string("path", "Only files whose path starts with this, or with * a pattern of the whole path.")
         string("container", "Only lines inside this entity key (a package, a subprogram), its contents included.")
         string("container_name", "Only lines inside every entity this dotted name matches (pack, pack.proc, * as wildcard), contents included.")
-        integer("after", null, null, "The nextAfter of the previous page.")
+        integer("after", null, null, AFTER_DESCRIPTION)
         integer("limit", 1..TEXT_MAX, TEXT_DEFAULT)
     }
 
@@ -606,6 +606,10 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     internal class ToolException(message: String) : RuntimeException(message)
 
     companion object {
+        private const val KEY_DESCRIPTION = "An entity key, as search_entities or another answer gives it."
+        private const val AFTER_DESCRIPTION = "The nextAfter of the previous page."
+        private const val GROUP_LIMIT_DESCRIPTION = "The first groups by count; totalGroups counts them all."
+
         // The limits keep an answer within what an agent reads at once: a typical page under about 10,000 tokens, the
         // largest under 25,000 (the size Claude Code refuses by default).
         const val SEARCH_DEFAULT = 20

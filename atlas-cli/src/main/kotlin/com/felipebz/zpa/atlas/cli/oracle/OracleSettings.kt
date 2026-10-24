@@ -34,7 +34,7 @@ class OracleSettings(
     override fun toString(): String = "OracleSettings(user=$user, schemas=$schemas, relations=$relations)"
 
     companion object {
-        private val CREDENTIALS_IN_URL = Regex("^jdbc:oracle:[a-z0-9]+:[^@]*/[^@]*@|password\\s*=", RegexOption.IGNORE_CASE)
+        private val CREDENTIALS_IN_URL = Regex("(?:^jdbc:oracle:[a-z0-9]+:[^@]*/[^@]*@)|(?:password\\s*=)", RegexOption.IGNORE_CASE)
 
         /**
          * The settings when Oracle metadata is requested (`--oracle-url`), null otherwise. [about] gives the message of a

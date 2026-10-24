@@ -5,6 +5,7 @@
 
 package com.felipebz.zpa.atlas.server
 
+import com.felipebz.zpa.atlas.query.Answer
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.query.GraphTooLargeException
 import com.felipebz.zpa.atlas.query.GroupDimension
@@ -70,6 +71,10 @@ internal val ApiJson = Json { explicitNulls = true; encodeDefaults = true }
  */
 internal suspend inline fun <reified T> ApplicationCall.respondJson(value: T, status: HttpStatusCode = HttpStatusCode.OK) =
     respondText(ApiJson.encodeToString(value), ContentType.Application.Json, status)
+
+/** Answers [answer] about one entity, or 404 when the key names none. */
+private suspend inline fun <reified T> ApplicationCall.respondEntityAnswer(answer: Answer<T?>) =
+    if (answer.result == null) respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else respondJson(answer)
 
 /**
  * The HTTP API (`/api/…`, JSON, GET only), the static web and the MCP endpoint (`/mcp`). Routes only parse
@@ -147,7 +152,7 @@ internal fun Route.indexApi(index: AtlasIndex) {
     }
     get("/entity") {
         val answer = index.entity(call.required("key"))
-        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+        call.respondEntityAnswer(answer)
     }
     get("/occurrences") {
         val scope = call.list("scope")?.map { value ->
@@ -162,7 +167,7 @@ internal fun Route.indexApi(index: AtlasIndex) {
             after = call.long("after"),
             limit = call.int("limit") ?: 100
         )
-        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+        call.respondEntityAnswer(answer)
     }
     get("/impact") {
         val scope = call.list("scope")?.map { value ->
@@ -182,7 +187,7 @@ internal fun Route.indexApi(index: AtlasIndex) {
             limit = call.int("limit") ?: 100,
             followTriggers = call.boolean("triggers") ?: true
         )
-        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+        call.respondEntityAnswer(answer)
     }
     // The whole graph at once, for the impact page; a graph past the time limit or over the node limit says
     // so, so the page can suggest a smaller depth.
@@ -202,7 +207,7 @@ internal fun Route.indexApi(index: AtlasIndex) {
             call.respondJson(ApiTooLarge(e.message!!, e.nodes, e.limit), HttpStatusCode.BadRequest)
             return@get
         }
-        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+        call.respondEntityAnswer(answer)
     }
     get("/query") {
         call.respondJson(index.queryOccurrences(call.occurrenceQuery(), call.long("after"), call.int("limit") ?: 100, call.boolean("summary") ?: true))
@@ -216,12 +221,12 @@ internal fun Route.indexApi(index: AtlasIndex) {
     }
     get("/values") {
         val answer = index.values(call.required("key"))
-        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+        call.respondEntityAnswer(answer)
     }
     get("/value-sites") {
         val answer = index.valueSites(call.required("key"), call.required("kind"), call.request.queryParameters["value"],
             call.long("after"), call.int("limit") ?: 100)
-        if (answer.result == null) call.respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else call.respondJson(answer)
+        call.respondEntityAnswer(answer)
     }
     get("/source") {
         val answer = index.source(call.required("path"), call.int("line") ?: throw InvalidQueryException("Missing parameter: line"),

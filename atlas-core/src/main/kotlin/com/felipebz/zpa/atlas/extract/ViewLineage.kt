@@ -243,7 +243,7 @@ internal class ViewLineage(
                 return
             }
             if (makeRefRelation(node) != null) {
-                node.getFirstChild(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT)?.drop(1)?.forEach(::visit)
+                node.getFirstChild(PlSqlGrammar.ARGUMENTS).getChildren(PlSqlGrammar.ARGUMENT).drop(1).forEach(::visit)
                 return
             }
             if ((node.type == PlSqlGrammar.VARIABLE_NAME || node.type == PlSqlGrammar.MEMBER_EXPRESSION) && plsql.isValueName(node) && plsql.nameSegments(node) != null) {

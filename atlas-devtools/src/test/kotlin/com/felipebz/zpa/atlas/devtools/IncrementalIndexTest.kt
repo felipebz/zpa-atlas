@@ -122,7 +122,8 @@ class IncrementalIndexTest {
         Files.write(cache, bytes.copyOf(bytes.size / 2))
         assertThat(bothRuns("cut cache")).startsWith("Full run: the facts cache cannot be used:")
         val whole = Files.readAllBytes(cache)
-        whole[whole.size / 2] = (whole[whole.size / 2] + 1).toByte()
+        // A byte of the gzip trailer's CRC: a byte inside the compressed stream may change nothing the reader sees.
+        whole[whole.size - 8] = (whole[whole.size - 8] + 1).toByte()
         Files.write(cache, whole)
         assertThat(bothRuns("damaged cache")).startsWith("Full run: the facts cache cannot be used:")
         assertThat(walkedIn(bothRuns("whole cache again"))).isEqualTo(0)

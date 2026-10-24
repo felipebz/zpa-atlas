@@ -132,7 +132,7 @@ object OracleDependencyReader {
             val owner = rs.getString(1)
             val name = rs.getString(2)
             val text = rs.getString(3) ?: ""
-            Regex("[^\n]*\n|[^\n]+$").findAll(text).mapIndexed { i, line -> DbSourceLine(owner, name, type, i + 1, line.value) }.toList()
+            Regex("(?:[^\n]*\n)|(?:[^\n]+$)").findAll(text).mapIndexed { i, line -> DbSourceLine(owner, name, type, i + 1, line.value) }.toList()
         }.flatten()
 
     private fun <T> Connection.rows(sql: String, parameters: List<String>, map: (java.sql.ResultSet) -> T): List<T> =

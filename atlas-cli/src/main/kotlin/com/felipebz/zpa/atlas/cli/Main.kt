@@ -65,7 +65,7 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
     } catch (e: CliValidationException) {
         throw CliValidationException(project?.let { inFile(it, taken, e.message.orEmpty()) } ?: e.message.orEmpty())
     }
-    val (sources, encoding, explicitVersion, flags, settings, compilationSchema) = checked
+    val (sources, encoding) = checked
     val indexer = Indexer()
     // Read while the dictionary loads: the cache does not need it until the plan.
     val cache = if (args.incremental) indexer.readFactsCache(Path.of(args.out)) else null
