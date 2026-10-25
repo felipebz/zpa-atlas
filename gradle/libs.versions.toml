@@ -6,7 +6,7 @@ node-gradle = "7.1.0"
 
 # libs
 jcommander = "3.0"
-kaml = "0.79.0"
+kaml = "0.104.0"
 kotlinx-serialization = "1.12.0"
 ktor = "3.6.0"
 java-jwt = "4.6.2"
