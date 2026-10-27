@@ -204,51 +204,16 @@ internal object IncrementalRule {
     private fun <T> Set<T>.symmetricDifference(other: Set<T>): Set<T> = (this - other) + (other - this)
 
     /**
-     * Whether [text] writes one of [names] (upper-cased) as an identifier-like word anywhere, quoted or not, case
-     * ignored: it may write more than the names it uses, never fewer. A word starts with a letter, `_`, `$` or `#` and
-     * goes on with letters, numbers of any script, `_`, `$` and `#`, supplementary characters included; a quoted word is
-     * anything between double quotes on one line. [lengths] are the names' lengths: an ASCII word of another length is
-     * skipped without being copied. A word with other characters is always compared, as its upper case may be longer
-     * (`ß` is `SS`).
+     * Whether [text] writes one of [names] (upper-cased) as a word anywhere ([SourceWords]): it may write more than the
+     * names it uses, never fewer. A word is compared upper-cased with `Locale.ROOT`, a quoted one too, as the names
+     * are. [lengths] are the names' lengths: an ASCII word of another length is skipped without being copied. A word
+     * with other characters is always compared, as its upper case may be longer (`ß` is `SS`).
      */
     fun writesAny(text: String, names: Set<String>, lengths: Set<Int>): Boolean {
-        fun matches(from: Int, to: Int, ascii: Boolean) =
-            (!ascii || to - from in lengths) && text.substring(from, to).uppercase(Locale.ROOT) in names
-        var i = 0
-        val end = text.length
-        while (i < end) {
-            val c = text.codePointAt(i)
-            if (c == '"'.code) {
-                val close = text.indexOf('"', i + 1)
-                val line = text.indexOf('\n', i + 1).let { if (it < 0) end else it }
-                if (close in (i + 2)..<line && matches(i + 1, close, (i + 1 until close).all { text[it].code < 0x80 })) return true
-                i++
-                continue
-            }
-            if (startsWord(c)) {
-                var ascii = c < 0x80
-                var j = i + Character.charCount(c)
-                while (j < end) {
-                    val next = text.codePointAt(j)
-                    if (!continuesWord(next)) break
-                    if (next >= 0x80) ascii = false
-                    j += Character.charCount(next)
-                }
-                if (matches(i, j, ascii)) return true
-                i = j
-                continue
-            }
-            i += Character.charCount(c)
+        fun matches(from: Int, to: Int): Boolean {
+            if (to - from !in lengths && (from until to).all { text[it].code < 0x80 }) return false
+            return text.substring(from, to).uppercase(Locale.ROOT) in names
         }
-        return false
-    }
-
-    /** Whether [c] may start a word: what `[\p{L}_$#]` matches. */
-    private fun startsWord(c: Int) = Character.isLetter(c) || c == '_'.code || c == '$'.code || c == '#'.code
-
-    /** Whether [c] may go on a word: what `[\p{L}\p{N}_$#]` matches. */
-    private fun continuesWord(c: Int) = startsWord(c) || when (Character.getType(c).toByte()) {
-        Character.DECIMAL_DIGIT_NUMBER, Character.LETTER_NUMBER, Character.OTHER_NUMBER -> true
-        else -> false
+        return SourceWords.find(text, ::matches, ::matches)
     }
 }

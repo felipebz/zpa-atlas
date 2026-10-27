@@ -183,7 +183,7 @@ object OracleMetadataLoader {
      * The final targets that are relations of the [named] synonyms (chains followed through [all], cycles dropped)
      * outside the [requestedSchemas], which are read completely anyway. Other targets are not acquired.
      */
-    private fun synonymTargets(named: List<DictionarySynonym>, all: List<DictionarySynonym>, requestedSchemas: Set<String>): Set<Pair<String, String>> {
+    internal fun synonymTargets(named: List<DictionarySynonym>, all: List<DictionarySynonym>, requestedSchemas: Set<String>): Set<Pair<String, String>> {
         val table = AtlasDictionary.lookupOnly(ProjectExternalMetadata.none(), emptySet(), all)
         return named.mapNotNullTo(LinkedHashSet()) { synonym ->
             table.synonymChain(synonym.owner, synonym.name)?.last()?.takeIf { it.targetType in SynonymResolver.RELATIONS }
