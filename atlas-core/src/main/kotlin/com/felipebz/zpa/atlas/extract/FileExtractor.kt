@@ -50,6 +50,14 @@ class FileExtractor(
     private var result: FileFacts? = null
     private var root: AstNode? = null
 
+    /** The dynamic statements whose text is a variable, decided once the whole file is walked (every call's modes known). */
+    private val variableStatements = ArrayList<VariableStatement>()
+
+    private class VariableStatement(val occurrence: Int, val variable: AstNode, val context: Context)
+
+    /** The text nodes of the file's dynamic statements. */
+    private val dynamicTexts: MutableSet<AstNode> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+
     private val synonyms = SynonymResolver(dictionary)
     private val resolver = RelationResolver(dictionary, synonyms, state.entities, state.relations)
 
@@ -107,7 +115,25 @@ class FileExtractor(
                 else -> Unit
             }
         }
+        variableTexts()
         result = build(ParseStatus.OK.takeIf { state.recoveredRegions == 0 } ?: ParseStatus.RECOVERED)
+    }
+
+    /**
+     * The dynamic statements whose text is a variable: the reason of each one's `DYNAMIC` occurrence, then, when the
+     * variable holds one known text, the walk of that text ([VariableSqlTexts]). A value is code at one place: when
+     * several statements run it, it is walked once, in the context of the first of them in the file.
+     */
+    private fun variableTexts() {
+        if (variableStatements.isEmpty()) return
+        val texts = VariableSqlTexts(this.context, state, dynamicTexts)
+        val walked: MutableSet<AstNode> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+        for (statement in variableStatements.sortedWith(compareBy({ it.variable.token.line }, { it.variable.token.column }))) {
+            val outcome = texts.outcome(statement.variable)
+            state.occurrences[statement.occurrence] = state.occurrences[statement.occurrence].copy(reason = outcome.reason)
+            val text = outcome.text ?: continue
+            if (walked.add(outcome.value!!)) walk(text.root, statement.context.dynamicText(text))
+        }
     }
 
     /** The facts of the file; a file the parser rejected has only its declarations, in one unparsed unit. */
@@ -323,7 +349,8 @@ class FileExtractor(
     /**
      * A dynamic statement: one `DYNAMIC` occurrence whose reason says what became of its SQL text, then, when zpa parsed
      * the text, the walk of its statement as code of its own ([Context.dynamicText]). A dynamic statement inside a
-     * dynamic text is recorded but its text is not asked for: it is not a node of the file.
+     * dynamic text is recorded but its text is not asked for: it is not a node of the file. A text that is a plain
+     * variable is decided after the walk of the file ([variableTexts]).
      */
     private fun dynamic(node: AstNode, sql: AstNode?, context: Context) {
         val id = state.statements.size
@@ -343,18 +370,12 @@ class FileExtractor(
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, id, spanOf(sql ?: node), written, null, emptySet(),
             status(Status.DYNAMIC, context.partial), context.origin, reason)
         if (text != null) walk(text.root, context.dynamicText(text))
-    }
-
-    /**
-     * Whether a part of [sql] is a string literal, its operands taken as zpa takes them (a concatenation flattened,
-     * parentheses unwrapped): a text zpa could not parse is then `NOT_PARSED`, not an `EXPRESSION`.
-     */
-    private fun hasStringLiteral(sql: AstNode): Boolean = when {
-        sql.type == PlSqlGrammar.CONCATENATION_EXPRESSION ->
-            sql.children.any { it.type != PlSqlGrammar.CONCATENATION_OPERATOR && hasStringLiteral(it) }
-        sql.type == PlSqlGrammar.BRACKED_EXPRESSION && sql.numberOfChildren == 3 -> hasStringLiteral(sql.children[1])
-        sql.type == PlSqlGrammar.CHARACTER_LITERAL -> true
-        else -> sql.type == PlSqlGrammar.LITERAL && sql.numberOfChildren == 1 && sql.firstChild.type == PlSqlGrammar.CHARACTER_LITERAL
+        if (sql != null && context.dynamic == null) dynamicTexts += sql
+        val variable = if (text == null && sql != null && context.dynamic == null) VariableSqlTexts.variable(sql) else null
+        if (variable != null) {
+            dynamicTexts += variable
+            variableStatements += VariableStatement(state.occurrences.size - 1, variable, context)
+        }
     }
 
     // ---- declarations -------------------------------------------------------------------------------------------

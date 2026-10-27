@@ -73,7 +73,24 @@ Vocabulary used by the web page and `stats`:
     | `PARSED_WITH_HOLES`    | Parsed, with parts built at run time.                                       |
     | `PARSED_HOLES_DROPPED` | Parsed only once the parts built at run time were left out: may be partial. |
     | `NOT_PARSED`           | The text has a string literal but was not parsed: not one statement, or a dynamic statement inside another dynamic text. |
-    | `EXPRESSION`           | No string literal: nothing to read (a variable, a call).                    |
+    | `EXPRESSION`           | No string literal: nothing to read (a call, a variable of a package, …).   |
+
+    A text written as a plain variable (`EXECUTE IMMEDIATE v_sql`) is read only when it can be only one text: a local
+    variable of character type, written once in the code (its default value, a constant, or one `:=`), and nowhere
+    else. Its reason starts with `VARIABLE_`:
+
+    | Reason                          | Meaning                                                                       |
+    |---------------------------------|-------------------------------------------------------------------------------|
+    | `VARIABLE_PARSED`, `VARIABLE_PARSED_WITH_HOLES`, `VARIABLE_PARSED_HOLES_DROPPED` | The variable's one value, parsed as above: its names are indexed at their place in that value. |
+    | `VARIABLE_NOT_PARSED`           | The one value has a string literal but was not parsed.                        |
+    | `VARIABLE_NO_LITERAL`           | The one value has no string literal (a call, another variable).               |
+    | `VARIABLE_SEVERAL_WRITES`       | Written more than once, or built on its own value (`v := v \|\| '…'`).          |
+    | `VARIABLE_VALUE_NOT_IN_CODE`    | Written once, by an `INTO` or as the actual of an `OUT` or `IN OUT` formal.   |
+    | `VARIABLE_NEVER_WRITTEN`        | No value is ever written to it.                                               |
+    | `VARIABLE_UNSEEN_WRITE`         | It may be written where the index cannot tell: an actual of a call it does not resolve, or a block it cannot fully see (conditional compilation, recovered parse, substitution). |
+    | `VARIABLE_NOT_CHARACTER`        | Not of a character type (`VARCHAR2`, `CHAR`, `CLOB` and their kin).          |
+    | `VARIABLE_NOT_LOCAL`            | A parameter or a package variable, not a variable of a block or subprogram.   |
+    | `VARIABLE_UNRESOLVED`           | The name binds to nothing the analysis can prove.                             |
 
 - **Unit:** one compiled object or script, such as a package body, trigger, view or anonymous block.
 

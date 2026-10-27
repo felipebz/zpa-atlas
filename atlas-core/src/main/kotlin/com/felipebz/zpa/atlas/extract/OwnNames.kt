@@ -54,7 +54,7 @@ internal class OwnNames(private val typeMembers: ObjectTypeMembers) {
             index++
             consumed++
         }
-        val declared = context.symbols.getScopeFor(units[index].node)?.symbols.orEmpty().firstOrNull { it.called(names[consumed]) } ?: return null
+        val declared = context.symbols?.getScopeFor(units[index].node)?.symbols.orEmpty().firstOrNull { it.called(names[consumed]) } ?: return null
         return when (declared.kind) {
             Symbol.Kind.PROCEDURE, Symbol.Kind.FUNCTION -> if (consumed == names.size - 1) OwnName.SUBPROGRAM else OwnName.VALUE
             else -> OwnName.VALUE
@@ -64,7 +64,7 @@ internal class OwnNames(private val typeMembers: ObjectTypeMembers) {
     /** A subprogram declared in the type body around [node] (a method body). */
     private fun isUnitSubprogram(node: AstNode, name: String, context: Context): Boolean {
         val body = node.getFirstAncestorOrNull(PlSqlGrammar.CREATE_TYPE_BODY) ?: return false
-        return context.symbols.getScopeFor(body)?.symbols.orEmpty()
+        return context.symbols?.getScopeFor(body)?.symbols.orEmpty()
             .any { it.called(name) && (it.kind == Symbol.Kind.PROCEDURE || it.kind == Symbol.Kind.FUNCTION) }
     }
 
