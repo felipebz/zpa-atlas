@@ -58,6 +58,9 @@ class ConditionalCompilationTest {
         "39:8 dbms_db_version.ver_le_10 db:~.DBMS_DB_VERSION"
     )
 
+    // `where id = p_id` in a `$IF` branch: zpa does not say whether a declaration has the name `id`, so it is not read
+    // as a column of the table whose columns are unknown, whatever the settings.
+
     // Every condition of the `$ERROR` selection (it keeps nothing) and of the last selection. Nothing from the nested
     // `$IF cc_nested.x` of a skipped branch, from the string, or from the `$ERROR` text.
     private val lastRead = listOf(
@@ -69,7 +72,7 @@ class ConditionalCompilationTest {
     fun `without settings the first branch of every selection is indexed`() {
         val db = index(null)
         assertThat(sql(db)).containsExactly(
-            "21 send_queue db:HR.SEND_QUEUE SQL_DELETE", "21 id db:HR.SEND_QUEUE.ID READ",
+            "21 send_queue db:HR.SEND_QUEUE SQL_DELETE",
             "29 company db:HR.COMPANY SQL_SELECT",
             "37 event_log db:HR.EVENT_LOG SQL_SELECT",
             "40 company db:HR.COMPANY SQL_UPDATE", "40 st_active db:HR.COMPANY.ST_ACTIVE SQL_UPDATE,WRITE"
@@ -84,7 +87,7 @@ class ConditionalCompilationTest {
     fun `for 11_2 the 11g branches are indexed and an unset inquiry directive is NULL`() {
         val db = index("11.2")
         assertThat(sql(db)).containsExactly(
-            "23 event_log db:HR.EVENT_LOG SQL_DELETE", "23 id db:HR.EVENT_LOG.ID READ",
+            "23 event_log db:HR.EVENT_LOG SQL_DELETE",
             "29 company db:HR.COMPANY SQL_SELECT",
             "42 company db:HR.COMPANY SQL_UPDATE", "42 company_name db:HR.COMPANY.COMPANY_NAME SQL_UPDATE,WRITE"
         )
@@ -102,7 +105,7 @@ class ConditionalCompilationTest {
     fun `for 19 the 12c branches are indexed`() {
         val db = index("19")
         assertThat(sql(db)).containsExactly(
-            "21 send_queue db:HR.SEND_QUEUE SQL_DELETE", "21 id db:HR.SEND_QUEUE.ID READ",
+            "21 send_queue db:HR.SEND_QUEUE SQL_DELETE",
             "31 send_queue db:HR.SEND_QUEUE SQL_SELECT",
             "44 company db:HR.COMPANY SQL_UPDATE", "44 dt_changed db:HR.COMPANY.DT_CHANGED SQL_UPDATE,WRITE"
         )

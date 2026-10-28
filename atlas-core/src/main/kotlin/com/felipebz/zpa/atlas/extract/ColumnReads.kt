@@ -10,15 +10,20 @@ import com.felipebz.zpa.api.DmlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.PlSqlPunctuator
+import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
+import com.felipebz.zpa.api.semantics.NameBinding
 import com.felipebz.zpa.api.squid.SemanticAstNode
 import com.felipebz.zpa.atlas.model.*
+import java.util.IdentityHashMap
 
 /** Column reads of static SQL: the names, qualified or not, that read the columns of the sources of their scope. */
 internal class ColumnReads(
     private val state: FileState,
     private val resolver: RelationResolver,
     private val scopes: SqlScopes,
-    private val plsql: PlSqlNames
+    private val plsql: PlSqlNames,
+    /** What zpa binds an unqualified name of the file to. */
+    private val nameBinding: (AstNode) -> NameBinding
 ) {
     private val columnSources = ColumnSources(scopes, plsql)
     private val implicit = ImplicitColumns(columnSources, scopes, plsql)
@@ -169,11 +174,33 @@ internal class ColumnReads(
             return
         }
         added.clear()
-        // The legacy symbol table binds any name with a declaration in scope, column or not: still undecided.
-        val bound = (name as? SemanticAstNode)?.symbol != null || column in SQL_PARAMETERLESS_FUNCTIONS
+        // A declaration in scope, column or not, or a binding zpa cannot decide: still undecided. zpa does not answer
+        // for a dynamic text, which binds nothing of the code around it: there only the text's own declarations bind.
+        val dynamic = statement.context.dynamic
+        val bound = (if (dynamic != null) column in declaredNames(dynamic) else isBound(nameBinding(name))) || column in SQL_PARAMETERLESS_FUNCTIONS
         val single = sources.singleOrNull()?.target
         if (!bound && single != null && !isKnownOutside(statement, name, scope, column)) read(statement, name, single, column) else state.undecidedSqlNames++
     }
+
+    private val dynamicDeclarations = IdentityHashMap<DynamicSqlText, Set<String>>()
+
+    /**
+     * The names [text] declares anywhere in it: variables and constants, cursors, parameters of cursors and
+     * subprograms, loop indexes. Where the declaration sits is not checked, so a name declared once stays undecided.
+     */
+    private fun declaredNames(text: DynamicSqlText): Set<String> = dynamicDeclarations.getOrPut(text) {
+        val names = HashSet<String>()
+        for (node in text.root.getDescendants(*DECLARING)) {
+            node.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { names += normalizeIdentifier(it.tokenOriginalValue) }
+        }
+        for (forall in text.root.getDescendants(PlSqlGrammar.FORALL_STATEMENT)) {
+            forall.getFirstChildOrNull(PlSqlKeyword.FORALL)?.nextSibling?.let { names += normalizeIdentifier(it.tokenOriginalValue) }
+        }
+        names
+    }
+
+    /** Only [NameBinding.NothingLocal] tells that no declaration of the file has the name. */
+    private fun isBound(binding: NameBinding): Boolean = binding !is NameBinding.NothingLocal
 
     /** Whether a scope enclosing [scope] has a source known to have [column] (a correlated name we cannot place). */
     private fun isKnownOutside(statement: Statement, name: AstNode, scope: AstNode, column: String): Boolean {
@@ -302,6 +329,12 @@ internal class ColumnReads(
     fun correlationValue(statement: Statement, call: AstNode) = implicit.correlationValue(statement, call)
 }
 
+
+/** The nodes whose `IDENTIFIER_NAME` declares a value name a SQL statement may use. */
+private val DECLARING = arrayOf(
+    PlSqlGrammar.VARIABLE_DECLARATION, PlSqlGrammar.CURSOR_DECLARATION, PlSqlGrammar.PARAMETER_DECLARATION,
+    PlSqlGrammar.CURSOR_PARAMETER_DECLARATION, PlSqlGrammar.ITERAND_DECLARATION
+)
 
 /** SQL functions called without parentheses: PL/SQL names, never a column the scope could not exclude. */
 private val SQL_PARAMETERLESS_FUNCTIONS = setOf(
