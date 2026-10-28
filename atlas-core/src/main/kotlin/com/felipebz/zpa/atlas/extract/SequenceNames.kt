@@ -9,8 +9,6 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.project.ProjectAnalysis
 import com.felipebz.zpa.api.project.SequenceReferenceResolution
-import com.felipebz.zpa.api.squid.SemanticAstNode
-import com.felipebz.zpa.api.symbols.Symbol
 import com.felipebz.zpa.atlas.model.*
 
 /** Sequence pseudocolumns (`seq.nextval`) and the sequence entities they read. */
@@ -25,11 +23,10 @@ internal class SequenceNames(
     /**
      * `seq.nextval`, `s.seq.currval`: a project sequence, else an external `SEQUENCE` entity, `db:S.SEQ` when
      * `S` is a schema of the run and `db:~.…` otherwise (the dictionary does not know sequences). Not a sequence when the
-     * first segment is captured lexically, is an SQL qualifier, or the legacy table binds the whole name.
+     * first segment is an SQL qualifier, or when the project resolves the name to something else (a field of a local
+     * record, an attribute of an object value, a column of a loop record).
      */
     fun sequenceReference(name: AstNode, segments: List<String>, context: Context, statementId: Int?) {
-        val symbol = (name.firstChild as? SemanticAstNode)?.symbol
-        if (symbol != null && symbol.kind != Symbol.Kind.PACKAGE && isLocalDeclaration(symbol)) return
         if (statementId != null && scopes.isSqlQualified(name, segments)) return
         if (projectAnalysis.resolveSequenceReference(name) == SequenceReferenceResolution.RESOLVED_NON_SEQUENCE) return
         val written = segments.dropLast(1)
