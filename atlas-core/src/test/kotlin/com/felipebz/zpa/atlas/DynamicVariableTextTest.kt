@@ -100,12 +100,16 @@ class DynamicVariableTextTest {
             "an actual of a call the atlas does not resolve" to 42, "a package body variable" to 47, "a package spec variable" to 48,
             "a parameter" to 49, "a number" to 50
         ).mapValues { reason(it.value) }).containsExactlyInAnyOrderEntriesOf(mapOf(
-            "two assignments" to "VARIABLE_SEVERAL_WRITES", "an assignment that appends to the variable" to "VARIABLE_SEVERAL_WRITES",
+            // Written several times: the value that reaches the statement (see DynamicVariableReachTest).
+            "two assignments" to "VARIABLE_PARSED", "an assignment that appends to the variable" to "VARIABLE_PARSED",
             "SELECT INTO" to "VARIABLE_VALUE_NOT_IN_CODE", "an OUT actual" to "VARIABLE_VALUE_NOT_IN_CODE",
             "an actual of a call the atlas does not resolve" to "VARIABLE_UNSEEN_WRITE", "a package body variable" to "VARIABLE_NOT_LOCAL",
             "a package spec variable" to "VARIABLE_UNRESOLVED", "a parameter" to "VARIABLE_NOT_LOCAL", "a number" to "VARIABLE_NOT_CHARACTER"
         ))
-        for (line in listOf(2, 14, 17, 32, 33, 35)) assertThat(texts(line)).describedAs("line $line").isEmpty()
+        for (line in listOf(2, 17, 32)) assertThat(texts(line)).describedAs("line $line").isEmpty()
+        // The default value of v_grows and the last value of v_twice are read now; the first value of v_twice never reaches.
+        assertThat(texts(35)).containsExactly("db:HR.SEND_QUEUE.ID READ")
+        assertThat(texts(33)).containsExactly("db:HR.SEND_QUEUE SQL_DELETE", "db:HR.SEND_QUEUE.ID READ")
     }
 
     /** The entity key and roles of every name read from the text on [line] of the file. */

@@ -6,12 +6,7 @@
 package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.flr.api.AstNode
-import com.felipebz.zpa.api.DdlGrammar
-import com.felipebz.zpa.api.DmlGrammar
-import com.felipebz.zpa.api.PlSqlGrammar
-import com.felipebz.zpa.api.PlSqlKeyword
-import com.felipebz.zpa.api.PlSqlPunctuator
-import com.felipebz.zpa.api.TclGrammar
+import com.felipebz.zpa.api.*
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
@@ -122,15 +117,21 @@ class FileExtractor(
     /**
      * The dynamic statements whose text is a variable: the reason of each one's `DYNAMIC` occurrence, then, when the
      * variable holds one known text, the walk of that text ([VariableSqlTexts]). A value is code at one place: when
-     * several statements run it, it is walked once, in the context of the first of them in the file.
+     * several statements run it, it is walked once, in the context of the first of them in the file. A text read from a
+     * variable written several times also gets a coverage note that says how it was read ([VariableSqlTexts.Read]).
      */
     private fun variableTexts() {
         if (variableStatements.isEmpty()) return
         val texts = VariableSqlTexts(this.context, state, dynamicTexts)
-        val walked: MutableSet<AstNode> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+        // The nodes a text was read from: AstNode compares by identity, so equal lists are the same value.
+        val walked = HashSet<List<AstNode>>()
         for (statement in variableStatements.sortedWith(compareBy({ it.variable.token.line }, { it.variable.token.column }))) {
             val outcome = texts.outcome(statement.variable)
             state.occurrences[statement.occurrence] = state.occurrences[statement.occurrence].copy(reason = outcome.reason)
+            outcome.read?.let { read ->
+                val at = statement.variable.token
+                state.coverage += CoverageFact(read.note, "Dynamic statement at line ${at.line}, column ${at.column}: its text is ${read.description}")
+            }
             val text = outcome.text ?: continue
             if (walked.add(outcome.value!!)) walk(text.root, statement.context.dynamicText(text))
         }
