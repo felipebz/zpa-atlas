@@ -132,7 +132,7 @@ to Keycloak, but their tokens lack the audience: the page shows *Sign-in refused
 ## 2. Run the server
 
 Put a reverse proxy in front for TLS. It passes the `Host` header and the path unchanged: see the
-[nginx example](../README.md#serving-under-a-base-path).
+[nginx example](serving.md#serving-under-a-base-path).
 
 Set the page client's secret, then start the server under `/atlas`:
 

@@ -1,0 +1,105 @@
+# Serving
+
+`zpa-atlas serve` serves an index as a web page, a JSON API and an MCP endpoint for agents.
+
+```sh
+zpa-atlas serve --projects <folder> [--default-project <name>] [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [--mcp-allowed-host <name>,...] [authentication options as below]
+zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [--mcp-allowed-host <name>,...] \
+  [--oidc-issuer URL --public-url URL [--oidc-audience VALUE] [--oidc-scope SCOPE] [--oidc-client-id ID [--oidc-client-secret-env VAR]]]
+```
+
+| Option               | Default                                                                                          |
+|----------------------|--------------------------------------------------------------------------------------------------|
+| `--host`             | `127.0.0.1`                                                                                      |
+| `--port`             | `8080`                                                                                           |
+| `serve --sources`    | the folder recorded in the index                                                                 |
+| `--base-path`        | none: everything at the root. With `/atlas`, everything under `/atlas/` and nothing outside it   |
+| `--mcp-allowed-host` | none: `/mcp` accepts only the `Host` names `localhost`, `127.0.0.1` and `[::1]`                  |
+| `--oidc-issuer`      | none: no authentication. With it, `/mcp` and `/api` need an access token of that provider        |
+| `--public-url`       | none; required with `--oidc-issuer`: the server as clients reach it, such as `https://atlas.example.com`, plus the base path when there is one |
+| `--oidc-audience`    | the resource, `<public url>/mcp`: what an access token must carry in `aud`                       |
+| `--oidc-scope`       | none: a scope an access token must carry, in `scope` or `scp`                                    |
+| `--oidc-client-id`   | none: the page has no sign-in. With it, people sign in to the page with the provider             |
+| `--oidc-client-secret-env` | `ZPA_ATLAS_OIDC_CLIENT_SECRET`, optional: unset, the page client is public. The variable holding its secret |
+
+- Exit codes: 0 success, 2 invalid usage, 3 execution failure.
+- Every option of `serve` can also come from the environment: `ZPA_ATLAS_` and the option's name in upper case, `-` as `_` (`ZPA_ATLAS_DB` for `--db`). The command line wins; a blank variable is unset. `index` and `stats` read no such variables.
+- In a container: see [container.md](container.md).
+- Without `--oidc-issuer`, `serve` has no authentication: binding to anything but 127.0.0.1 exposes the index and the sources to the network. With it, follow [authentication.md](authentication.md) to set up the provider, the page and the agents.
+- `serve` opens the index for each request only, so `index` can replace the file while the server runs.
+- Under a path, behind a reverse proxy: see [Serving under a base path](#serving-under-a-base-path).
+
+## The page
+
+Search by name or dotted name (e.g. `pack.run_job`). An entity page shows its definition, contents, relations,
+triggers, the views reading it, and "Used by", filterable by role and status, with the source line. Its "Impact" link
+opens what a change to the entity reaches, up to the entry points (the code nothing in the index calls), grouped by
+package, with the path behind each one and a CSV export.
+
+## Agents (MCP)
+
+The server answers MCP at `/mcp` (Streamable HTTP), with read-only tools over the same answers as the web page.
+
+## Serving under a base path
+
+Several applications can share one host, each under its own path, behind one reverse proxy. `--base-path /atlas` (or
+`ZPA_ATLAS_BASE_PATH=/atlas`) serves everything under `/atlas/`: the pages, `/atlas/api/…`, `/atlas/mcp`,
+`/atlas/health`, and, with authentication, the sign-in routes and the metadata document. Any other path answers 404.
+`/atlas` and `/atlas/` are the same base path, and it may have several segments (`/tools/atlas`). It must be a plain
+path: a leading `/`, no `.` or `..` segment, no `//`, `%`, `?`, `#`, backslash, space or control character.
+
+**The proxy passes the path unchanged:** the server receives `/atlas/api/run`, not `/api/run`. A proxy that strips the
+prefix is not supported. The bare `/atlas` redirects to `/atlas/`, keeping the query string: the pages link relatively
+and need the trailing slash. With nginx:
+
+```nginx
+# proxy_pass without a path: the request's path reaches the server as it came
+location = /atlas {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $http_host;
+}
+location /atlas/ {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $http_host;
+    proxy_http_version 1.1;
+    # /atlas/mcp streams events: pass them as they come, and keep a quiet stream open
+    proxy_buffering off;
+    proxy_read_timeout 1h;
+}
+```
+
+The server checks the `Host` header of `/mcp` requests: pass it, and name the host with `--mcp-allowed-host`, or with
+`--public-url` when authentication is on. With authentication, `--public-url` carries the base path, such as
+`https://atlas.example.com/atlas`; see [authentication.md](authentication.md#2-run-the-server).
+
+## Serving several projects
+
+`serve --projects <folder>` (or `ZPA_ATLAS_PROJECTS`) serves every project file directly in the folder, each from the
+index and sources its file names; their other keys are checked and otherwise unused. The folder is read once, at
+startup: adding or removing a project takes a restart.
+
+| URL (under the base path) | What |
+|---|---|
+| `/` and `/api/projects` | The list of projects: name, date of the index, file count, or "not indexed yet" |
+| `/p/<name>/` | The project's pages, with a picker to switch project |
+| `/p/<name>/api/…` | The API of `/api` over the project's index; an unknown project answers 404 |
+| `/health` | 200 when the index of every project that has one opens; one line per project |
+| `/mcp` | The MCP endpoint over every project, picked by each tool's `project` argument |
+
+- **Refused at startup:** a project file the reader refuses (every such file is listed), a folder without project files,
+  and two projects with the same index file.
+- **Warned at startup:** a project whose index does not exist yet (its API answers 503 until `index --project` writes
+  it, without a restart), a project whose sources folder is not on this machine (served without sources), and a `.yml`
+  file (not read: rename it to `.yaml`).
+- **`--db` and `--sources`** beside `--projects` on the command line are refused. From the environment they are
+  ignored, with a startup line: the container image sets them.
+- **`--default-project <name>`** (or `ZPA_ATLAS_DEFAULT_PROJECT`, only with `--projects`) makes `project` optional
+  on every tool: a call without it reads that project, and its answer starts with `"project": "<name>"` (an error ends
+  with a sentence saying so). A fork shares most names with its origin, so an answer read from the wrong project would
+  look right: saying which one it read lets the agent notice. `list_projects` and the list page mark the default.
+- **The MCP endpoint** stays at `/mcp`, one for every project. Every tool takes a `project` argument, the project's
+  name: required with several projects (a call without it is refused with the names), optional with one. The tool
+  `list_projects` gives each project's name, state, index date and file count, and the instructions name the projects.
+  A project not indexed yet is refused, as its API answers 503.
+- **With authentication,** one gate covers `/mcp`, every project's API and the list, with the same token: a token reads
+  every project. Sign-in stays at the base path.

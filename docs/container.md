@@ -31,7 +31,7 @@ docker run --rm --no-healthcheck --user "$(id -u):$(id -g)" \
 docker run --rm --no-healthcheck -v "$PWD/data:/data:ro" ghcr.io/felipebz/zpa-atlas stats /data/atlas.db
 ```
 
-With the Oracle dictionary, mount the folder that holds the JDBC driver JAR (see the README) and pass the password in
+With the Oracle dictionary, mount the folder that holds the JDBC driver JAR (see [indexing.md](indexing.md#using-the-oracle-dictionary)) and pass the password in
 `ZPA_ORACLE_PASSWORD`:
 
 ```sh
@@ -59,7 +59,7 @@ tmpfs `noexec` unless told otherwise.
 
 ## Serve several projects
 
-Mount a folder of project files (see the [README](../README.md#project-files)) with their indexes and sources, and set
+Mount a folder of project files (see the [indexing guide](indexing.md#project-files)) with their indexes and sources, and set
 `ZPA_ATLAS_PROJECTS`. The image's `ZPA_ATLAS_DB` and `ZPA_ATLAS_SOURCES` are then ignored. Paths in the project files
 are relative to the files, so the same folder works on the host and in the container:
 
@@ -142,7 +142,7 @@ otherwise. It needs no token or session. The image's `HEALTHCHECK` calls it, on 
 `ZPA_ATLAS_PORT` and the base path with `ZPA_ATLAS_BASE_PATH`, not with `--port` or `--base-path`: the health check reads
 only the variables, and with the options it keeps asking `/health` on 8080 and the container never becomes healthy.
 
-Under a reverse proxy, at `/atlas/` (see the [README](../README.md#serving-under-a-base-path)):
+Under a reverse proxy, at `/atlas/` (see [Serving under a base path](serving.md#serving-under-a-base-path)):
 
 ```sh
 docker run -d --name atlas -e ZPA_ATLAS_BASE_PATH=/atlas -e ZPA_ATLAS_MCP_ALLOWED_HOST=server.example.com \
