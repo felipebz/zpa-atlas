@@ -54,18 +54,16 @@ internal class OwnNames(private val typeMembers: ObjectTypeMembers) {
             index++
             consumed++
         }
-        val declared = context.symbols?.getScopeFor(units[index].node)?.symbols.orEmpty().firstOrNull { it.called(names[consumed]) } ?: return null
-        return when (declared.kind) {
-            Symbol.Kind.PROCEDURE, Symbol.Kind.FUNCTION -> if (consumed == names.size - 1) OwnName.SUBPROGRAM else OwnName.VALUE
-            else -> OwnName.VALUE
-        }
+        if (context.dynamic != null) return null
+        val declared = unitDeclarations(units[index].node).firstOrNull { it.name == names[consumed] } ?: return null
+        return if (declared.subprogram && consumed == names.size - 1) OwnName.SUBPROGRAM else OwnName.VALUE
     }
 
-    /** A subprogram declared in the type body around [node] (a method body). */
+    /** A method declared in the type body around [node] (a method body). */
     private fun isUnitSubprogram(node: AstNode, name: String, context: Context): Boolean {
+        if (context.dynamic != null) return false
         val body = node.getFirstAncestorOrNull(PlSqlGrammar.CREATE_TYPE_BODY) ?: return false
-        return context.symbols?.getScopeFor(body)?.symbols.orEmpty()
-            .any { it.called(name) && (it.kind == Symbol.Kind.PROCEDURE || it.kind == Symbol.Kind.FUNCTION) }
+        return typeBodyMethods(body).any { it == name }
     }
 
     /** A named unit enclosing a name: a package body, a standalone subprogram or a nested subprogram. */
@@ -89,6 +87,33 @@ internal class OwnNames(private val typeMembers: ObjectTypeMembers) {
         return result.asReversed()
     }
 }
+
+/** A name a unit declares for itself: a parameter or an item of its declare section; [subprogram] for a nested subprogram. */
+internal class UnitDeclaration(val name: String, val subprogram: Boolean)
+
+/**
+ * What [unit] (a package body, a standalone or nested subprogram) declares at its own level: its parameters and the
+ * items of its declare section, nested subprograms by name only.
+ */
+internal fun unitDeclarations(unit: AstNode): List<UnitDeclaration> {
+    val result = ArrayList<UnitDeclaration>()
+    unit.getFirstChildOrNull(PlSqlGrammar.PARAMETER_DECLARATIONS)?.getChildren(PlSqlGrammar.PARAMETER_DECLARATION)?.forEach { parameter ->
+        parameter.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { result += UnitDeclaration(normalizeIdentifier(it.tokenOriginalValue), false) }
+    }
+    for (item in unit.getFirstChildOrNull(PlSqlGrammar.DECLARE_SECTION)?.children.orEmpty()) {
+        if (item.type == PlSqlGrammar.PRAGMA_DECLARATION) continue
+        val subprogram = item.type == PlSqlGrammar.PROCEDURE_DECLARATION || item.type == PlSqlGrammar.FUNCTION_DECLARATION
+        item.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { result += UnitDeclaration(normalizeIdentifier(it.tokenOriginalValue), subprogram) }
+    }
+    return result
+}
+
+/** The names of the methods of a type [body]: its member and static subprograms and its map or order function. */
+internal fun typeBodyMethods(body: AstNode): List<String> =
+    body.children.filter { it.type == PlSqlGrammar.TYPE_SUBPROGRAM || it.type == PlSqlGrammar.MAP_ORDER_FUNCTION }.mapNotNull { element ->
+        element.getFirstChildOrNull(PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION)
+            ?.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { normalizeIdentifier(it.tokenOriginalValue) }
+    }
 
 /**
  * A subprogram the legacy table declares outside a package scope and below the file scope: nested in a standalone

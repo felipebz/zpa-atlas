@@ -11,7 +11,6 @@ import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectSnapshot
-import com.felipebz.zpa.api.symbols.Symbol
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.model.*
 
@@ -177,7 +176,7 @@ class FileExtractor(
 
     private fun sqlUnit(node: AstNode, partial: Boolean) {
         val index = state.addUnit(UnitFact(UnitKind.SQL_STATEMENT, "", null, spanOf(node), defaultSchema), partial)
-        walk(node, Context(index, partial, defaultSchema, null, null, context.symbolTable))
+        walk(node, Context(index, partial, defaultSchema, null, null))
     }
 
     private fun compilationUnit(node: AstNode, partial: Boolean) {
@@ -230,14 +229,12 @@ class FileExtractor(
             null
         }
         val bodyNames = if (kind == UnitKind.PACKAGE_BODY) {
-            context.symbolTable.getScopeFor(node)?.symbols.orEmpty()
-                .filter { it.kind == Symbol.Kind.VARIABLE || it.kind == Symbol.Kind.CURSOR || it.kind == Symbol.Kind.TYPE }
-                .mapNotNull { symbol -> symbol.node?.let { normalizeIdentifier(it.tokenOriginalValue) } }.toSet()
+            unitDeclarations(node).filter { !it.subprogram }.mapTo(HashSet()) { it.name }
         } else {
             emptySet()
         }
         val objectType = if (kind == UnitKind.TYPE_BODY) ObjectTypeMembers.typeKey(unitName, defaultSchema) else null
-        walk(node, Context(index, partial, schema, entityKey, trigger, context.symbolTable, enclosingPackage, bodyNames, objectType))
+        walk(node, Context(index, partial, schema, entityKey, trigger, enclosingPackage, bodyNames, objectType))
         view = null
     }
 

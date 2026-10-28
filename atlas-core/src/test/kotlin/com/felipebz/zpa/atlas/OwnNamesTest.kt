@@ -7,7 +7,10 @@ package com.felipebz.zpa.atlas
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import com.felipebz.zpa.atlas.index.IndexOptions
+import com.felipebz.zpa.atlas.index.Indexer
 import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
 import java.nio.file.Path
 
 /**
@@ -62,5 +65,26 @@ class OwnNamesTest {
         // A project function in the arguments of an attribute still resolves.
         assertThat(typeBody(10)).containsExactly("pack_methods.f_x db:HR.PACK_METHODS.F_X(P IN NUMBER) CALL -")
         assertThat(Fixture.query(db, "SELECT key FROM entity WHERE key LIKE 'db:~.SELF%' OR key LIKE 'db:~.ENTRIES%'")).isEmpty()
+    }
+
+    @Test
+    fun `a REF CURSOR type of a package body, qualified by the package in the body, is not looked up in the project`() {
+        val sources = Files.createDirectories(temp.resolve("cursor"))
+        Files.writeString(sources.resolve("pack_feed.pks"), "create or replace package pack_feed is\n  procedure open_feed;\nend;\n/\n")
+        Files.writeString(sources.resolve("pack_feed.pkb"), """
+            create or replace package body pack_feed is
+              type t_cursor is ref cursor;
+              procedure open_feed is
+              begin
+                if pack_feed.t_cursor is null then null; end if;
+              end;
+            end;
+            /
+            """.trimIndent() + "\n")
+        val index = temp.resolve("cursor.db")
+        Indexer().index(IndexOptions(sources, index, compilationSchema = "HR", threads = 1))
+        // The body's own type, like its variables: no occurrence guessing a member of the package.
+        assertThat(Fixture.query(index, "SELECT written FROM occurrence WHERE lower(written) LIKE '%t_cursor%'")).isEmpty()
+        assertThat(Fixture.query(index, "SELECT key FROM entity WHERE key LIKE '%T_CURSOR%'")).isEmpty()
     }
 }
