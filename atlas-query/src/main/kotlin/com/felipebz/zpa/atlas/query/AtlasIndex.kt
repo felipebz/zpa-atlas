@@ -24,7 +24,18 @@ class AtlasIndex(
     private val maxViewNodes: Int = MAX_VIEW_NODES
 ) {
 
-    fun run(): Answer<RunSummary> = read { connection, _ -> runSummary(connection) }
+    /**
+     * The run summary last read, with the run it was read from. Its counts scan every occurrence, a second or more on
+     * a large index, and they cannot change while the file holds the same run: `index` writes a new file, with a new
+     * stamp, on every run.
+     */
+    @Volatile
+    private var summary: Answer<RunSummary>? = null
+
+    /** The run of the index and its counts; read again only when the file holds another run than the last read. */
+    fun run(): Answer<RunSummary> = read { connection, stamp ->
+        summary?.takeIf { it.run == stamp }?.result ?: runSummary(connection).also { summary = Answer(stamp, it) }
+    }
 
     /** The run stamp alone: the index opens and has the schema version this module reads. Cheap, for a health check. */
     fun stamp(): RunStamp = read { _, stamp -> stamp }.run

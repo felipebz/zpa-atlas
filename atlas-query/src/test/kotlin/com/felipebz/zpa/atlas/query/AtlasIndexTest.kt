@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.sql.DriverManager
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -49,6 +50,29 @@ class AtlasIndexTest {
         assertThat(answer.run.compilationSchema).isEqualTo("HR")
         assertThat(answer.run.metadataOrigin).isEqualTo("fixture")
         assertThat(answer.result.filesByParseStatus).contains(Count("RECOVERED", 2))
+    }
+
+    @Test
+    fun `the run's counts are read again once another run replaces the index file`() {
+        val served = temp.resolve("replaced.db")
+        Files.copy(db, served)
+        val replaced = AtlasIndex(served, null)
+        val first = replaced.run()
+        assertThat(first.result.filesByParseStatus).contains(Count("RECOVERED", 2))
+        // Another run, as index writes it: a new file with its own stamp moved over the one served.
+        val next = temp.resolve("next.db")
+        Files.copy(db, next)
+        DriverManager.getConnection("jdbc:sqlite:$next").use { connection ->
+            connection.createStatement().use {
+                it.executeUpdate("UPDATE source_file SET parse_status = 'OK' WHERE parse_status = 'RECOVERED'")
+                it.executeUpdate("UPDATE run SET finished_at = '2099-01-01T00:00:00Z'")
+            }
+        }
+        Files.move(next, served, StandardCopyOption.REPLACE_EXISTING)
+        val second = replaced.run()
+        assertThat(second.run.finishedAt).isEqualTo("2099-01-01T00:00:00Z")
+        assertThat(second.result.filesByParseStatus).noneMatch { it.value == "RECOVERED" }
+        assertThat(second.result.filesByParseStatus.sumOf { it.count }).isEqualTo(first.result.filesByParseStatus.sumOf { it.count })
     }
 
     @Test
