@@ -100,7 +100,7 @@ class McpServerTest {
         assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_occurrences", "find_usages", "group_occurrences", "group_usages", "get_source",
             "get_values", "find_value_sites", "find_impact", "search_text")
         assertThat(tools.mapValues { it.value.inputSchema.required.orEmpty() }).isEqualTo(mapOf(
-            "search_entities" to listOf("query"), "get_entity" to listOf("key"), "find_occurrences" to emptyList(),
+            "search_entities" to listOf("name"), "get_entity" to listOf("key"), "find_occurrences" to emptyList(),
             "find_usages" to listOf("key"), "group_occurrences" to listOf("group_by"), "group_usages" to listOf("key", "group_by"), "get_source" to listOf("path", "line"),
             "get_values" to listOf("key"), "find_value_sites" to listOf("key", "value_kind"), "find_impact" to listOf("key"), "search_text" to listOf("text")
         ))
@@ -131,7 +131,7 @@ class McpServerTest {
 
     @Test
     fun `each tool answers what the same AtlasIndex call answers`() = mcp { client ->
-        assertThat(client.call("search_entities", args { put("query", "run_job"); put("limit", 5) }).json())
+        assertThat(client.call("search_entities", args { put("name", "run_job"); put("limit", 5) }).json())
             .isEqualTo(toolAnswer(index.searchEntities("run_job", null, true, 5)))
         // Besides the entity's detail, get_entity gives where the bodies of a routine's spec are (see below).
         val entity = client.call("get_entity", args { put("key", runJob5) }).json().jsonObject
@@ -310,7 +310,7 @@ class McpServerTest {
             val allGroups = toolAnswer(index.groupOccurrences(OccurrenceQuery(), listOf(GroupDimension.CONTAINER, GroupDimension.ENTITY, GroupDimension.ROLE), 100))
             assertThat(groups["result"]!!.jsonObject["groups"]!!.jsonArray.toList())
                 .isEqualTo(allGroups["result"]!!.jsonObject["groups"]!!.jsonArray.take(kept))
-            val hits = client.call("search_entities", args { put("query", "p"); put("limit", 100) }).json().jsonObject
+            val hits = client.call("search_entities", args { put("name", "p"); put("limit", 100) }).json().jsonObject
             assertThat(hits["cutForSize"]!!.jsonObject["kept"]!!.jsonPrimitive.content.toInt()).isEqualTo(hits["result"]!!.jsonArray.size).isLessThan(100)
         }
 
@@ -618,7 +618,7 @@ class McpServerTest {
         Files.copy(database, other)
         DriverManager.getConnection("jdbc:sqlite:$other").use { it.createStatement().execute("UPDATE run SET schema_version = 2") }
         mcp(AtlasIndex(other, null)) { client ->
-            val result = client.call("search_entities", args { put("query", "run_job") })
+            val result = client.call("search_entities", args { put("name", "run_job") })
             assertThat(result.isError).isTrue()
             assertThat(result.text()).contains("schema version 2", "Re-run `zpa-atlas index`")
         }
@@ -636,7 +636,7 @@ class McpServerTest {
     @Test
     fun `no tool answer carries the run stamp`() = mcp { client ->
         val calls = listOf(
-            "search_entities" to args { put("query", "run_job") },
+            "search_entities" to args { put("name", "run_job") },
             "get_entity" to args { put("key", "db:HR.COMPANY") },
             "find_occurrences" to args { put("container", "db:HR.PACK_PROCESS") },
             "group_occurrences" to args { put("group_by", strings("ROLE")) },
@@ -770,7 +770,7 @@ class McpServerTest {
 
     @Test
     fun `every tool refuses an argument its schema does not name`() = mcp { client ->
-        val known = mapOf("search_entities" to "query", "get_entity" to "key", "find_occurrences" to "entity",
+        val known = mapOf("search_entities" to "name", "get_entity" to "key", "find_occurrences" to "entity",
             "group_occurrences" to "group_by", "get_source" to "line")
         val tools = client.listTools().tools.associateBy { it.name }
         for ((name, accepted) in known) {

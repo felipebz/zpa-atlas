@@ -135,7 +135,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     // ---- the calls --------------------------------------------------------------------------------------------------
 
     private fun searchEntities(args: Arguments): JsonElement {
-        val answer = index.searchEntities(args.requiredString("query"), args.string("kind"), args.boolean("include_external") ?: true,
+        val answer = index.searchEntities(args.requiredString("name"), args.string("kind"), args.boolean("include_external") ?: true,
             args.int("limit", 1..SEARCH_MAX) ?: SEARCH_DEFAULT)
         return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.getValue("result").jsonArray }, { a, hits -> JsonObject(a + ("result" to hits)) })
     }
@@ -385,8 +385,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
 
     private fun produced(list: List<Code>) = list.filterNot { it.reserved }.map { it.code }
 
-    private fun searchSchema() = schema(listOf("query")) {
-        string("query", "A name prefix (run_job), or a dotted name (pack_process.run_job; the first part may be the schema).")
+    private fun searchSchema() = schema(listOf("name")) {
+        string("name", "A name prefix (run_job), or a dotted name (pack_process.run_job; the first part may be the schema).")
         enumString("kind", produced(codes.entityKinds), "Only entities of this kind.")
         boolean("include_external", "Include entities outside the indexed sources (dictionary only). Default true.")
         integer("limit", 1..SEARCH_MAX, SEARCH_DEFAULT)

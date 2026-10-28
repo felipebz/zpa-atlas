@@ -214,7 +214,7 @@ class BasePathTest {
         client.connect(StreamableHttpClientTransport(http, "/tools/atlas/mcp"))
         try {
             assertThat(client.serverVersion!!.name).isEqualTo("zpa-atlas")
-            val answer = client.callTool(CallToolRequest(CallToolRequestParams(name = "search_entities", arguments = buildJsonObject { put("query", "run_job") })))
+            val answer = client.callTool(CallToolRequest(CallToolRequestParams(name = "search_entities", arguments = buildJsonObject { put("name", "run_job") })))
             assertThat((answer.content.single() as TextContent).text).contains("RUN_JOB")
         } finally {
             client.close()

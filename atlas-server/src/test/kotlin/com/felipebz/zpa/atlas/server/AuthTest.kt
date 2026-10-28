@@ -227,7 +227,7 @@ class AuthTest {
         try {
             assertThat(client.serverVersion!!.name).isEqualTo("zpa-atlas")
             assertThat(client.listTools().tools.map { it.name }).contains("search_entities", "find_impact")
-            val answer = client.callTool(CallToolRequest(CallToolRequestParams(name = "search_entities", arguments = buildJsonObject { put("query", "run_job") })))
+            val answer = client.callTool(CallToolRequest(CallToolRequestParams(name = "search_entities", arguments = buildJsonObject { put("name", "run_job") })))
             assertThat(answer.isError).isNotEqualTo(true)
             assertThat((answer.content.single() as TextContent).text).contains("RUN_JOB")
         } finally {

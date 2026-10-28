@@ -109,7 +109,7 @@ class McpProjectsTest {
 
     /** One call per tool of [AtlasMcpTools], on the fixture. */
     private val hrCalls = listOf(
-        "search_entities" to args { put("query", "run_job") },
+        "search_entities" to args { put("name", "run_job") },
         "get_entity" to args { put("key", "db:HR.COMPANY") },
         "find_occurrences" to args { put("container", "db:HR.PACK_PROCESS"); put("limit", 5) },
         "find_usages" to args { put("key", "db:HR.COMPANY") },
@@ -123,7 +123,7 @@ class McpProjectsTest {
     )
 
     private val billingCalls = listOf(
-        "search_entities" to args { put("query", "close_invoice") },
+        "search_entities" to args { put("name", "close_invoice") },
         "get_entity" to args { put("key", "db:BILLING.INVOICE") },
         "find_occurrences" to args { put("entity", "db:BILLING.INVOICE.STATUS") },
         "find_usages" to args { put("key", "db:BILLING.INVOICE") },
@@ -172,7 +172,7 @@ class McpProjectsTest {
         assertThat(hrInBilling.isError).isTrue()
         assertThat(hrInBilling.text()).startsWith("Unknown entity: db:HR.COMPANY.")
         assertThat(client.call("get_entity", args { put("key", "db:BILLING.INVOICE") }.with("hr")).isError).isTrue()
-        assertThat(client.call("search_entities", args { put("query", "close_invoice") }.with("hr")).text()).doesNotContain("CLOSE_INVOICE")
+        assertThat(client.call("search_entities", args { put("name", "close_invoice") }.with("hr")).text()).doesNotContain("CLOSE_INVOICE")
         assertThat(client.call("get_source", args { put("path", "invoices.sql"); put("line", 1) }.with("hr")).isError).isTrue()
     }
 
@@ -187,11 +187,12 @@ class McpProjectsTest {
             )
             assertThat(client.call("get_entity", args { put("key", "db:HR.COMPANY") }.with("payroll")).text())
                 .isEqualTo("Unknown project: payroll. The projects are: billing, hr, pending.")
-            assertThat(client.call("search_entities", args { put("query", "x") }.with("pending")).text())
+            assertThat(client.call("search_entities", args { put("name", "x") }.with("pending")).text())
                 .isEqualTo("The project pending is not indexed yet: its index ${temp.resolve("pending.db")} does not exist")
-            // An unknown argument is refused before the project is read, and the message lists project.
-            assertThat(client.call("search_entities", args { put("qeury", "x") }).text())
-                .isEqualTo("Unknown argument: qeury. search_entities takes: project, query, kind, include_external, limit")
+            // An unknown argument (here the old spelling of name) is refused before the project is read, and the
+            // message lists project.
+            assertThat(client.call("search_entities", args { put("query", "x") }).text())
+                .isEqualTo("Unknown argument: query. search_entities takes: project, name, kind, include_external, limit")
         }
     }
 
@@ -252,7 +253,7 @@ class McpProjectsTest {
                 // Naming the project, the default's name included, answers as without a default.
                 assertThat(Json.encodeToString(CallToolResult.serializer(), client.call(call.first, call.second.with("hr")))).isEqualTo(aloneResults[i])
             }
-            assertThat(client.call("search_entities", args { put("query", "close_invoice") }.with("billing")).text()).contains("CLOSE_INVOICE").doesNotContain("\"project\"")
+            assertThat(client.call("search_entities", args { put("name", "close_invoice") }.with("billing")).text()).contains("CLOSE_INVOICE").doesNotContain("\"project\"")
         }
     }
 
@@ -274,7 +275,7 @@ class McpProjectsTest {
     fun `a default not indexed yet is refused as a call naming it is, saying it was the default`() {
         val pending = ServedProject("pending", temp.resolve("pending.db"), null)
         withDefault("pending", hr, pending) { client ->
-            assertThat(client.call("search_entities", args { put("query", "x") }).text()).isEqualTo(
+            assertThat(client.call("search_entities", args { put("name", "x") }).text()).isEqualTo(
                 "The project pending is not indexed yet: its index ${temp.resolve("pending.db")} does not exist. " +
                     "This call read the default project, pending; pass project to read another."
             )
@@ -327,7 +328,7 @@ class McpProjectsTest {
     @Test
     fun `under a base path the endpoint is at it`() =
         mcp({ atlasProjectsModule(listOf(hr, billing), McpSettings(), null, BasePath.parse("/atlas")) }, path = "/atlas/mcp") { client ->
-            assertThat(client.call("search_entities", args { put("query", "run_job") }.with("hr")).text()).contains("RUN_JOB")
+            assertThat(client.call("search_entities", args { put("name", "run_job") }.with("hr")).text()).contains("RUN_JOB")
         }
 
     private val issuer = "https://id.example.com/realms/atlas"
@@ -363,8 +364,8 @@ class McpProjectsTest {
         val client = Client(Implementation("atlas-test", "1"))
         client.connect(StreamableHttpClientTransport(http, "/atlas/mcp"))
         try {
-            assertThat(client.call("search_entities", args { put("query", "run_job") }.with("hr")).text()).contains("RUN_JOB")
-            assertThat(client.call("search_entities", args { put("query", "close_invoice") }.with("billing")).text()).contains("CLOSE_INVOICE")
+            assertThat(client.call("search_entities", args { put("name", "run_job") }.with("hr")).text()).contains("RUN_JOB")
+            assertThat(client.call("search_entities", args { put("name", "close_invoice") }.with("billing")).text()).contains("CLOSE_INVOICE")
         } finally {
             client.close()
         }
