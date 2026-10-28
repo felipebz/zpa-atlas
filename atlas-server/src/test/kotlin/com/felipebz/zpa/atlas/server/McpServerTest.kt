@@ -6,52 +6,26 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.Fixture
+import com.felipebz.zpa.atlas.index.IndexOptions
+import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.model.EntityKind
 import com.felipebz.zpa.atlas.model.Origin
 import com.felipebz.zpa.atlas.model.UnitKind
-import com.felipebz.zpa.atlas.query.AtlasIndex
-import com.felipebz.zpa.atlas.query.GroupDimension
-import com.felipebz.zpa.atlas.query.ImpactStop
-import com.felipebz.zpa.atlas.query.OccurrenceQuery
-import com.felipebz.zpa.atlas.query.Scope
-import com.felipebz.zpa.atlas.query.UsagePath
-import com.felipebz.zpa.atlas.index.IndexOptions
-import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.query.*
 import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.ToolJson
 import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.toolAnswer
-import io.ktor.client.plugins.defaultRequest
-import io.ktor.client.plugins.sse.SSE
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.server.cio.CIO
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.testing.ApplicationTestBuilder
-import io.ktor.server.testing.testApplication
+import io.ktor.client.plugins.*
+import io.ktor.client.plugins.sse.*
+import io.ktor.client.request.*
+import io.ktor.http.*
+import io.ktor.server.cio.*
+import io.ktor.server.engine.*
+import io.ktor.server.testing.*
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.Implementation
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.*
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.encodeToJsonElement
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.*
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
@@ -159,8 +133,10 @@ class McpServerTest {
     fun `each tool answers what the same AtlasIndex call answers`() = mcp { client ->
         assertThat(client.call("search_entities", args { put("query", "run_job"); put("limit", 5) }).json())
             .isEqualTo(toolAnswer(index.searchEntities("run_job", null, true, 5)))
-        assertThat(client.call("get_entity", args { put("key", runJob5) }).json())
-            .isEqualTo(toolAnswer(index.entity(runJob5)))
+        // Besides the entity's detail, get_entity gives where the bodies of a routine's spec are (see below).
+        val entity = client.call("get_entity", args { put("key", runJob5) }).json().jsonObject
+        val expected = toolAnswer(index.entity(runJob5))
+        assertThat(JsonObject(entity + ("result" to JsonObject(entity["result"]!!.jsonObject - "bodies")))).isEqualTo(expected)
         val query = OccurrenceQuery(container = "db:HR.PACK_PROCESS", roles = setOf("SQL_UPDATE", "WRITE"))
         val found = client.call("find_occurrences", args {
             put("container", "db:HR.PACK_PROCESS"); put("roles", strings("SQL_UPDATE", "WRITE")); put("limit", 7)
@@ -192,6 +168,62 @@ class McpServerTest {
         assertThat(answer["truncated"]!!.jsonObject["children"]!!.jsonPrimitive.content.toInt()).isEqualTo(full.children.size)
         assertThat(answer["result"]!!.jsonObject["children"]!!.jsonArray.toList())
             .isEqualTo(McpAnswers.compact(ToolJson.encodeToJsonElement(full.children.take(2))).jsonArray.toList())
+    }
+
+    @Test
+    fun `a routine's spec gives where its body is, and its body where its spec is`() = mcp { client ->
+        val spec = "db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE)"
+        suspend fun place(key: String, field: String): Pair<String, List<String>> {
+            val result = client.call("get_entity", args { put("key", key) }).json().jsonObject["result"]!!.jsonObject
+            val partner = (result[field] as? JsonArray)?.single()?.jsonObject ?: result[field]!!.jsonObject
+            return partner["key"]!!.jsonPrimitive.content to partner["definitions"]!!.jsonArray.map {
+                it.jsonObject["path"]!!.jsonPrimitive.content + ":" + it.jsonObject["span"]!!.jsonObject["startLine"]!!.jsonPrimitive.content
+            }
+        }
+        val body = place(spec, "bodies")
+        assertThat(body.first).isEqualTo("$spec@BODY")
+        assertThat(body.second).isEqualTo(index.entity("$spec@BODY").result!!.definitions.map { "${it.path}:${it.span.startLine}" })
+        assertThat(body.second).allSatisfy { assertThat(it).startsWith("hr/pack_process.pkb:") }
+        val back = place("$spec@BODY", "spec")
+        assertThat(back.first).isEqualTo(spec)
+        assertThat(back.second).isEqualTo(index.entity(spec).result!!.definitions.map { "${it.path}:${it.span.startLine}" })
+        assertThat(back.second).allSatisfy { assertThat(it).startsWith("hr/pack_process.pks:") }
+    }
+
+    @Test
+    fun `each overload's spec gives its own body, even with list_limit 1`() = mcp { client ->
+        for (key in listOf("db:HR.PACK_IMP_A.OV(P IN NUMBER)", "db:HR.PACK_IMP_A.OV(P IN VARCHAR2)")) {
+            val answer = client.call("get_entity", args { put("key", key); put("list_limit", 1) }).json().jsonObject
+            val body = answer["result"]!!.jsonObject["bodies"]!!.jsonArray.single().jsonObject
+            assertThat(body["key"]!!.jsonPrimitive.content).isEqualTo("$key@BODY")
+            val lines = body["definitions"]!!.jsonArray.map { it.jsonObject["span"]!!.jsonObject["startLine"]!!.jsonPrimitive.content.toInt() }
+            assertThat(lines).isNotEmpty.isEqualTo(index.entity("$key@BODY").result!!.definitions.map { it.span.startLine })
+        }
+        val lines = listOf("NUMBER", "VARCHAR2").map { type ->
+            index.entity("db:HR.PACK_IMP_A.OV(P IN $type)@BODY").result!!.definitions.single().span.startLine
+        }
+        assertThat(lines.distinct()).hasSize(2)
+    }
+
+    @Test
+    fun `a spec whose body is in two files lists both bodies, with list_limit 1`() {
+        val sources = Files.createDirectories(temp.resolve("dup-src/old"))
+        Files.writeString(sources.resolveSibling("pack_dup.pks"), "create or replace package pack_dup is\n  procedure run(p in number);\nend pack_dup;\n/\n")
+        val body = "create or replace package body pack_dup is\n  procedure run(p in number) is\n  begin\n    null;\n  end;\nend pack_dup;\n/\n"
+        Files.writeString(sources.resolveSibling("pack_dup.pkb"), body)
+        Files.writeString(sources.resolve("pack_dup.pkb"), "-- the copy kept from an older release\n$body")
+        val dup = temp.resolve("dup.db")
+        Indexer().index(IndexOptions(sources.parent, dup, compilationSchema = "HR", threads = 1))
+        val spec = "db:HR.PACK_DUP.RUN(P IN NUMBER)"
+        mcp(AtlasIndex(dup, sources.parent)) { client ->
+            val answer = client.call("get_entity", args { put("key", spec); put("list_limit", 1) }).json().jsonObject
+            val bodies = answer["result"]!!.jsonObject["bodies"]!!.jsonArray.map { it.jsonObject }
+            assertThat(bodies.map { it["key"]!!.jsonPrimitive.content }).containsExactlyInAnyOrder("$spec@BODY", "$spec@BODY#2")
+            assertThat(bodies.map { b ->
+                b["definitions"]!!.jsonArray.single().jsonObject.let { "${it["path"]!!.jsonPrimitive.content}:${it["span"]!!.jsonObject["startLine"]!!.jsonPrimitive.content}" }
+            }).containsExactlyInAnyOrder("pack_dup.pkb:2", "old/pack_dup.pkb:3")
+            assertThat(answer["truncated"]?.jsonObject?.get("bodies")).isNull()
+        }
     }
 
     @Test

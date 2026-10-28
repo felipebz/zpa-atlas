@@ -57,11 +57,7 @@ internal class EntityReader(private val connection: Connection) {
                WHERE r.to_id = ? AND r.kind NOT IN ('CONTAINS', 'VIEW_BASE')
                ORDER BY 1, 2, 3""", listOf(row.id, row.id)
         ) { RelationLink(it.getString(1), it.getString(2), EntitySummary(it.getString(3), it.getString(4), it.getString(5), it.getInt(6) == 1, it.getString(7))) }
-        val definitions = connection.query(
-            """SELECT f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.roles, o.status, o.written
-               FROM occurrence o JOIN source_file f ON f.id = o.file_id
-               WHERE o.entity_id = ? AND o.roles IN ('DEFINITION', 'DECLARATION') ORDER BY o.id""", listOf(row.id)
-        ) { Location(it.getString(1), span(it, 2), roles(it.getString(6)), it.getString(7), it.getString(8)) }
+        val definitions = definitions("o.entity_id = ?", row.id)
         val overloads = if (row.kind == "PROCEDURE" || row.kind == "FUNCTION") {
             connection.query(
                 """SELECT key, kind, display, external, name FROM entity
@@ -84,6 +80,15 @@ internal class EntityReader(private val connection: Connection) {
             if (row.kind == "COLUMN") viewBase(row.id, outgoing = false) else emptyList()
         )
     }
+
+    /** The definitions and declarations of the entity [key], alone; empty for an unknown key. */
+    fun definitions(key: String): List<Location> = definitions("o.entity_id = (SELECT id FROM entity WHERE key = ?)", key)
+
+    private fun definitions(entity: String, parameter: Any): List<Location> = connection.query(
+        """SELECT f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.roles, o.status, o.written
+           FROM occurrence o JOIN source_file f ON f.id = o.file_id
+           WHERE $entity AND o.roles IN ('DEFINITION', 'DECLARATION') ORDER BY o.id""", listOf(parameter)
+    ) { Location(it.getString(1), span(it, 2), roles(it.getString(6)), it.getString(7), it.getString(8)) }
 
     private class Entity(val id: Long, val key: String, val kind: String, val schema: String?, val name: String, val display: String,
                          val external: Boolean, val parentId: Number?)

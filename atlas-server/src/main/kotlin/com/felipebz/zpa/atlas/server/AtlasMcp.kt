@@ -5,59 +5,21 @@
 
 package com.felipebz.zpa.atlas.server
 
-import com.felipebz.zpa.atlas.query.AtlasIndex
-import com.felipebz.zpa.atlas.query.Code
-import com.felipebz.zpa.atlas.query.EntityDetail
-import com.felipebz.zpa.atlas.query.GroupDimension
-import com.felipebz.zpa.atlas.query.ImpactStop
-import com.felipebz.zpa.atlas.query.defaultUsageScopes
-import com.felipebz.zpa.atlas.query.InvalidQueryException
-import com.felipebz.zpa.atlas.query.OccurrenceQuery
-import com.felipebz.zpa.atlas.query.QueryTimeoutException
-import com.felipebz.zpa.atlas.query.Scope
-import com.felipebz.zpa.atlas.query.SchemaMismatchException
-import com.felipebz.zpa.atlas.query.UsagePath
-import com.felipebz.zpa.atlas.query.indexCodes
-import io.ktor.http.ContentType
-import io.ktor.server.application.Application
-import io.ktor.server.application.createApplicationPlugin
-import io.ktor.server.application.install
-import io.ktor.server.request.path
-import io.ktor.http.content.TextContent as HttpText
+import com.felipebz.zpa.atlas.query.*
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.request.*
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.Implementation
-import io.modelcontextprotocol.kotlin.sdk.types.JSONRPCResponse
-import io.modelcontextprotocol.kotlin.sdk.types.ListToolsResult
-import io.modelcontextprotocol.kotlin.sdk.types.McpJson
-import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
-import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import io.modelcontextprotocol.kotlin.sdk.types.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.encodeToJsonElement
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.longOrNull
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
-import java.util.Properties
+import kotlinx.serialization.json.*
+import java.util.*
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import io.ktor.http.content.TextContent as HttpText
 
 /**
  * The settings of `/mcp`.
@@ -181,9 +143,17 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     private fun getEntity(args: Arguments): JsonElement {
         val key = args.requiredString("key")
         val listLimit = args.int("list_limit", 1..LIST_MAX) ?: LIST_DEFAULT
-        val answer = index.entity(key)
-        if (answer.result == null) throw ToolException("Unknown entity: $key. Entity keys come from search_entities or from earlier answers.")
-        val full = toolAnswer(answer)
+        val read = index.entityWithPartners(key)
+        val (detail, partners) = read.result ?: throw ToolException("Unknown entity: $key. Entity keys come from search_entities or from earlier answers.")
+        // The bodies of a spec (IMPLEMENTS links coming in; the same body in two files gives two) and the spec of a body
+        // (the link going out), with their files and lines. No list limit cuts them (see truncateLists).
+        fun place(link: RelationLink, definitions: List<Location>) = JsonObject(mapOf(
+            "key" to JsonPrimitive(link.entity.key), "definitions" to McpAnswers.compact(ToolJson.encodeToJsonElement(definitions))
+        ))
+        val (bodies, specs) = partners.entries.partition { it.key.direction == "IN" }
+        var full = toolAnswer(Answer(read.run, detail))
+        if (bodies.isNotEmpty()) full = full.withResult(BODIES, JsonArray(bodies.map { place(it.key, it.value) }))
+        specs.firstOrNull()?.let { full = full.withResult("spec", place(it.key, it.value)) }
         // Over the size cap, every list is cut further, halving the limit, down to one item each.
         var limit = listLimit
         var fitted = truncateLists(full, limit)
@@ -376,13 +346,14 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
 
     /**
      * Every list of an entity answer cut to [limit] items; `truncated` gives the full size of each list that was cut,
-     * so a package with hundreds of members stays one answer the agent can read.
+     * so a package with hundreds of members stays one answer the agent can read. The bodies of a spec are kept whole:
+     * where they are is what the answer is asked for, and there are few.
      */
     private fun truncateLists(answer: JsonObject, limit: Int): JsonObject {
         val result = answer.getValue("result").jsonObject
         val cut = LinkedHashMap<String, Int>()
         val lists = result.mapValues { (name, value) ->
-            if (value is JsonArray && value.size > limit) {
+            if (value is JsonArray && value.size > limit && name != BODIES) {
                 cut[name] = value.size
                 JsonArray(value.take(limit))
             } else {
@@ -649,13 +620,17 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         /** Every tool only reads the index. */
         val READ_ONLY = ToolAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true, openWorldHint = false)
 
+        /** The field of a spec's answer that lists its bodies. */
+        private const val BODIES = "bodies"
+
         const val INSTRUCTIONS =
             "zpa-atlas is an index of the PL/SQL code of an Oracle database (packages, procedures, functions, " +
                 "triggers, tables, views, columns): ask it who calls, reads or writes something, for impact analysis, " +
                 "and for the values passed to a parameter or written to a column.\n" +
                 "Which tool answers which question:\n" +
                 "- search_entities: the key of an entity from its name; dotted names work (pack.proc, table.column).\n" +
-                "- get_entity: what an entity is: kind, definitions, members or columns, the views reading it.\n" +
+                "- get_entity: what an entity is: kind, definitions, members or columns, the views reading it; for a " +
+                "routine, where its spec and its bodies are.\n" +
                 "- find_usages: who uses one entity, following its spec and body, its members and the views built on " +
                 "it; group_usages counts them by routine, file or view. via keeps only the direct uses or only those " +
                 "through views. For a table, CHILDREN with VIEWS also follows the view columns computed from its columns.\n" +
@@ -710,7 +685,9 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "functions, parameters, types, sequences, synonyms, triggers. Exact name matches first. $KEYS"
 
         const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
-            "(members or columns, each with its number of uses), relations, triggers and the views that read it. $PATHS $KEYS"
+            "(members or columns, each with its number of uses), relations, triggers and the views that read it. For a " +
+            "package routine, bodies lists the key and definitions of every body (two when the body is in two files), " +
+            "never cut; for a body, spec gives those of its spec: one call answers where both are. $PATHS $KEYS"
 
         const val FIND = "Where entities are defined, called, read or written across the code (occurrences), with " +
             "filters combined with AND (at least one; for the whole index, use group_occurrences), and total and " +

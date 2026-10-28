@@ -58,6 +58,17 @@ class AtlasIndex(
     fun entity(key: String): Answer<EntityDetail?> = read { connection, _ -> EntityReader(connection).entity(key) }
 
     /**
+     * [key]'s detail and, for each of its `IMPLEMENTS` partners (the body of a routine's spec, the spec of its body),
+     * the partner's definitions, read in one go; the partners' other details are not read.
+     */
+    fun entityWithPartners(key: String): Answer<Pair<EntityDetail, Map<RelationLink, List<Location>>>?> = read { connection, _ ->
+        val reader = EntityReader(connection)
+        reader.entity(key)?.let { detail ->
+            detail to detail.relations.filter { it.kind == "IMPLEMENTS" }.associateWith { reader.definitions(it.entity.key) }
+        }
+    }
+
+    /**
      * "Who uses" [key]: occurrences of the entities in [scope] (the entity itself, plus `IMPLEMENTS` partners in
      * either direction, plus transitive `CONTAINS` descendants, plus with [Scope.VIEWS] transitively the view columns
      * whose `VIEW_BASE` edges reach one of them and the views whose query reads a table, view or object table among
