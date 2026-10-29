@@ -168,6 +168,27 @@ export function parentKeyOf(key: string) {
   return key.replace(/@BODY(?=#\d+$|$)/, "");
 }
 
+/** A spec and its body (either may be missing) among search hits, as one entry whose uses are the sum of both. */
+export interface HitGroup<T extends { key: string; usages: number }> {
+  spec: T | null;
+  body: T | null;
+  usages: number;
+}
+
+/** [hits] in order, a spec and its body as one group. */
+export function groupHits<T extends { key: string; usages: number }>(hits: T[]): HitGroup<T>[] {
+  const groups = new Map<string, HitGroup<T>>();
+  for (const h of hits) {
+    const parent = parentKeyOf(h.key);
+    let group = groups.get(parent);
+    if (!group) groups.set(parent, group = { spec: null, body: null, usages: 0 });
+    if (h.key === parent) group.spec = h;
+    else group.body = h;
+    group.usages += h.usages;
+  }
+  return [...groups.values()];
+}
+
 /**
  * How a name is shown: [relative] leaves out the qualifier (the name sits under its parent); [within], an entity's
  * display, keeps only the part of the qualifier below that entity (none for the entity itself or its body);

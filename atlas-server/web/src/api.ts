@@ -2,7 +2,7 @@
 // same name and fields. The server writes every field (`explicitNulls`, `encodeDefaults`), so a nullable Kotlin field
 // is `T | null`, never optional; a `Long` or `Int` is a number.
 
-import { signInFor, signInWorked } from "./session";
+import {signInFor, signInWorked} from "./session";
 
 /** The run an answer comes from; every API response carries it. */
 export interface RunStamp {
@@ -31,6 +31,22 @@ export interface RunSummary {
   filesByParseStatus: Count[];
   occurrencesByStatus: Count[];
   coverageByKind: Count[];
+  /** The files whose parse failed or was recovered, by path, cut at a cap; [parseProblemTotal] counts them all. */
+  parseProblems: FileParse[];
+  parseProblemTotal: number;
+}
+
+export interface FileParse {
+  path: string;
+  parseStatus: string;
+}
+
+/** A package of the project with its uses (its own and its members'), and its member of most uses. */
+export interface PackageUses {
+  entity: EntitySummary;
+  uses: number;
+  topMember: EntitySummary | null;
+  topMemberUses: number;
 }
 
 export interface EntitySummary {

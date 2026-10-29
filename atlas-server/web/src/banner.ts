@@ -1,7 +1,8 @@
-import type {Answer, RunSummary, SourceSnippet} from "./api";
+import type {Answer, RunStamp, RunSummary, SourceSnippet} from "./api";
 import {api, errorMessage} from "./api";
-import {esc} from "./html";
-import {formatDate, t} from "./i18n";
+import {setupGoto} from "./goto";
+import {esc, langSuffix} from "./html";
+import {formatDate, formatShortDate, t} from "./i18n";
 import type {ProjectList} from "./project";
 import {
     baseUrl,
@@ -17,48 +18,89 @@ import {
 import {signInState} from "./session";
 
 /**
- * Fills the run line and the parse warning, and on a project's page its picker and tab title (call it after `initI18n`
- * filled the title); returns the run summary, or null when the index is unavailable.
+ * Fills the top bar: the current page, "Go to object…", the index date with its panel, the parse note with its panel
+ * when files failed or were recovered, and on a project's page its picker and tab title (call it after `initI18n` filled
+ * the title); returns the run summary, or null when the index is unavailable.
  */
 export async function showBanner() {
-  const header = document.querySelector<HTMLElement>("header.top .run")!;
+  const date = document.querySelector<HTMLButtonElement>("header.top .run")!;
   markCurrentPage();
   trackBarHeight();
+  setupGoto();
   const project = currentProject();
   if (project) {
     document.title = projectTitle(currentProjectTitle(), document.title);
     showProject(project);
   }
-  showUser(header);
-  const warn = document.getElementById("warn")!;
+  showUser(date);
   try {
     const answer = await api<Answer<RunSummary>>("api/run");
-    const run = answer.run;
-    header.textContent = t("banner.run", {
-      date: formatDate(run.finishedAt),
-      schema: run.compilationSchema ?? t("banner.none")
-    });
-    header.title = t("banner.metadata", { metadata: run.metadataOrigin ?? t("banner.none") });
-    const byStatus: Record<string, number> = Object.fromEntries(answer.result.filesByParseStatus.map(c => [c.value, c.count]));
-    const problems = [];
-    if (byStatus.FAILED) problems.push(t("banner.failed", { count: byStatus.FAILED }));
-    if (byStatus.RECOVERED) problems.push(t("banner.recovered", { count: byStatus.RECOVERED }));
-    if (problems.length) {
-      warn.textContent = t("banner.warning", { problems: problems.join(t("banner.separator")) });
-      warn.hidden = false;
-    }
+    date.textContent = formatShortDate(answer.run.finishedAt);
+    date.title = t("banner.date", { date: formatDate(answer.run.finishedAt) });
+    date.setAttribute("aria-label", date.title);
+    panel(date, indexPanelHtml(answer.run, answer.result));
+    if (answer.result.parseProblemTotal > 0) showParseNote(date, answer.result);
     return answer.result;
   } catch (e) {
-    header.textContent = t("banner.unavailable", { error: errorMessage(e) });
+    date.textContent = t("banner.unavailable", { error: errorMessage(e) });
+    date.disabled = true;
     return null;
   }
 }
 
-/** Marks the top bar's link to the page shown, by its file name. */
+/** What the index holds and where its names were checked: for whoever wants to know, off the pages people use. */
+function indexPanelHtml(run: RunStamp, summary: RunSummary) {
+  const sum = (counts: { count: number }[]) => counts.reduce((n, c) => n + c.count, 0);
+  return `<b>${esc(t("banner.index"))}</b>
+    <div>${esc(t("banner.date", { date: formatDate(run.finishedAt) }))}</div>
+    <div>${esc(t("home.files", { count: sum(summary.filesByParseStatus) }))} · ${esc(t("home.occurrences", { count: sum(summary.occurrencesByStatus) }))}</div>
+    <div>${esc(t("banner.schema", { schema: run.compilationSchema ?? t("banner.none") }))}</div>
+    <div>${esc(t("banner.metadata", { metadata: run.metadataOrigin ?? t("banner.none") }))}</div>`;
+}
+
+/** After the date: one short item for the files whose parse failed or was recovered, opening their list. */
+function showParseNote(date: HTMLElement, summary: RunSummary) {
+  const total = summary.parseProblemTotal;
+  const note = document.createElement("button");
+  note.type = "button";
+  note.className = "parse-note";
+  note.title = t("banner.parse", { count: total });
+  note.setAttribute("aria-label", note.title);
+  note.innerHTML = `<span class="long">${esc(note.title)}</span><span class="short" aria-hidden="true">${esc(t("banner.parseShort", { count: total }))}</span>`;
+  date.after(note);
+  const rest = total - summary.parseProblems.length;
+  panel(note, `<b>${esc(note.title)}</b><div class="muted">${esc(t("banner.parseHint"))}</div>
+    <ul class="parse-files">${summary.parseProblems.map(f =>
+      `<li><a class="mono" href="file.html?path=${encodeURIComponent(f.path)}${langSuffix()}">${esc(f.path)}</a> <span class="badge parse-${esc(f.parseStatus)}">${esc(f.parseStatus)}</span></li>`).join("")}</ul>` +
+    (rest > 0 ? `<div class="muted">${esc(t("banner.parseMore", { count: rest }))}</div>` : ""));
+}
+
+/** A panel under the top bar that [button] opens and closes; one panel is open at a time, and Esc or a click elsewhere closes it. */
+function panel(button: HTMLElement, html: string) {
+  const pop = document.createElement("div");
+  pop.className = "bar-pop";
+  pop.hidden = true;
+  pop.id = "bar-pop-" + document.querySelectorAll(".bar-pop").length;
+  pop.innerHTML = html;
+  document.querySelector("header.top")!.append(pop);
+  button.setAttribute("aria-controls", pop.id);
+  button.setAttribute("aria-expanded", "false");
+  const show = (open: boolean) => {
+    if (open) for (const other of document.querySelectorAll<HTMLElement>(".bar-pop:not([hidden])")) other.hidden = true;
+    for (const b of document.querySelectorAll<HTMLElement>("header.top [aria-controls^=bar-pop]")) b.setAttribute("aria-expanded", String(open && b === button));
+    pop.hidden = !open;
+  };
+  button.addEventListener("click", () => show(pop.hidden !== false));
+  document.addEventListener("click", e => { if (!pop.hidden && !pop.contains(e.target as Node) && !button.contains(e.target as Node)) show(false); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !pop.hidden) { show(false); button.focus(); } });
+}
+
+/** Marks the top bar's link to the page shown, by its file name (the home page is `index.html`). */
 function markCurrentPage() {
-  const page = location.pathname.split("/").pop();
+  const file = (path: string) => path.split("/").pop() || "index.html";
+  const page = file(location.pathname);
   for (const link of document.querySelectorAll<HTMLAnchorElement>("header.top a.nav")) {
-    if (page && new URL(link.href).pathname.split("/").pop() === page) link.setAttribute("aria-current", "page");
+    if (file(new URL(link.href).pathname) === page) link.setAttribute("aria-current", "page");
   }
 }
 

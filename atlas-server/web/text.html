@@ -2,9 +2,10 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="application-name" content="zpa-atlas"><meta name="viewport" content="width=device-width, initial-scale=1"><title data-i18n="page.text.title"></title><link rel="stylesheet" href="app.css"></head>
 <body>
-<header class="top"><a href="./">Atlas</a><a href="query.html" class="nav" data-keep-lang data-i18n="header.query"></a><a href="text.html" class="nav" data-keep-lang data-i18n="header.text"></a><form class="find" action="./"><input type="text" name="q" data-i18n-placeholder="header.search"><input type="hidden" name="lang"></form><span class="run" data-i18n="banner.loading"></span></header>
-<div id="warn" class="warn" hidden></div>
+<header class="top"><a href="./" class="home" data-keep-lang>Atlas</a><button type="button" class="goto"><span data-i18n="goto.open"></span><kbd>Ctrl K</kbd></button><nav class="pages"><a href="./" class="nav" data-keep-lang data-i18n="header.objects"></a><a href="query.html" class="nav" data-keep-lang data-i18n="header.uses"></a><a href="text.html" class="nav" data-keep-lang data-i18n="header.code"></a></nav><button type="button" class="run" aria-expanded="false" data-i18n="banner.loading"></button></header>
 <main class="query-page text-page">
+  <h1 data-i18n="text.heading"></h1>
+  <p class="muted page-intro" data-i18n="text.intro"></p>
   <form id="query" class="card query" autocomplete="off">
     <div class="front text-front">
       <label class="label" for="text"><span data-i18n="text.text"></span>

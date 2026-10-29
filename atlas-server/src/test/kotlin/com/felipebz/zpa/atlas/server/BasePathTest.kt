@@ -9,44 +9,25 @@ package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.Fixture
 import com.felipebz.zpa.atlas.query.AtlasIndex
-import io.ktor.client.HttpClient
-import io.ktor.client.plugins.defaultRequest
-import io.ktor.client.plugins.sse.SSE
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.parameter
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.Parameters
-import io.ktor.http.Url
-import io.ktor.http.contentType
-import io.ktor.server.auth.oidc.OpenIdProviderMetadata
-import io.ktor.server.auth.oidc.OpenIdTestKeys
-import io.ktor.server.request.receiveParameters
-import io.ktor.server.response.respondText
-import io.ktor.server.routing.post
-import io.ktor.server.routing.routing
-import io.ktor.server.testing.ApplicationTestBuilder
-import io.ktor.server.testing.testApplication
-import io.ktor.utils.io.ExperimentalKtorApi
+import io.ktor.client.*
+import io.ktor.client.plugins.*
+import io.ktor.client.plugins.sse.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import io.ktor.server.auth.oidc.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import io.ktor.server.testing.*
+import io.ktor.utils.io.*
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterAll
@@ -135,6 +116,7 @@ class BasePathTest {
     /** One request of every `/api` route. */
     private val apiRequests: List<Pair<String, Map<String, String>>> = listOf(
         "/api/run" to emptyMap(),
+        "/api/top-packages" to emptyMap(),
         "/api/codes" to emptyMap(),
         "/api/entities" to mapOf("q" to "exec"),
         "/api/entity" to mapOf("key" to runJob),

@@ -1,39 +1,22 @@
-import type {Answer, Count, RunSummary, SearchHit} from "./api";
+import type {Answer, PackageUses, SearchHit} from "./api";
 import {api, errorMessage} from "./api";
 import {showBanner} from "./banner";
 import {loadCodes, searchKinds} from "./codes";
 import type {NameOptions} from "./entity-html";
 import {entityLink, kindBadge, kindLabel, listNameOptions, specBodyLinks} from "./entity-html";
-import {esc, getOrPut, qualifierHtml} from "./html";
+import {esc, langSuffix, qualifierHtml, queryHref} from "./html";
 import {initI18n, t} from "./i18n";
-import {parentKeyOf, shownName} from "./names";
+import type {HitGroup} from "./names";
+import {groupHits, shownName} from "./names";
+import {currentProject} from "./project";
+import {browserStorage, openedLast} from "./recent";
 
 const LIMIT = 200;
 
 const kindSelect = document.getElementById("kind") as HTMLSelectElement;
-let runSummary: Promise<RunSummary | null> | null = null;
-
-interface HitGroup {
-  spec: SearchHit | null;
-  body: SearchHit | null;
-  usages: number;
-}
-
-/** The hits in order, a spec and its body as one group whose uses are the sum of both. */
-function groupHits(hits: SearchHit[]) {
-  const groups = new Map<string, HitGroup>();
-  for (const h of hits) {
-    const parent = parentKeyOf(h.key);
-    const group = getOrPut(groups, parent, () => ({ spec: null, body: null, usages: 0 }));
-    if (h.key === parent) group.spec = h;
-    else group.body = h;
-    group.usages += h.usages;
-  }
-  return [...groups.values()];
-}
 
 /** A hit as two lines: its name, kind and uses, then the program it is in. */
-function hitRow(group: HitGroup, options?: NameOptions) {
+function hitRow(group: HitGroup<SearchHit>, options?: NameOptions) {
   const h = (group.spec ?? group.body)!;
   const shown = shownName(h.display, h.name, options);
   const container = shown.qualifier.replace(/\.$/, "");
@@ -48,28 +31,74 @@ function hitRow(group: HitGroup, options?: NameOptions) {
   </li>`;
 }
 
-/** The rows of [hits]; two rows whose name and container would read the same show every parameter name. */
+/** The rows of [hits]; two rows whose name and container would read the same show more of their parameters. */
 function hitRows(hits: SearchHit[]) {
   const groups = groupHits(hits);
   const options = listNameOptions(groups.map(g => (g.spec ?? g.body)!));
   return groups.map(g => hitRow(g, options((g.spec ?? g.body)!))).join("");
 }
 
-async function home(results: HTMLElement) {
-  const run = await runSummary;
-  const sum = (list: Count[]) => list.reduce((n, c) => n + c.count, 0);
-  results.innerHTML = `<div class="card">` +
-    (run ? `<p>${esc(t("home.files", { count: sum(run.filesByParseStatus) }))} · ${esc(t("home.occurrences", { count: sum(run.occurrencesByStatus) }))}</p>` : "") +
-    `<p class="muted">${esc(t("home.tips"))}</p></div>`;
+/**
+ * The home panels: the objects this viewer opened last (left out when there are none), the project's most used
+ * packages, and one line per page with an example taken from the index, so that following it gives results.
+ */
+async function home(panels: HTMLElement) {
+  const recent = openedLast(browserStorage(), currentProject());
+  let packages: PackageUses[] = [];
+  let failure: string | null = null;
+  try {
+    packages = (await api<Answer<PackageUses[]>>("api/top-packages")).result;
+  } catch (e) {
+    failure = errorMessage(e);
+  }
+  const recentHtml = recent.length === 0 ? "" : (() => {
+    const entities = recent.map(o => ({ ...o, external: false }));
+    const options = listNameOptions(entities);
+    return `<section class="card home-panel"><h2>${esc(t("home.recent"))}</h2><ul class="plain">${entities.map(e =>
+      `<li>${kindBadge(e.kind, true)}<span class="grow">${entityLink(e, options(e))}</span></li>`).join("")}</ul></section>`;
+  })();
+  const packagesHtml = `<section class="card home-panel"><h2>${esc(t("home.packages"))}</h2>` + (failure !== null
+    ? `<p class="muted">${esc(t("error.message", { error: failure }))}</p>`
+    : packages.length === 0 ? `<p class="muted">${esc(t("search.empty"))}</p>`
+    : `<ul class="plain">${packages.map(p =>
+      `<li><span class="grow">${entityLink(p.entity)}</span><span class="muted num">${esc(t("search.usages", { count: p.uses }))}</span></li>`).join("")}</ul>`) +
+    `</section>`;
+  panels.innerHTML = recentHtml + packagesHtml + pagesHtml(packages.find(p => p.topMember !== null) ?? null);
+  panels.hidden = false;
+}
+
+/** One line per page, with an example from [top], the most used package that has a used member: none without one. */
+function pagesHtml(top: PackageUses | null) {
+  const member = top?.topMember ?? null;
+  const example = (href: string, text: string) =>
+    `<span class="ex">${esc(t("home.example"))} <a class="mono" href="${esc(href)}">${esc(text)}</a></span>`;
+  const dotted = member ? `${top!.entity.name}.${member.name}`.toLowerCase() : null;
+  const objects = dotted ? example(`./?q=${encodeURIComponent(dotted)}${langSuffix()}`, dotted) : "";
+  const uses = member ? example(queryHref({ entity: member.key }), member.display.replace(/\(.*$/s, "")) : "";
+  const code = member ? example(`text.html?text=${encodeURIComponent(member.name.toLowerCase())}${langSuffix()}`, member.name.toLowerCase()) : "";
+  const page = (name: string, href: string, what: string, ex: string) =>
+    `<div><a href="${esc(href)}"><b>${esc(t(name))}</b></a><span class="muted">${esc(t(what))}</span>${ex}</div>`;
+  return `<section class="card home-panel ways"><h2>${esc(t("home.pages"))}</h2>` +
+    page("header.objects", "./" + langSuffix().replace(/^&/, "?"), "home.objects", objects) +
+    page("header.uses", queryHref({}), "query.intro", uses) +
+    page("header.code", "text.html" + langSuffix().replace(/^&/, "?"), "text.intro", code) +
+    `</section>`;
 }
 
 async function search() {
   const q = (document.getElementById("q") as HTMLInputElement).value.trim();
   const results = document.getElementById("results")!;
-  if (!q) { await home(results); return; }
+  const panels = document.getElementById("home")!;
+  const lang = new URLSearchParams(location.search).get("lang");
+  if (!q) {
+    history.replaceState(null, "", lang ? "?lang=" + encodeURIComponent(lang) : location.pathname);
+    results.innerHTML = "";
+    await home(panels);
+    return;
+  }
+  panels.hidden = true;
   const external = (document.getElementById("external") as HTMLInputElement).checked;
   const params = new URLSearchParams({ q, kind: kindSelect.value, external: String(external) });
-  const lang = new URLSearchParams(location.search).get("lang");
   if (lang) params.set("lang", lang);
   history.replaceState(null, "", "?" + params);
   try {
@@ -93,7 +122,7 @@ document.getElementById("search")!.addEventListener("submit", e => { e.preventDe
   let failure: string | null = null;
   const kinds = await codes.then(searchKinds, e => { failure = errorMessage(e); return []; });
   for (const kind of kinds) kindSelect.insertAdjacentHTML("beforeend", `<option value="${esc(kind)}">${esc(kindLabel(kind))}</option>`);
-  runSummary = showBanner();
+  showBanner();
   const initial = new URLSearchParams(location.search);
   if (initial.get("q")) {
     (document.getElementById("q") as HTMLInputElement).value = initial.get("q")!;

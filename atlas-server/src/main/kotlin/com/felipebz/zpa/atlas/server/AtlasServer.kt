@@ -5,47 +5,18 @@
 
 package com.felipebz.zpa.atlas.server
 
-import com.felipebz.zpa.atlas.query.Answer
-import com.felipebz.zpa.atlas.query.AtlasIndex
-import com.felipebz.zpa.atlas.query.GraphTooLargeException
-import com.felipebz.zpa.atlas.query.GroupDimension
-import com.felipebz.zpa.atlas.query.ImpactStop
-import com.felipebz.zpa.atlas.query.InvalidQueryException
-import com.felipebz.zpa.atlas.query.OccurrenceQuery
-import com.felipebz.zpa.atlas.query.QueryTimeoutException
-import com.felipebz.zpa.atlas.query.SchemaMismatchException
-import com.felipebz.zpa.atlas.query.Scope
-import com.felipebz.zpa.atlas.query.indexCodes
-import io.ktor.client.HttpClient
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.Application
-import io.ktor.server.application.ApplicationCall
-import io.ktor.server.application.ApplicationStopped
-import io.ktor.server.application.createApplicationPlugin
-import io.ktor.server.application.install
-import io.ktor.server.application.log
-import io.ktor.server.cio.CIO
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.http.content.staticResources
-import io.ktor.server.plugins.compression.Compression
-import io.ktor.server.plugins.compression.deflate
-import io.ktor.server.plugins.compression.excludeContentType
-import io.ktor.server.plugins.compression.gzip
-import io.ktor.server.plugins.compression.minimumSize
-import io.ktor.server.plugins.statuspages.StatusPages
-import io.ktor.server.request.path
-import io.ktor.server.request.queryString
-import io.ktor.server.response.header
-import io.ktor.server.response.respond
-import io.ktor.server.response.respondRedirect
-import io.ktor.server.response.respondText
-import io.ktor.server.routing.Route
-import io.ktor.server.routing.get
-import io.ktor.server.routing.head
-import io.ktor.server.routing.route
-import io.ktor.server.routing.routing
+import com.felipebz.zpa.atlas.query.*
+import io.ktor.client.*
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.cio.*
+import io.ktor.server.engine.*
+import io.ktor.server.http.content.*
+import io.ktor.server.plugins.compression.*
+import io.ktor.server.plugins.statuspages.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -143,6 +114,7 @@ internal fun Application.atlasCommon(
 /** The HTTP API of one index, under the current route: what `/api` answers, and each project's `/p/<name>/api`. */
 internal fun Route.indexApi(index: AtlasIndex) {
     get("/run") { call.respondJson(index.run()) }
+    get("/top-packages") { call.respondJson(index.topPackages()) }
     // The code lists read no index: this answers without one, so it has no run stamp.
     get("/codes") { call.respondJson(indexCodes()) }
     get("/entities") {

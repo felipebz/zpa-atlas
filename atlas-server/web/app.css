@@ -5,7 +5,7 @@
 :root {
   --bg: #f4f6f9; --surface: #ffffff; --surface-2: #eef1f5; --border: #e1e5eb; --border-strong: #cbd2dc;
   --fg: #172033; --muted: #5b6577; --faint: #8a93a3;
-  --bar: #1c2740; --bar-fg: #e9eef8; --bar-muted: #9fb0cf; --bar-field: #2a3757;
+  --bar: #1c2740; --bar-fg: #e9eef8; --bar-muted: #9fb0cf; --bar-field: #2a3757; --bar-warning: #f5c46b;
   --accent: #2456c4; --accent-soft: #e5edfc; --on-accent: #ffffff;
   --kind-unit: #6a4bc4; --kind-type: #9a5b12; --kind-relation: #127567; --kind-member: #b0412f; --kind-other: #5b6577;
   --on-kind: #ffffff;
@@ -14,36 +14,75 @@
   --error: #b3261e; --error-soft: #fbe4e2;
   --external: #2456c4; --external-soft: #e5edfc;
   --hl: #fff3b8; --mark: #ffe08a;
-  --shadow-popover: 0 8px 24px rgb(0 0 0 / .18);
+  --shadow-popover: 0 8px 24px rgb(0 0 0 / .18); --shadow-dialog: 0 18px 48px rgb(0 0 0 / .3); --backdrop: rgb(8 12 20 / .45);
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
   --fs-xs: 12px; --fs-s: 13px; --fs-m: 14px; --fs-l: 16px; --fs-xl: 20px; --fs-2xl: 26px;
   --radius: 6px; --gap: 16px; --page: 24px;
-  /* The top bar's height, kept by the page script as the bar wraps; sticky headers sit under it. */
+  /* The top bar's height, kept by the page script as the bar wraps; sticky headers sit under it ([--stick-top]). */
   --bar-h: 44px;
+  --stick-top: var(--bar-h);
 }
 * { box-sizing: border-box; }
-html { scroll-padding-top: var(--bar-h); }
+html { scroll-padding-top: var(--stick-top); }
 body { font-family: var(--sans); margin: 0; color: var(--fg); background: var(--bg); font-size: var(--fs-m); }
+/*
+ * The top bar: home, the project picker, "Go to object…", the pages, then the index date and the parse note at the
+ * right. On a phone it is two rows (home, go to, parse note; then the pages and the date) and scrolls away.
+ */
 header.top { position: sticky; top: 0; z-index: 20; background: var(--bar); color: var(--bar-fg); padding: 8px var(--page); display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; }
 header.top a { color: var(--bar-fg); font-weight: 700; font-size: var(--fs-l); text-decoration: none; }
+header.top nav.pages { display: flex; gap: 4px; }
 header.top a.nav { font-weight: 500; font-size: var(--fs-m); color: var(--bar-muted); padding: 4px 10px; border-radius: var(--radius); }
 header.top a.nav:hover { color: var(--bar-fg); background: var(--bar-field); }
 header.top a.nav[aria-current="page"] { color: var(--bar-fg); background: var(--bar-field); }
-header.top .run { font-size: var(--fs-xs); color: var(--bar-muted); margin-left: auto; }
-header.top form.find input, header.top select.project { background: var(--bar-field); color: var(--bar-fg); border: 1px solid transparent; border-radius: var(--radius); }
-header.top form.find input::placeholder { color: var(--bar-muted); }
-header.top form.find input:hover, header.top select.project:hover { border-color: var(--bar-muted); }
-header.top form.find input { width: 320px; max-width: 100%; padding: 4px 10px; font-size: var(--fs-s); }
+header.top button.goto { flex: 0 1 300px; min-width: 0; display: flex; align-items: center; gap: 8px; background: var(--bar-field); color: var(--bar-muted);
+  border: 1px solid transparent; border-radius: var(--radius); padding: 5px 10px; text-align: left; cursor: text; }
+header.top button.goto:hover:not(:disabled) { border-color: var(--bar-muted); color: var(--bar-fg); }
+header.top button.goto > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+kbd { font-family: var(--mono); font-size: var(--fs-xs); border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; opacity: .8; white-space: nowrap; }
+header.top button.run, header.top button.parse-note { font-size: var(--fs-xs); padding: 2px 9px; background: transparent; white-space: nowrap; }
+header.top button.run { margin-left: auto; color: var(--bar-muted); border: 1px solid transparent; }
+header.top button.run:hover:not(:disabled) { color: var(--bar-fg); border-color: var(--bar-muted); }
+header.top button.parse-note { color: var(--bar-warning); border: 1px solid var(--bar-warning); border-radius: 999px; }
+header.top button.parse-note:hover:not(:disabled) { color: var(--bar-fg); border-color: var(--bar-fg); }
+header.top .parse-note .short { display: none; }
+/* The panels the date and the parse note open, under the bar at its right. */
+.bar-pop { position: absolute; right: var(--page); top: 100%; margin-top: 6px; width: min(420px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto;
+  background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-popover);
+  padding: 12px 14px; font-size: var(--fs-s); display: grid; gap: 6px; }
+.bar-pop[hidden] { display: none; }
+header.top .bar-pop a { color: var(--accent); font-size: var(--fs-xs); font-weight: 400; overflow-wrap: anywhere; }
+.bar-pop ul { margin: 4px 0 0; padding-left: 18px; }
+.bar-pop li { margin: 2px 0; overflow-wrap: anywhere; }
 header.top .push { margin-left: auto; }
 /* On a project's page: the project after the home link, a picker once the server's projects load. */
 header.top .project { font-weight: 600; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-header.top select.project { max-width: min(16em, 100%); padding: 2px 6px; font-size: var(--fs-s); text-overflow: ellipsis; }
+header.top select.project { background: var(--bar-field); color: var(--bar-fg); border: 1px solid transparent; border-radius: var(--radius);
+  max-width: min(16em, 100%); padding: 2px 6px; font-size: var(--fs-s); text-overflow: ellipsis; }
+header.top select.project:hover { border-color: var(--bar-muted); }
 header.top .user { display: flex; gap: 8px; align-items: center; font-size: var(--fs-xs); color: var(--bar-muted); }
 header.top .user-name { max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 header.top .user form { margin: 0; }
 header.top .user button { font-size: var(--fs-xs); padding: 1px 8px; background: transparent; color: var(--bar-fg); border-color: var(--bar-muted); }
 header.top .user button:hover { color: var(--bar-fg); border-color: var(--bar-fg); }
+@media (max-width: 700px) {
+  :root { --stick-top: 0px; }
+  header.top { position: relative; padding: 8px 12px; gap: 8px; }
+  header.top .home, header.top .project { order: 0; }
+  header.top select.project { max-width: 9em; }
+  header.top button.goto { order: 1; flex: 1 1 120px; }
+  header.top button.goto kbd { display: none; }
+  header.top button.parse-note, header.top .user { order: 2; }
+  header.top .parse-note .long { display: none; }
+  header.top .parse-note .short { display: inline; }
+  /* The second row: the pages, then the date at its end. */
+  header.top::after { content: ""; order: 3; flex-basis: 100%; height: 0; }
+  header.top nav.pages { order: 4; }
+  header.top button.run { order: 5; }
+  header.top a.nav { padding: 3px 8px; }
+  .bar-pop { right: 12px; }
+}
 .warn { background: var(--warning-soft); border-bottom: 1px solid var(--warning-line); padding: 6px var(--page); font-size: var(--fs-s); }
 main { padding: var(--gap) var(--page); }
 a { color: var(--accent); text-decoration: none; }
@@ -137,7 +176,7 @@ ul.projects .project-state { color: var(--muted); overflow-wrap: anywhere; min-w
 
 /* Entity: the identity sidebar, sticky beside the content column; one column on narrow screens. */
 main.entity { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: var(--gap); align-items: start; }
-#side { position: sticky; top: calc(var(--bar-h) + var(--gap)); max-height: calc(100vh - var(--bar-h) - 2 * var(--gap)); overflow-y: auto; }
+#side { position: sticky; top: calc(var(--stick-top) + var(--gap)); max-height: calc(100vh - var(--stick-top) - 2 * var(--gap)); overflow-y: auto; }
 #side > section:not(:empty) { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
 #overloads ul { padding-left: 18px; margin: 0; }
 #content { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
@@ -162,7 +201,7 @@ ul.stacked li { padding: 4px 0; }
 .kinds .num { width: 1%; white-space: nowrap; text-align: right; }
 /* The contents tables wrap their names and need no scroll box: they sit in the page, their header under the top bar. */
 .kinds .scroll { overflow: visible; }
-.kinds th { position: sticky; top: var(--bar-h); z-index: 1; }
+.kinds th { position: sticky; top: var(--stick-top); z-index: 1; }
 /*
  * The entity page at phone width. Contents: a member name wraps (at its spaces and underscores, inside a word only
  * when that word alone is wider), so the uses column
@@ -310,6 +349,47 @@ li.text-hit .where .path, li.text-hit .where .in { overflow-wrap: anywhere; min-
 pre.text-line { margin: 4px 0 0; padding: 4px 6px; background: var(--bg); border-radius: var(--radius); overflow-x: auto; max-width: 100%; white-space: pre; font-size: var(--fs-xs); }
 pre.text-line mark { background: var(--mark); color: inherit; border-radius: 2px; }
 button.more-rows { margin-top: 8px; }
+
+/* A file's parse status in the parse note's list. */
+.badge.parse-RECOVERED { background: var(--warning-soft); color: var(--warning); }
+.badge.parse-FAILED { background: var(--error-soft); color: var(--error); }
+
+/* "Go to object…": one field and a list of suggestions over the page. */
+dialog.goto-dialog { width: min(640px, calc(100vw - 32px)); margin: max(56px, 10vh) auto auto; padding: 0; border: 1px solid var(--border-strong);
+  border-radius: 10px; background: var(--surface); color: var(--fg); box-shadow: var(--shadow-dialog); overflow: hidden; }
+dialog.goto-dialog::backdrop { background: var(--backdrop); }
+dialog.goto-dialog input { width: 100%; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; font-size: var(--fs-l); padding: 14px 16px; }
+dialog.goto-dialog input:focus-visible { outline: none; }
+dialog.goto-dialog ul { list-style: none; margin: 0; padding: 6px; max-height: min(420px, 60vh); overflow-y: auto; }
+dialog.goto-dialog li { display: flex; align-items: flex-start; gap: 10px; padding: 7px 10px; border-radius: var(--radius); cursor: pointer; min-width: 0; }
+dialog.goto-dialog li[aria-selected="true"] { background: var(--accent-soft); }
+dialog.goto-dialog li.goto-head, dialog.goto-dialog li.goto-none { display: block; cursor: default; color: var(--faint); font-size: var(--fs-xs); }
+dialog.goto-dialog li .kind { margin: 1px 0 0; }
+dialog.goto-dialog .goto-text { flex: 1; min-width: 0; }
+dialog.goto-dialog .goto-name { font-weight: 600; margin-right: 8px; }
+dialog.goto-dialog .goto-in { min-width: 0; color: var(--muted); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+dialog.goto-dialog .goto-all { color: var(--accent); }
+dialog.goto-dialog .foot { display: flex; gap: 14px; justify-content: space-between; flex-wrap: wrap; padding: 8px 14px; border-top: 1px solid var(--border);
+  font-size: var(--fs-xs); color: var(--muted); }
+
+/* The home page: a heading and the search form, then the panels where to start. */
+.home-page .hero { display: grid; gap: 10px; padding: 12px 0 8px; }
+.home-page .hero h1 { font-size: var(--fs-2xl); margin: 0; }
+.home-page .hero p { margin: 0; max-width: 62ch; }
+.home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: var(--gap); margin-top: var(--gap); align-items: start; }
+.home-grid[hidden] { display: none; }
+.home-panel h2 { font-size: var(--fs-m); }
+ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+ul.plain li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+ul.plain li .kind { align-self: center; }
+ul.plain .grow { flex: 1; min-width: 0; }
+.ways { display: grid; gap: 12px; align-content: start; }
+.ways > h2 { margin: 0; }
+.ways > div { display: grid; gap: 2px; }
+.ways .ex { font-size: var(--fs-xs); color: var(--muted); }
+/* The Uses and Code pages: their name and what they do, above their form. */
+.query-page > h1 { margin: 0 0 4px; }
+.query-page > .page-intro { margin: 0 0 var(--gap); }
 /* The action that runs a form: filled with the accent. Last, so it wins over the form's own control rules. */
 form#search > button, form.query .buttons button, form#options > button { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 form#search > button:hover:not(:disabled), form.query .buttons button:hover:not(:disabled), form#options > button:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.08); }

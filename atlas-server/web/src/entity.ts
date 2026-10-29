@@ -17,7 +17,8 @@ import {
 } from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {displayParts, parentKeyOf} from "./names";
-import {setPageTitle} from "./project";
+import {currentProject, setPageTitle} from "./project";
+import {browserStorage, recordOpened} from "./recent";
 import type {UsesBlock} from "./uses";
 import {renderChips, setupSourceToggle, usesBlock} from "./uses";
 
@@ -157,6 +158,7 @@ function triggersHtml(entity: EntityDetail, own: boolean) {
 
 function renderEntity(entity: EntityDetail) {
   setPageTitle(t("page.entity.titleWith", { name: entity.name }));
+  recordOpened(browserStorage(), currentProject(), entity);
   const set = (id: string, html: string) => { document.getElementById(id)!.innerHTML = html; };
   set("header", headerHtml(entity));
   set("definitions", definitionsHtml(entity));

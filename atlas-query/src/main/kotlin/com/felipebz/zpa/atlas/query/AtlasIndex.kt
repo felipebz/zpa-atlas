@@ -37,6 +37,19 @@ class AtlasIndex(
         summary?.takeIf { it.run == stamp }?.result ?: runSummary(connection).also { summary = Answer(stamp, it) }
     }
 
+    /** [topPackages] last read, with the run it was read from: like the summary, it scans every occurrence. */
+    @Volatile
+    private var packages: Answer<List<PackageUses>>? = null
+
+    /**
+     * The project's own packages most used from outside (uses of the package and its members from other units and from
+     * scripts in no unit, not from the package's own spec or body), at most [TOP_PACKAGES], each with its member of most
+     * uses from outside; read again only when the file holds another run than the last read.
+     */
+    fun topPackages(): Answer<List<PackageUses>> = read { connection, stamp ->
+        packages?.takeIf { it.run == stamp }?.result ?: topPackages(connection, TOP_PACKAGES).also { packages = Answer(stamp, it) }
+    }
+
     /** The run stamp alone: the index opens and has the schema version this module reads. Cheap, for a health check. */
     fun stamp(): RunStamp = read { _, stamp -> stamp }.run
 
@@ -313,6 +326,9 @@ class AtlasIndex(
 
         /** The most nodes [impactView] answers by default. */
         const val MAX_VIEW_NODES = 50_000
+
+        /** The most packages [topPackages] answers: a home page panel. */
+        const val TOP_PACKAGES = 6
 
         /** Decodes an indexed file with the charset recorded for it (`source_file.encoding`); a leading BOM is dropped. */
         fun decode(bytes: ByteArray, encoding: String): String =

@@ -33,8 +33,27 @@ data class RunSummary(
     val startedAt: String,
     val filesByParseStatus: List<Count>,
     val occurrencesByStatus: List<Count>,
-    val coverageByKind: List<Count>
-)
+    val coverageByKind: List<Count>,
+    /** The files whose parse failed or was recovered, by path: at most [PARSE_PROBLEMS_SHOWN] of [parseProblemTotal]. */
+    val parseProblems: List<FileParse>,
+    val parseProblemTotal: Long
+) {
+    companion object {
+        /** The most files [parseProblems] lists: enough to read, few enough for a broken index not to send thousands. */
+        const val PARSE_PROBLEMS_SHOWN = 50
+    }
+}
+
+/** A file of the index and how its parse went. */
+@Serializable
+data class FileParse(val path: String, val parseStatus: String)
+
+/**
+ * A package of the project and its uses from outside it (its own and its members', from other units and from scripts in
+ * no unit); [topMember] is its member with the most such uses.
+ */
+@Serializable
+data class PackageUses(val entity: EntitySummary, val uses: Long, val topMember: EntitySummary?, val topMemberUses: Long)
 
 @Serializable
 data class EntitySummary(

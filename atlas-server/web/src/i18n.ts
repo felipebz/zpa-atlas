@@ -25,6 +25,7 @@ document.documentElement.lang = LOCALE;
 const plurals = new Intl.PluralRules(LOCALE);
 const numbers = new Intl.NumberFormat(LOCALE);
 const dates = new Intl.DateTimeFormat(LOCALE, { dateStyle: "medium", timeStyle: "medium" });
+const shortDates = new Intl.DateTimeFormat(LOCALE, { dateStyle: "short", timeStyle: "short" });
 
 export function formatNumber(value: number) {
   return numbers.format(value);
@@ -33,6 +34,12 @@ export function formatNumber(value: number) {
 export function formatDate(iso: string) {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? String(iso) : dates.format(date);
+}
+
+/** A date and time in few characters, for the top bar. */
+export function formatShortDate(iso: string) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? String(iso) : shortDates.format(date);
 }
 
 /** The values a message may fill in; `count` selects its plural form. */
@@ -58,8 +65,8 @@ export function t(key: string, params?: Params) {
 }
 
 /**
- * Loads the catalogs (English always, as the fallback), fills the static `data-i18n` text, and makes the header
- * search keep the page's `?lang=`.
+ * Loads the catalogs (English always, as the fallback), fills the static `data-i18n` text, and makes the links marked
+ * `data-keep-lang` keep the page's `?lang=`.
  */
 export async function initI18n() {
   for (const lang of new Set([FALLBACK, LOCALE])) {
@@ -72,10 +79,6 @@ export async function initI18n() {
     element.setAttribute("aria-label", element.title);
   }
   const lang = new URLSearchParams(location.search).get("lang");
-  for (const input of document.querySelectorAll<HTMLInputElement>("form.find input[name=lang]")) {
-    if (lang) input.value = lang;
-    else input.remove();
-  }
   if (lang) {
     for (const link of document.querySelectorAll<HTMLAnchorElement>("a[data-keep-lang]")) link.href += (link.href.includes("?") ? "&" : "?") + "lang=" + encodeURIComponent(lang);
   }

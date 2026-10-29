@@ -1,16 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="application-name" content="zpa-atlas"><title data-i18n="page.search.title"></title><link rel="stylesheet" href="app.css"></head>
+<head><meta charset="utf-8"><meta name="application-name" content="zpa-atlas"><meta name="viewport" content="width=device-width, initial-scale=1"><title data-i18n="page.search.title"></title><link rel="stylesheet" href="app.css"></head>
 <body>
-<header class="top"><a href="./">Atlas</a><a href="query.html" class="nav" data-keep-lang data-i18n="header.query"></a><a href="text.html" class="nav" data-keep-lang data-i18n="header.text"></a><span class="run" data-i18n="banner.loading"></span></header>
-<div id="warn" class="warn" hidden></div>
-<main>
-  <form id="search">
-    <input type="text" id="q" data-i18n-placeholder="search.placeholder" autofocus>
-    <select id="kind"><option value="" data-i18n="search.allKinds"></option></select>
-    <label><input type="checkbox" id="external" checked> <span data-i18n="search.includeExternal"></span></label>
-    <button data-i18n="search.submit"></button>
-  </form>
+<header class="top"><a href="./" class="home" data-keep-lang>Atlas</a><button type="button" class="goto"><span data-i18n="goto.open"></span><kbd>Ctrl K</kbd></button><nav class="pages"><a href="./" class="nav" data-keep-lang data-i18n="header.objects"></a><a href="query.html" class="nav" data-keep-lang data-i18n="header.uses"></a><a href="text.html" class="nav" data-keep-lang data-i18n="header.code"></a></nav><button type="button" class="run" aria-expanded="false" data-i18n="banner.loading"></button></header>
+<main class="home-page">
+  <section class="hero">
+    <h1 data-i18n="home.heading"></h1>
+    <p class="muted" data-i18n="home.intro"></p>
+    <form id="search">
+      <input type="text" id="q" data-i18n-placeholder="search.placeholder" autofocus>
+      <select id="kind"><option value="" data-i18n="search.allKinds"></option></select>
+      <label><input type="checkbox" id="external" checked> <span data-i18n="search.includeExternal"></span></label>
+      <button data-i18n="search.submit"></button>
+    </form>
+  </section>
+  <section id="home" class="home-grid" hidden></section>
   <section id="results"></section>
 </main>
 <script type="module" src="./src/search.ts"></script>

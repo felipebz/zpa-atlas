@@ -44,17 +44,54 @@ internal fun <T> readIndex(database: Path, queryTimeout: Duration, timed: Boolea
     }
 }
 
-/** The run of the index: its stamp, and the counts of files, occurrences and coverage notes. */
-internal fun runSummary(connection: Connection): RunSummary {
+/**
+ * The run of the index: its stamp, the counts of files, occurrences and coverage notes, and the files that did not
+ * parse cleanly (the first [shown] by path, and their number).
+ */
+internal fun runSummary(connection: Connection, shown: Int = RunSummary.PARSE_PROBLEMS_SHOWN): RunSummary {
     val (version, root, started) = connection.query("SELECT schema_version, sources_root, started_at FROM run") {
         Triple(it.getInt(1), it.getString(2), it.getString(3))
     }.single()
+    val files = counts(connection, "SELECT parse_status, count(*) FROM source_file GROUP BY parse_status ORDER BY parse_status")
+    val problems = connection.query(
+        "SELECT path, parse_status FROM source_file WHERE parse_status <> 'OK' ORDER BY path LIMIT ?", listOf(shown)
+    ) { FileParse(it.getString(1), it.getString(2)) }
     return RunSummary(
-        version, root, started,
-        counts(connection, "SELECT parse_status, count(*) FROM source_file GROUP BY parse_status ORDER BY parse_status"),
+        version, root, started, files,
         counts(connection, "SELECT status, count(*) FROM occurrence GROUP BY status ORDER BY status"),
-        counts(connection, "SELECT kind, count(*) FROM coverage_note GROUP BY kind ORDER BY kind")
+        counts(connection, "SELECT kind, count(*) FROM coverage_note GROUP BY kind ORDER BY kind"),
+        problems, files.filter { it.value != "OK" }.sumOf { it.count }
     )
+}
+
+/**
+ * The project's own packages most used from outside, at most [limit]: the uses of the package and of every entity it
+ * holds (spec and body members) that sit outside the package, in another unit or in a script in no unit; a use inside
+ * the package's spec or body (a nested routine included) does not count, nor do definitions and declarations. A package
+ * with no use from outside is left out; ties by key. Each with its member of most uses from outside, counted the same way.
+ */
+internal fun topPackages(connection: Connection, limit: Int): List<PackageUses> {
+    // An occurrence is outside the package when its unit is not one of the package's (spec or body) or it has no unit.
+    val outside = "o.roles NOT IN ('DEFINITION', 'DECLARATION') AND (u.entity_id IS NULL OR u.entity_id <> %s)"
+    val packages = connection.query(
+        """WITH member AS (SELECT p.id AS package_id, p.id AS entity_id FROM entity p WHERE p.kind = 'PACKAGE' AND p.external = 0
+                           UNION ALL
+                           SELECT p.id, m.id FROM entity p JOIN entity m ON m.parent_id = p.id WHERE p.kind = 'PACKAGE' AND p.external = 0)
+           SELECT p.key, p.kind, p.display, p.external, p.name, count(*), p.id
+           FROM member m JOIN occurrence o ON o.entity_id = m.entity_id LEFT JOIN unit u ON u.id = o.unit_id
+           JOIN entity p ON p.id = m.package_id
+           WHERE ${outside.format("m.package_id")}
+           GROUP BY p.id ORDER BY 6 DESC, p.key LIMIT ?""", listOf(limit)
+    ) { Triple(entitySummary(it), it.getLong(6), it.getLong(7)) }
+    return packages.map { (entity, uses, id) ->
+        val top = connection.query(
+            """SELECT m.key, m.kind, m.display, m.external, m.name, count(*)
+               FROM entity m JOIN occurrence o ON o.entity_id = m.id LEFT JOIN unit u ON u.id = o.unit_id
+               WHERE m.parent_id = ? AND ${outside.format("m.parent_id")}
+               GROUP BY m.id ORDER BY 6 DESC, m.key LIMIT 1""", listOf(id)
+        ) { entitySummary(it) to it.getLong(6) }.singleOrNull()
+        PackageUses(entity, uses, top?.first, top?.second ?: 0)
+    }
 }
 
 private fun counts(connection: Connection, sql: String) = connection.query(sql) { Count(it.getString(1), it.getLong(2)) }

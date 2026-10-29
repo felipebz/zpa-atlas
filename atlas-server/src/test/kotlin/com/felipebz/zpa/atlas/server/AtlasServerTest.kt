@@ -6,31 +6,14 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.Fixture
-import com.felipebz.zpa.atlas.model.EntityKind
-import com.felipebz.zpa.atlas.model.Origin
-import com.felipebz.zpa.atlas.model.Role
-import com.felipebz.zpa.atlas.model.StatementKind
-import com.felipebz.zpa.atlas.model.Status
-import com.felipebz.zpa.atlas.model.UnitKind
-import com.felipebz.zpa.atlas.model.ValueKind
+import com.felipebz.zpa.atlas.model.*
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.query.GroupDimension
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.parameter
-import io.ktor.client.statement.bodyAsBytes
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.server.testing.ApplicationTestBuilder
-import io.ktor.server.testing.testApplication
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import io.ktor.server.testing.*
+import kotlinx.serialization.json.*
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
@@ -69,6 +52,7 @@ class AtlasServerTest {
     fun `every endpoint answers with the run and its result`() = api {
         for ((path, parameters) in listOf(
             "/api/run" to emptyMap(),
+            "/api/top-packages" to emptyMap(),
             "/api/entities" to mapOf("q" to "exec"),
             "/api/entity" to mapOf("key" to runJob5),
             "/api/occurrences" to mapOf("key" to runJob5, "scope" to "SELF,IMPLEMENTATIONS", "roles" to "CALL"),
