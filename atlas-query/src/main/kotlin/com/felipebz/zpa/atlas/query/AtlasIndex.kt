@@ -44,7 +44,7 @@ class AtlasIndex(
      * Without a dot, [q] is a case-insensitive prefix of the entity name. With a dot, the last segment is a name
      * prefix and the segments before it name the parent chain (the leftmost may be the schema); when nothing
      * matches, [q] is a case-insensitive substring of the display. Exact name matches first, then declared before
-     * external, then display.
+     * external, then by name and by display, both ignoring case (`_` before the letters), then by key.
      */
     fun searchEntities(q: String, kind: String? = null, includeExternal: Boolean = true, limit: Int = 50): Answer<List<SearchHit>> {
         if (q.isBlank()) throw InvalidQueryException("The search text must not be empty")

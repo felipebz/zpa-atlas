@@ -1,9 +1,9 @@
 import type {Answer, EntityDetail, EntitySummary, SearchHit} from "./api";
 import {api} from "./api";
-import {kindBadge, kindBadgeNode, nameHtml} from "./entity-html";
+import {kindBadge, kindBadgeNode, listNameOptions, nameHtml} from "./entity-html";
 import {esc, getOrPut, qualifierHtml} from "./html";
 import {t} from "./i18n";
-import {displayParts} from "./names";
+import {shownName} from "./names";
 import {field, form, picks, state, typed} from "./query-state";
 
 const SUGGESTIONS = 10;
@@ -49,10 +49,11 @@ export function setupSuggest(box: HTMLElement) {
         const found = (await api<Answer<SearchHit[]>>("api/entities", { q: text, limit: SUGGESTIONS })).result;
         if (ask !== asked || input.value.trim() !== text) return;
         hits = found;
+        const options = listNameOptions(hits);
         list.innerHTML = hits.length === 0 ? `<li class="muted">${esc(t("search.empty"))}</li>` : hits.map((h, i) => {
-          const parts = displayParts(h.display, h.name);
-          const qualifier = parts.shortQualifier.replace(/\.$/, "");
-          return `<li role="option" data-index="${i}"><span class="hit-name">${nameHtml(h, { relative: true })}</span>
+          const shape = options(h);
+          const qualifier = shownName(h.display, h.name, shape).qualifier.replace(/\.$/, "");
+          return `<li role="option" data-index="${i}"><span class="hit-name">${nameHtml(h, { ...shape, relative: true })}</span>
             ${kindBadge(h.kind)}${qualifier ? ` <span class="muted">${qualifierHtml(qualifier)}</span>` : ""}</li>`;
         }).join("");
         list.hidden = false;

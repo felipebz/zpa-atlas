@@ -2,10 +2,11 @@ import type {Answer, Count, RunSummary, SearchHit} from "./api";
 import {api, errorMessage} from "./api";
 import {showBanner} from "./banner";
 import {loadCodes, searchKinds} from "./codes";
-import {entityLink, kindBadge, kindLabel} from "./entity-html";
-import {entityHref, esc, getOrPut, qualifierHtml} from "./html";
+import type {NameOptions} from "./entity-html";
+import {entityLink, kindBadge, kindLabel, listNameOptions, specBodyLinks} from "./entity-html";
+import {esc, getOrPut, qualifierHtml} from "./html";
 import {initI18n, t} from "./i18n";
-import {displayParts, parentKeyOf} from "./names";
+import {parentKeyOf, shownName} from "./names";
 
 const LIMIT = 200;
 
@@ -32,20 +33,26 @@ function groupHits(hits: SearchHit[]) {
 }
 
 /** A hit as two lines: its name, kind and uses, then the program it is in. */
-function hitRow(group: HitGroup) {
+function hitRow(group: HitGroup, options?: NameOptions) {
   const h = (group.spec ?? group.body)!;
-  const body = group.body ? ` <a class="badge" href="${entityHref(group.body.key)}">${esc(t("entity.overload.body"))}</a>` : "";
-  const parts = displayParts(h.display, h.name);
-  const container = parts.shortQualifier.replace(/\.$/, "");
-  const containerBody = parts.qualifierBody ? ` <span class="badge">${esc(t("entity.overload.body"))}</span>` : "";
+  const shown = shownName(h.display, h.name, options);
+  const container = shown.qualifier.replace(/\.$/, "");
+  const containerBody = shown.parts.qualifierBody ? ` <span class="badge">${esc(t("entity.overload.body"))}</span>` : "";
   return `<li>
     <div class="hit-head">
-      <span class="hit-name">${entityLink(h, { relative: true, noBadge: true })}${body}</span>
+      <span class="hit-name">${entityLink(h, { ...options, relative: true, noBadge: true })}${specBodyLinks(group.spec, group.body)}</span>
       ${kindBadge(h.kind)}
       <span class="hit-uses">${esc(t("search.usages", { count: group.usages }))}</span>
     </div>
     ${container ? `<div class="hit-in muted">${qualifierHtml(container)}${containerBody}</div>` : ""}
   </li>`;
+}
+
+/** The rows of [hits]; two rows whose name and container would read the same show every parameter name. */
+function hitRows(hits: SearchHit[]) {
+  const groups = groupHits(hits);
+  const options = listNameOptions(groups.map(g => (g.spec ?? g.body)!));
+  return groups.map(g => hitRow(g, options((g.spec ?? g.body)!))).join("");
 }
 
 async function home(results: HTMLElement) {
@@ -69,7 +76,7 @@ async function search() {
     const answer = await api<Answer<SearchHit[]>>("api/entities", { q, kind: kindSelect.value, external, limit: LIMIT });
     const hits = answer.result;
     results.innerHTML = hits.length === 0 ? `<p class="muted">${esc(t("search.empty"))}</p>` :
-      `<ol class="hits">${groupHits(hits).map(hitRow).join("")}</ol>` +
+      `<ol class="hits">${hitRows(hits)}</ol>` +
       (hits.length === LIMIT ? `<p class="muted">${esc(t("search.limited", { count: LIMIT }))}</p>` : "");
   } catch (e) {
     results.innerHTML = `<p class="muted">${esc(t("error.message", { error: errorMessage(e) }))}</p>`;

@@ -1,6 +1,16 @@
-import { describe, expect, it } from "vitest";
+import {describe, expect, it} from "vitest";
 import {
-  displayParts, firstOpenParenthesis, matchingParenthesis, parameterNamesOnly, parameterParts, parentKeyOf, spacedSignature, splitTopLevel
+    displayParts,
+    firstOpenParenthesis,
+    listParameterDetail,
+    matchingParenthesis,
+    parameterNamesOnly,
+    parameterParts,
+    parentKeyOf,
+    readAlike,
+    shownNameText,
+    spacedSignature,
+    splitTopLevel
 } from "../src/names";
 
 // The displays come from `SELECT DISTINCT display FROM entity` on the fixture index, except where a case says it is
@@ -329,5 +339,71 @@ describe("parentKeyOf", () => {
     expect(parentKeyOf("db:DESENV.PACK_REQ@FAR.EXAMPLE.COM")).toEqual("db:DESENV.PACK_REQ@FAR.EXAMPLE.COM");
     expect(parentKeyOf("db:HR.PACK_CALLS.P_MIX(P_A IN NUMBER)@BODY#2.P_A")).toEqual("db:HR.PACK_CALLS.P_MIX(P_A IN NUMBER)@BODY#2.P_A");
     expect(parentKeyOf("db:HR.X@BODYX")).toEqual("db:HR.X@BODYX");
+  });
+});
+
+// Written by hand, with invented names: a routine with nine parameters, the shape that needs a cut.
+const NINE = "P_MSG IN VARCHAR2,P_VALUE1 IN VARCHAR2,P_VALUE2 IN VARCHAR2,P_VALUE3 IN VARCHAR2,P_VALUE4 IN VARCHAR2," +
+  "P_VALUE5 IN VARCHAR2,P_VALUE6 IN VARCHAR2,P_VALUE7 IN VARCHAR2,P_VALUE8 IN VARCHAR2";
+const named = (key: string, name: string) => ({ key, display: key.replace(/^db:/, ""), name });
+
+describe("shownNameText", () => {
+  it("cuts a long parameter list after about 40 characters, with the count of the rest kept to its ellipsis", () => {
+    expect(shownNameText(named(`db:HR.PACK_TEXT.FORMAT_MSG(${NINE})`, "FORMAT_MSG")))
+      .toEqual("HR.PACK_TEXT.FORMAT_MSG(P_MSG, P_VALUE1, P_VALUE2, P_VALUE3, …\u00a0+5)");
+  });
+  it("keeps a short list whole, an empty one as (), and shows every name when asked", () => {
+    expect(shownNameText(named("db:HR.PACK_TEXT.TRIM_ALL(P_A IN NUMBER,P_B IN DATE)", "TRIM_ALL"), { relative: true })).toEqual("TRIM_ALL(P_A, P_B)");
+    expect(shownNameText(named("db:HR.PACK_TEXT.NOW()", "NOW"), { relative: true })).toEqual("NOW()");
+    expect(shownNameText(named(`db:HR.PACK_TEXT.FORMAT_MSG(${NINE})`, "FORMAT_MSG"), { relative: true, parameters: "names" }))
+      .toEqual("FORMAT_MSG(P_MSG, P_VALUE1, P_VALUE2, P_VALUE3, P_VALUE4, P_VALUE5, P_VALUE6, P_VALUE7, P_VALUE8)");
+  });
+  it("shows the first name even when it alone is longer than the cut", () => {
+    const long = "P_A_VERY_LONG_PARAMETER_NAME_THAT_ALONE_PASSES_THE_CUT IN NUMBER,P_B IN NUMBER";
+    expect(shownNameText(named(`db:HR.PACK_TEXT.LONG_ONE(${long})`, "LONG_ONE"), { relative: true }))
+      .toEqual("LONG_ONE(P_A_VERY_LONG_PARAMETER_NAME_THAT_ALONE_PASSES_THE_CUT, …\u00a0+1)");
+  });
+  it("keeps a key collision's suffix after the list", () => {
+    expect(shownNameText(named(COLLIDED, "P_MIX"))).toEqual("HR.PACK_CALLS.P_MIX(P_A)#2");
+  });
+  it("cuts the parameter list of a qualifier the same way", () => {
+    expect(shownNameText(named(`db:HR.PACK_TEXT.FORMAT_MSG(${NINE}).P_VALUE7`, "P_VALUE7")))
+      .toEqual("HR.PACK_TEXT.FORMAT_MSG(P_MSG, P_VALUE1, P_VALUE2, P_VALUE3, …\u00a0+5).P_VALUE7");
+    expect(shownNameText(named(`db:HR.PACK_TEXT.FORMAT_MSG(${NINE}).P_VALUE7`, "P_VALUE7"), { parameters: "names" }))
+      .toEqual(`HR.PACK_TEXT.FORMAT_MSG(P_MSG, P_VALUE1, P_VALUE2, P_VALUE3, P_VALUE4, P_VALUE5, P_VALUE6, P_VALUE7, P_VALUE8).P_VALUE7`);
+  });
+});
+
+describe("readAlike", () => {
+  it("marks two overloads whose short names read the same, not a spec with its body nor a different overload", () => {
+    const first = named(`db:HR.PACK_TEXT.FORMAT_MSG(${NINE})`, "FORMAT_MSG");
+    const firstBody = named(`db:HR.PACK_TEXT.FORMAT_MSG(${NINE})@BODY`, "FORMAT_MSG");
+    const second = named(`db:HR.PACK_TEXT.FORMAT_MSG(${NINE.replace("P_VALUE8 IN VARCHAR2", "P_EXTRA IN NUMBER")})`, "FORMAT_MSG");
+    const other = named("db:HR.PACK_TEXT.FORMAT_MSG(P_MSG IN VARCHAR2)", "FORMAT_MSG");
+    expect([...readAlike([first, firstBody, second, other])]).toEqual([first.key, firstBody.key, second.key]);
+    expect([...readAlike([first, firstBody, other])]).toEqual([]);
+  });
+});
+
+describe("listParameterDetail", () => {
+  const byText = named("db:HR.PACK_LOG.WRITE_LINE(P_MSG IN VARCHAR2,P_VALUE IN VARCHAR2)", "WRITE_LINE");
+  const byTextBody = named("db:HR.PACK_LOG.WRITE_LINE(P_MSG IN VARCHAR2,P_VALUE IN VARCHAR2)@BODY", "WRITE_LINE");
+  const byFlag = named("db:HR.PACK_LOG.WRITE_LINE(P_MSG IN VARCHAR2,P_VALUE IN BOOLEAN)", "WRITE_LINE");
+  const byCode = named("db:HR.PACK_LOG.WRITE_LINE(P_MSG IN VARCHAR2,P_CODE IN OUT NUMBER)", "WRITE_LINE");
+
+  it("gives overloads that differ only by type their types, without the mode, and keeps one that differs by names short", () => {
+    const list = [byText, byTextBody, byFlag, byCode];
+    const detail = listParameterDetail(list, { relative: true });
+    expect(list.map(entity => shownNameText(entity, { relative: true, parameters: detail(entity) }))).toEqual([
+      "WRITE_LINE(P_MSG VARCHAR2, P_VALUE VARCHAR2)",
+      "WRITE_LINE(P_MSG VARCHAR2, P_VALUE VARCHAR2)",
+      "WRITE_LINE(P_MSG VARCHAR2, P_VALUE BOOLEAN)",
+      "WRITE_LINE(P_MSG, P_CODE)"
+    ]);
+  });
+
+  it("does not mark a spec with its body", () => {
+    const detail = listParameterDetail([byText, byTextBody, byCode]);
+    expect([byText, byTextBody, byCode].map(detail)).toEqual(["short", "short", "short"]);
   });
 });

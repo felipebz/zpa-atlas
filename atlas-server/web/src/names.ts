@@ -14,17 +14,45 @@ export function spacedSignature(text: string) {
   return out;
 }
 
+/** About how many characters of parameter names a short signature shows. */
+export const SHORT_PARAMETERS = 40;
+
 /**
- * Every top-level `(...)` of [text] as its parameter names, outside quoted identifiers:
- * `PKG.PROC(P_A IN NUMBER, P_B IN DATE).` → `PKG.PROC(P_A, P_B).`, so overloads stay apart.
+ * How much of a parameter list a name shows: `short`, names cut as in [shortParameterNames]; `names`, every name;
+ * `types`, every name with its type, without the mode (`P_MSG VARCHAR2, P_VALUE BOOLEAN`).
  */
-export function parameterNamesOnly(text: string) {
+export type ParameterDetail = "short" | "names" | "types";
+
+/**
+ * Parameter [names] as a short list: names while they fit in [SHORT_PARAMETERS] characters (always the first), then
+ * `…` and the count of the rest, kept together by a no-break space: `P_MSG, P_VALUE1, P_VALUE2, P_VALUE3, … +5`.
+ */
+export function shortParameterNames(names: string[]) {
+  let shown = Math.min(1, names.length);
+  let length = names[0]?.length ?? 0;
+  while (shown < names.length && length + 2 + names[shown].length <= SHORT_PARAMETERS) length += 2 + names[shown++].length;
+  const rest = names.length - shown;
+  return names.slice(0, shown).join(", ") + (rest > 0 ? `, …\u00a0+${rest}` : "");
+}
+
+/** [params] as a list in [detail]. */
+function parameterList(params: { name: string; type: string }[], detail: ParameterDetail) {
+  if (detail === "types") return params.map(p => p.type ? `${p.name} ${p.type}` : p.name).join(", ");
+  const names = params.map(p => p.name);
+  return detail === "short" ? shortParameterNames(names) : names.join(", ");
+}
+
+/**
+ * Every top-level `(...)` of [text] as its parameter list in [detail], outside quoted identifiers:
+ * `PKG.PROC(P_A IN NUMBER, P_B IN DATE).` → `PKG.PROC(P_A, P_B).` with the default `names`.
+ */
+export function parameterNamesOnly(text: string, detail: ParameterDetail = "names") {
   let out = "", inside = "", depth = 0, quoted = false;
   for (const c of text) {
     if (c === '"') quoted = !quoted;
     if (!quoted && c === "(" && depth++ === 0) continue;
     if (!quoted && c === ")" && depth > 0 && --depth === 0) {
-      out += "(" + (inside.trim() === "" ? "" : splitTopLevel(inside).map(item => parameterParts(item).name).join(", ")) + ")";
+      out += "(" + parameterList(inside.trim() === "" ? [] : splitTopLevel(inside).map(parameterParts), detail) + ")";
       inside = "";
       continue;
     }
@@ -138,4 +166,76 @@ export function matchingParenthesis(text: string, open: number) {
 /** The key that groups a spec with its body: the key without `@BODY`. */
 export function parentKeyOf(key: string) {
   return key.replace(/@BODY(?=#\d+$|$)/, "");
+}
+
+/**
+ * How a name is shown: [relative] leaves out the qualifier (the name sits under its parent); [within], an entity's
+ * display, keeps only the part of the qualifier below that entity (none for the entity itself or its body);
+ * [parameters] is how much of each parameter list it shows, `short` by default.
+ */
+export interface NameShape {
+  relative?: boolean;
+  within?: { display: string };
+  parameters?: ParameterDetail;
+}
+
+/** An entity, as far as its shown name goes. */
+export interface Named {
+  key: string;
+  display: string;
+  name?: string;
+}
+
+/**
+ * The pieces of a shown name: the `qualifier` (empty when left out), the `bare` name, its parameter list `params`
+ * (`(P_A, P_B, … +3)`, null without one), and a key collision's `#2`, which stays after the list as in the display.
+ */
+export function shownName(display: string, name: string | undefined, shape?: NameShape) {
+  const parts = displayParts(display, name);
+  const detail = shape?.parameters ?? "short";
+  const withoutBody = (text: string) => text.replace(/@BODY(?=[#.]|$)/g, "");
+  const written = withoutBody(parts.qualifier);
+  let qualifier = parameterNamesOnly(written, detail);
+  if (shape?.within) {
+    const base = withoutBody(shape.within.display);
+    if (withoutBody(display) === base) qualifier = "";
+    else if (written.startsWith(base + ".")) qualifier = parameterNamesOnly(written.slice(base.length + 1), detail);
+  }
+  if (shape?.relative) qualifier = "";
+  const collision = /#\d+$/.exec(parts.base);
+  const bare = collision ? parts.base.slice(0, collision.index) : parts.base;
+  const params = parts.params === null ? null : "(" + parameterList(parts.params, detail) + ")";
+  return { qualifier, bare, params, collision: collision?.[0] ?? "", parts };
+}
+
+/** A shown name as plain text. */
+export function shownNameText(entity: Named, shape?: NameShape) {
+  const shown = shownName(entity.display, entity.name, shape);
+  return shown.qualifier + shown.bare + (shown.params ?? "") + shown.collision;
+}
+
+/**
+ * The keys of the [entities] of one list whose name, shown as [shape] says, reads like another entity's (a spec and
+ * its body count as one).
+ */
+export function readAlike(entities: Named[], shape?: NameShape) {
+  const owners = new Map<string, Set<string>>();
+  const texts = entities.map(entity => shownNameText(entity, shape));
+  entities.forEach((entity, i) => {
+    const keys = owners.get(texts[i]) ?? new Set<string>();
+    keys.add(parentKeyOf(entity.key));
+    owners.set(texts[i], keys);
+  });
+  return new Set(entities.filter((_, i) => owners.get(texts[i])!.size > 1).map(entity => entity.key));
+}
+
+/**
+ * How much of its parameter lists each entity of one list shows, so that overloads stay apart: [base] (`short` by
+ * default) where that reads apart, every name where names alone tell it from the others, and names with their types
+ * where even every name reads the same. [shape] is the rest of how the list is read.
+ */
+export function listParameterDetail(entities: Named[], shape?: NameShape, base: ParameterDetail = "short") {
+  const alike = readAlike(entities, { ...shape, parameters: base });
+  const sameNames = readAlike(entities.filter(entity => alike.has(entity.key)), { ...shape, parameters: "names" });
+  return (entity: Named): ParameterDetail => sameNames.has(entity.key) ? "types" : alike.has(entity.key) ? "names" : base;
 }

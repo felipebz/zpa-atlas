@@ -82,6 +82,7 @@ data class EntityDetail(
     val display: String,
     val external: Boolean,
     val parent: EntitySummary?,
+    /** By kind code, then by name ignoring case (`_` before the letters), then by key. */
     val children: List<Member>,
     val relations: List<RelationLink>,
     val definitions: List<Location>,

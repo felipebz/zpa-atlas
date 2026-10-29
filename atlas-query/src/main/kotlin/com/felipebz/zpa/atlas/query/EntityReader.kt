@@ -18,7 +18,7 @@ internal class EntityReader(private val connection: Connection) {
                       (SELECT count(*) FROM occurrence o WHERE o.entity_id = e.id AND o.roles NOT IN ('DEFINITION', 'DECLARATION')), e.name
                FROM entity e $joins
                WHERE $match ${if (kind != null) "AND e.kind = ?" else ""} ${if (includeExternal) "" else "AND e.external = 0"}
-               ORDER BY CASE WHEN e.name = ? COLLATE NOCASE THEN 0 ELSE 1 END, e.external, e.display, e.key
+               ORDER BY CASE WHEN e.name = ? COLLATE NOCASE THEN 0 ELSE 1 END, e.external, e.name COLLATE NOCASE, e.display COLLATE NOCASE, e.key
                LIMIT ?""",
             parameters + listOfNotNull(kind, text, limit)
         ) { SearchHit(it.getString(1), it.getString(2), it.getString(3), it.getInt(4) == 1, it.getLong(5), it.getString(6)) }
@@ -46,7 +46,7 @@ internal class EntityReader(private val connection: Connection) {
             """SELECT c.key, c.kind, c.display, c.external, c.name,
                       (SELECT count(*) FROM occurrence o WHERE o.entity_id = c.id AND o.roles NOT IN ('DEFINITION', 'DECLARATION'))
                FROM relation r JOIN entity c ON c.id = r.to_id
-               WHERE r.from_id = ? AND r.kind = 'CONTAINS' ORDER BY c.kind, c.name, c.key""", listOf(row.id)
+               WHERE r.from_id = ? AND r.kind = 'CONTAINS' ORDER BY c.kind, c.name COLLATE NOCASE, c.key""", listOf(row.id)
         ) { Member(entitySummary(it), it.getLong(6)) }
         // VIEW_BASE edges have their own lists (baseColumns, viewColumns).
         val relations = connection.query(

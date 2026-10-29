@@ -14,3 +14,20 @@ const KIND_MARKS: Record<string, [string, string]> = {
 export function kindMark(kind: string): [string, string] {
   return KIND_MARKS[kind] ?? ["·", "other"];
 }
+
+/**
+ * The order of the kind groups in an entity's contents, by what a reader looks for first: the shape of a relation or
+ * type, program units, a schema's objects, then declarations. A kind not listed comes after them.
+ */
+const KIND_ORDER = [
+  "COLUMN", "RECORD_FIELD",
+  "PACKAGE", "PROCEDURE", "FUNCTION", "TRIGGER",
+  "TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "SEQUENCE", "SYNONYM",
+  "TYPE", "CURSOR", "PACKAGE_CONSTANT", "PACKAGE_VARIABLE", "LOCAL_CONSTANT", "LOCAL_VARIABLE", "EXCEPTION", "LABEL"
+];
+
+/** The place of [kind] in the contents' order; every kind not listed shares the last place (callers then order by code). */
+export function kindOrder(kind: string) {
+  const at = KIND_ORDER.indexOf(kind);
+  return at < 0 ? KIND_ORDER.length : at;
+}

@@ -2,7 +2,8 @@ import type {Answer, EntityDetail, EntitySummary, Member, OccurrencePage, Overlo
 import {api, ApiFailure, errorMessage} from "./api";
 import {showBanner, sourceLine} from "./banner";
 import {loadCodes, usageRoles} from "./codes";
-import {entityLink, kindBadge, kindLabel, nameHtml, roleLabel} from "./entity-html";
+import {entityLink, kindBadge, kindLabel, listNameOptions, nameHtml, roleLabel, specBodyLinks} from "./entity-html";
+import {kindOrder} from "./kinds";
 import {
     entityHref,
     esc,
@@ -74,10 +75,6 @@ function specBodyGroups<T>(list: T[], keyOf: (item: T) => string) {
   return [...groups.values()];
 }
 
-function bodyBadgeLink(entity: EntitySummary) {
-  return ` <a class="badge" href="${entityHref(entity.key)}">${esc(t("entity.overload.body"))}</a>`;
-}
-
 function headerHtml(entity: EntityDetail) {
   const parts = displayParts(entity.display, entity.name);
   const external = entity.external ? ` <span class="badge external">${esc(t("entity.external"))}</span>` : "";
@@ -115,16 +112,20 @@ function parametersHtml(entity: EntityDetail, params: { name: string; mode?: str
   }).join("")}</ul>`;
 }
 
+/** The overloads with every parameter name, and their types where the names alone read the same. */
 function overloadsHtml(groups: SpecBody<Overload>[]) {
   if (groups.length < 2) return "";
   const link = (o: Overload | null, label: string) => !o ? "" : o.self ? ` <b>${esc(t(label))}</b>` : ` <a href="${entityHref(o.entity.key)}">${esc(t(label))}</a>`;
-  return `<h2>${esc(t("entity.overloads"))}</h2><ul>${groups.map(g =>
-    `<li>${nameHtml((g.spec ?? g.body)!.entity, { relative: true, noBadge: true })}${link(g.spec, "entity.overload.spec")}${link(g.body, "entity.overload.body")}</li>`).join("")}</ul>`;
+  const options = listNameOptions(groups.map(g => (g.spec ?? g.body)!.entity), { relative: true, noBadge: true, parameters: "names" });
+  return `<h2>${esc(t("entity.overloads"))}</h2><ul>${groups.map(g => {
+    const shown = (g.spec ?? g.body)!.entity;
+    return `<li>${nameHtml(shown, options(shown))}${link(g.spec, "entity.overload.spec")}${link(g.body, "entity.overload.body")}</li>`;
+  }).join("")}</ul>`;
 }
 
 /**
- * The [members] by kind, each with its uses; a subprogram's spec and body are one row. The caller leaves out the
- * parameters when the parameter list shows them.
+ * The [members] by kind, the kinds in reading order ([kindOrder]), each with its uses; a subprogram's spec and body
+ * are one row, with links to both. The caller leaves out the parameters when the parameter list shows them.
  */
 function childrenHtml(members: Member[]) {
   if (members.length === 0) return "";
@@ -133,12 +134,16 @@ function childrenHtml(members: Member[]) {
   // The uses column is the narrowest that fits, at the right: the same place in every kind's table.
   const row = (link: string, usages: number) => `<tr><td>${link}</td><td class="num">${esc(formatNumber(usages))}</td></tr>`;
   const head = `<tr><th>${esc(t("search.column.name"))}</th><th class="num">${esc(t("search.column.usages"))}</th></tr>`;
-  return `<h2>${esc(t("entity.children"))}</h2><div class="kinds">${[...byKind].map(([kind, list]) => {
+  const kinds = [...byKind].sort(([a], [b]) => kindOrder(a) - kindOrder(b) || (a < b ? -1 : a > b ? 1 : 0));
+  return `<h2>${esc(t("entity.children"))}</h2><div class="kinds">${kinds.map(([kind, list]) => {
+    const options = listNameOptions(list.map(m => m.entity), { relative: true });
     const rows = SUBPROGRAM_KINDS.includes(kind)
-      ? specBodyGroups(list, m => m.entity.key).map(g => row(
-        entityLink((g.spec ?? g.body)!.entity, { relative: true, noBadge: true }) + (g.body ? bodyBadgeLink(g.body.entity) : ""),
-        (g.spec?.usages ?? 0) + (g.body?.usages ?? 0)))
-      : list.map(m => row(entityLink(m.entity, { relative: true }), m.usages));
+      ? specBodyGroups(list, m => m.entity.key).map(g => {
+        const shown = (g.spec ?? g.body)!.entity;
+        return row(entityLink(shown, { ...options(shown), noBadge: true }) + specBodyLinks(g.spec?.entity ?? null, g.body?.entity ?? null),
+          (g.spec?.usages ?? 0) + (g.body?.usages ?? 0));
+      })
+      : list.map(m => row(entityLink(m.entity, options(m.entity)), m.usages));
     return `<details ${rows.length <= 30 ? "open" : ""}><summary>${esc(kindLabel(kind))} (${esc(formatNumber(rows.length))})</summary>${scrollTable(head + rows.join(""), "compact")}</details>`;
   }).join("")}</div>`;
 }

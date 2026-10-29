@@ -2,45 +2,44 @@ import type {EntitySummary} from "./api";
 import {entityHref, esc, qualifierHtml} from "./html";
 import {t} from "./i18n";
 import {kindMark} from "./kinds";
-import {displayParts, parameterNamesOnly} from "./names";
+import type {NameShape} from "./names";
+import {listParameterDetail, shownName} from "./names";
 
-export interface NameOptions {
-  relative?: boolean;
-  within?: EntitySummary;
+export interface NameOptions extends NameShape {
   noBadge?: boolean;
-  signature?: string;
 }
 
 /**
- * An entity's name as HTML, with the full display as its tooltip: the qualifier muted with parameter names only
- * (left out with [relative], under its parent; with [within], an entity, only the part below that entity, or none for
- * the entity itself or its body), the name, its signature, and a "body" badge for a body or a member of a body (left
- * out with [noBadge] for the entity itself, where the list already says spec or body). [signature] is `"names"`
- * (`RUN_JOB(P_A, P_B)`, the default: overloads stay apart) or `"full"` (every mode and type).
+ * An entity's name as HTML, with the full display as its tooltip: the qualifier muted (see [NameShape]), the name, its
+ * parameter list muted in parentheses (a short list unless [NameShape.parameters] asks for more), a key collision's `#2`, and a
+ * "body" badge for a body or a member of a body (left out with [noBadge] for the entity itself, where the list already
+ * says spec or body). A long name may break after each underscore.
  */
 export function nameHtml(entity: EntitySummary, options?: NameOptions) {
-  const parts = displayParts(entity.display, entity.name);
-  let shortQualifier = parts.shortQualifier;
-  if (options?.within) {
-    const withoutBody = (text: string) => text.replace(/@BODY(?=[#.]|$)/g, "");
-    const base = withoutBody(options.within.display);
-    const qualifier = withoutBody(parts.qualifier);
-    if (withoutBody(entity.display) === base) shortQualifier = "";
-    else if (qualifier.startsWith(base + ".")) shortQualifier = parameterNamesOnly(qualifier.slice(base.length + 1));
-  }
-  const qualifier = shortQualifier && !options?.relative ? `<span class="qualifier">${qualifierHtml(shortQualifier)}</span>` : "";
-  let text;
-  if (options?.signature === "full" || parts.params === null) {
-    text = options?.signature === "full" ? parts.text : parts.base;
-  } else {
-    // A key collision's `#2` stays after the parameter list, where the display has it.
-    const collision = /#\d+$/.exec(parts.base);
-    const bare = collision ? parts.base.slice(0, collision.index) : parts.base;
-    text = `${bare}(${parts.params.map(p => p.name).join(", ")})${collision ? collision[0] : ""}`;
-  }
-  const body = (parts.body && !options?.noBadge) || (parts.qualifierBody && !options?.relative);
+  const shown = shownName(entity.display, entity.name, options);
+  const qualifier = shown.qualifier ? `<span class="qualifier">${qualifierHtml(shown.qualifier)}</span>` : "";
+  const params = shown.params === null ? "" : `<span class="params">${esc(shown.params)}</span>`;
+  const name = `<span class="name">${esc(shown.bare).replace(/_/g, "_<wbr>")}${params}${esc(shown.collision)}</span>`;
+  const body = (shown.parts.body && !options?.noBadge) || (shown.parts.qualifierBody && !options?.relative);
   const badge = body ? ` <span class="badge">${esc(t("entity.overload.body"))}</span>` : "";
-  return `<span class="ename" title="${esc(entity.display)}">${qualifier}<span class="name">${esc(text)}</span>${badge}</span>`;
+  return `<span class="ename" title="${esc(entity.display)}">${qualifier}${name}${badge}</span>`;
+}
+
+/**
+ * The options for each entity of one list: [options], with as much of each parameter list as keeps overloads apart
+ * ([listParameterDetail], from the detail [options] asks for).
+ */
+export function listNameOptions(entities: EntitySummary[], options?: NameOptions) {
+  const detail = listParameterDetail(entities, options, options?.parameters);
+  return (entity: EntitySummary): NameOptions => ({ ...options, parameters: detail(entity) });
+}
+
+/** A spec's and its body's links (`spec · body`) when both exist, the "body" badge as a link when only the body does. */
+export function specBodyLinks(spec: EntitySummary | null, body: EntitySummary | null) {
+  if (!body) return "";
+  const bodyLink = (className: string) => `<a${className} href="${entityHref(body.key)}">${esc(t("entity.overload.body"))}</a>`;
+  if (!spec) return ` ${bodyLink(' class="badge"')}`;
+  return ` <span class="specbody"><a href="${entityHref(spec.key)}">${esc(t("entity.overload.spec"))}</a> · ${bodyLink("")}</span>`;
 }
 
 /** The same rendering as DOM nodes, for pages that build their DOM from text nodes. */

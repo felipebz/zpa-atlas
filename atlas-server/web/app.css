@@ -64,6 +64,10 @@ table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nu
 /* A name breaks only between words (a qualifier after each dot); a table wider than the page scrolls on its own. */
 h1 { overflow-wrap: anywhere; }
 .name, .qualifier { overflow-wrap: break-word; }
+/* A routine's parameter names: muted after its name. */
+.ename .params { color: var(--muted); font-weight: 400; }
+/* A routine's spec and body, after its name in a list. */
+.specbody { color: var(--muted); font-size: var(--fs-xs); font-weight: 400; white-space: nowrap; margin-left: 4px; }
 a, td { overflow-wrap: break-word; }
 .scroll { overflow-x: auto; max-width: 100%; }
 table.compact { width: auto; }
@@ -160,12 +164,13 @@ ul.stacked li { padding: 4px 0; }
 .kinds .scroll { overflow: visible; }
 .kinds th { position: sticky; top: var(--bar-h); z-index: 1; }
 /*
- * The entity page at phone width. Contents: a member name wraps (at its spaces, else anywhere), so the uses column
+ * The entity page at phone width. Contents: a member name wraps (at its spaces and underscores, inside a word only
+ * when that word alone is wider), so the uses column
  * keeps its place. Used by: each use is a small block, its position, status and toggle on one line, its text and
  * role under them, so that nothing needs a sideways scroll; a group header wraps.
  */
 @media (max-width: 700px) {
-  .kinds td:first-child, .kinds td:first-child * { overflow-wrap: anywhere; }
+  .kinds td:first-child, .kinds td:first-child * { overflow-wrap: break-word; }
   main.entity table.uses { display: block; min-width: 0; }
   main.entity table.uses colgroup { display: none; }
   main.entity table.uses tbody, main.entity table.uses tr.group, main.entity table.uses tr.snippet { display: block; }
