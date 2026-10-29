@@ -1,14 +1,24 @@
-import { api, errorMessage } from "./api";
-import type { Answer, EntityDetail, EntitySummary, Member, OccurrencePage, Overload, ValueGroup } from "./api";
-import { showBanner, sourceLine } from "./banner";
-import { loadCodes, usageRoles } from "./codes";
-import { entityLink, kindLabel, nameHtml, roleLabel } from "./entity-html";
-import { entityHref, esc, getOrPut, impactHref, lineLink, literalText, queryHref, scrollTable, statusBadge } from "./html";
-import { formatNumber, initI18n, t } from "./i18n";
-import { displayParts, parentKeyOf } from "./names";
-import { setPageTitle } from "./project";
-import { renderChips, setupSourceToggle, usesBlock } from "./uses";
-import type { UsesBlock } from "./uses";
+import type {Answer, EntityDetail, EntitySummary, Member, OccurrencePage, Overload, ValueGroup} from "./api";
+import {api, ApiFailure, errorMessage} from "./api";
+import {showBanner, sourceLine} from "./banner";
+import {loadCodes, usageRoles} from "./codes";
+import {entityLink, kindBadge, kindLabel, nameHtml, roleLabel} from "./entity-html";
+import {
+    entityHref,
+    esc,
+    getOrPut,
+    impactHref,
+    lineLink,
+    literalText,
+    queryHref,
+    scrollTable,
+    statusBadge
+} from "./html";
+import {formatNumber, initI18n, t} from "./i18n";
+import {displayParts, parentKeyOf} from "./names";
+import {setPageTitle} from "./project";
+import type {UsesBlock} from "./uses";
+import {renderChips, setupSourceToggle, usesBlock} from "./uses";
 
 /** A spec and its body, either of which may be missing. */
 interface SpecBody<T> {
@@ -77,7 +87,7 @@ function headerHtml(entity: EntityDetail) {
     : "";
   return `<h1><span class="ename" title="${esc(entity.display)}"><span class="name">${esc(parts.base)}</span></span>${external}${body}</h1>
     <div class="facts">
-      <div><span class="badge">${esc(kindLabel(entity.kind))}</span> ${esc(t("entity.schema", { schema: entity.schema ?? t("entity.schemaUnknown") }))}</div>
+      <div>${kindBadge(entity.kind)} ${esc(t("entity.schema", { schema: entity.schema ?? t("entity.schemaUnknown") }))}</div>
       ${parent}
       <div><button class="copy" title="${esc(entity.key)}">${esc(t("entity.copyKey"))}</button></div>
     </div>`;
@@ -374,7 +384,11 @@ document.getElementById("more")!.addEventListener("click", () => loadUsages(fals
 (async () => {
   await initI18n();
   showBanner();
-  if (!key) { document.getElementById("header")!.textContent = t("entity.missingKey"); return; }
+  if (!key) {
+    setPageTitle(t("page.entity.titleMissing"));
+    document.getElementById("header")!.textContent = t("entity.missingKey");
+    return;
+  }
   (document.getElementById("openImpact") as HTMLAnchorElement).href = impactHref(key);
   // The roles "open in query" names by default come from the code lists, read beside the entity.
   loadCodes().catch(() => {});
@@ -383,6 +397,7 @@ document.getElementById("more")!.addEventListener("click", () => loadUsages(fals
     renderEntity(answer.result);
     await loadUsages(true);
   } catch (e) {
+    setPageTitle(t(e instanceof ApiFailure && e.status === 404 ? "page.entity.titleFailed" : "page.entity.titleError"));
     document.getElementById("header")!.innerHTML = `<p>${esc(t("error.message", { error: errorMessage(e) }))}</p>`;
   }
 })();

@@ -1,10 +1,10 @@
-import { api, errorMessage } from "./api";
-import type { Answer, EntityDetail, EntitySummary, FileOccurrence, FileView } from "./api";
-import { showBanner } from "./banner";
-import { kindLabel, nameNodes, roleLabel } from "./entity-html";
-import { getOrPut, langSuffix } from "./html";
-import { initI18n, t } from "./i18n";
-import { setPageTitle } from "./project";
+import type {Answer, EntityDetail, EntitySummary, FileOccurrence, FileView} from "./api";
+import {api, errorMessage} from "./api";
+import {showBanner} from "./banner";
+import {kindBadgeNode, nameNodes, roleLabel} from "./entity-html";
+import {getOrPut, langSuffix} from "./html";
+import {initI18n, t} from "./i18n";
+import {fileTitleParts, setPageTitle} from "./project";
 
 // The whole of an indexed file; every indexed name is clickable and opens a popover with its entity, status,
 // definitions and who uses it. File text only ever enters the DOM as text nodes.
@@ -121,7 +121,7 @@ function fileHref(target: string, line: number) {
 
 function entityHeader(entity: EntitySummary) {
   const head = el("div", "entity");
-  head.appendChild(el("span", "badge", kindLabel(entity.kind)));
+  head.appendChild(kindBadgeNode(entity.kind));
   const name = el("b");
   name.appendChild(nameNodes(entity));
   head.appendChild(name);
@@ -215,7 +215,8 @@ window.addEventListener("hashchange", () => {
   showBanner();
   const header = document.getElementById("header")!;
   if (!path) { header.textContent = t("file.missingPath"); return; }
-  setPageTitle(t("page.file.titleWith", { path }));
+  const { name, folder } = fileTitleParts(path);
+  setPageTitle(folder ? t("page.file.titleWith", { name, folder }) : t("page.file.titleRoot", { name }));
   try {
     view = (await api<Answer<FileView>>("api/file", { path })).result;
   } catch (e) {

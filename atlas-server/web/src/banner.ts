@@ -1,10 +1,20 @@
-import { api, errorMessage } from "./api";
-import type { Answer, RunSummary, SourceSnippet } from "./api";
-import { esc } from "./html";
-import { formatDate, t } from "./i18n";
-import { baseUrl, currentProject, currentProjectTitle, langQuery, otherProjectHref, projectLabel, projectTitle, stateMark, toBase } from "./project";
-import type { ProjectList } from "./project";
-import { signInState } from "./session";
+import type {Answer, RunSummary, SourceSnippet} from "./api";
+import {api, errorMessage} from "./api";
+import {esc} from "./html";
+import {formatDate, t} from "./i18n";
+import type {ProjectList} from "./project";
+import {
+    baseUrl,
+    currentProject,
+    currentProjectTitle,
+    langQuery,
+    otherProjectHref,
+    projectLabel,
+    projectTitle,
+    stateMark,
+    toBase
+} from "./project";
+import {signInState} from "./session";
 
 /**
  * Fills the run line and the parse warning, and on a project's page its picker and tab title (call it after `initI18n`
@@ -12,6 +22,8 @@ import { signInState } from "./session";
  */
 export async function showBanner() {
   const header = document.querySelector<HTMLElement>("header.top .run")!;
+  markCurrentPage();
+  trackBarHeight();
   const project = currentProject();
   if (project) {
     document.title = projectTitle(currentProjectTitle(), document.title);
@@ -40,6 +52,21 @@ export async function showBanner() {
     header.textContent = t("banner.unavailable", { error: errorMessage(e) });
     return null;
   }
+}
+
+/** Marks the top bar's link to the page shown, by its file name. */
+function markCurrentPage() {
+  const page = location.pathname.split("/").pop();
+  for (const link of document.querySelectorAll<HTMLAnchorElement>("header.top a.nav")) {
+    if (page && new URL(link.href).pathname.split("/").pop() === page) link.setAttribute("aria-current", "page");
+  }
+}
+
+/** Keeps `--bar-h` at the top bar's height as it wraps, for the headers that stick under it. */
+function trackBarHeight() {
+  const bar = document.querySelector<HTMLElement>("header.top");
+  if (!bar) return;
+  new ResizeObserver(() => document.documentElement.style.setProperty("--bar-h", bar.offsetHeight + "px")).observe(bar);
 }
 
 /**

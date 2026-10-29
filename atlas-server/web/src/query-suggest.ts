@@ -1,10 +1,10 @@
-import { api } from "./api";
-import type { Answer, EntityDetail, EntitySummary, SearchHit } from "./api";
-import { kindLabel, nameHtml } from "./entity-html";
-import { esc, getOrPut, qualifierHtml } from "./html";
-import { t } from "./i18n";
-import { displayParts } from "./names";
-import { field, form, picks, state, typed } from "./query-state";
+import type {Answer, EntityDetail, EntitySummary, SearchHit} from "./api";
+import {api} from "./api";
+import {kindBadge, kindBadgeNode, nameHtml} from "./entity-html";
+import {esc, getOrPut, qualifierHtml} from "./html";
+import {t} from "./i18n";
+import {displayParts} from "./names";
+import {field, form, picks, state, typed} from "./query-state";
 
 const SUGGESTIONS = 10;
 
@@ -53,7 +53,7 @@ export function setupSuggest(box: HTMLElement) {
           const parts = displayParts(h.display, h.name);
           const qualifier = parts.shortQualifier.replace(/\.$/, "");
           return `<li role="option" data-index="${i}"><span class="hit-name">${nameHtml(h, { relative: true })}</span>
-            <span class="badge">${esc(kindLabel(h.kind))}</span>${qualifier ? ` <span class="muted">${qualifierHtml(qualifier)}</span>` : ""}</li>`;
+            ${kindBadge(h.kind)}${qualifier ? ` <span class="muted">${qualifierHtml(qualifier)}</span>` : ""}</li>`;
         }).join("");
         list.hidden = false;
         input.setAttribute("aria-expanded", "true");
@@ -104,9 +104,10 @@ export function pick(box: HTMLElement, entity: EntitySummary) {
   input.hidden = true;
   const picked = box.querySelector<HTMLElement>(".picked")!;
   picked.querySelector(".pick-name")!.innerHTML = nameHtml(entity);
-  const kind = picked.querySelector<HTMLElement>(".pick-kind")!;
-  kind.textContent = entity.kind ? kindLabel(entity.kind) : "";
+  const kind = kindBadgeNode(entity.kind ?? "");
+  kind.classList.add("pick-kind");
   kind.hidden = !entity.kind;
+  picked.querySelector(".pick-kind")!.replaceWith(kind);
   picked.hidden = false;
   box.querySelector(".inside")?.removeAttribute("hidden");
 }

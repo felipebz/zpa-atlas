@@ -1,7 +1,8 @@
-import type { EntitySummary } from "./api";
-import { entityHref, esc, qualifierHtml } from "./html";
-import { t } from "./i18n";
-import { displayParts, parameterNamesOnly } from "./names";
+import type {EntitySummary} from "./api";
+import {entityHref, esc, qualifierHtml} from "./html";
+import {t} from "./i18n";
+import {kindMark} from "./kinds";
+import {displayParts, parameterNamesOnly} from "./names";
 
 export interface NameOptions {
   relative?: boolean;
@@ -67,3 +68,17 @@ export const roleLabel = (role: string) => storedLabel("role", role);
 
 /** An entity kind as shown. */
 export const kindLabel = (kind: string) => storedLabel("kind", kind);
+
+/** A kind as a colored square with its letters, then its label; [compact] shows the square alone, the label as its tooltip. */
+export function kindBadge(kind: string, compact = false) {
+  const [letters, group] = kindMark(kind);
+  const label = esc(kindLabel(kind));
+  return `<span class="kind k-${group}${compact ? " only" : ""}" title="${label}"><i aria-hidden="true">${esc(letters)}</i><span>${label}</span></span>`;
+}
+
+/** The same badge as a DOM node. */
+export function kindBadgeNode(kind: string, compact = false) {
+  const holder = document.createElement("span");
+  holder.innerHTML = kindBadge(kind, compact);
+  return holder.firstElementChild as HTMLElement;
+}

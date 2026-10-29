@@ -1,14 +1,25 @@
-import { api, ApiFailure, errorMessage } from "./api";
-import type { Answer, EntitySummary } from "./api";
-import { showBanner } from "./banner";
-import { entityLink, kindLabel, nameHtml } from "./entity-html";
-import { entityHref, esc, langSuffix, scrollTable, statusBadge } from "./html";
-import { formatNumber, initI18n, t } from "./i18n";
+import type {Answer, EntitySummary} from "./api";
+import {api, ApiFailure, errorMessage} from "./api";
+import {showBanner} from "./banner";
+import {entityLink, kindBadge, kindLabel, nameHtml} from "./entity-html";
+import {entityHref, esc, langSuffix, scrollTable, statusBadge} from "./html";
+import {formatNumber, initI18n, t} from "./i18n";
+import type {ImpactAnswer, ImpactTrigger, ImpactView, NodeGroup} from "./impact-model";
 import {
-  csvText, groupByDepth, groupByOwner, MAX_DEPTH, nodeText, pathOf, pathText, readState, shownNodes, stateSearch, STOPS, viewOf
+    csvText,
+    groupByDepth,
+    groupByOwner,
+    MAX_DEPTH,
+    nodeText,
+    pathOf,
+    pathText,
+    readState,
+    shownNodes,
+    stateSearch,
+    STOPS,
+    viewOf
 } from "./impact-model";
-import type { ImpactAnswer, ImpactTrigger, ImpactView, NodeGroup } from "./impact-model";
-import { setPageTitle } from "./project";
+import {setPageTitle} from "./project";
 
 // The impact page: the whole graph of an entity, loaded once; its options, tab and filters live in the URL.
 
@@ -57,6 +68,7 @@ async function load() {
     if (ran !== page.generation) return;
     const smaller = Math.max(1, Math.floor(state.maxDepth / 2));
     const failure = e instanceof ApiFailure ? e.body : {};
+    if (!page.view) setPageTitle(t(e instanceof ApiFailure && e.status === 404 ? "page.impact.titleFailed" : "page.impact.titleError"));
     const message = failure.timeout ? t("impact.timeout", { depth: smaller })
       : failure.tooLarge ? t("impact.tooLarge", { count: failure.nodes ?? 0, limit: failure.limit ?? 0, depth: smaller })
       : t("error.message", { error: errorMessage(e) });
@@ -79,7 +91,7 @@ async function load() {
 function renderHead(view: ImpactView) {
   setPageTitle(t("page.impact.titleWith", { name: view.entity.name }));
   document.getElementById("title")!.innerHTML = `<h1><a href="${entityHref(view.entity.key)}">${nameHtml(view.entity, { noBadge: true })}</a> ` +
-    `<span class="badge">${esc(kindLabel(view.entity.kind))}</span></h1>`;
+    `${kindBadge(view.entity.kind)}</h1>`;
   document.getElementById("included")!.textContent = view.included.length
     ? t("impact.included", { scopes: view.included.map(scope => t("impact.scope." + scope)).join(t("impact.listSeparator")) })
     : t("impact.included.none");
@@ -153,7 +165,7 @@ function renderNodes() {
 
 function groupLabel(group: NodeGroup) {
   if (group.files) return esc(t("impact.group.files"));
-  if (group.owner) return `${nameHtml(group.owner)} <span class="badge">${esc(kindLabel(group.owner.kind))}</span>`;
+  if (group.owner) return `${nameHtml(group.owner)} ${kindBadge(group.owner.kind)}`;
   return esc(t("impact.group.schema", { schema: group.schema ?? t("entity.schemaUnknown") }));
 }
 
@@ -269,7 +281,7 @@ function rowHtml(index: number) {
   if (node.uses !== null) notes.push(esc(t("impact.fileUses", { count: node.uses })));
   const stop = state.tab === "all" ? `<td>${esc(t("impact.stopShort." + node.stop))}</td>` : "";
   return `<tr data-node="${index}"><td><button type="button" class="why" aria-expanded="false">${esc(t("impact.why"))}</button></td>` +
-    `<td>${nodeNameHtml(view, index, owner)}</td><td>${esc(node.kind === "FILE" ? t("impact.kind.FILE") : kindLabel(node.kind))}</td>` +
+    `<td>${nodeNameHtml(view, index, owner)}</td><td>${node.kind === "FILE" ? esc(t("impact.kind.FILE")) : kindBadge(node.kind)}</td>` +
     `<td class="num">${esc(formatNumber(node.depth))}</td>${stop}<td>${notes.join(" ")}</td></tr>`;
 }
 
@@ -347,6 +359,7 @@ options.addEventListener("change", e => {
   await initI18n();
   showBanner();
   if (!state.key) {
+    setPageTitle(t("page.impact.titleMissing"));
     document.getElementById("title")!.textContent = t("entity.missingKey");
     return;
   }

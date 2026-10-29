@@ -59,6 +59,15 @@ export function projectTitle(project: string | null, title: string): string {
   return project ? `${project} · ${title}` : title;
 }
 
+/**
+ * A file's path as its tab title shows it: the file name, which must survive a narrow tab, then its folder (empty at
+ * the root). Paths use `/`.
+ */
+export function fileTitleParts(path: string): { name: string; folder: string } {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? { name: path, folder: "" } : { name: path.slice(slash + 1), folder: path.slice(0, slash) };
+}
+
 /** Sets the tab title to [title], after the project of the page. */
 export function setPageTitle(title: string) {
   document.title = projectTitle(currentProjectTitle(), title);

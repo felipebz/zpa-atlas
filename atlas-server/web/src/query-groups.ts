@@ -1,14 +1,14 @@
-import { api } from "./api";
-import type { Answer, EntitySummary, GroupPage, GroupValue, OccurrenceGroup, SearchHit } from "./api";
-import { entityLink, kindLabel, roleLabel } from "./entity-html";
-import { esc, langSuffix, literalText, queryHref, scrollTable } from "./html";
-import { formatNumber, t } from "./i18n";
-import { parentKeyOf } from "./names";
-import { modeBar } from "./query-mode";
-import { filtersOf } from "./query-params";
-import type { QueryParams } from "./query-params";
-import { answer, state } from "./query-state";
-import { entityOf } from "./query-suggest";
+import type {Answer, EntitySummary, GroupPage, GroupValue, OccurrenceGroup, SearchHit} from "./api";
+import {api} from "./api";
+import {entityLink, kindBadge, roleLabel} from "./entity-html";
+import {esc, langSuffix, literalText, queryHref, scrollTable} from "./html";
+import {formatNumber, t} from "./i18n";
+import {parentKeyOf} from "./names";
+import {modeBar} from "./query-mode";
+import type {QueryParams} from "./query-params";
+import {filtersOf} from "./query-params";
+import {answer, state} from "./query-state";
+import {entityOf} from "./query-suggest";
 
 const GROUPS = 200;
 /** The value kinds a value filter matches by their text. */
@@ -59,7 +59,7 @@ function groupCell(dimension: string, v: GroupValue, container: EntitySummary | 
   const none = `<span class="muted">${esc(t("query.none"))}</span>`;
   switch (dimension) {
     case "ENTITY": case "CONTAINER": return v.entity ? entityLink(v.entity, container ? { within: container } : undefined) : none;
-    case "ENTITY_KIND": return v.text ? esc(kindLabel(v.text)) : none;
+    case "ENTITY_KIND": return v.text ? kindBadge(v.text) : none;
     case "ROLE": return esc(roleLabel(v.text!));
     case "UNIT": return v.unit ? `${esc(v.unit.kind)} <span class="mono">${esc(v.unit.name)}</span><div>${fileLink(v.path!)}</div>` : none;
     case "FILE": return fileLink(v.path!);

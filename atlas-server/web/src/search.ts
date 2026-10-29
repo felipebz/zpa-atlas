@@ -1,11 +1,11 @@
-import { api, errorMessage } from "./api";
-import type { Answer, Count, RunSummary, SearchHit } from "./api";
-import { showBanner } from "./banner";
-import { loadCodes, searchKinds } from "./codes";
-import { entityLink, kindLabel } from "./entity-html";
-import { entityHref, esc, getOrPut, qualifierHtml } from "./html";
-import { initI18n, t } from "./i18n";
-import { displayParts, parentKeyOf } from "./names";
+import type {Answer, Count, RunSummary, SearchHit} from "./api";
+import {api, errorMessage} from "./api";
+import {showBanner} from "./banner";
+import {loadCodes, searchKinds} from "./codes";
+import {entityLink, kindBadge, kindLabel} from "./entity-html";
+import {entityHref, esc, getOrPut, qualifierHtml} from "./html";
+import {initI18n, t} from "./i18n";
+import {displayParts, parentKeyOf} from "./names";
 
 const LIMIT = 200;
 
@@ -41,7 +41,7 @@ function hitRow(group: HitGroup) {
   return `<li>
     <div class="hit-head">
       <span class="hit-name">${entityLink(h, { relative: true, noBadge: true })}${body}</span>
-      <span class="badge">${esc(kindLabel(h.kind))}</span>
+      ${kindBadge(h.kind)}
       <span class="hit-uses">${esc(t("search.usages", { count: group.usages }))}</span>
     </div>
     ${container ? `<div class="hit-in muted">${qualifierHtml(container)}${containerBody}</div>` : ""}

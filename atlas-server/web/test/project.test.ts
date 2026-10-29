@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { langQuery, otherProjectHref, projectsHtml, projectTitle, stateMark, toBase } from "../src/project";
+import { fileTitleParts, langQuery, otherProjectHref, projectTitle, projectsHtml, stateMark, toBase } from "../src/project";
 import type { ProjectInfo, ProjectTexts } from "../src/project";
 
 // The texts show their key and parameters, so that the HTML tells which message went where.
@@ -82,5 +82,16 @@ describe("projectsHtml", () => {
 
   it("says when there is no project", () => {
     expect(projectsHtml([], texts, "")).toBe(`<p class="muted">projects.empty</p>`);
+  });
+});
+
+describe("fileTitleParts", () => {
+  it("puts the file name before its folder", () => {
+    expect(fileTitleParts("hr/pack_process.pkb")).toEqual({ name: "pack_process.pkb", folder: "hr" });
+    expect(fileTitleParts("src/hr/sub/pack_process.pkb")).toEqual({ name: "pack_process.pkb", folder: "src/hr/sub" });
+  });
+
+  it("a file at the root has no folder", () => {
+    expect(fileTitleParts("install.sql")).toEqual({ name: "install.sql", folder: "" });
   });
 });
