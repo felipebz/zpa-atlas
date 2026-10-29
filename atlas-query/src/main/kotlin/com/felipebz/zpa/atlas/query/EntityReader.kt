@@ -42,6 +42,14 @@ internal class EntityReader(private val connection: Connection) {
         ) { Entity(it.getLong(1), it.getString(2), it.getString(3), it.getString(4), it.getString(5), it.getString(6), it.getInt(7) == 1, it.getObject(8) as Number?) }
             .singleOrNull() ?: return null
         val parent = row.parentId?.let { summary(connection, it.toLong()) }
+        val ancestors = connection.query(
+            """WITH RECURSIVE up(id, depth) AS (
+                   SELECT parent_id, 1 FROM entity WHERE id = ? AND parent_id IS NOT NULL
+                   UNION ALL
+                   SELECT e.parent_id, up.depth + 1 FROM up JOIN entity e ON e.id = up.id WHERE e.parent_id IS NOT NULL)
+               SELECT e.key, e.kind, e.display, e.external, e.name FROM up JOIN entity e ON e.id = up.id ORDER BY up.depth DESC""",
+            listOf(row.id), ::entitySummary
+        )
         val children = connection.query(
             """SELECT c.key, c.kind, c.display, c.external, c.name,
                       (SELECT count(*) FROM occurrence o WHERE o.entity_id = c.id AND o.roles NOT IN ('DEFINITION', 'DECLARATION'))
@@ -58,6 +66,7 @@ internal class EntityReader(private val connection: Connection) {
                ORDER BY 1, 2, 3""", listOf(row.id, row.id)
         ) { RelationLink(it.getString(1), it.getString(2), EntitySummary(it.getString(3), it.getString(4), it.getString(5), it.getInt(6) == 1, it.getString(7))) }
         val definitions = definitions("o.entity_id = ?", row.id)
+        val partners = relations.filter { it.kind == "IMPLEMENTS" }.map { Partner(it.entity, it.direction, definitions(it.entity.key)) }
         val overloads = if (row.kind == "PROCEDURE" || row.kind == "FUNCTION") {
             connection.query(
                 """SELECT key, kind, display, external, name FROM entity
@@ -71,7 +80,7 @@ internal class EntityReader(private val connection: Connection) {
         ) { it.getString(1) to it.getString(2) }
         val asCandidate = connection.query("SELECT count(*) FROM occurrence_candidate WHERE entity_id = ?", listOf(row.id)) { it.getLong(1) }.single()
         return EntityDetail(
-            row.key, row.kind, row.schema, row.name, row.display, row.external, parent, children, relations, definitions, overloads,
+            row.key, row.kind, row.schema, row.name, row.display, row.external, parent, ancestors, children, relations, definitions, overloads, partners,
             UsageSummary(tally(usages.flatMap { roles(it.first) }), tally(usages.map { it.second }), asCandidate),
             triggerEvents(row.id, row.kind, row.parentId?.toLong()),
             if (row.kind in VIEW_KINDS) viewReads(row.id) else emptyList(),
@@ -85,10 +94,10 @@ internal class EntityReader(private val connection: Connection) {
     fun definitions(key: String): List<Location> = definitions("o.entity_id = (SELECT id FROM entity WHERE key = ?)", key)
 
     private fun definitions(entity: String, parameter: Any): List<Location> = connection.query(
-        """SELECT f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.roles, o.status, o.written
-           FROM occurrence o JOIN source_file f ON f.id = o.file_id
+        """SELECT f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.roles, o.status, o.written, u.kind
+           FROM occurrence o JOIN source_file f ON f.id = o.file_id LEFT JOIN unit u ON u.id = o.unit_id
            WHERE $entity AND o.roles IN ('DEFINITION', 'DECLARATION') ORDER BY o.id""", listOf(parameter)
-    ) { Location(it.getString(1), span(it, 2), roles(it.getString(6)), it.getString(7), it.getString(8)) }
+    ) { Location(it.getString(1), span(it, 2), roles(it.getString(6)), it.getString(7), it.getString(8), it.getString(9)) }
 
     private class Entity(val id: Long, val key: String, val kind: String, val schema: String?, val name: String, val display: String,
                          val external: Boolean, val parentId: Number?)

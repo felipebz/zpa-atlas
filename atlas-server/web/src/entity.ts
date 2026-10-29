@@ -1,15 +1,17 @@
 import type {Answer, EntityDetail, EntitySummary, Member, OccurrencePage, Overload, ValueGroup} from "./api";
 import {api, ApiFailure, errorMessage} from "./api";
-import {showBanner, sourceLine} from "./banner";
+import {showBanner} from "./banner";
 import {loadCodes, usageRoles} from "./codes";
 import {entityLink, kindBadge, kindLabel, listNameOptions, nameHtml, roleLabel, specBodyLinks} from "./entity-html";
+import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
+import {entityPath, entityTags, places, routineRows} from "./entity-view";
 import {kindOrder} from "./kinds";
 import {
     entityHref,
     esc,
     getOrPut,
     impactHref,
-    lineLink,
+    langSuffix,
     literalText,
     queryHref,
     scrollTable,
@@ -28,6 +30,13 @@ interface SpecBody<T> {
   body: T | null;
 }
 
+/** A section of the content column, as the list on the left names it; a null count is not shown. */
+interface SectionEntry {
+  id: string;
+  label: string;
+  count: number | null;
+}
+
 type ScopeName = "implementations" | "children" | "views";
 
 setupSourceToggle();
@@ -35,6 +44,8 @@ setupSourceToggle();
 const key = new URLSearchParams(location.search).get("key") ?? "";
 const SUBPROGRAM_KINDS = ["PROCEDURE", "FUNCTION"];
 const VIEWED_KINDS = ["TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "UNKNOWN_RELATION", "COLUMN"];
+/** Kinds whose body holds code: their body place reads "implemented". */
+const CODE_KINDS = [...SUBPROGRAM_KINDS, "PACKAGE", "TYPE", "TRIGGER"];
 const state: {
   roles: Set<string>; statuses: Set<string>; implementations: boolean; children: boolean; views: boolean; after: number | null;
   scopes: ScopeName[]; direct: UsesBlock | null; ambiguous: UsesBlock | null; own: string;
@@ -43,24 +54,23 @@ const state: {
   scopes: [], direct: null, ambiguous: null, own: ""
 };
 
-function lazySource(path: string, line: number) {
-  const id = "src" + Math.random().toString(36).slice(2);
-  return `<a href="#" data-src="${id}" data-path="${esc(path)}" data-line="${line}">${esc(t("source.show"))}</a><div id="${id}"></div>`;
+/** The message [key] as HTML, its placeholders filled with the HTML of [html] (the rest of the text escaped). */
+function fillHtml(key: string, html: Record<string, string>) {
+  const names = Object.keys(html);
+  let text = esc(t(key, Object.fromEntries(names.map((name, i) => [name, `\u0001${i}\u0001`]))));
+  names.forEach((name, i) => { text = text.replace(`\u0001${i}\u0001`, html[name]); });
+  return text;
 }
 
-document.addEventListener("click", e => {
-  const link = (e.target as Element).closest<HTMLAnchorElement>("a[data-src]");
-  if (!link) return;
-  e.preventDefault();
-  sourceLine(link.dataset.path!, Number(link.dataset.line), document.getElementById(link.dataset.src!)!, 0);
-  link.remove();
-});
+/** A section's heading and the line saying what it holds. */
+function sectionHead(title: string, line: string) {
+  return `<h2>${esc(title)}</h2><p class="sec-line">${esc(line)}</p>`;
+}
 
-/** A list of entity links in columns, folded behind its title when longer than 20. */
-function linkList(title: string, items: string[]) {
+/** A list of entity links in columns under its heading. */
+function linkList(title: string, line: string, items: string[]) {
   if (items.length === 0) return "";
-  return `<details class="section" ${items.length <= 20 ? "open" : ""}><summary>${esc(title)} (${esc(formatNumber(items.length))})</summary>
-    <ul class="cols">${items.map(item => `<li>${item}</li>`).join("")}</ul></details>`;
+  return sectionHead(title, line) + `<ul class="cols">${items.map(item => `<li>${item}</li>`).join("")}</ul>`;
 }
 
 /** A spec and its body (either may be missing) in their order, grouped by [keyOf]. */
@@ -76,41 +86,64 @@ function specBodyGroups<T>(list: T[], keyOf: (item: T) => string) {
   return [...groups.values()];
 }
 
-function headerHtml(entity: EntityDetail) {
+/** A place of the header as HTML: the half it is in (a link to the other half's page) and its line, linking to the file. */
+function placeHtml(place: Place, kind: string, status: string | null) {
+  const lineLink = `<a href="file.html?path=${encodeURIComponent(place.path)}&line=${place.line}${langSuffix()}#L${place.line}" ` +
+    `title="${esc(`${place.path}:${place.line}:${place.col}`)}">${esc(t("entity.line", { line: place.line }))}</a>`;
+  // A path may break after each slash, so a long one wraps on a phone.
+  const line = place.file ? fillHtml("entity.where.file", { path: `<span class="mono">${esc(place.path).replace(/\//g, "/<wbr>")}</span>`, line: lineLink }) : lineLink;
+  const badge = status && status !== "RESOLVED" ? " " + statusBadge(status) : "";
+  if (place.half === null) return line + badge;
+  const word = esc(t(place.half === "spec" ? "entity.where.theSpec" : "entity.where.theBody"));
+  const part = place.partner ? `<a class="half" href="${entityHref(place.partner.key)}">${word}</a>` : word;
+  const message = place.half === "spec" ? "entity.where.declared" : CODE_KINDS.includes(kind) ? "entity.where.implemented" : "entity.where.declaredBody";
+  return fillHtml(message, { part, line }) + badge;
+}
+
+/**
+ * The header: the path from the schema, the title with its kind and tags, a routine's parameter names, where it is
+ * (the spec and the body, each half linking to its page when it is another), its uses, and the actions.
+ */
+function headerHtml(entity: EntityDetail, direct: number) {
+  const path = entityPath(entity);
+  const crumbs = [
+    `<span>${esc(t("entity.schema", { schema: path.schema ?? t("entity.schemaUnknown") }))}</span>`,
+    // A holder shows its name only: the link already leads to the right overload.
+    ...path.ancestors.map(a => `<a href="${entityHref(a.key)}" title="${esc(a.display)}">${esc(a.name)}</a>`),
+    `<span aria-current="page">${esc(path.name)}</span>`
+  ];
   const parts = displayParts(entity.display, entity.name);
-  const external = entity.external ? ` <span class="badge external">${esc(t("entity.external"))}</span>` : "";
-  const body = parts.body ? ` <span class="badge">${esc(t("entity.overload.body"))}</span>` : "";
-  const parent = entity.parent
-    ? `<div class="muted">${esc(t("entity.parent"))}</div><div>${entityLink(entity.parent)}</div>`
-    : "";
-  return `<h1><span class="ename" title="${esc(entity.display)}"><span class="name">${esc(parts.base)}</span></span>${external}${body}</h1>
-    <div class="facts">
-      <div>${kindBadge(entity.kind)} ${esc(t("entity.schema", { schema: entity.schema ?? t("entity.schemaUnknown") }))}</div>
-      ${parent}
-      <div><button class="copy" title="${esc(entity.key)}">${esc(t("entity.copyKey"))}</button></div>
-    </div>`;
+  const tags = entityTags(entity).map(tag => tag === "external"
+    ? `<span class="badge external">${esc(t("entity.external"))}</span>`
+    : tag === "private" ? `<span class="badge">${esc(t("entity.tag.private"))}</span>` : `<span class="badge">${esc(t("entity.overload.body"))}</span>`);
+  const signature = SUBPROGRAM_KINDS.includes(entity.kind) && parts.params !== null
+    ? `<div class="ent-sig">(${esc(parts.params.map(p => p.name).join(", "))})</div>` : "";
+  const statusOf = (p: Place) => p.partner ? null : entity.definitions.find(d => d.path === p.path && d.span.startLine === p.line)?.status ?? null;
+  // The uses become the "Used by" section's total once it loads (with a package's members, or a routine's other half).
+  const facts = [...places(entity).map(p => placeHtml(p, entity.kind, statusOf(p))), `<span id="ent-uses">${esc(t("search.usages", { count: direct }))}</span>`];
+  return `<nav class="crumbs" aria-label="${esc(t("entity.path"))}">${crumbs.join(`<span class="sep" aria-hidden="true">›</span>`)}</nav>
+    <div class="ent-title"><h1><span class="ename" title="${esc(entity.display)}"><span class="name">${esc(parts.base)}</span></span></h1>${kindBadge(entity.kind)}${tags.join("")}</div>
+    ${signature}
+    <div class="ent-facts">${facts.map(f => `<span>${f}</span>`).join("")}</div>
+    <div class="ent-actions"><a class="button" id="openImpact" href="${impactHref(entity.key)}">${esc(t("impact.open"))}</a>` +
+    `<a class="button" id="openQuery" href="${queryHref({ entity: entity.key })}">${esc(t("entity.openUses"))}</a>` +
+    `<button class="copy quiet" title="${esc(entity.key)}">${esc(t("entity.copyKey"))}</button></div>`;
 }
 
-/** The definitions as a stacked list that fits the sidebar; a path may break after each slash. */
-function definitionsHtml(entity: EntityDetail) {
-  if (entity.definitions.length === 0) return "";
-  return `<h2>${esc(t("entity.definitions"))}</h2><ul class="stacked">${entity.definitions.map(d =>
-    `<li><span class="muted">${esc(d.roles.map(roleLabel).join(", "))}</span>${d.status === "RESOLVED" ? "" : " " + statusBadge(d.status)}
-     <div><span class="mono">${esc(d.path).replace(/\//g, "/<wbr>")}:</span>${lineLink(d.path, d.span.startLine, d.span.startCol)} ${lazySource(d.path, d.span.startLine)}</div></li>`).join("")}</ul>`;
-}
-
-/** The parameters of a subprogram, from its signature; each name links to the parameter entity. */
-function parametersHtml(entity: EntityDetail, params: { name: string; mode?: string; type: string }[] | null) {
-  if (params === null) return "";
-  if (params.length === 0) return `<h2>${esc(t("entity.parameters"))}</h2><p class="muted">${esc(t("entity.parameters.none"))}</p>`;
+/** A routine's parameters as a table (number, name, mode, type); each name links to the parameter entity. */
+function parametersHtml(entity: EntityDetail, params: { name: string; mode?: string; type: string }[]) {
+  const head = sectionHead(t("entity.parameters"), t("entity.parameters.line"));
+  if (params.length === 0) return head + `<p class="muted">${esc(t("entity.parameters.none"))}</p>`;
   const byName = new Map(entity.children.map((m): [string, EntitySummary] => [m.entity.name, m.entity]));
   const unquoted = (name: string) => name.startsWith('"') && name.endsWith('"') ? name.slice(1, -1) : name;
-  return `<h2>${esc(t("entity.parameters"))}</h2><ul class="stacked">${params.map(p => {
-    const child = byName.get(p.name) ?? byName.get(unquoted(p.name));
-    const name = child ? `<a class="mono" href="${entityHref(child.key)}">${esc(p.name)}</a>` : `<span class="mono">${esc(p.name)}</span>`;
-    const mode = p.mode ? ` <span class="badge">${esc(p.mode)}</span>` : "";
-    return `<li>${name}${mode}<div class="mono muted">${esc(p.type)}</div></li>`;
-  }).join("")}</ul>`;
+  return head + `<table class="params"><thead><tr><th class="num">${esc(t("entity.parameters.number"))}</th><th>${esc(t("entity.parameters.name"))}</th>` +
+    `<th>${esc(t("entity.parameters.mode"))}</th><th>${esc(t("entity.parameters.type"))}</th></tr></thead><tbody>${params.map((p, i) => {
+      const child = byName.get(p.name) ?? byName.get(unquoted(p.name));
+      const name = child ? `<a class="mono" href="${entityHref(child.key)}">${esc(p.name)}</a>` : `<span class="mono">${esc(p.name)}</span>`;
+      // A parameter written without a mode is IN.
+      const mode = p.mode ? esc(p.mode) : `<span class="muted">IN</span>`;
+      return `<tr><td class="num">${i + 1}</td><td>${name}</td><td class="mono">${mode}</td><td class="mono ptype">${esc(p.type)}</td></tr>`;
+    }).join("")}</tbody></table>`;
 }
 
 /** The overloads with every parameter name, and their types where the names alone read the same. */
@@ -118,71 +151,102 @@ function overloadsHtml(groups: SpecBody<Overload>[]) {
   if (groups.length < 2) return "";
   const link = (o: Overload | null, label: string) => !o ? "" : o.self ? ` <b>${esc(t(label))}</b>` : ` <a href="${entityHref(o.entity.key)}">${esc(t(label))}</a>`;
   const options = listNameOptions(groups.map(g => (g.spec ?? g.body)!.entity), { relative: true, noBadge: true, parameters: "names" });
-  return `<h2>${esc(t("entity.overloads"))}</h2><ul>${groups.map(g => {
+  return sectionHead(t("entity.overloads"), t("entity.overloads.line")) + `<ul>${groups.map(g => {
     const shown = (g.spec ?? g.body)!.entity;
     return `<li>${nameHtml(shown, options(shown))}${link(g.spec, "entity.overload.spec")}${link(g.body, "entity.overload.body")}</li>`;
   }).join("")}</ul>`;
 }
 
-/**
- * The [members] by kind, the kinds in reading order ([kindOrder]), each with its uses; a subprogram's spec and body
- * are one row, with links to both. The caller leaves out the parameters when the parameter list shows them.
- */
-function childrenHtml(members: Member[]) {
-  if (members.length === 0) return "";
+/** A row of the routines table: a routine's spec and body as one, its uses the sum of both. */
+interface RoutineEntry extends RoutineRow {
+  html: string;
+}
+
+let routines: RoutineEntry[] = [];
+let routineOrder: RoutineOrder = "az";
+/** Whether the header shows the first load's total of "Used by" yet; later loads, with filters, leave it. */
+let headerCounted = false;
+
+function routineTableRows() {
+  const shown = routineRows(routines, document.querySelector<HTMLInputElement>("#sec-routines .filter")?.value ?? "", routineOrder);
+  return shown.length === 0 ? `<tr><td colspan="3" class="muted">${esc(t("entity.routines.none"))}</td></tr>` : shown.map(r => r.html).join("");
+}
+
+/** The member tables: routines (procedures and functions together) with a filter and an order, then one table per other kind. */
+function contentsSections(members: Member[]): { html: string; entries: SectionEntry[] } {
   const byKind = new Map<string, Member[]>();
   for (const member of members) getOrPut(byKind, member.entity.kind, () => []).push(member);
-  // The uses column is the narrowest that fits, at the right: the same place in every kind's table.
-  const row = (link: string, usages: number) => `<tr><td>${link}</td><td class="num">${esc(formatNumber(usages))}</td></tr>`;
-  const head = `<tr><th>${esc(t("search.column.name"))}</th><th class="num">${esc(t("search.column.usages"))}</th></tr>`;
-  const kinds = [...byKind].sort(([a], [b]) => kindOrder(a) - kindOrder(b) || (a < b ? -1 : a > b ? 1 : 0));
-  return `<h2>${esc(t("entity.children"))}</h2><div class="kinds">${kinds.map(([kind, list]) => {
+  const uses = (n: number) => `<td class="num">${esc(formatNumber(n))}</td>`;
+  const head = (kindColumn: boolean) => `<thead><tr>${kindColumn ? `<th class="c-kind"></th>` : ""}<th>${esc(t("search.column.name"))}</th><th class="num">${esc(t("search.column.usages"))}</th></tr></thead>`;
+  const entries: SectionEntry[] = [];
+  let html = "";
+  const routineMembers = members.filter(m => SUBPROGRAM_KINDS.includes(m.entity.kind));
+  if (routineMembers.length) {
+    const options = listNameOptions(routineMembers.map(m => m.entity), { relative: true });
+    routines = specBodyGroups(routineMembers, m => m.entity.key).map(g => {
+      const shown = (g.spec ?? g.body)!.entity;
+      const usages = (g.spec?.usages ?? 0) + (g.body?.usages ?? 0);
+      return {
+        name: shown.name, key: shown.key, usages,
+        html: `<tr><td class="c-kind">${kindBadge(shown.kind, true)}</td><td>${entityLink(shown, { ...options(shown), noBadge: true })}` +
+          `${specBodyLinks(g.spec?.entity ?? null, g.body?.entity ?? null)}</td>${uses(usages)}</tr>`
+      };
+    });
+    entries.push({ id: "sec-routines", label: t("entity.routines"), count: routines.length });
+    html += `<section id="sec-routines" class="sec">${sectionHead(t("entity.routines"), t("entity.routines.line"))}
+      <div class="tools"><input type="search" class="filter" placeholder="${esc(t("entity.routines.filter"))}" aria-label="${esc(t("entity.routines.filter"))}">
+      <span class="seg" role="group" aria-label="${esc(t("entity.sort"))}"><button type="button" data-order="az" aria-pressed="true">${esc(t("entity.sort.az"))}</button>` +
+      `<button type="button" data-order="uses" aria-pressed="false">${esc(t("entity.sort.uses"))}</button></span></div>
+      <table class="members">${head(true)}<tbody>${routineTableRows()}</tbody></table></section>`;
+  }
+  const kinds = [...byKind].filter(([kind]) => !SUBPROGRAM_KINDS.includes(kind))
+    .sort(([a], [b]) => kindOrder(a) - kindOrder(b) || (a < b ? -1 : a > b ? 1 : 0));
+  for (const [kind, list] of kinds) {
+    const title = t("entity.group." + kind) === "entity.group." + kind ? kindLabel(kind) : t("entity.group." + kind);
     const options = listNameOptions(list.map(m => m.entity), { relative: true });
-    const rows = SUBPROGRAM_KINDS.includes(kind)
-      ? specBodyGroups(list, m => m.entity.key).map(g => {
-        const shown = (g.spec ?? g.body)!.entity;
-        return row(entityLink(shown, { ...options(shown), noBadge: true }) + specBodyLinks(g.spec?.entity ?? null, g.body?.entity ?? null),
-          (g.spec?.usages ?? 0) + (g.body?.usages ?? 0));
-      })
-      : list.map(m => row(entityLink(m.entity, options(m.entity)), m.usages));
-    return `<details ${rows.length <= 30 ? "open" : ""}><summary>${esc(kindLabel(kind))} (${esc(formatNumber(rows.length))})</summary>${scrollTable(head + rows.join(""), "compact")}</details>`;
-  }).join("")}</div>`;
+    entries.push({ id: "sec-" + kind, label: title, count: list.length });
+    html += `<section id="sec-${esc(kind)}" class="sec">${sectionHead(title, t("entity.group.line"))}
+      <table class="members">${head(false)}<tbody>${list.map(m => `<tr><td>${entityLink(m.entity, options(m.entity))}</td>${uses(m.usages)}</tr>`).join("")}</tbody></table></section>`;
+  }
+  return { html, entries };
 }
 
 function triggersHtml(entity: EntityDetail, own: boolean) {
   if (entity.triggerEvents.length === 0) return "";
-  return `<h2>${esc(t(own ? "trigger.events" : "trigger.firing"))}</h2>${scrollTable(entity.triggerEvents.map(e =>
+  const title = own ? "trigger.events" : "trigger.firing";
+  return sectionHead(t(title), t(title + ".line")) + scrollTable(entity.triggerEvents.map(e =>
     `<tr>${own ? "" : `<td>${entityLink(e.trigger)}</td>`}<td>${esc(t("trigger.timing." + e.timing))}</td><td>${esc(e.level ? t("trigger.level." + e.level) : "")}</td>
-     <td>${esc(e.event)}${e.column ? " " + esc(t("trigger.of")) + " " + entityLink(e.column) : ""}</td></tr>`).join(""), "compact")}`;
+     <td>${esc(e.event)}${e.column ? " " + esc(t("trigger.of")) + " " + entityLink(e.column) : ""}</td></tr>`).join(""), "compact");
 }
 
 function renderEntity(entity: EntityDetail) {
   setPageTitle(t("page.entity.titleWith", { name: entity.name }));
   recordOpened(browserStorage(), currentProject(), entity);
   const set = (id: string, html: string) => { document.getElementById(id)!.innerHTML = html; };
-  set("header", headerHtml(entity));
-  set("definitions", definitionsHtml(entity));
+  const u = entity.usage;
+  const direct = u.byStatus.reduce((n, c) => n + c.count, 0);
+  set("header", headerHtml(entity, direct));
   const params = SUBPROGRAM_KINDS.includes(entity.kind) ? displayParts(entity.display, entity.name).params ?? [] : null;
-  set("parameters", parametersHtml(entity, params));
+  set("parameters", params === null ? "" : parametersHtml(entity, params));
   const overloads = specBodyGroups(entity.overloads, o => o.entity.key);
   set("overloads", overloadsHtml(overloads));
-  // A subprogram's parameters are in its parameter list, not repeated under its contents.
+  // A subprogram's parameters are in its parameter table, not repeated under its contents.
   const members = params === null ? entity.children : entity.children.filter(m => m.entity.kind !== "PARAMETER");
-  set("children", childrenHtml(members));
-  set("relations", linkList(t("entity.relations"), entity.relations.map(r =>
+  const contents = contentsSections(members);
+  set("contents", contents.html);
+  set("relations", linkList(t("entity.relations"), t("entity.relations.line"), entity.relations.map(r =>
     `${esc(r.kind)} ${r.direction === "OUT" ? "→" : "←"} ${entityLink(r.entity)}`)));
   // A trigger lists its events; a relation or a column, the triggers that fire on it.
   const own = entity.kind === "TRIGGER";
   set("triggers", triggersHtml(entity, own));
   // A view's base relations, and the views over a relation: both from the SQL reads of the view queries.
-  set("viewReads", linkList(t("entity.reads"), entity.reads.map(e => entityLink(e))));
-  set("views", linkList(t("entity.views"), entity.views.map(e => entityLink(e))));
+  set("viewReads", linkList(t("entity.reads"), t("entity.reads.line"), entity.reads.map(e => entityLink(e))));
+  set("views", linkList(t("entity.views"), t("entity.views.line"), entity.views.map(e => entityLink(e))));
   // A view column's sources, and the view columns computed from a column: one hop of the stored lineage.
-  set("baseColumns", linkList(t("entity.baseColumns"), entity.baseColumns.map(e => entityLink(e))));
-  set("viewColumns", linkList(t("entity.viewColumns"), entity.viewColumns.map(e => entityLink(e))));
+  set("baseColumns", linkList(t("entity.baseColumns"), t("entity.baseColumns.line"), entity.baseColumns.map(e => entityLink(e))));
+  set("viewColumns", linkList(t("entity.viewColumns"), t("entity.viewColumns.line"), entity.viewColumns.map(e => entityLink(e))));
+  document.getElementById("usage")!.hidden = false;
 
-  const u = entity.usage;
-  const direct = u.byStatus.reduce((n, c) => n + c.count, 0);
   state.own = u.asCandidate > 0
     ? t("usage.summary", { direct: t("usage.direct", { count: direct }), candidate: t("usage.candidate", { count: u.asCandidate }) })
     : t("usage.direct", { count: direct });
@@ -199,23 +263,55 @@ function renderEntity(entity: EntityDetail) {
   const valuesTitle = entity.kind === "PARAMETER" ? "values.title.passed" : entity.kind === "COLUMN" ? "values.title.written" : null;
   if (valuesTitle) loadValues(valuesTitle);
 
-  // The sidebar shows the definitions, parameters and overloads itself; the list leads to the content column.
-  const sections: [string, string | null, number | null][] = [
-    ["children", t("entity.children"), members.length],
-    ["values", valuesTitle && t(valuesTitle), valuesTitle ? null : 0],
-    ["usage", t("usage.title"), direct],
-    ["relations", t("entity.relations"), entity.relations.length],
-    ["triggers", t(own ? "trigger.events" : "trigger.firing"), entity.triggerEvents.length],
-    ["viewReads", t("entity.reads"), entity.reads.length],
-    ["views", t("entity.views"), entity.views.length],
-    ["baseColumns", t("entity.baseColumns"), entity.baseColumns.length],
-    ["viewColumns", t("entity.viewColumns"), entity.viewColumns.length]
-  ];
-  // The usage section is always there, its count replaced by the scope's total once it loads; values have no count
-  // until they load.
-  set("sections", sections.filter(([id, , count]) => id === "usage" || count === null || count > 0).map(([id, label, count]) =>
-    `<a href="#${id}" data-section="${id}"><span>${esc(label)}</span>${count === null ? "" : `<span class="count">${esc(formatNumber(count))}</span>`}</a>`).join(""));
+  // The list leads to every section of the content column; the usage count becomes the scope's total once it loads,
+  // and values have no count until they load.
+  const sections: SectionEntry[] = [
+    ...contents.entries,
+    { id: "parameters", label: t("entity.parameters"), count: params?.length ?? -1 },
+    { id: "overloads", label: t("entity.overloads"), count: overloads.length >= 2 ? overloads.length : -1 },
+    { id: "values", label: valuesTitle ? t(valuesTitle) : "", count: valuesTitle ? null : -1 },
+    { id: "usage", label: t("usage.title"), count: direct },
+    { id: "relations", label: t("entity.relations"), count: entity.relations.length || -1 },
+    { id: "triggers", label: t(own ? "trigger.events" : "trigger.firing"), count: entity.triggerEvents.length || -1 },
+    { id: "viewReads", label: t("entity.reads"), count: entity.reads.length || -1 },
+    { id: "views", label: t("entity.views"), count: entity.views.length || -1 },
+    { id: "baseColumns", label: t("entity.baseColumns"), count: entity.baseColumns.length || -1 },
+    { id: "viewColumns", label: t("entity.viewColumns"), count: entity.viewColumns.length || -1 }
+  ].filter(s => s.count === null || s.count >= 0);
+  set("sections", sections.map(s =>
+    `<a href="#${s.id}" data-section="${s.id}"><span>${esc(s.label)}</span>${s.count === null ? "" : `<span class="count">${esc(formatNumber(s.count))}</span>`}</a>`).join(""));
+  followSections();
 }
+
+/** Marks, in the list of sections, the section at the top of the screen as one scrolls. */
+function followSections() {
+  const links = new Map([...document.querySelectorAll<HTMLAnchorElement>("#sections a")].map(a => [a.dataset.section!, a]));
+  const sections = [...links.keys()].map(id => document.getElementById(id)).filter((s): s is HTMLElement => s !== null);
+  const mark = () => {
+    const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--stick-top")) || 0;
+    let current = sections[0];
+    for (const section of sections) if (section.getBoundingClientRect().top - top <= 80) current = section;
+    for (const [id, link] of links) {
+      if (id === current?.id) link.setAttribute("aria-current", "true");
+      else link.removeAttribute("aria-current");
+    }
+  };
+  document.addEventListener("scroll", mark, { passive: true });
+  mark();
+}
+
+document.getElementById("contents")!.addEventListener("input", e => {
+  if (!(e.target as Element).matches("#sec-routines .filter")) return;
+  document.querySelector("#sec-routines tbody")!.innerHTML = routineTableRows();
+});
+
+document.getElementById("contents")!.addEventListener("click", e => {
+  const button = (e.target as Element).closest<HTMLButtonElement>("#sec-routines button[data-order]");
+  if (!button) return;
+  routineOrder = button.dataset.order as RoutineOrder;
+  for (const b of document.querySelectorAll("#sec-routines button[data-order]")) b.setAttribute("aria-pressed", String(b === button));
+  document.querySelector("#sec-routines tbody")!.innerHTML = routineTableRows();
+});
 
 document.getElementById("header")!.addEventListener("click", async e => {
   const button = (e.target as Element).closest<HTMLButtonElement>("button.copy");
@@ -256,12 +352,13 @@ function valueRowsHtml(groups: ValueGroup[], from: number, to: number) {
 
 async function loadValues(title: string) {
   const target = document.getElementById("values")!;
+  const head = sectionHead(t(title), t(title.replace(".title.", ".line.")));
   const groups = (await api<Answer<ValueGroup[]>>("api/values", { key })).result;
   if (groups.length === 0) {
-    target.innerHTML = `<h2>${esc(t(title))}</h2><p class="muted">${esc(t("values.none"))}</p>`;
+    target.innerHTML = head + `<p class="muted">${esc(t("values.none"))}</p>`;
     return;
   }
-  target.innerHTML = `<h2>${esc(t(title))}</h2><div class="scroll"><table class="compact"><tbody>${valueRowsHtml(groups, 0, VALUES_SHOWN)}</tbody></table></div>` +
+  target.innerHTML = head + `<div class="scroll"><table class="compact"><tbody>${valueRowsHtml(groups, 0, VALUES_SHOWN)}</tbody></table></div>` +
     (groups.length > VALUES_SHOWN ? `<p><a href="#" data-show-all>${esc(t("values.showAll", { count: groups.length }))}</a></p>` : "");
   const blocks = new Map<number, UsesBlock>();
   target.addEventListener("click", e => {
@@ -351,6 +448,11 @@ async function loadUsages(reset: boolean) {
       ? t("usage.scoped", { listed: t("usage.listed", { count: page.total }), own: state.own })
       : t("usage.own", { own: state.own });
     document.querySelector('#sections a[data-section="usage"] .count')!.textContent = formatNumber(page.total);
+    // The header's count is a fact about the object: the total of the first, unfiltered load, kept while filters change.
+    if (!headerCounted) {
+      document.getElementById("ent-uses")!.textContent = t("search.usages", { count: page.total });
+      headerCounted = true;
+    }
   }
   // The query has no filter for spec and body or for uses through views: it covers the entity and, with members, its contents.
   const open = document.getElementById("openQuery") as HTMLAnchorElement;
@@ -396,7 +498,6 @@ document.getElementById("more")!.addEventListener("click", () => loadUsages(fals
     document.getElementById("header")!.textContent = t("entity.missingKey");
     return;
   }
-  (document.getElementById("openImpact") as HTMLAnchorElement).href = impactHref(key);
   // The roles "open in query" names by default come from the code lists, read beside the entity.
   loadCodes().catch(() => {});
   try {

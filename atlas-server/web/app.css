@@ -174,34 +174,68 @@ ul.projects .project-description { flex-basis: 100%; margin: 2px 0 0; color: var
 ul.projects .project-date, ul.projects .project-files { color: var(--muted); white-space: nowrap; }
 ul.projects .project-state { color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
 
-/* Entity: the identity sidebar, sticky beside the content column; one column on narrow screens. */
-main.entity { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: var(--gap); align-items: start; }
-#side { position: sticky; top: calc(var(--stick-top) + var(--gap)); max-height: calc(100vh - var(--stick-top) - 2 * var(--gap)); overflow-y: auto; }
-#side > section:not(:empty) { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
-#overloads ul { padding-left: 18px; margin: 0; }
-#content { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
-#content > section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; }
-#content > section:empty { display: none; }
-#ambiguous h2 { margin-top: 16px; }
+/*
+ * Entity: a header across the page (path, title, a routine's parameter names, where it is, its uses, the actions),
+ * then the list of sections on the left, sticky on a desktop, and the sections on the right. On a phone the list is one
+ * wrapping row of links above the sections.
+ */
+main.entity { display: grid; gap: var(--gap); }
+.ent-head { display: grid; gap: 8px; }
+.ent-head .crumbs { display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; font-size: var(--fs-s); color: var(--muted); min-width: 0; }
+.ent-head .crumbs > * { min-width: 0; overflow-wrap: anywhere; }
+.ent-head .crumbs .sep { color: var(--faint); }
+.ent-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 /* The entity's own name: monospace, at the largest size. */
-main.entity #header h1 { font-family: var(--mono); font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -.01em; }
-@media (max-width: 1000px) {
-  main.entity { grid-template-columns: minmax(0, 1fr); }
-  #side { position: static; max-height: none; }
-}
-.facts > div { margin: 2px 0; }
-nav#sections a { display: flex; justify-content: space-between; padding: 3px 8px; border-radius: var(--radius); color: inherit; text-decoration: none; }
+.ent-title h1 { font-family: var(--mono); font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -.01em; margin: 0; min-width: 0; }
+.ent-sig { font-family: var(--mono); font-size: var(--fs-s); color: var(--muted); overflow-wrap: anywhere; }
+.ent-facts { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: var(--fs-s); color: var(--muted); }
+.ent-facts > span { min-width: 0; overflow-wrap: anywhere; }
+.ent-facts a.half { font-weight: 600; }
+.ent-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+a.button { display: inline-flex; align-items: center; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 4px 11px;
+  font-size: var(--fs-s); color: var(--fg); background: var(--surface); }
+a.button:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+button.quiet { border-color: transparent; background: transparent; color: var(--muted); }
+.ent-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: var(--gap); align-items: start; }
+nav#sections { position: sticky; top: calc(var(--stick-top) + var(--gap)); display: grid; gap: 2px; font-size: var(--fs-s); }
+nav#sections a { display: flex; justify-content: space-between; gap: 8px; padding: 4px 8px; border-radius: var(--radius); color: inherit;
+  text-decoration: none; border-left: 2px solid transparent; }
 nav#sections a:hover { background: var(--surface-2); text-decoration: none; }
-nav#sections .count { color: var(--muted); }
+nav#sections a[aria-current] { border-left-color: var(--accent); background: var(--surface); font-weight: 600; }
+nav#sections .count { color: var(--muted); font-weight: 400; }
 nav#sections:empty { display: none; }
-ul.stacked { list-style: none; margin: 0; padding: 0; }
-ul.stacked li { padding: 4px 0; }
-.kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px 24px; }
-.kinds table.compact { width: 100%; }
-.kinds .num { width: 1%; white-space: nowrap; text-align: right; }
-/* The contents tables wrap their names and need no scroll box: they sit in the page, their header under the top bar. */
-.kinds .scroll { overflow: visible; }
-.kinds th { position: sticky; top: var(--stick-top); z-index: 1; }
+#content { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+#content section.sec, #contents > section.sec { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px;
+  scroll-margin-top: var(--gap); }
+#contents { display: flex; flex-direction: column; gap: var(--gap); }
+#contents:empty { display: none; }
+#content section.sec:empty { display: none; }
+.sec > h2 { margin: 0 0 2px; }
+.sec-line { margin: 0 0 10px; font-size: var(--fs-s); color: var(--muted); }
+#ambiguous h3 { margin: 16px 0 8px; font-size: var(--fs-m); }
+#overloads ul { padding-left: 18px; margin: 0; }
+.sec .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.sec .tools .filter { flex: 0 1 260px; min-width: 0; padding: 4px 8px; font-size: var(--fs-s); }
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--surface); padding: 4px 10px; font-size: var(--fs-xs); color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.seg button[aria-pressed="true"]:hover:not(:disabled) { color: var(--bg); }
+/* The member tables wrap their names and need no scroll box: they sit in the page, their header under the top bar. */
+table.members .num { width: 1%; white-space: nowrap; text-align: right; }
+table.members .c-kind { width: 28px; padding-right: 0; }
+table.members th { position: sticky; top: var(--stick-top); z-index: 1; }
+/* Parameters: the type wraps on a phone, so the table never scrolls sideways. */
+table.params { table-layout: fixed; }
+table.params th:nth-child(1) { width: 2.5em; } table.params th:nth-child(3) { width: 5.5em; }
+table.params td { overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .ent-layout { grid-template-columns: minmax(0, 1fr); }
+  nav#sections { position: static; display: flex; flex-wrap: wrap; gap: 4px 6px; }
+  nav#sections a { border-left: 0; border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: var(--fs-xs); background: var(--surface); }
+  nav#sections a[aria-current] { border-color: var(--accent); }
+  .ent-title h1 { font-size: var(--fs-xl); }
+  table.params th:nth-child(3) { width: 4.5em; }
+}
 /*
  * The entity page at phone width. Contents: a member name wraps (at its spaces and underscores, inside a word only
  * when that word alone is wider), so the uses column
@@ -209,7 +243,7 @@ ul.stacked li { padding: 4px 0; }
  * role under them, so that nothing needs a sideways scroll; a group header wraps.
  */
 @media (max-width: 700px) {
-  .kinds td:first-child, .kinds td:first-child * { overflow-wrap: break-word; }
+  table.members td, table.members td * { overflow-wrap: break-word; }
   main.entity table.uses { display: block; min-width: 0; }
   main.entity table.uses colgroup { display: none; }
   main.entity table.uses tbody, main.entity table.uses tr.group, main.entity table.uses tr.snippet { display: block; }
@@ -223,8 +257,6 @@ ul.stacked li { padding: 4px 0; }
   main.entity table.uses tr[data-line] > td:nth-child(3) { grid-column: 1 / -1; padding-top: 0; color: var(--muted); }
   main.entity table.uses tr[data-line] > td:nth-child(4):empty { padding: 0; }
 }
-details.section > summary { font-size: var(--fs-l); font-weight: 600; cursor: pointer; margin: 0; }
-details.section[open] > summary { margin-bottom: 10px; }
 ul.cols { columns: 22em; column-gap: 24px; }
 ul.cols li { break-inside: avoid; }
 

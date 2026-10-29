@@ -133,9 +133,10 @@ class McpServerTest {
     fun `each tool answers what the same AtlasIndex call answers`() = mcp { client ->
         assertThat(client.call("search_entities", args { put("name", "run_job"); put("limit", 5) }).json())
             .isEqualTo(toolAnswer(index.searchEntities("run_job", null, true, 5)))
-        // Besides the entity's detail, get_entity gives where the bodies of a routine's spec are (see below).
+        // Besides the entity's detail, get_entity gives where the bodies of a routine's spec are, in their own field
+        // (see below), instead of the detail's partners.
         val entity = client.call("get_entity", args { put("key", runJob5) }).json().jsonObject
-        val expected = toolAnswer(index.entity(runJob5))
+        val expected = toolAnswer(index.entity(runJob5).let { Answer(it.run, it.result!!.copy(partners = emptyList())) })
         assertThat(JsonObject(entity + ("result" to JsonObject(entity["result"]!!.jsonObject - "bodies")))).isEqualTo(expected)
         val query = OccurrenceQuery(container = "db:HR.PACK_PROCESS", roles = setOf("SQL_UPDATE", "WRITE"))
         val found = client.call("find_occurrences", args {

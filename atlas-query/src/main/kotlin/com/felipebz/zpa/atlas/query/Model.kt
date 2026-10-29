@@ -72,8 +72,19 @@ data class SearchHit(val key: String, val kind: String, val display: String, val
 @Serializable
 data class Span(val startLine: Int, val startCol: Int, val endLine: Int, val endCol: Int)
 
+/**
+ * A definition or declaration: where, its roles and status, and the kind of the unit it sits in ([unitKind]: `PACKAGE`
+ * for a package spec, `PACKAGE_BODY` for its body, `TYPE` and `TYPE_BODY` likewise; null outside any unit).
+ */
 @Serializable
-data class Location(val path: String, val span: Span, val roles: List<String>, val status: String, val written: String)
+data class Location(val path: String, val span: Span, val roles: List<String>, val status: String, val written: String, val unitKind: String?)
+
+/**
+ * The other half of a routine: its body ([direction] `IN`, an `IMPLEMENTS` link coming in; two when the body is in two
+ * files) or, for a body, its spec (`OUT`), with its definitions.
+ */
+@Serializable
+data class Partner(val entity: EntitySummary, val direction: String, val definitions: List<Location>)
 
 @Serializable
 data class RelationLink(val kind: String, val direction: String, val entity: EntitySummary)
@@ -101,11 +112,15 @@ data class EntityDetail(
     val display: String,
     val external: Boolean,
     val parent: EntitySummary?,
+    /** The entities that hold it, outermost first, its [parent] last; empty without a parent. */
+    val ancestors: List<EntitySummary>,
     /** By kind code, then by name ignoring case (`_` before the letters), then by key. */
     val children: List<Member>,
     val relations: List<RelationLink>,
     val definitions: List<Location>,
     val overloads: List<Overload>,
+    /** The `IMPLEMENTS` partners: a routine's bodies, or a body's spec, each with its definitions. */
+    val partners: List<Partner>,
     val usage: UsageSummary,
     /** For a trigger, its events; for a table or view, the events of the triggers on it; for a column, the `UPDATE`
      * events that fire when it is updated (`UPDATE OF` naming it, or `UPDATE` without a column list). */

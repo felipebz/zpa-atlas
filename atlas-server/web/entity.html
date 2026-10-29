@@ -4,32 +4,32 @@
 <body>
 <header class="top"><a href="./" class="home" data-keep-lang>Atlas</a><button type="button" class="goto"><span data-i18n="goto.open"></span><kbd>Ctrl K</kbd></button><nav class="pages"><a href="./" class="nav" data-keep-lang data-i18n="header.objects"></a><a href="query.html" class="nav" data-keep-lang data-i18n="header.uses"></a><a href="text.html" class="nav" data-keep-lang data-i18n="header.code"></a></nav><button type="button" class="run" aria-expanded="false" data-i18n="banner.loading"></button></header>
 <main class="entity">
-  <aside id="side" class="card">
-    <div id="header"></div>
-    <nav id="sections"></nav>
-    <section id="definitions"></section>
-    <section id="parameters"></section>
-    <section id="overloads"></section>
-  </aside>
-  <div id="content">
-    <section id="children"></section>
-    <section id="values"></section>
-    <section id="usage">
-      <h2 data-i18n="usage.title"></h2>
-      <div id="scope"></div>
-      <div id="roleChips"></div>
-      <div id="statusChips"></div>
-      <p class="muted"><span id="total"></span> · <a id="openQuery" href="query.html" data-i18n="query.open"></a> · <a id="openImpact" href="impact.html" data-i18n="impact.open"></a></p>
-      <div id="direct"></div>
-      <section id="ambiguous" hidden><h2 data-i18n="usage.ambiguous"></h2><div id="ambiguousRows"></div></section>
-      <button id="more" data-i18n="usage.more" hidden></button>
-    </section>
-    <section id="relations"></section>
-    <section id="triggers"></section>
-    <section id="viewReads"></section>
-    <section id="views"></section>
-    <section id="baseColumns"></section>
-    <section id="viewColumns"></section>
+  <section id="header" class="ent-head card"></section>
+  <div class="ent-layout">
+    <nav id="sections" class="ent-sections" data-i18n-title="entity.sections"></nav>
+    <div id="content">
+      <div id="contents"></div>
+      <section id="parameters" class="sec"></section>
+      <section id="overloads" class="sec"></section>
+      <section id="values" class="sec"></section>
+      <section id="usage" class="sec" hidden>
+        <h2 data-i18n="usage.title"></h2>
+        <p class="sec-line" data-i18n="usage.line"></p>
+        <div id="scope"></div>
+        <div id="roleChips"></div>
+        <div id="statusChips"></div>
+        <p class="muted" id="total"></p>
+        <div id="direct"></div>
+        <section id="ambiguous" hidden><h3 data-i18n="usage.ambiguous"></h3><div id="ambiguousRows"></div></section>
+        <button id="more" data-i18n="usage.more" hidden></button>
+      </section>
+      <section id="relations" class="sec"></section>
+      <section id="triggers" class="sec"></section>
+      <section id="viewReads" class="sec"></section>
+      <section id="views" class="sec"></section>
+      <section id="baseColumns" class="sec"></section>
+      <section id="viewColumns" class="sec"></section>
+    </div>
   </div>
 </main>
 <script type="module" src="./src/entity.ts"></script>

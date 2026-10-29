@@ -81,6 +81,15 @@ export interface Location {
   roles: string[];
   status: string;
   written: string;
+  /** The kind of the unit it sits in: `PACKAGE` (a spec), `PACKAGE_BODY`, `TYPE`, `TYPE_BODY`…; null outside any unit. */
+  unitKind: string | null;
+}
+
+/** A routine's other half: its body (`IN`) or, for a body, its spec (`OUT`), with its definitions. */
+export interface Partner {
+  entity: EntitySummary;
+  direction: string;
+  definitions: Location[];
 }
 
 export interface RelationLink {
@@ -124,10 +133,13 @@ export interface EntityDetail {
   display: string;
   external: boolean;
   parent: EntitySummary | null;
+  /** The entities that hold it, outermost first, its parent last. */
+  ancestors: EntitySummary[];
   children: Member[];
   relations: RelationLink[];
   definitions: Location[];
   overloads: Overload[];
+  partners: Partner[];
   usage: UsageSummary;
   triggerEvents: TriggerEvent[];
   reads: EntitySummary[];

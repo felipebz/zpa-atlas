@@ -118,6 +118,26 @@ class AtlasIndexTest {
     }
 
     @Test
+    fun `entity carries its other half with its lines, its ancestors and the unit kind of each definition`() {
+        val spec = index.entity(runJob5).result!!
+        val body = spec.partners.single()
+        assertThat(body.entity.key to body.direction).isEqualTo("$runJob5@BODY" to "IN")
+        assertThat(body.definitions.map { it.path to it.unitKind }).containsExactly("hr/pack_process.pkb" to "PACKAGE_BODY")
+        assertThat(spec.definitions.map { it.unitKind }).containsExactly("PACKAGE")
+        val back = index.entity("$runJob5@BODY").result!!.partners.single()
+        assertThat(back.entity.key to back.direction).isEqualTo(runJob5 to "OUT")
+        assertThat(back.definitions.map { it.path }).containsExactly("hr/pack_process.pks")
+        // Only in the body: no partner. A package holds both halves itself, told apart by the unit kind.
+        assertThat(index.entity("db:HR.PACK_PROCESS.F_PRIVATE()@BODY").result!!.partners).isEmpty()
+        assertThat(index.entity("db:HR.PACK_PROCESS").result!!.definitions.map { it.path to it.unitKind })
+            .containsExactlyInAnyOrder("hr/pack_process.pks" to "PACKAGE", "hr/pack_process.pkb" to "PACKAGE_BODY")
+        val parameter = index.entity("db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER).P_ID").result!!
+        assertThat(parameter.ancestors.map { it.key })
+            .containsExactly("db:HR.PACK_PROCESS", "db:HR.PACK_PROCESS.GET_EVENT(P_ID IN NUMBER,P_OUT OUT NUMBER,P_IO IN OUT NUMBER)")
+        assertThat(index.entity("db:HR.PACK_PROCESS").result!!.ancestors).isEmpty()
+    }
+
+    @Test
     fun `role filter keeps occurrences with any of the roles`() {
         val page = index.occurrences("db:HR.COMPANY", roles = setOf("SQL_DELETE")).result!!
         assertThat(page.rows).isNotEmpty.allMatch { "SQL_DELETE" in it.roles }

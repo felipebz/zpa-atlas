@@ -143,17 +143,17 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     private fun getEntity(args: Arguments): JsonElement {
         val key = args.requiredString("key")
         val listLimit = args.int("list_limit", 1..LIST_MAX) ?: LIST_DEFAULT
-        val read = index.entityWithPartners(key)
-        val (detail, partners) = read.result ?: throw ToolException("Unknown entity: $key. Entity keys come from search_entities or from earlier answers.")
+        val read = index.entity(key)
+        val detail = read.result ?: throw ToolException("Unknown entity: $key. Entity keys come from search_entities or from earlier answers.")
         // The bodies of a spec (IMPLEMENTS links coming in; the same body in two files gives two) and the spec of a body
-        // (the link going out), with their files and lines. No list limit cuts them (see truncateLists).
-        fun place(link: RelationLink, definitions: List<Location>) = JsonObject(mapOf(
-            "key" to JsonPrimitive(link.entity.key), "definitions" to McpAnswers.compact(ToolJson.encodeToJsonElement(definitions))
+        // (the link going out), with their files and lines, as their own fields. No list limit cuts them (see truncateLists).
+        fun place(partner: Partner) = JsonObject(mapOf(
+            "key" to JsonPrimitive(partner.entity.key), "definitions" to McpAnswers.compact(ToolJson.encodeToJsonElement(partner.definitions))
         ))
-        val (bodies, specs) = partners.entries.partition { it.key.direction == "IN" }
-        var full = toolAnswer(Answer(read.run, detail))
-        if (bodies.isNotEmpty()) full = full.withResult(BODIES, JsonArray(bodies.map { place(it.key, it.value) }))
-        specs.firstOrNull()?.let { full = full.withResult("spec", place(it.key, it.value)) }
+        val (bodies, specs) = detail.partners.partition { it.direction == "IN" }
+        var full = toolAnswer(Answer(read.run, detail.copy(partners = emptyList())))
+        if (bodies.isNotEmpty()) full = full.withResult(BODIES, JsonArray(bodies.map(::place)))
+        specs.firstOrNull()?.let { full = full.withResult("spec", place(it)) }
         // Over the size cap, every list is cut further, halving the limit, down to one item each.
         var limit = listLimit
         var fitted = truncateLists(full, limit)
