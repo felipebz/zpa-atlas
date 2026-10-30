@@ -6,8 +6,12 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.Fixture
+import com.felipebz.zpa.atlas.highlight.CodeHighlighter
+import com.felipebz.zpa.atlas.index.IndexOptions
+import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.model.*
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import com.felipebz.zpa.atlas.query.CodeColor
 import com.felipebz.zpa.atlas.query.CodeColorer
 import com.felipebz.zpa.atlas.query.GroupDimension
 import io.ktor.client.request.*
@@ -300,6 +304,39 @@ class AtlasServerTest {
         assertThat(objects("hr/ty_shapes.typ")).containsExactly("TYPE db:HR.TY_SHAPE 1", "TYPE db:HR.TY_CIRCLE 3", "TYPE_BODY db:HR.TY_CIRCLE 5")
         assertThat(json(client.get("/api/file") { parameter("path", "hr/pack_calls.pks") }.bodyAsText())["result"]!!.jsonObject["parseStatus"]!!.jsonPrimitive.content)
             .isEqualTo("OK")
+    }
+
+    @Test
+    fun `a found line takes its colors from the whole file, so a line inside a comment opened above it is a comment`() {
+        val sources = Files.createDirectories(temp.resolve("notes/src"))
+        val file = sources.resolve("notes_pkg.pkb")
+        Files.writeString(file, "create or replace package body notes_pkg as\n  /* The ledger note:\n     ledgerTag goes here\n     and here */\n  procedure p is begin null; end;\nend;\n/\n")
+        val db = temp.resolve("notes/atlas.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "HR", threads = 1))
+        val colorer = CodeColorer { text, ccflags, version ->
+            CodeHighlighter.spans(text, ccflags, version)?.map { listOf(it.startLine, it.startCol, it.endLine, it.endCol, it.highlight.ordinal) }
+        }
+        val comment = CodeColor.COMMENT.ordinal
+        fun search(colors: Boolean): JsonObject {
+            var page: JsonObject? = null
+            testApplication {
+                application { atlasModule(AtlasIndex(db, sources, colorer = colorer)) }
+                page = json(client.get("/api/text") { parameter("text", "ledgerTag"); if (colors) parameter("colors", "true") }.bodyAsText())["result"]!!.jsonObject
+            }
+            return page!!
+        }
+        fun colorsOf(page: JsonObject) = page["rows"]!!.jsonArray.single().jsonObject["colors"]!!
+        val colored = search(colors = true)
+        assertThat(colored["total"]!!.jsonPrimitive.long).isEqualTo(1)
+        assertThat(colored["files"]!!.jsonPrimitive.long).isEqualTo(1)
+        // The whole line is the middle of the comment that opens on line 2 and closes on line 4.
+        assertThat(colorsOf(colored)).isEqualTo(JsonArray(listOf(JsonArray(listOf(0, "     ledgerTag goes here".length, comment).map { JsonPrimitive(it) }))))
+        assertThat(colorsOf(search(colors = false))).isEqualTo(JsonNull)
+        // A file changed since indexing: its line is read alone, the comment that opened above it is not known.
+        Files.writeString(file, Files.readString(file) + "-- edited\n")
+        val stale = search(colors = true)
+        assertThat(stale["rows"]!!.jsonArray.single().jsonObject["stale"]!!.jsonPrimitive.content).isEqualTo("true")
+        assertThat(colorsOf(stale).jsonArray.map { it.jsonArray[2].jsonPrimitive.int }).doesNotContain(comment)
     }
 
     @Test

@@ -49,6 +49,8 @@ class TextSearchTest {
             "scripts/text_tags.sql:1 -"
         )
         assertThat(page.total).isEqualTo(4)
+        assertThat(page.files).isEqualTo(2)
+        assertThat(page.fileLines).isEqualTo(mapOf("hr/text_tags.sql" to 3L, "scripts/text_tags.sql" to 1L))
         assertThat(page.wholeIndex).isTrue()
         assertThat(page.nextAfter).isNull()
         assertThat(page.rows[1].text).isEqualTo("    v := '<vFixTag>' || '1' || '</vFixTag>';")
@@ -96,6 +98,8 @@ class TextSearchTest {
         do {
             val page = search("vFixTag", after = after, limit = 1)
             assertThat(page.total).isEqualTo(4)
+            // A file's count is all its lines found, those of the pages still to come included.
+            assertThat(page.fileLines).isEqualTo(mapOf(page.rows.single().path to if (page.rows.single().path == "hr/text_tags.sql") 3L else 1L))
             seen += page.rows
             after = page.nextAfter
         } while (after != null)

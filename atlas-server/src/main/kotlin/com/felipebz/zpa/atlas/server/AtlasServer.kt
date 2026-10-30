@@ -212,7 +212,8 @@ internal fun Route.indexApi(index: AtlasIndex) {
     }
     get("/text") {
         call.respondJson(index.searchText(call.required("text"), call.optional("path"), call.optional("container"),
-            call.optional("containerName"), call.long("after"), call.int("limit") ?: 100))
+            call.optional("containerName"), call.long("after"), call.int("limit") ?: 100,
+            colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false))
     }
     get("/file") {
         // The page asks for the colors; other readers of the answer do not pay for them.

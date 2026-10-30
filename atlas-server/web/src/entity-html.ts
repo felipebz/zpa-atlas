@@ -21,7 +21,8 @@ export interface NameOptions extends NameShape {
 export function nameHtml(entity: EntitySummary, options?: NameOptions) {
   const shown = shownName(entity.display, entity.name, options);
   const qualifier = shown.qualifier ? `<span class="qualifier">${qualifierHtml(shown.qualifier)}</span>` : "";
-  const params = shown.params === null ? "" : `<span class="params">${esc(shown.params)}</span>`;
+  // A parameter list may break at its spaces and after an underscore, as the name does, never inside a word.
+  const params = shown.params === null ? "" : `<span class="params">${esc(shown.params).replace(/_/g, "_<wbr>")}</span>`;
   const name = `<span class="name">${esc(shown.bare).replace(/_/g, "_<wbr>")}${params}${esc(shown.collision)}</span>`;
   const body = !options?.noBodyBadge && ((shown.parts.body && !options?.noBadge) || (shown.parts.qualifierBody && !options?.relative));
   const badge = body ? ` <span class="badge">${esc(t("entity.overload.body"))}</span>` : "";

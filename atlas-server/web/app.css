@@ -305,7 +305,7 @@ ul.cols li { break-inside: avoid; }
 .outline a.go:hover { background: var(--surface-2); }
 .outline a.go[aria-current] { border-left-color: var(--accent); background: var(--surface); }
 .outline li.d0 a.go > .name .name { font-weight: 600; }
-.outline a.go > .name { min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
+.outline a.go > .name { min-width: 0; overflow-wrap: break-word; line-height: 1.3; }
 .outline a.go .kind { flex: none; }
 .outline a.go .line { margin-left: auto; padding-left: 6px; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .outline a.open { flex: none; padding: 0 4px; color: var(--faint); text-decoration: none; font-size: var(--fs-xs); }
@@ -425,15 +425,28 @@ table.impact ol.hops { margin: 0; padding-left: 20px; }
 table.impact ol.hops li { padding: 2px 0; }
 button.more-rows { margin-top: 6px; }
 
-/* The text search: one row per line, a long line scrolls inside its own box. */
+/*
+ * The text search: the lines found, grouped by file, the container above each run of lines in it. Every line starts at
+ * the same column, colored as the file page colors it, and wraps rather than scroll: a continuation is indented a
+ * little, clear of the line number column.
+ */
 .text-front { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
 @media (max-width: 760px) { .text-front { grid-template-columns: minmax(0, 1fr); } }
-ul.text-hits { list-style: none; margin: 8px 0 0; padding: 0; }
-li.text-hit { padding: 6px 0; border-top: 1px solid var(--border); min-width: 0; }
-li.text-hit .where { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: var(--fs-s); min-width: 0; }
-li.text-hit .where .path, li.text-hit .where .in { overflow-wrap: anywhere; min-width: 0; }
-pre.text-line { margin: 4px 0 0; padding: 4px 6px; background: var(--bg); border-radius: var(--radius); overflow-x: auto; max-width: 100%; white-space: pre; font-size: var(--fs-xs); }
-pre.text-line mark { background: var(--mark); color: inherit; border-radius: 2px; }
+.text-groups { margin-top: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tgrp { padding-bottom: 4px; }
+.tgrp + .tgrp { border-top: 1px solid var(--border); }
+.tgrp-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 6px 12px; background: var(--surface-2); }
+.tgrp-h > a { min-width: 0; color: var(--fg); font-weight: 600; overflow-wrap: break-word; }
+.tgrp-h .folder { color: var(--muted); font-weight: 400; }
+.tgrp-h .grp-n { margin-left: auto; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.tin, .tline { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr); column-gap: 10px; padding: 0 12px; }
+.tin { padding-top: 6px; font-size: var(--fs-xs); }
+.tin > a { grid-column: 2; min-width: 0; overflow-wrap: break-word; color: var(--muted); }
+.tline { font-size: var(--fs-xs); line-height: 18px; }
+.tline > a { text-align: right; color: var(--faint); text-decoration: none; font-variant-numeric: tabular-nums; }
+.tline > a:hover { color: var(--accent); }
+.tline > code { display: block; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; padding-left: 2ch; text-indent: -2ch; tab-size: 4; }
+.tline mark { background: var(--mark); color: inherit; border-radius: 2px; }
 button.more-rows { margin-top: 8px; }
 
 /* A file's parse status in the parse note's list. */

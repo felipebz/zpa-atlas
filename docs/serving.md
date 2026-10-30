@@ -39,7 +39,9 @@ The top bar opens **Go to object…** (`Ctrl+K`, `⌘K` on a Mac, or `/` outside
 - **Uses**: pick an object and filter its occurrences by role and status. With no query, a "Try" list gives three
   queries of the index served (calls to a routine, a package's uses grouped by program, the writes to a table), each a
   link that opens the query run.
-- **Code**: find the files and lines that hold a piece of text.
+- **Code**: find the files and lines that hold a piece of text, grouped by file, each line colored as the file page
+  colors it and aligned on its first character, the container named once above each run of lines in it. With no
+  search, a "Try" list gives texts taken from the index served.
 
 The index date in the bar opens what the index holds; when files failed to parse or were recovered, a note beside it
 lists them. An entity page shows its definition, contents, relations, triggers, the views reading it, and "Used by",

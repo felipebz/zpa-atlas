@@ -318,6 +318,8 @@ export interface TextHit {
   text: string;
   entity: EntitySummary | null;
   stale: boolean | null;
+  /** With `colors=true`: `[startCol, endCol, color]` on the line (see [CODE_COLORS]); null when not read. */
+  colors?: number[][] | null;
 }
 
 export interface TextPage {
@@ -325,6 +327,10 @@ export interface TextPage {
   nextAfter: number | null;
   total: number;
   wholeIndex: boolean;
+  /** The files the lines are in. */
+  files: number;
+  /** Each file of [rows] with its count of lines found, later pages included. */
+  fileLines: Record<string, number>;
 }
 
 // ---- requests ------------------------------------------------------------------------------------------------------

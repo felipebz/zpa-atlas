@@ -18,7 +18,10 @@ Requirements: JDK 25 (pinned in `.java-version`). `./gradlew build` builds and t
   entity, with the members it declares directly) and, with `colors=true`, `colors`: `[startLine, startCol, endLine,
   endCol, color]` spans (0 keyword, 1 literal, 2 comment, 3 documentation comment), or null when the server has no
   colorer or the lexer cannot read the text. The colors come from zpa's lexer in `atlas-core`, handed to the server by
-  the `serve` command: `atlas-query` and `atlas-server` do not depend on zpa.
+  the `serve` command: `atlas-query` and `atlas-server` do not depend on zpa. `/api/text` answers `files` (the files
+  the lines are in) and `fileLines` (each file of the page with its count of lines), and with `colors=true` each row's
+  `colors`, `[startCol, endCol, color]` on its line: from the whole file, so a line inside a comment that opens above
+  it is a comment; from the line alone when the file changed since indexing or cannot be read.
 - `atlas-cli`: the `zpa-atlas` command.
 - `atlas-devtools`: measurement tools.
 

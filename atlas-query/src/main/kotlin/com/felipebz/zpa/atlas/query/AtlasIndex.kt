@@ -267,18 +267,29 @@ class AtlasIndex(
      * other character stand for themselves), in file and line order. The text is the one the indexer decoded, whole
      * files with comments, strings and inactive conditional branches; one line at a time, so a text that spans a line
      * break is never found. [path] (a prefix, or a pattern with `*`), [container] (a key) and [containerName] (a dotted
-     * name) narrow it, a container with its contents; [TextPage.wholeIndex] says none was given.
+     * name) narrow it, a container with its contents; [TextPage.wholeIndex] says none was given. With [colors], each
+     * row carries its line's colors ([TextHit.colors]); none when there is no colorer.
      *
      * @throws InvalidQueryException when [text] has fewer than three characters, which a trigram index cannot find
      */
-    fun searchText(text: String, path: String? = null, container: String? = null, containerName: String? = null, after: Long? = null, limit: Int = 100): Answer<TextPage> {
+    fun searchText(
+        text: String,
+        path: String? = null,
+        container: String? = null,
+        containerName: String? = null,
+        after: Long? = null,
+        limit: Int = 100,
+        colors: Boolean = false
+    ): Answer<TextPage> {
         if (text.codePointCount(0, text.length) < MIN_TEXT) throw InvalidQueryException("The text must have at least $MIN_TEXT characters: the text index cannot find a shorter one")
         if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
         if (after != null && after < 0) throw InvalidQueryException("after must not be negative")
         if (containerName != null && containerName.split('.').size > OccurrenceQuerySql.MAX_SEGMENTS) {
             throw InvalidQueryException("containerName has more than ${OccurrenceQuerySql.MAX_SEGMENTS} segments")
         }
-        return read(timed = true) { connection, _ -> TextSearchReader(connection, sourcesRoot).search(text, path, container, containerName, after, limit) }
+        return read(timed = true) { connection, _ ->
+            TextSearchReader(connection, sourcesRoot).search(text, path, container, containerName, after, limit, colorer.takeIf { colors })
+        }
     }
 
     // ---- the occurrence query -----------------------------------------------------------------------------------

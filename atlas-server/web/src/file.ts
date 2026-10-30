@@ -230,7 +230,8 @@ function entityBlock(entity: EntitySummary, options?: NameOptions) {
   const block = el("div", "target");
   block.appendChild(entityHeader(entity, options));
   const definitions = el("div", "definitions");
-  const uses = el("a", null, t("popover.usedBy"));
+  // The link reads as the entity page's section it opens.
+  const uses = el("a", null, t("usage.title"));
   uses.href = `entity.html?key=${encodeURIComponent(entity.key)}${langSuffix()}`;
   const actions = el("div", "actions");
   actions.appendChild(uses);

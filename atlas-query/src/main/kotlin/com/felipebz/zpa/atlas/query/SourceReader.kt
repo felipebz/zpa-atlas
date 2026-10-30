@@ -57,7 +57,7 @@ internal class SourceReader(private val connection: Connection, private val sour
     }
 
     /** The colors of [text] with the run's conditional compilation; none when the colorer fails on it. */
-    private fun colorsOf(colorer: CodeColorer, text: String): List<List<Int>>? {
+    fun colorsOf(colorer: CodeColorer, text: String): List<List<Int>>? {
         val (ccflags, version) = connection.query("SELECT ccflags, database_version FROM run") { it.getString(1) to it.getString(2) }.single()
         return try {
             colorer.colors(text, ccflags, version)
@@ -88,11 +88,11 @@ internal class SourceReader(private val connection: Connection, private val sour
     }
 
     /**
-     * Whether the file [path] changed since indexing, or null when there is no sources root, no such file, or the file
-     * now resolves outside the sources root: a search answers its other rows, and never reads that file.
+     * The file [path] as the server reads it now, or null when there is no sources root, no such file, or the file now
+     * resolves outside the sources root: a search answers its other rows, and never reads that file.
      */
-    fun stale(path: String): Boolean? = try {
-        readSource(sourceFile(path))?.stale
+    fun served(path: String): SourceText? = try {
+        readSource(sourceFile(path))
     } catch (_: LeavesRootException) {
         null
     }
@@ -100,7 +100,7 @@ internal class SourceReader(private val connection: Connection, private val sour
     private class SourceFile(val id: Long, val path: String, val sha256: String, val encoding: String, val parseStatus: String)
 
     /** A file's [text] as decoded, its [lines], and whether it changed since indexing. */
-    private class SourceText(val text: String, val lines: List<String>, val stale: Boolean)
+    class SourceText(val text: String, val lines: List<String>, val stale: Boolean)
 
     private fun sourceFile(path: String): SourceFile =
         connection.query("SELECT id, sha256, encoding, parse_status FROM source_file WHERE path = ?", listOf(path)) {
