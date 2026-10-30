@@ -1,8 +1,9 @@
 // ---- i18n ---------------------------------------------------------------------------------------------------------
 
-/** A message: plain text, or one text per plural category (and exact forms such as "=0"). */
-export type Message = string | Record<string, string>;
-export type Catalog = Record<string, Message>;
+import type {Catalog, Params} from "./i18n-format";
+import {formatMessage} from "./i18n-format";
+
+export type { Catalog, Message } from "./i18n-format";
 
 /** Shipped languages; adding one means adding i18n/<lang>.ts and listing it here. */
 const LOCALES = ["en", "pt"];
@@ -24,6 +25,7 @@ document.documentElement.lang = LOCALE;
 
 const plurals = new Intl.PluralRules(LOCALE);
 const numbers = new Intl.NumberFormat(LOCALE);
+const lists = new Intl.ListFormat(LOCALE, { type: "conjunction" });
 const dates = new Intl.DateTimeFormat(LOCALE, { dateStyle: "medium", timeStyle: "medium" });
 const shortDates = new Intl.DateTimeFormat(LOCALE, { dateStyle: "short", timeStyle: "short" });
 
@@ -42,26 +44,19 @@ export function formatShortDate(iso: string) {
   return Number.isNaN(date.getTime()) ? String(iso) : shortDates.format(date);
 }
 
-/** The values a message may fill in; `count` selects its plural form. */
-export type Params = { count?: number; [name: string]: string | number | null | undefined };
+export type { Params };
 
 /**
  * The message [key] in the chosen locale, else English, else the key itself. Placeholders {name} are filled from
  * [params] (numbers are formatted); `count` selects the exact form (`=0`) or else the plural category. The result is plain text: escape it for HTML.
  */
 export function t(key: string, params?: Params) {
-  params = params || {};
-  let message = CATALOGS[LOCALE]?.[key] ?? CATALOGS[FALLBACK]?.[key] ?? key;
-  if (typeof message === "object") {
-    // An exact form ("=0") wins over the plural category (Portuguese "one" covers 0 and 1).
-    const count = params.count ?? 0;
-    message = message["=" + count] ?? message[plurals.select(count)] ?? message.other ?? key;
-  }
-  return message.replace(/\{(\w+)\}/g, (match, name) => {
-    const value = params[name];
-    if (value === undefined || value === null) return match;
-    return typeof value === "number" ? formatNumber(value) : String(value);
-  });
+  return formatMessage(CATALOGS[LOCALE]?.[key] ?? CATALOGS[FALLBACK]?.[key] ?? key, key, params ?? {}, plurals, numbers);
+}
+
+/** [items] as one list in the chosen locale: `a, b, and c`. */
+export function formatList(items: string[]) {
+  return lists.format(items);
 }
 
 /**

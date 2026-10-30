@@ -1,9 +1,12 @@
 import type {Answer, EntitySummary} from "./api";
 import {api, ApiFailure, errorMessage} from "./api";
 import {showBanner} from "./banner";
-import {entityLink, kindBadge, kindLabel, nameHtml, statusBadge} from "./entity-html";
+import type {NameOptions} from "./entity-html";
+import {entityLink, kindBadge, kindLabel, listNameOptions, nameHtml, statusBadge} from "./entity-html";
 import {entityHref, esc, langSuffix, scrollTable, stackCell} from "./html";
-import {formatNumber, initI18n, t} from "./i18n";
+import {formatList, formatNumber, initI18n, t} from "./i18n";
+import type {Phrase} from "./impact-words";
+import {distanceText, nameShape, pathEnd, pathLine, reachPhrase, summaryPhrase, triggerNote} from "./impact-words";
 import type {ImpactAnswer, ImpactTrigger, ImpactView, NodeGroup} from "./impact-model";
 import {
     csvText,
@@ -88,33 +91,60 @@ async function load() {
   renderNodes();
 }
 
+/**
+ * The header: "Impact of NAME" (the short name, linking to the entity's page) with its kind and schema muted, what the
+ * page lists, and where the walk starts from, in words.
+ */
 function renderHead(view: ImpactView) {
   setPageTitle(t("page.impact.titleWith", { name: view.entity.name }));
-  document.getElementById("title")!.innerHTML = `<h1><a href="${entityHref(view.entity.key)}">${nameHtml(view.entity, { noBadge: true })}</a> ` +
-    `${kindBadge(view.entity.kind)}</h1>`;
-  document.getElementById("included")!.textContent = view.included.length
-    ? t("impact.included", { scopes: view.included.map(scope => t("impact.scope." + scope)).join(t("impact.listSeparator")) })
-    : t("impact.included.none");
+  const entity = view.entity;
+  const schema = entity.display.includes(".") ? entity.display.slice(0, entity.display.indexOf(".")) : null;
+  const name = `<a href="${entityHref(entity.key)}">${nameHtml(entity, { ...nameShape(entity), noBadge: true, noBodyBadge: true })}</a>`;
+  document.getElementById("title")!.innerHTML = `<h1>${phraseHtml({ key: "impact.title", params: {} }, { name })}</h1>` +
+    `<p class="impact-of muted">${kindBadge(entity.kind)}${schema ? ` <span>${esc(t("entity.schema", { schema }))}</span>` : ""}</p>` +
+    `<p class="impact-what">${esc(t("impact.what"))}</p>`;
+  const parts = [kindLabel(entity.kind), ...view.included.map(scope => t("impact.from." + scope))];
+  const included = document.getElementById("included")!;
+  included.textContent = t("impact.startsFrom", { list: formatList(parts) });
+  included.title = view.included.join(", ");
 }
 
 // ---- the summary --------------------------------------------------------------------------------------------------
 
-function countLink(count: number, data: string) {
-  return `<a href="#" class="count" ${data}>${esc(formatNumber(count))}</a>`;
+function countLink(count: number, data: string, title?: string) {
+  return `<a href="#" class="count" ${data}${title ? ` title="${esc(title)}"` : ""}>${esc(formatNumber(count))}</a>`;
 }
 
+/** [phrase] as HTML: its text escaped, the values named in [html] replaced by their HTML (links). */
+function phraseHtml(phrase: Phrase, html: Record<string, string>) {
+  const names = Object.keys(html);
+  let text = esc(t(phrase.key, { ...phrase.params, ...Object.fromEntries(names.map((name, i) => [name, `\u0001${i}\u0001`])) }));
+  names.forEach((name, i) => { text = text.replace(`\u0001${i}\u0001`, html[name]); });
+  return text;
+}
+
+/**
+ * The summary in words: how many objects may be affected and how many for certain, how far they are, the count at
+ * each distance, and how many end in each way. Every count filters the list below; codes are in the tooltips.
+ */
 function renderSummary(view: ImpactView) {
   const summary = document.getElementById("summary")!;
   if (view.nodes.length === 0) {
     summary.innerHTML = `<p>${esc(t("impact.empty"))}</p>`;
     return;
   }
-  const stops = view.stops.map(stop => `<li>${countLink(stop.count, `data-stop="${esc(stop.value)}"`)} ${esc(t("impact.stop." + stop.value))}</li>`);
+  const total = summaryPhrase(view.nodes.length, view.certain);
+  const reach = reachPhrase(view.levels);
+  const stops = view.stops.map(stop =>
+    `<li title="${esc(stop.value)}">${countLink(stop.count, `data-stop="${esc(stop.value)}"`)} ${esc(t("impact.stop." + stop.value))}</li>`);
   summary.innerHTML =
-    `<p>${esc(t("impact.total", { count: view.nodes.length }))}: ${countLink(view.nodes.length, 'data-show="all"')} · ` +
-    `${esc(t("impact.certain", { count: view.certain }))}: ${countLink(view.certain, "data-certain")}</p>` +
-    `<p class="levels"><span class="muted">${esc(t("impact.levels"))}</span> ` +
-    view.levels.map((count, i) => `<span class="level">${esc(t("impact.depth", { depth: i + 1 }))}: ${countLink(count, `data-depth="${i + 1}"`)}</span>`).join(" ") +
+    `<p class="lead">${phraseHtml(total, {
+      total: countLink(view.nodes.length, 'data-show="all"'),
+      certain: countLink(view.certain, "data-certain", t("impact.certainHint"))
+    })}</p>` +
+    `<p>${esc(t(reach.key, reach.params))}</p>` +
+    `<p class="levels muted"><span>${esc(t("impact.levels"))}</span> ` +
+    view.levels.map((count, i) => `<span class="level">${esc(distanceText(t, i + 1))}: ${countLink(count, `data-depth="${i + 1}"`)}</span>`).join(" ") +
     `</p><ul class="stops">${stops.join("")}</ul>`;
 }
 
@@ -156,7 +186,7 @@ function renderNodes() {
   }
   const open = shown.length <= OPEN_ALL;
   groupsElement.innerHTML = groups.map((group, i) => {
-    const label = "depth" in group ? esc(t("impact.depth", { depth: group.depth })) : groupLabel(group);
+    const label = "depth" in group ? esc(distanceText(t, group.depth)) : groupLabel(group);
     return `<details class="ngroup" data-group="${i}"${open ? " open" : ""}><summary>${label} <span class="muted">· ${esc(formatNumber(group.nodes.length))}</span></summary>` +
       `<div class="rows"></div></details>`;
   }).join("");
@@ -165,7 +195,7 @@ function renderNodes() {
 
 function groupLabel(group: NodeGroup) {
   if (group.files) return esc(t("impact.group.files"));
-  if (group.owner) return `${nameHtml(group.owner)} ${kindBadge(group.owner.kind)}`;
+  if (group.owner) return `${nameHtml(group.owner, { ...nameShape(group.owner), noBodyBadge: true })} ${kindBadge(group.owner.kind)}`;
   return esc(t("impact.group.schema", { schema: group.schema ?? t("entity.schemaUnknown") }));
 }
 
@@ -175,10 +205,10 @@ function renderToolbar(view: ImpactView, shown: number) {
   if (state.tab === "all") {
     const present = new Set(view.nodes.map(node => node.stop));
     const stopOptions = STOPS.filter(stop => present.has(stop))
-      .map(stop => `<option value="${stop}"${state.stop === stop ? " selected" : ""}>${esc(t("impact.stopShort." + stop))}</option>`).join("");
+      .map(stop => `<option value="${stop}"${state.stop === stop ? " selected" : ""}>${esc(t("impact.stopWord." + stop))}</option>`).join("");
     filters = `<label class="field">${esc(t("impact.filter.stop"))} <select name="stop"><option value="">${esc(t("impact.filter.any"))}</option>${stopOptions}</select></label>` +
       `<label class="check"><input type="checkbox" name="certain"${state.certain ? " checked" : ""}> ${esc(t("impact.filter.certain"))}</label>` +
-      (state.depth !== null ? `<span class="chip on" data-clear="depth">${esc(t("impact.depth", { depth: state.depth }))} ×</span>` : "");
+      (state.depth !== null ? `<span class="chip on" data-clear="depth">${esc(distanceText(t, state.depth))} ×</span>` : "");
   }
   toolbar.innerHTML = `${filters}<span class="muted">${esc(t("impact.shown", { count: shown }))}</span> <button type="button" data-csv>${esc(t("impact.csv"))}</button>`;
 }
@@ -236,15 +266,22 @@ function buildRows(details: HTMLDetailsElement) {
   page.built[group] = to;
   const holder = details.querySelector(".rows")!;
   holder.querySelector("button.more-rows")?.remove();
-  const rows = nodes.slice(from, to).map(rowHtml).join("");
+  // Names short: without the schema, or the package the entry points tab groups them under; overloads of the group
+  // told apart.
+  const graph = page.view!;
+  const entities = nodes.map(index => graph.nodes[index].entity).filter((e): e is number => e !== null).map(e => graph.entities[e]);
+  const detail = listNameOptions(entities);
+  const naming = (entity: EntitySummary, owner: number | null): NameOptions =>
+    ({ ...detail(entity), ...nameShape(entity, state.tab === "entries" && owner !== null ? graph.entities[owner] : null) });
+  const rows = nodes.slice(from, to).map(index => rowHtml(index, naming)).join("");
   let body = holder.querySelector("tbody");
   if (!body) {
-    const stop = state.tab === "all" ? `<th>${esc(t("impact.column.stop"))}</th>` : "";
+    const stop = state.tab === "all" ? `<th>${esc(t("impact.head.stop"))}</th>` : "";
     // Fixed column widths, so the tables of every group line up.
     const columns = `<colgroup><col class="c-why"><col class="c-name"><col class="c-kind"><col class="c-depth">` +
       `${state.tab === "all" ? '<col class="c-stop">' : ""}<col class="c-notes"></colgroup>`;
     holder.innerHTML = scrollTable(`${columns}<thead><tr><th></th><th>${esc(t("impact.column.name"))}</th><th>${esc(t("impact.column.kind"))}</th>` +
-      `<th class="num">${esc(t("impact.column.depth"))}</th>${stop}<th>${esc(t("impact.column.notes"))}</th></tr></thead><tbody></tbody>`,
+      `<th>${esc(t("impact.head.distance"))}</th>${stop}<th>${esc(t("impact.column.notes"))}</th></tr></thead><tbody></tbody>`,
       state.tab === "all" ? "impact with-stop stack" : "impact stack");
     body = holder.querySelector("tbody")!;
   }
@@ -258,35 +295,40 @@ function fileHref(path: string, line: number) {
   return `file.html?path=${encodeURIComponent(path)}&line=${line}${langSuffix()}#L${line}`;
 }
 
-function nodeNameHtml(view: ImpactView, index: number, within?: EntitySummary | null) {
+function nodeNameHtml(view: ImpactView, index: number, options?: NameOptions) {
   const node = view.nodes[index];
-  if (node.entity !== null) return entityLink(view.entities[node.entity], within ? { within } : undefined);
+  if (node.entity !== null) return entityLink(view.entities[node.entity], options);
   const path = view.paths[node.path!];
   return `<a class="mono" href="${fileHref(path, node.firstLine!)}">${esc(path)}</a>`;
 }
 
+/** A trigger's note as the CSV writes it: its codes and the table's full name, for tools. */
 function triggerText(trigger: ImpactTrigger) {
   const events = trigger.events.map(event =>
     [event.timing.replace("_", " "), event.level, event.event + (event.column ? " OF " + event.column.name : "")].filter(Boolean).join(" "));
   return t("impact.trigger", { table: trigger.table?.display ?? "—", events: events.join(", ") || "—" });
 }
 
-function rowHtml(index: number) {
+function rowHtml(index: number, naming: (entity: EntitySummary, owner: number | null) => NameOptions) {
   const view = page.view!;
   const node = view.nodes[index];
-  const owner = state.tab === "entries" && node.owner !== null ? view.entities[node.owner] : null;
+  const entity = node.entity !== null ? view.entities[node.entity] : null;
   const notes: string[] = [];
-  if (!node.certain) notes.push(`<span class="badge uncertain">${esc(t("impact.notCertain"))}</span>`);
-  if (node.trigger) notes.push(esc(triggerText(node.trigger)));
+  if (!node.certain) notes.push(`<span class="badge uncertain" title="${esc(t("impact.notCertainHint"))}">${esc(t("impact.notCertain"))}</span>`);
+  if (node.trigger) notes.push(esc(triggerNote(t, node.trigger)));
   if (node.uses !== null) notes.push(esc(t("impact.fileUses", { count: node.uses })));
-  // On a phone the header row is gone: the depth and the stop say what they are.
-  const stop = state.tab === "all" ? stackCell(esc(t("impact.stopShort." + node.stop)), t("impact.column.stop").toLowerCase()) : "";
+  const stop = state.tab === "all" ? `<td title="${esc(node.stop)}">${esc(t("impact.stopWord." + node.stop))}</td>` : "";
   return `<tr data-node="${index}"><td><button type="button" class="why" aria-expanded="false">${esc(t("impact.why"))}</button></td>` +
-    `<td class="grow">${nodeNameHtml(view, index, owner)}</td><td>${node.kind === "FILE" ? esc(t("impact.kind.FILE")) : kindBadge(node.kind)}</td>` +
-    `${stackCell(esc(formatNumber(node.depth)), t("impact.column.depth").toLowerCase(), "num")}${stop}<td>${notes.join(" ")}</td></tr>`;
+    `<td class="grow">${nodeNameHtml(view, index, entity ? naming(entity, node.owner) : undefined)}</td>` +
+    `<td>${node.kind === "FILE" ? esc(t("impact.kind.FILE")) : kindBadge(node.kind)}</td>` +
+    `${stackCell(esc(distanceText(t, node.depth)))}${stop}<td>${notes.join(" ")}</td></tr>`;
 }
 
-/** Unfolds the path of a row's node below it, one line per hop back to the entity; a second click folds it. */
+/**
+ * Unfolds the path of a row's node below it, one line per step back to the object the page starts from, each read
+ * like a "Used by" row: the short name, then "line 7" linking the file (its path in the tooltip), the status in words
+ * and what the step fires; a second click folds it.
+ */
 function togglePath(button: HTMLButtonElement) {
   const row = button.closest("tr")!;
   const open = row.nextElementSibling?.classList.contains("path");
@@ -298,13 +340,15 @@ function togglePath(button: HTMLButtonElement) {
   const view = page.view!;
   const { hops, target } = pathOf(view, Number(row.dataset.node));
   const lines = hops.map(hop => {
-    const notes = [`<a class="mono" href="${fileHref(hop.path, hop.line)}">${esc(hop.path)}:${esc(hop.line)}</a>`];
-    if (hop.fires) notes.push(esc(t("impact.fires", { events: hop.fires })));
-    if (hop.status !== "RESOLVED") notes.push(statusBadge(hop.status));
-    return `<li>${nodeNameHtml(view, hop.node)} <span class="muted">·</span> ${notes.join(" ")}</li>`;
+    const line = pathLine(t, view, hop);
+    const name = line.entity ? entityLink(line.entity, nameShape(line.entity)) : `<span class="mono">${esc(line.name)}</span>`;
+    const notes = [`<a href="${fileHref(line.path, line.line)}" title="${esc(line.path)}">${esc(line.place)}</a>`,
+      `<span class="muted mono">${esc(line.path)}</span>`];
+    if (line.fires) notes.push(esc(line.fires));
+    if (line.status) notes.push(statusBadge(hop.status));
+    return `<li>${name} <span class="muted">·</span> ${notes.join(" ")}</li>`;
   });
-  const end = target.key === view.entity.key ? t("impact.path.entity") : t("impact.path.matched");
-  lines.push(`<li>${entityLink(target)} <span class="muted">(${esc(end)})</span></li>`);
+  lines.push(`<li>${entityLink(target, nameShape(target))} <span class="muted">(${esc(pathEnd(t, view, target))})</span></li>`);
   row.insertAdjacentHTML("afterend", `<tr class="path"><td class="pad"></td><td class="whole" colspan="${row.children.length - 1}">` +
     `<p class="muted">${esc(t("impact.path.title"))}</p><ol class="hops">${lines.join("")}</ol></td></tr>`);
 }

@@ -401,6 +401,13 @@ td.num, th.num { text-align: right; white-space: nowrap; width: 1%; }
 .impact-page .options { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 8px 0; }
 .impact-page .options input[type=number] { width: 5em; padding: 4px 6px; }
 .impact-page #included { margin: 0; }
+/* The header: "Impact of NAME", then the kind and schema muted, then what the page lists. */
+.impact-page #title h1 { margin: 0; font-size: var(--fs-xl); overflow-wrap: break-word; }
+.impact-page .impact-of { margin: 4px 0 0; font-size: var(--fs-s); }
+.impact-page .impact-of .kind { vertical-align: middle; }
+.impact-page .impact-what { margin: 6px 0 0; }
+.impact-page #summary p { margin: 0 0 6px; }
+.impact-page #summary p.lead { font-size: var(--fs-l); }
 .impact-page .levels .level { white-space: nowrap; margin-right: 10px; }
 .impact-page ul.stops { margin: 6px 0 0; padding-left: 18px; }
 .impact-page a.count { font-weight: 600; }
