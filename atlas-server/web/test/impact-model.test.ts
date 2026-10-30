@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EntitySummary } from "../src/api";
-import { csvField, csvText, groupByDepth, groupByOwner, pathOf, pathText, readState, shownNodes, stateSearch, viewOf } from "../src/impact-model";
-import type { ImpactView, ImpactViewNode } from "../src/impact-model";
+import { buildTree, csvField, csvText, groupByDepth, groupByOwner, pathOf, pathText, readState, shownNodes, stateSearch, viewOf } from "../src/impact-model";
+import type { ImpactView, ImpactViewNode, TreeItem } from "../src/impact-model";
 
 const entity = (key: string, kind: string): EntitySummary => ({ key, kind, display: key.slice(3), external: false, name: key.split(".").pop()!.split("(")[0] });
 
@@ -131,3 +131,73 @@ describe("the URL state", () => {
     expect(shownNodes(view, readState("?key=k&tab=all&depth=2"))).toEqual([2, 3, 4]);
   });
 });
+
+describe("buildTree", () => {
+  /** Every item under [tree], depth first, as `node` indexes or `part:<entity>`. */
+  const flat = (tree: TreeItem): string[] => tree.children.flatMap(child => [child.node !== null ? String(child.node) : `part:${child.part}`, ...flat(child)]);
+  const nodesOf = (tree: TreeItem) => flat(tree).filter(item => !item.startsWith("part:"));
+
+  it("puts every node exactly once, each under the node it was first reached through", () => {
+    const tree = buildTree(view);
+    expect(nodesOf(tree).sort()).toEqual(["0", "1", "2", "3", "4", "5"]);
+    // FN and MID use LEAF itself: straight under the root, by name (FN before PACK_A.MID).
+    expect(tree.children.map(child => child.node)).toEqual([0, 1]);
+    const mid = tree.children[1];
+    // Under MID by name: PACK_B.TOP, TRG, then the script file.
+    expect(mid.children.map(child => child.node)).toEqual([2, 3, 4]);
+    expect(mid.children.find(child => child.node === 3)!.children.map(child => child.node)).toEqual([5]);
+  });
+
+  it("counts the nodes below each line", () => {
+    const tree = buildTree(view);
+    expect(tree.below).toBe(6);
+    const mid = tree.children.find(child => child.node === 1)!;
+    expect(mid.below).toBe(4);
+    expect(mid.children.find(child => child.node === 3)!.below).toBe(1);
+    expect(tree.children.find(child => child.node === 0)!.below).toBe(0);
+  });
+
+  it("groups the first steps by the part of the entity they use, the entity itself straight under the root", () => {
+    const member = entity("db:HR.PACK_A.C_MAX", "CONSTANT"); // 8, a member the first steps use
+    const spec = entity("db:HR.PACK_A.LEAF(P IN NUMBER)@SPEC", "PROCEDURE"); // 9
+    const parts: ImpactView = {
+      ...view, entities: [...entities, member, spec],
+      nodes: [
+        node({ entity: 2, depth: 1, stop: "ENTRY_POINT", via: { node: null, uses: 8, path: 1, line: 3, status: "RESOLVED", fires: null } }),
+        node({ entity: 1, depth: 1, stop: "FOLLOWED", via: { node: null, uses: 8, path: 0, line: 4, status: "RESOLVED", fires: null } }),
+        node({ entity: 3, depth: 1, stop: "ENTRY_POINT", via: { node: null, uses: 9, path: 2, line: 5, status: "RESOLVED", fires: null } }),
+        node({ entity: 7, depth: 1, stop: "ENTRY_POINT", via: { node: null, uses: 0, path: 5, line: 6, status: "RESOLVED", fires: null } }),
+        node({ entity: 4, depth: 2, stop: "FOLLOWED", via: { node: 1, uses: 1, path: 3, line: 7, status: "RESOLVED", fires: null } })
+      ]
+    };
+    const tree = buildTree(parts);
+    // The parts and the direct user, by name: APP.TOP_INS, then the two parts of PACK_A.
+    expect(tree.children.map(child => child.part !== null ? `part:${child.part}` : `node:${child.node}`)).toEqual(["node:3", "part:8", "part:9"]);
+    const constant = tree.children[1];
+    expect(constant.children.map(child => child.node).sort()).toEqual([0, 1]);
+    expect(constant.below).toBe(3);
+    expect(tree.children[2].children.map(child => child.node)).toEqual([2]);
+    expect(nodesOf(tree).sort()).toEqual(["0", "1", "2", "3", "4"]);
+  });
+
+  it("cuts a chain that loops back, so that each of its nodes appears once and the walk ends", () => {
+    const looped: ImpactView = {
+      ...view,
+      nodes: [
+        node({ entity: 1, depth: 1, stop: "FOLLOWED", via: { node: null, uses: 0, path: 0, line: 1, status: "RESOLVED", fires: null } }),
+        // 1 and 2 reach each other: a loop that never reaches the entity; 3 hangs below the loop.
+        node({ entity: 2, depth: 2, stop: "FOLLOWED", via: { node: 2, uses: 3, path: 1, line: 2, status: "RESOLVED", fires: null } }),
+        node({ entity: 3, depth: 3, stop: "FOLLOWED", via: { node: 1, uses: 2, path: 2, line: 3, status: "RESOLVED", fires: null } }),
+        node({ entity: 4, depth: 4, stop: "ENTRY_POINT", via: { node: 2, uses: 3, path: 3, line: 4, status: "RESOLVED", fires: null } })
+      ]
+    };
+    const tree = buildTree(looped);
+    expect(nodesOf(tree).sort()).toEqual(["0", "1", "2", "3"]);
+    const cut = tree.children.find(child => child.node === 1)!;
+    expect(cut.loop).toBe(true);
+    expect(flat(cut)).toEqual(["2", "3"]);
+    expect(cut.below).toBe(2);
+    expect(tree.below).toBe(4);
+  });
+});
+

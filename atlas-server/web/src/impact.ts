@@ -7,8 +7,9 @@ import {entityHref, esc, langSuffix, scrollTable, stackCell} from "./html";
 import {formatList, formatNumber, initI18n, t} from "./i18n";
 import type {Phrase} from "./impact-words";
 import {distanceText, nameShape, pathEnd, pathLine, reachPhrase, summaryPhrase, triggerNote} from "./impact-words";
-import type {ImpactAnswer, ImpactTrigger, ImpactView, NodeGroup} from "./impact-model";
+import type {ImpactAnswer, ImpactTab, ImpactTrigger, ImpactView, NodeGroup, TreeItem} from "./impact-model";
 import {
+    buildTree,
     csvText,
     groupByDepth,
     groupByOwner,
@@ -22,6 +23,7 @@ import {
     STOPS,
     viewOf
 } from "./impact-model";
+import {shownNameText} from "./names";
 import {setPageTitle} from "./project";
 
 // The impact page: the whole graph of an entity, loaded once; its options, tab and filters live in the URL.
@@ -35,6 +37,12 @@ const groupsElement = document.getElementById("groups")!;
 const ROWS_STEP = 100;
 /** A tab with at most this many nodes opens every group; a larger one opens them one by one. */
 const OPEN_ALL = 100;
+/** Children a level of the tree shows when it opens, and each "show more" adds. */
+const TREE_STEP = 50;
+/** The levels of the tree open when it is drawn: the root and the first level. */
+const TREE_OPEN_LEVELS = 1;
+/** From this level on, a phone stops indenting and says how far the object is instead. */
+const TREE_FLAT_LEVEL = 4;
 
 interface PageState {
   view: ImpactView | null;
@@ -44,9 +52,11 @@ interface PageState {
   groups: number[][];
   /** For each group, how many rows it shows. */
   built: number[];
+  /** The tree tab's lines by id, their level, and how many children each shows. */
+  tree: { items: TreeItem[]; levels: number[]; built: number[] } | null;
 }
 
-const page: PageState = { view: null, generation: 0, groups: [], built: [] };
+const page: PageState = { view: null, generation: 0, groups: [], built: [], tree: null };
 
 function writeUrl() {
   history.replaceState(null, "", "impact.html" + stateSearch(state, lang));
@@ -103,7 +113,9 @@ function renderHead(view: ImpactView) {
   document.getElementById("title")!.innerHTML = `<h1>${phraseHtml({ key: "impact.title", params: {} }, { name })}</h1>` +
     `<p class="impact-of muted">${kindBadge(entity.kind)}${schema ? ` <span>${esc(t("entity.schema", { schema }))}</span>` : ""}</p>` +
     `<p class="impact-what">${esc(t("impact.what"))}</p>`;
-  const parts = [kindLabel(entity.kind), ...view.included.map(scope => t("impact.from." + scope))];
+  // The spec and the body are two items of the list, so that it reads with one "and", before its last item.
+  const parts = [kindLabel(entity.kind), ...view.included.flatMap(scope =>
+    scope === "IMPLEMENTATIONS" ? [t("impact.from.SPEC"), t("impact.from.BODY")] : [t("impact.from." + scope)])];
   const included = document.getElementById("included")!;
   included.textContent = t("impact.startsFrom", { list: formatList(parts) });
   included.title = view.included.join(", ");
@@ -171,12 +183,18 @@ function renderNodes() {
   if (nodes.hidden) return;
   const entries = view.stops.find(stop => stop.value === "ENTRY_POINT")?.count ?? 0;
   for (const tab of nodes.querySelectorAll<HTMLButtonElement>("[data-tab]")) {
-    tab.textContent = tab.dataset.tab === "entries" ? t("impact.tab.entries", { count: entries }) : t("impact.tab.all", { count: view.nodes.length });
+    tab.textContent = tab.dataset.tab === "entries" ? t("impact.tab.entries", { count: entries })
+      : t(tab.dataset.tab === "tree" ? "impact.tab.tree" : "impact.tab.all", { count: view.nodes.length });
     tab.setAttribute("aria-selected", String(tab.dataset.tab === state.tab));
     tab.classList.toggle("on", tab.dataset.tab === state.tab);
   }
   const shown = shownNodes(view, state);
   renderToolbar(view, shown.length);
+  page.tree = null;
+  if (state.tab === "tree") {
+    renderTree(view);
+    return;
+  }
   const groups = state.tab === "entries" ? groupByOwner(view, shown) : groupByDepth(view, shown);
   page.groups = groups.map(group => group.nodes);
   page.built = groups.map(() => 0);
@@ -210,6 +228,10 @@ function renderToolbar(view: ImpactView, shown: number) {
       `<label class="check"><input type="checkbox" name="certain"${state.certain ? " checked" : ""}> ${esc(t("impact.filter.certain"))}</label>` +
       (state.depth !== null ? `<span class="chip on" data-clear="depth">${esc(distanceText(t, state.depth))} ×</span>` : "");
   }
+  if (state.tab === "tree") {
+    filters = `<p class="tree-about muted">${esc(t("impact.tree.about"))}</p>` +
+      `<button type="button" data-tree="open">${esc(t("impact.tree.openAll"))}</button> <button type="button" data-tree="close">${esc(t("impact.tree.closeAll"))}</button>`;
+  }
   toolbar.innerHTML = `${filters}<span class="muted">${esc(t("impact.shown", { count: shown }))}</span> <button type="button" data-csv>${esc(t("impact.csv"))}</button>`;
 }
 
@@ -217,7 +239,7 @@ document.getElementById("nodes")!.addEventListener("click", e => {
   const target = e.target as Element;
   const tab = target.closest<HTMLElement>("[data-tab]");
   if (tab) {
-    state.tab = tab.dataset.tab === "all" ? "all" : "entries";
+    state.tab = (["all", "tree"].includes(tab.dataset.tab!) ? tab.dataset.tab : "entries") as ImpactTab;
     writeUrl();
     renderNodes();
     return;
@@ -226,6 +248,16 @@ document.getElementById("nodes")!.addEventListener("click", e => {
     state.depth = null;
     writeUrl();
     renderNodes();
+    return;
+  }
+  const all = target.closest<HTMLElement>("[data-tree]");
+  if (all) {
+    openTree(all.dataset.tree === "open");
+    return;
+  }
+  const moreTree = target.closest<HTMLButtonElement>("button.more-tree");
+  if (moreTree) {
+    buildChildren(Number(moreTree.dataset.more));
     return;
   }
   if (target.closest("[data-csv]")) {
@@ -249,9 +281,14 @@ document.getElementById("toolbar")!.addEventListener("change", e => {
   renderNodes();
 });
 
-// A folded group builds its rows the first time it opens.
+// A folded group builds its rows the first time it opens, and so does a level of the tree.
 groupsElement.addEventListener("toggle", e => {
   const details = e.target as HTMLDetailsElement;
+  if (details.matches("details.tnode")) {
+    const id = Number(details.dataset.item);
+    if (details.open && page.tree && page.tree.built[id] === 0) buildChildren(id);
+    return;
+  }
   if (details.matches("details.ngroup") && details.open && page.built[Number(details.dataset.group)] === 0) buildRows(details);
 }, true);
 
@@ -351,6 +388,104 @@ function togglePath(button: HTMLButtonElement) {
   lines.push(`<li>${entityLink(target, nameShape(target))} <span class="muted">(${esc(pathEnd(t, view, target))})</span></li>`);
   row.insertAdjacentHTML("afterend", `<tr class="path"><td class="pad"></td><td class="whole" colspan="${row.children.length - 1}">` +
     `<p class="muted">${esc(t("impact.path.title"))}</p><ol class="hops">${lines.join("")}</ol></td></tr>`);
+}
+
+// ---- the tree ----------------------------------------------------------------------------------------------------
+
+/**
+ * The tree tab: the object the page starts from, the parts of it the first steps use, and each object under the one it
+ * was first reached through. Levels are built when they first open.
+ */
+function renderTree(view: ImpactView) {
+  const named = view.nodes.map(node => node.entity !== null ? view.entities[node.entity] : null);
+  const detail = listNameOptions(named.filter((e): e is EntitySummary => e !== null));
+  treeNaming = (entity: EntitySummary) => ({ ...detail(entity), ...nameShape(entity) });
+  const root = buildTree(view, index => named[index] ? shownNameText(named[index]!, nameShape(named[index]!)) : view.paths[view.nodes[index].path!]);
+  page.tree = { items: [], levels: [], built: [] };
+  groupsElement.innerHTML = `<ul class="tree">${treeItemHtml(root, 0)}</ul>`;
+  buildChildren(0);
+}
+
+let treeNaming: (entity: EntitySummary) => NameOptions = entity => nameShape(entity);
+
+/** One line of the tree, as a list item; a line with children is a `<details>` the whole line opens. */
+function treeItemHtml(item: TreeItem, level: number) {
+  const tree = page.tree!;
+  const id = tree.items.length;
+  tree.items.push(item);
+  tree.levels.push(level);
+  tree.built.push(0);
+  const line = treeLineHtml(item, level);
+  if (!item.children.length) return `<li data-level="${level}"><div class="tree-line">${line}</div></li>`;
+  const open = level <= TREE_OPEN_LEVELS ? " open" : "";
+  return `<li data-level="${level}"><details class="tnode" data-item="${id}"${open}><summary class="tree-line">${line}</summary>` +
+    `<ul data-children="${id}"></ul></details></li>`;
+}
+
+/**
+ * A line: the kind square and the short name; for an object, "line N" linking the file at the use, the status of an
+ * unresolved step, "not certain" when an earlier step was not resolved, what a trigger step fires; how many objects
+ * sit below. On a phone, a deep line says how far the object is, since it is no longer indented.
+ */
+function treeLineHtml(item: TreeItem, level: number) {
+  const view = page.view!;
+  const below = item.below ? ` <span class="muted">· ${esc(t("impact.tree.below", { count: item.below }))}</span>` : "";
+  if (item.node === null) {
+    const entity = item.part !== null ? view.entities[item.part] : view.entity;
+    const within = item.part !== null && entity.display.startsWith(view.entity.display + ".") ? view.entity : null;
+    return `${kindBadge(entity.kind, true)} ${entityLink(entity, nameShape(entity, within))}${below}`;
+  }
+  const node = view.nodes[item.node];
+  const hop = { node: item.node, path: view.paths[node.via.path], line: node.via.line, status: node.via.status, fires: node.via.fires };
+  const words = pathLine(t, view, hop);
+  const name = node.entity !== null
+    ? `${kindBadge(node.kind, true)} ${entityLink(view.entities[node.entity], treeNaming(view.entities[node.entity]))}`
+    : `<span class="badge">${esc(t("impact.kind.FILE"))}</span> ${nodeNameHtml(view, item.node)}`;
+  const notes = [`<a href="${fileHref(words.path, words.line)}" title="${esc(words.path)}">${esc(words.place)}</a>`];
+  if (words.status) notes.push(statusBadge(hop.status));
+  else if (!node.certain) notes.push(`<span class="badge uncertain" title="${esc(t("impact.notCertainHint"))}">${esc(t("impact.notCertain"))}</span>`);
+  if (words.fires) notes.push(esc(words.fires));
+  if (item.loop) notes.push(`<span class="muted">${esc(t("impact.tree.loop"))}</span>`);
+  const steps = level >= TREE_FLAT_LEVEL ? ` <span class="steps muted">· ${esc(distanceText(t, node.depth))}</span>` : "";
+  return `${name} <span class="muted">·</span> ${notes.join(" ")}${below}${steps}`;
+}
+
+/** Adds the next children of line [id], with "show N more" while some are left. */
+function buildChildren(id: number) {
+  const tree = page.tree!;
+  const item = tree.items[id];
+  const list = groupsElement.querySelector<HTMLUListElement>(`ul[data-children="${id}"]`);
+  if (!list) return;
+  const from = tree.built[id];
+  const to = Math.min(item.children.length, from + TREE_STEP);
+  tree.built[id] = to;
+  list.querySelector(":scope > li.more")?.remove();
+  const html = item.children.slice(from, to).map(child => treeItemHtml(child, tree.levels[id] + 1)).join("");
+  list.insertAdjacentHTML("beforeend", html);
+  if (to < item.children.length) {
+    list.insertAdjacentHTML("beforeend", `<li class="more"><button type="button" class="more-tree" data-more="${id}">` +
+      `${esc(t("impact.more", { count: item.children.length - to }))}</button></li>`);
+  }
+  // A line drawn open (the first levels) builds its own children too.
+  const end = tree.items.length;
+  for (let next = end - (to - from); next < end; next++) {
+    if (tree.levels[next] <= TREE_OPEN_LEVELS && tree.items[next].children.length && tree.built[next] === 0) buildChildren(next);
+  }
+}
+
+/** "Open all" opens every level, building each once; "Close all" folds all but the root. */
+function openTree(open: boolean) {
+  if (!page.tree) return;
+  for (;;) {
+    const folded = [...groupsElement.querySelectorAll<HTMLDetailsElement>("details.tnode")].filter(d => d.open !== open && (open || d.dataset.item !== "0"));
+    if (!folded.length) return;
+    for (const details of folded) {
+      const id = Number(details.dataset.item);
+      if (open && page.tree.built[id] === 0) buildChildren(id);
+      details.open = open;
+    }
+    if (!open) return;
+  }
 }
 
 // ---- CSV ----------------------------------------------------------------------------------------------------------

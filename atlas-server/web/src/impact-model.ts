@@ -1,5 +1,5 @@
 // What the impact page computes from a graph, without the DOM: the answer's types, the page state in its URL, the
-// path of a node, the groups of nodes and the CSV.
+// path of a node, the groups of nodes, the tree of first uses and the CSV.
 
 import type { Count, EntitySummary } from "./api";
 
@@ -97,7 +97,7 @@ export function viewOf(answer: ImpactAnswer): ImpactView {
 export const DEFAULT_DEPTH = 10;
 export const MAX_DEPTH = 50;
 
-export type ImpactTab = "entries" | "all";
+export type ImpactTab = "entries" | "all" | "tree";
 
 /** The graph asked for, the tab shown, and the filters of "All nodes". */
 export interface ImpactState {
@@ -124,7 +124,7 @@ export function readState(search: string): ImpactState {
     key: params.get("key") || null,
     triggers: params.get("triggers") !== "false",
     maxDepth: positive(params.get("maxDepth"), MAX_DEPTH) ?? DEFAULT_DEPTH,
-    tab: params.get("tab") === "all" ? "all" : "entries",
+    tab: params.get("tab") === "all" ? "all" : params.get("tab") === "tree" ? "tree" : "entries",
     stop: stop && STOPS.includes(stop) ? stop : null,
     depth: positive(params.get("depth"), MAX_DEPTH),
     certain: params.get("certain") === "true"
@@ -137,6 +137,7 @@ export function stateSearch(state: ImpactState, lang?: string | null) {
   if (state.key) params.set("key", state.key);
   if (!state.triggers) params.set("triggers", "false");
   if (state.maxDepth !== DEFAULT_DEPTH) params.set("maxDepth", String(state.maxDepth));
+  if (state.tab === "tree") params.set("tab", "tree");
   if (state.tab === "all") {
     params.set("tab", "all");
     if (state.stop) params.set("stop", state.stop);
@@ -148,10 +149,14 @@ export function stateSearch(state: ImpactState, lang?: string | null) {
   return text ? "?" + text : "";
 }
 
-/** The nodes [state]'s tab shows, by index in the graph's order. */
+/** The nodes [state]'s tab shows, by index in the graph's order: the tree shows every node, without filters. */
 export function shownNodes(view: ImpactView, state: ImpactState) {
   const shown: number[] = [];
   view.nodes.forEach((node, index) => {
+    if (state.tab === "tree") {
+      shown.push(index);
+      return;
+    }
     if (state.tab === "entries" ? node.stop !== "ENTRY_POINT"
       : (state.stop !== null && node.stop !== state.stop) || (state.depth !== null && node.depth !== state.depth) || (state.certain && !node.certain)) return;
     shown.push(index);
@@ -248,6 +253,87 @@ export function groupByDepth(view: ImpactView, indexes: number[]) {
     group.push(index);
   }
   return [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([depth, nodes]) => ({ depth, nodes }));
+}
+
+// ---- the tree of first uses ----------------------------------------------------------------------------------------
+
+/**
+ * One line of the tree: a [node] (an index into the nodes), or a [part] of the entity the first steps use (an index
+ * into the entities: a member, the spec or body). [below] counts the nodes under it; [loop] marks a node whose chain of
+ * first uses loops back, placed under the root instead of under itself.
+ */
+export interface TreeItem {
+  node: number | null;
+  part: number | null;
+  children: TreeItem[];
+  below: number;
+  loop: boolean;
+}
+
+/**
+ * The nodes as a tree: each under the node it was first reached through (`via.node`). A first step goes under the
+ * part of the entity it uses (`via.uses`), or straight under the root when it uses the entity itself. A chain that
+ * loops back is cut at its lowest node, which goes under the root once. Every node appears exactly once; each level is
+ * in the order of [nameOf] (a node's shown name), the parts in the order of their names.
+ */
+export function buildTree(view: ImpactView, nameOf: (index: number) => string = index => nodeText(view, index)): TreeItem {
+  const count = view.nodes.length;
+  const parent = view.nodes.map(node => node.via.node !== null && node.via.node >= 0 && node.via.node < count ? node.via.node : null);
+  const loop = new Array<boolean>(count).fill(false);
+  // Cut every loop: walk up from each node; a node met twice on one walk closes a loop.
+  const settled = new Array<boolean>(count).fill(false);
+  for (let start = 0; start < count; start++) {
+    const walk: number[] = [];
+    const onWalk = new Set<number>();
+    let at: number | null = start;
+    while (at !== null && !settled[at] && !onWalk.has(at)) {
+      onWalk.add(at);
+      walk.push(at);
+      at = parent[at];
+    }
+    if (at !== null && onWalk.has(at)) {
+      const cycle = walk.slice(walk.indexOf(at));
+      const cut = Math.min(...cycle);
+      parent[cut] = null;
+      loop[cut] = true;
+    }
+    walk.forEach(index => { settled[index] = true; });
+  }
+  const item = (node: number | null, part: number | null): TreeItem => ({ node, part, children: [], below: 0, loop: node !== null && loop[node] });
+  const items = view.nodes.map((_, index) => item(index, null));
+  const root = item(null, null);
+  const parts = new Map<number, TreeItem>();
+  view.nodes.forEach((node, index) => {
+    const up = parent[index];
+    if (up !== null) {
+      items[up].children.push(items[index]);
+      return;
+    }
+    const uses = node.via.uses;
+    if (loop[index] || !view.entities[uses] || view.entities[uses].key === view.entity.key) {
+      root.children.push(items[index]);
+      return;
+    }
+    let part = parts.get(uses);
+    if (!part) parts.set(uses, part = item(null, uses));
+    part.children.push(items[index]);
+  });
+  root.children.push(...parts.values());
+  const names = new Map<number, string>();
+  const nameOfItem = (tree: TreeItem) => tree.part !== null ? view.entities[tree.part].display
+    : names.get(tree.node!) ?? (names.set(tree.node!, nameOf(tree.node!)), names.get(tree.node!)!);
+  const order = (a: TreeItem, b: TreeItem) => nameOfItem(a).localeCompare(nameOfItem(b)) || (a.node ?? -1) - (b.node ?? -1) || (a.part ?? -1) - (b.part ?? -1);
+  // Children sorted and counted, iteratively: a deep chain must not overflow the stack.
+  const visit: TreeItem[] = [root];
+  const post: TreeItem[] = [];
+  while (visit.length) {
+    const tree = visit.pop()!;
+    post.push(tree);
+    tree.children.sort(order);
+    visit.push(...tree.children);
+  }
+  for (let i = post.length - 1; i >= 0; i--) post[i].below = post[i].children.reduce((sum, child) => sum + (child.node !== null ? 1 : 0) + child.below, 0);
+  return root;
 }
 
 // ---- CSV ----------------------------------------------------------------------------------------------------------

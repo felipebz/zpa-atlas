@@ -419,6 +419,35 @@ td.num, th.num { text-align: right; white-space: nowrap; width: 1%; }
 .impact-page details.ngroup { border-top: 1px solid var(--border); padding: 6px 0; }
 .impact-page details.ngroup > summary { cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
 .impact-page details.ngroup .rows { margin-top: 6px; }
+/*
+ * The tree tab: each object under the one it was first reached through. A vertical line runs down each level from its
+ * parent, a short horizontal one reaches each line; the last child's vertical line stops at it. A line with children
+ * opens and folds on a click anywhere on it. Names break after an underscore, a comma or a space, not inside a word.
+ */
+.impact-page .tree-about { flex-basis: 100%; margin: 0; }
+ul.tree, ul.tree ul { list-style: none; margin: 0; padding: 0; }
+ul.tree ul { padding-left: 10px; }
+ul.tree ul > li { position: relative; padding-left: 16px; }
+ul.tree ul > li::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-left: 1px solid var(--border-strong); }
+ul.tree ul > li:last-child::before { bottom: auto; height: calc(0.5lh + 3px); }
+ul.tree ul > li::after { content: ""; position: absolute; left: 0; top: calc(0.5lh + 3px); width: 12px; border-top: 1px solid var(--border-strong); }
+ul.tree .tree-line { padding: 3px 0; overflow-wrap: normal; }
+ul.tree .tree-line a { overflow-wrap: normal; }
+ul.tree summary.tree-line { cursor: pointer; }
+ul.tree summary.tree-line:hover { background: var(--surface-2); }
+ul.tree .kind.only { vertical-align: baseline; }
+ul.tree li.more { padding-top: 2px; padding-bottom: 2px; }
+ul.tree .steps { display: none; }
+@media (max-width: 700px) {
+  ul.tree ul { padding-left: 4px; }
+  ul.tree ul > li { padding-left: 12px; }
+  ul.tree ul > li::after { width: 8px; }
+  /* From the fourth level on: no further indent and no lines; the line says how far the object is instead. */
+  ul.tree li[data-level="3"] ul, ul.tree li[data-level="3"] ul > li { padding-left: 0; }
+  ul.tree li[data-level="3"] ul > li::before, ul.tree li[data-level="3"] ul > li::after { display: none; }
+  ul.tree li[data-level="3"] ul > li { border-top: 1px dotted var(--border); }
+  ul.tree .steps { display: inline; }
+}
 /* Fixed columns but Name, which gets the rest: the minimum width keeps at least 16em for it. */
 table.impact { min-width: 56em; table-layout: fixed; }
 table.impact.with-stop { min-width: 66em; }
