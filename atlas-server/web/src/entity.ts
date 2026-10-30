@@ -8,16 +8,16 @@ import {
     kindLabel,
     listNameOptions,
     nameHtml,
+    placeHtml,
     roleLabel,
     specBodyLinks,
-    statusBadge,
     statusLabel,
     valueKindLabel
 } from "./entity-html";
 import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
 import {entityPath, entityTags, places, routineRows} from "./entity-view";
 import {kindOrder} from "./kinds";
-import {entityHref, esc, getOrPut, impactHref, langSuffix, literalText, queryHref, scrollTable} from "./html";
+import {entityHref, esc, getOrPut, impactHref, literalText, queryHref, scrollTable} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {displayParts, parentKeyOf} from "./names";
 import {currentProject, setPageTitle} from "./project";
@@ -48,8 +48,6 @@ setupUseRows();
 const key = new URLSearchParams(location.search).get("key") ?? "";
 const SUBPROGRAM_KINDS = ["PROCEDURE", "FUNCTION"];
 const VIEWED_KINDS = ["TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "UNKNOWN_RELATION", "COLUMN"];
-/** Kinds whose body holds code: their body place reads "implemented". */
-const CODE_KINDS = [...SUBPROGRAM_KINDS, "PACKAGE", "TYPE", "TRIGGER"];
 const state: {
   roles: Set<string>; statuses: Set<string>; implementations: boolean; children: boolean; views: boolean; after: number | null;
   scopes: ScopeName[]; direct: UsesBlock | null; ambiguous: UsesBlock | null; own: string;
@@ -59,14 +57,6 @@ const state: {
   roles: new Set(), statuses: new Set(), implementations: false, children: false, views: false, after: null,
   scopes: [], direct: null, ambiguous: null, own: "", side: null, kind: "", display: ""
 };
-
-/** The message [key] as HTML, its placeholders filled with the HTML of [html] (the rest of the text escaped). */
-function fillHtml(key: string, html: Record<string, string>) {
-  const names = Object.keys(html);
-  let text = esc(t(key, Object.fromEntries(names.map((name, i) => [name, `\u0001${i}\u0001`]))));
-  names.forEach((name, i) => { text = text.replace(`\u0001${i}\u0001`, html[name]); });
-  return text;
-}
 
 /** A section's heading and the line saying what it holds. */
 function sectionHead(title: string, line: string) {
@@ -90,20 +80,6 @@ function specBodyGroups<T>(list: T[], keyOf: (item: T) => string) {
     else group.body = item;
   }
   return [...groups.values()];
-}
-
-/** A place of the header as HTML: the half it is in (a link to the other half's page) and its line, linking to the file. */
-function placeHtml(place: Place, kind: string, status: string | null) {
-  const lineLink = `<a href="file.html?path=${encodeURIComponent(place.path)}&line=${place.line}${langSuffix()}#L${place.line}" ` +
-    `title="${esc(`${place.path}:${place.line}:${place.col}`)}">${esc(t("entity.line", { line: place.line }))}</a>`;
-  // A path may break after each slash, so a long one wraps on a phone.
-  const line = place.file ? fillHtml("entity.where.file", { path: `<span class="mono">${esc(place.path).replace(/\//g, "/<wbr>")}</span>`, line: lineLink }) : lineLink;
-  const badge = status && status !== "RESOLVED" ? " " + statusBadge(status) : "";
-  if (place.half === null) return line + badge;
-  const word = esc(t(place.half === "spec" ? "entity.where.theSpec" : "entity.where.theBody"));
-  const part = place.partner ? `<a class="half" href="${entityHref(place.partner.key)}">${word}</a>` : word;
-  const message = place.half === "spec" ? "entity.where.declared" : CODE_KINDS.includes(kind) ? "entity.where.implemented" : "entity.where.declaredBody";
-  return fillHtml(message, { part, line }) + badge;
 }
 
 /**

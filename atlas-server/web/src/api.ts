@@ -292,7 +292,23 @@ export interface FileView {
   lines: string[];
   entities: EntitySummary[];
   occurrences: FileOccurrence[];
+  /** How the indexer's parse of the file went: `OK`, `RECOVERED` or `FAILED`. */
+  parseStatus: string;
+  objects: FileObject[];
+  /** With `colors=true`: `[startLine, startCol, endLine, endCol, color]` (see [CODE_COLORS]); null when not read. */
+  colors: number[][] | null;
 }
+
+/** An object the file declares at its top level, with the members it declares directly. */
+export interface FileObject {
+  unitKind: string;
+  entity: EntitySummary;
+  line: number;
+  members: { entity: EntitySummary; line: number }[];
+}
+
+/** The colors of [FileView.colors], by their number: the analyzer's highlighter's kinds of text. */
+export const CODE_COLORS = ["keyword", "literal", "comment", "doc"] as const;
 
 /** One line a text search found: [id] is what `after` takes; [stale] is null when the server cannot read the file. */
 export interface TextHit {

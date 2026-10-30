@@ -15,13 +15,15 @@ import java.time.Duration
  *
  * @param sourcesRoot the folder the indexed paths are relative to, or null when sources are not available
  * @param queryTimeout how long an occurrence query may run before it is interrupted ([QueryTimeoutException])
+ * @param colorer what colors a file's text for [file]; null when the server colors none
  */
 class AtlasIndex(
     val database: Path,
     val sourcesRoot: Path?,
     private val queryTimeout: Duration = DEFAULT_QUERY_TIMEOUT,
     /** The most nodes [impactView] answers. */
-    private val maxViewNodes: Int = MAX_VIEW_NODES
+    private val maxViewNodes: Int = MAX_VIEW_NODES,
+    private val colorer: CodeColorer? = null
 ) {
 
     /**
@@ -250,12 +252,15 @@ class AtlasIndex(
     }
 
     /**
-     * The whole of an indexed file with its occurrences at their name spans, or null when sources are not available.
-     * A stale file has no occurrences: their spans would point at the wrong text.
+     * The whole of an indexed file with its occurrences at their name spans and the objects it declares, or null when
+     * sources are not available. A stale file has no occurrences and no objects: their lines would point at the wrong
+     * text. With [colors], the text's colored spans, read now from the text served; none when there is no colorer or
+     * it cannot read the text.
      *
      * @throws InvalidQueryException when [path] is not a file of the index or leaves the sources root
      */
-    fun file(path: String): Answer<FileView?> = read { connection, _ -> SourceReader(connection, sourcesRoot).file(path) }
+    fun file(path: String, colors: Boolean = false): Answer<FileView?> =
+        read { connection, _ -> SourceReader(connection, sourcesRoot).file(path, colorer.takeIf { colors }) }
 
     /**
      * The lines of the indexed files that contain [text], a literal piece of text compared without case (`*` and every

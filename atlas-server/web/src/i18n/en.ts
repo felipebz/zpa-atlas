@@ -408,8 +408,8 @@ export default {
 
   "file.missingPath": "No file given.",
   "file.lines": { one: "{count} line", other: "{count} lines" },
-  "file.occurrences": { one: "{count} indexed name", other: "{count} indexed names" },
-  "popover.definition": "Definition",
+  "file.inThisFile": "In this file ({count})",
+  "file.openObject": "Open the page of {name}",
   "popover.usedBy": "Who uses",
   "popover.loading": "loading…",
   "popover.noDefinition": "No definition in the index.",

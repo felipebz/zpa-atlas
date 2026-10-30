@@ -24,10 +24,12 @@ internal class SourceReader(private val connection: Connection, private val sour
         return SourceSnippet(path, (first..last).map { SourceLine(it, text.lines[it - 1]) }, text.stale)
     }
 
-    fun file(path: String): FileView? {
+    fun file(path: String, colorer: CodeColorer?): FileView? {
         val file = sourceFile(path)
         val text = readSource(file) ?: return null
-        if (text.stale) return FileView(path, true, text.lines, emptyList(), emptyList())
+        // The colors are of the text served, stale or not: they come from reading it now, not from the index.
+        val colors = colorer?.let { colorsOf(it, text.text) }
+        if (text.stale) return FileView(path, true, text.lines, emptyList(), emptyList(), file.parseStatus, emptyList(), colors)
         val entityIndexes = LinkedHashMap<Long, Int>()
         fun indexOf(id: Long) = entityIndexes.getOrPut(id) { entityIndexes.size }
         val candidates = connection.query(
@@ -51,7 +53,38 @@ internal class SourceReader(private val connection: Connection, private val sour
                 it.getLong(1) to EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1, it.getString(6))
             }.forEach { summaries[it.first] = it.second }
         }
-        return FileView(path, false, text.lines, entityIndexes.keys.map { summaries.getValue(it) }, occurrences)
+        return FileView(path, false, text.lines, entityIndexes.keys.map { summaries.getValue(it) }, occurrences, file.parseStatus, objects(file), colors)
+    }
+
+    /** The colors of [text] with the run's conditional compilation; none when the colorer fails on it. */
+    private fun colorsOf(colorer: CodeColorer, text: String): List<List<Int>>? {
+        val (ccflags, version) = connection.query("SELECT ccflags, database_version FROM run") { it.getString(1) to it.getString(2) }.single()
+        return try {
+            colorer.colors(text, ccflags, version)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * The objects of [file]: each unit with an entity, at its first line, with the members its entity declares in that
+     * unit (a definition or declaration whose entity's parent is the unit's entity), each at its first line, in file order.
+     */
+    private fun objects(file: SourceFile): List<FileObject> {
+        val units = connection.query(
+            """SELECT u.id, u.kind, u.start_line, e.key, e.kind, e.display, e.external, e.name
+               FROM unit u JOIN entity e ON e.id = u.entity_id WHERE u.file_id = ? ORDER BY u.start_line, u.id""",
+            listOf(file.id)
+        ) { Triple(it.getLong(1), it.getString(2) to it.getInt(3), EntitySummary(it.getString(4), it.getString(5), it.getString(6), it.getInt(7) == 1, it.getString(8))) }
+        val members = connection.query(
+            """SELECT o.unit_id, min(o.start_line), m.key, m.kind, m.display, m.external, m.name
+               FROM occurrence o JOIN unit u ON u.id = o.unit_id JOIN entity m ON m.id = o.entity_id
+               WHERE o.file_id = ? AND o.roles IN ('DEFINITION', 'DECLARATION') AND m.parent_id = u.entity_id AND m.kind IN ($MEMBER_KINDS_SQL)
+               GROUP BY o.unit_id, m.id ORDER BY 2, m.id""",
+            listOf(file.id)
+        ) { it.getLong(1) to FileMember(EntitySummary(it.getString(3), it.getString(4), it.getString(5), it.getInt(6) == 1, it.getString(7)), it.getInt(2)) }
+            .groupBy({ it.first }, { it.second })
+        return units.map { (id, unit, entity) -> FileObject(unit.first, entity, unit.second, members[id].orEmpty()) }
     }
 
     /**
@@ -64,13 +97,14 @@ internal class SourceReader(private val connection: Connection, private val sour
         null
     }
 
-    private class SourceFile(val id: Long, val path: String, val sha256: String, val encoding: String)
+    private class SourceFile(val id: Long, val path: String, val sha256: String, val encoding: String, val parseStatus: String)
 
-    private class SourceText(val lines: List<String>, val stale: Boolean)
+    /** A file's [text] as decoded, its [lines], and whether it changed since indexing. */
+    private class SourceText(val text: String, val lines: List<String>, val stale: Boolean)
 
     private fun sourceFile(path: String): SourceFile =
-        connection.query("SELECT id, sha256, encoding FROM source_file WHERE path = ?", listOf(path)) {
-            SourceFile(it.getLong(1), path, it.getString(2), it.getString(3))
+        connection.query("SELECT id, sha256, encoding, parse_status FROM source_file WHERE path = ?", listOf(path)) {
+            SourceFile(it.getLong(1), path, it.getString(2), it.getString(3), it.getString(4))
         }.singleOrNull() ?: throw InvalidQueryException("Not a file of the index: $path")
 
     private class LeavesRootException(path: String) : InvalidQueryException("Path leaves the sources root: $path")
@@ -95,8 +129,15 @@ internal class SourceReader(private val connection: Connection, private val sour
         if (!Files.isRegularFile(real, LinkOption.NOFOLLOW_LINKS)) return null
         val bytes = Files.readAllBytes(real)
         // The charset the indexer decoded this file with, so lines and columns match the stored spans.
-        return SourceText(AtlasIndex.decode(bytes, file.encoding).lines(), sha256(bytes) != file.sha256)
+        val text = AtlasIndex.decode(bytes, file.encoding)
+        return SourceText(text, text.lines(), sha256(bytes) != file.sha256)
     }
 
     private fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+    private companion object {
+        /** What an object's list shows under it: no parameters, fields or local declarations. */
+        val MEMBER_KINDS_SQL = listOf("PROCEDURE", "FUNCTION", "TYPE", "CURSOR", "PACKAGE_CONSTANT", "PACKAGE_VARIABLE", "EXCEPTION")
+            .joinToString { "'$it'" }
+    }
 }

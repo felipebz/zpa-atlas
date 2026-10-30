@@ -436,10 +436,44 @@ data class FileOccurrence(val at: List<Int>, val roles: List<String>, val status
 
 /**
  * A whole indexed file: its [lines] and, unless it is [stale] (changed since it was indexed, so spans would point at
- * the wrong text), its occurrences, with every entity they refer to listed once in [entities].
+ * the wrong text), its occurrences, with every entity they refer to listed once in [entities], and its [objects].
+ * [parseStatus] is how the indexer's parse went. [colors] are the colored spans of the text when they were asked for
+ * and could be read, else null: each `[startLine, startCol, endLine, endCol, color]` with the [CodeColor] ordinal.
  */
 @Serializable
-data class FileView(val path: String, val stale: Boolean, val lines: List<String>, val entities: List<EntitySummary>, val occurrences: List<FileOccurrence>)
+data class FileView(
+    val path: String,
+    val stale: Boolean,
+    val lines: List<String>,
+    val entities: List<EntitySummary>,
+    val occurrences: List<FileOccurrence>,
+    val parseStatus: String,
+    val objects: List<FileObject>,
+    val colors: List<List<Int>>?
+)
+
+/**
+ * An object a file declares at its top level (a package spec or body, a type or type body, a standalone routine, a
+ * view, a trigger): its [unitKind], its [entity], the [line] it starts at, and the [members] it declares directly.
+ */
+@Serializable
+data class FileObject(val unitKind: String, val entity: EntitySummary, val line: Int, val members: List<FileMember>)
+
+/** A routine, type, cursor, constant, variable or exception an object declares directly, at [line] of the file. */
+@Serializable
+data class FileMember(val entity: EntitySummary, val line: Int)
+
+/** What a span of code is, as the analyzer's highlighter colors it. */
+enum class CodeColor { KEYWORD, LITERAL, COMMENT, DOC_COMMENT }
+
+/**
+ * Colors a file's text the way the analyzer reads it; the server is handed one by the command that starts it, so this
+ * module does not depend on the analyzer. [ccflags] and [databaseVersion] are the run's, as stored. Answers the spans
+ * as [FileView.colors] has them, or null when the text cannot be read.
+ */
+fun interface CodeColorer {
+    fun colors(text: String, ccflags: String?, databaseVersion: String?): List<List<Int>>?
+}
 
 /**
  * One line a text search found: [line] of [path], its [text] as indexed, and [entity], the innermost container of the

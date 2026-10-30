@@ -3,10 +3,13 @@
 <head><meta charset="utf-8"><meta name="application-name" content="zpa-atlas"><meta name="viewport" content="width=device-width, initial-scale=1"><title data-i18n="page.file.title"></title><link rel="stylesheet" href="app.css"></head>
 <body>
 <header class="top"><a href="./" class="home" data-keep-lang>Atlas</a><button type="button" class="goto"><span data-i18n="goto.open"></span><kbd>Ctrl K</kbd></button><nav class="pages"><a href="./" class="nav" data-keep-lang data-i18n="header.objects"></a><a href="query.html" class="nav" data-keep-lang data-i18n="header.uses"></a><a href="text.html" class="nav" data-keep-lang data-i18n="header.code"></a></nav><button type="button" class="run" aria-expanded="false" data-i18n="banner.loading"></button></header>
-<main>
+<main class="file-page">
   <div id="header"></div>
   <div id="stale" class="warn inline" hidden></div>
-  <div id="file"></div>
+  <div class="file-layout">
+    <details id="outline" class="outline" hidden><summary></summary></details>
+    <div id="file"></div>
+  </div>
 </main>
 <div id="popover" class="popover" hidden></div>
 <script type="module" src="./src/file.ts"></script>

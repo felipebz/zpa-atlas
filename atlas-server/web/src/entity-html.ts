@@ -1,5 +1,6 @@
 import type {EntitySummary} from "./api";
-import {entityHref, esc, qualifierHtml} from "./html";
+import type {Place} from "./entity-view";
+import {entityHref, esc, langSuffix, qualifierHtml} from "./html";
 import {t} from "./i18n";
 import {kindMark} from "./kinds";
 import type {NameShape} from "./names";
@@ -91,6 +92,34 @@ export function statusBadge(status: string, reason?: string | null) {
   const pair = pairKey ? t(pairKey) : "";
   if (pair && pair !== pairKey) return `<span class="badge" title="${esc(codes)}">${esc(pair)}</span>`;
   return `<span class="badge st-${esc(status)}" title="${esc(codes)}">${esc(statusLabel(status))}${withReason ? " · " + esc(reasonLabel(reason)) : ""}</span>`;
+}
+
+/** The message [key] as HTML, its placeholders filled with the HTML of [html] (the rest of the text escaped). */
+export function fillHtml(key: string, html: Record<string, string>) {
+  const names = Object.keys(html);
+  let text = esc(t(key, Object.fromEntries(names.map((name, i) => [name, `\u0001${i}\u0001`]))));
+  names.forEach((name, i) => { text = text.replace(`\u0001${i}\u0001`, html[name]); });
+  return text;
+}
+
+/** Kinds whose body holds code: their body place reads "implemented". */
+const CODE_KINDS = ["PROCEDURE", "FUNCTION", "PACKAGE", "TYPE", "TRIGGER"];
+
+/**
+ * A place of an entity as HTML: the half it is in (a link to the other half's page) and its line, linking to the file
+ * (`Declared in the spec, pkg/a.pks, line 1`); with [status] other than resolved, its badge.
+ */
+export function placeHtml(place: Place, kind: string, status: string | null) {
+  const lineLink = `<a href="file.html?path=${encodeURIComponent(place.path)}&line=${place.line}${langSuffix()}#L${place.line}" ` +
+    `title="${esc(`${place.path}:${place.line}:${place.col}`)}">${esc(t("entity.line", { line: place.line }))}</a>`;
+  // A path may break after each slash, so a long one wraps on a phone.
+  const line = place.file ? fillHtml("entity.where.file", { path: `<span class="mono">${esc(place.path).replace(/\//g, "/<wbr>")}</span>`, line: lineLink }) : lineLink;
+  const badge = status && status !== "RESOLVED" ? " " + statusBadge(status) : "";
+  if (place.half === null) return line + badge;
+  const word = esc(t(place.half === "spec" ? "entity.where.theSpec" : "entity.where.theBody"));
+  const part = place.partner ? `<a class="half" href="${entityHref(place.partner.key)}">${word}</a>` : word;
+  const message = place.half === "spec" ? "entity.where.declared" : CODE_KINDS.includes(kind) ? "entity.where.implemented" : "entity.where.declaredBody";
+  return fillHtml(message, { part, line }) + badge;
 }
 
 /** A kind as a colored square with its letters, then its label; [compact] shows the square alone, the label as its tooltip. */

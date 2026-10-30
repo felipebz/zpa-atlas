@@ -11,24 +11,9 @@ import com.felipebz.zpa.atlas.cli.oracle.LoadedMetadata
 import com.felipebz.zpa.atlas.cli.oracle.OracleMetadataLoader
 import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
-import com.felipebz.zpa.atlas.index.ConditionalCompilationText
-import com.felipebz.zpa.atlas.index.DatabaseVersionOrigin
-import com.felipebz.zpa.atlas.index.IndexOptions
-import com.felipebz.zpa.atlas.index.Indexer
-import com.felipebz.zpa.atlas.index.PendingFactsCache
-import com.felipebz.zpa.atlas.index.PhaseTimes
-import com.felipebz.zpa.atlas.index.SourceDecoding
-import com.felipebz.zpa.atlas.index.SourceIdentifiers
+import com.felipebz.zpa.atlas.index.*
 import com.felipebz.zpa.atlas.query.AtlasIndex
-import com.felipebz.zpa.atlas.server.AuthDiscoveryException
-import com.felipebz.zpa.atlas.server.AuthSettings
-import com.felipebz.zpa.atlas.server.BasePath
-import com.felipebz.zpa.atlas.server.MCP_LOCAL_HOSTS
-import com.felipebz.zpa.atlas.server.McpSettings
-import com.felipebz.zpa.atlas.server.PageClient
-import com.felipebz.zpa.atlas.server.ProjectState
-import com.felipebz.zpa.atlas.server.ServedProject
-import com.felipebz.zpa.atlas.server.serveProjects
+import com.felipebz.zpa.atlas.server.*
 import com.felipebz.zpa.atlas.stats.Stats
 import com.felipebz.zpa.squid.CcValue
 import com.felipebz.zpa.squid.ConditionalCompilationSettings
@@ -236,7 +221,8 @@ private fun launch(serve: ServeLaunch) {
     if (serve.projects.isNotEmpty()) {
         serveProjects(serve.projects, serve.host, serve.port, serve.mcp, serve.auth, serve.basePath, serve.defaultProject)
     } else {
-        com.felipebz.zpa.atlas.server.serve(AtlasIndex(serve.database!!, serve.sources), serve.host, serve.port, serve.mcp, serve.auth, serve.basePath)
+        val index = AtlasIndex(serve.database!!, serve.sources, colorer = ZpaCodeColorer)
+        com.felipebz.zpa.atlas.server.serve(index, serve.host, serve.port, serve.mcp, serve.auth, serve.basePath)
     }
 }
 
@@ -303,7 +289,7 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
     val folder = ProjectFolder.read(Path.of(args.projects.trim()))
     val projects = folder.projects.map { project ->
         val sources = Path.of(project["sources"]!!)
-        ServedProject(project.name, Path.of(project["index"]!!), sources.takeIf { Files.isDirectory(it) }, project.title, project.description)
+        ServedProject(project.name, Path.of(project["index"]!!), sources.takeIf { Files.isDirectory(it) }, project.title, project.description, ZpaCodeColorer)
     }
     val defaultProject = args.defaultProject.trim().ifEmpty { null }
     if (defaultProject != null && projects.none { it.name == defaultProject }) {

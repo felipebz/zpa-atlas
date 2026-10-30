@@ -13,7 +13,12 @@ Requirements: JDK 25 (pinned in `.java-version`). `./gradlew build` builds and t
   `/api/query/summary`, `/api/query/groups`, `/api/impact`, `/api/impact/graph`, `/api/text`), and the MCP endpoint `/mcp` over the same calls. `/api/codes` lists the
   stored codes (reasons and parse statuses included) and reads no index; the pages label every one of them in each
   catalog, which a test checks. `/api/occurrences` takes `side=OUTSIDE|INSIDE` (in the units of the entity itself, a
-  package's or type's spec and body, or elsewhere) and counts both sides in `facets.bySide`.
+  package's or type's spec and body, or elsewhere) and counts both sides in `facets.bySide`. `/api/file` answers the
+  file's lines, occurrences and the entities they name, its `parseStatus`, its `objects` (each top-level unit with an
+  entity, with the members it declares directly) and, with `colors=true`, `colors`: `[startLine, startCol, endLine,
+  endCol, color]` spans (0 keyword, 1 literal, 2 comment, 3 documentation comment), or null when the server has no
+  colorer or the lexer cannot read the text. The colors come from zpa's lexer in `atlas-core`, handed to the server by
+  the `serve` command: `atlas-query` and `atlas-server` do not depend on zpa.
 - `atlas-cli`: the `zpa-atlas` command.
 - `atlas-devtools`: measurement tools.
 

@@ -10,7 +10,8 @@
   --kind-unit: #6a4bc4; --kind-type: #9a5b12; --kind-relation: #127567; --kind-member: #b0412f; --kind-other: #5b6577;
   --on-kind: #ffffff;
   --ok: #1b7a45; --ok-soft: #e1f3e8;
-  --code-str: #1b7a45;
+  /* Code, colored as the analyzer's highlighter reads it: keywords, literals, comments and documentation comments. */
+  --code-kw: #8a2bb0; --code-str: #1b7a45; --code-com: #646e7c; --code-doc: #2c6a8c;
   --warning: #9a5c00; --warning-soft: #fdf0d9; --warning-line: #f0d39a;
   --error: #b3261e; --error-soft: #fbe4e2;
   --external: #2456c4; --external-soft: #e5edfc;
@@ -285,17 +286,54 @@ table.params td { overflow-wrap: anywhere; }
 ul.cols { columns: 22em; column-gap: 24px; }
 ul.cols li { break-inside: avoid; }
 
-/* File: the source with its occurrences, and the popover over one. */
-.file-src { background: var(--surface); border: 1px solid var(--border); padding: 4px 0; white-space: pre; overflow-x: auto; tab-size: 8; line-height: 18px; }
+/*
+ * File: the title, the objects of the file beside the code, the code colored as the analyzer reads it, and the
+ * popover over a name. The code box scrolls sideways inside itself; its line numbers stay in view while it does.
+ */
+.file-title { margin: 0 0 2px; font-size: var(--fs-2xl); line-height: 1.2; overflow-wrap: anywhere; }
+.file-title .folder { color: var(--muted); font-weight: 400; font-size: var(--fs-l); margin-right: 2px; }
+.file-page .facts { margin: 0 0 var(--gap); font-size: var(--fs-s); }
+.file-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: var(--gap); align-items: start; }
+.file-layout:has(> .outline[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.outline { position: sticky; top: calc(var(--stick-top) + var(--gap)); font-size: var(--fs-s); }
+.outline > summary { display: none; }
+.outline ol { list-style: none; margin: 0; padding: 0; max-height: calc(100vh - var(--stick-top) - 2 * var(--gap)); overflow-y: auto; }
+.outline li { display: flex; align-items: center; gap: 2px; }
+.outline li.d1 { padding-left: 14px; }
+.outline a.go { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 2px 6px; border-left: 2px solid transparent;
+  border-radius: 0 var(--radius) var(--radius) 0; color: inherit; text-decoration: none; }
+.outline a.go:hover { background: var(--surface-2); }
+.outline a.go[aria-current] { border-left-color: var(--accent); background: var(--surface); }
+.outline li.d0 a.go > .name .name { font-weight: 600; }
+.outline a.go > .name { min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
+.outline a.go .kind { flex: none; }
+.outline a.go .line { margin-left: auto; padding-left: 6px; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.outline a.open { flex: none; padding: 0 4px; color: var(--faint); text-decoration: none; font-size: var(--fs-xs); }
+.outline a.open:hover { color: var(--accent); }
+.file-src { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 0; white-space: pre; overflow-x: auto; tab-size: 8; line-height: 18px; }
+.file-src .file-lines { width: max-content; }
 .file-src .block { content-visibility: auto; }
 .file-src .ln { display: block; min-height: 18px; }
 .file-src .ln.hl { background: var(--hl); }
-.file-src .num { display: inline-block; width: 6ch; padding-right: 1ch; margin-right: 1ch; text-align: right; color: var(--faint); text-decoration: none; border-right: 1px solid var(--border); user-select: none; }
+.file-src .num { position: sticky; left: 0; z-index: 1; display: inline-block; width: 6ch; padding-right: 1ch; margin-right: 1ch; text-align: right;
+  color: var(--faint); background: var(--surface); text-decoration: none; border-right: 1px solid var(--border); user-select: none; }
+.file-src .ln.hl .num { background: var(--hl); }
+.tok-keyword { color: var(--code-kw); font-weight: 600; }
+.tok-literal { color: var(--code-str); }
+.tok-comment { color: var(--code-com); font-style: italic; }
+.tok-doc { color: var(--code-doc); font-style: italic; }
+/* A name the index links keeps its link look over any color. */
 .occ { cursor: pointer; }
-.occ.link { color: var(--accent); }
+.occ.link { color: var(--accent); font-weight: 400; }
 .occ.link:hover { text-decoration: underline; }
 .occ.link.quiet { color: inherit; text-decoration: underline dotted var(--warning); }
 .occ.none { cursor: help; text-decoration: underline dotted var(--border-strong); }
+@media (max-width: 700px) {
+  .file-layout { grid-template-columns: minmax(0, 1fr); }
+  .outline { position: static; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .outline > summary { display: list-item; padding: 6px 10px; cursor: pointer; font-weight: 600; }
+  .outline ol { max-height: 50vh; padding: 0 4px 6px; }
+}
 .popover { position: absolute; z-index: 10; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-popover); padding: 8px 10px; max-width: 560px; font-size: var(--fs-s); }
 .popover .occurrence + .occurrence { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
 .popover .target { margin: 4px 0 4px 8px; }

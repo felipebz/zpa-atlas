@@ -48,6 +48,11 @@ first, grouped by calling program, and switches to the uses inside its own spec 
 a change to the entity reaches, up to the entry points (the code nothing in the index calls), grouped by package, with
 the path behind each one and a CSV export.
 
+A file page shows the whole file, colored the way zpa's own highlighter colors it (keywords, literals, comments and
+documentation comments, from zpa's lexer, with the run's conditional compilation), each indexed name a link to a
+popover with its status and where it is declared. Beside the code (above it, closed, on a phone), "In this file" lists
+the objects the file declares and their members; an entry moves the code to its line.
+
 ## Agents (MCP)
 
 The server answers MCP at `/mcp` (Streamable HTTP), with read-only tools over the same answers as the web page.

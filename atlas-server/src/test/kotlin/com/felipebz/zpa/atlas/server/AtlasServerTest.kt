@@ -8,6 +8,7 @@ package com.felipebz.zpa.atlas.server
 import com.felipebz.zpa.atlas.Fixture
 import com.felipebz.zpa.atlas.model.*
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import com.felipebz.zpa.atlas.query.CodeColorer
 import com.felipebz.zpa.atlas.query.GroupDimension
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -275,6 +276,54 @@ class AtlasServerTest {
             assertThat(json(response.bodyAsText())["error"]!!.jsonPrimitive.content).describedAs(path).contains("narrow the filters")
         }
         assertThat(client.get("/api/run").status).isEqualTo(HttpStatusCode.OK)
+    }
+
+    @Test
+    fun `a file answer lists the objects the file declares, each with the members it declares directly, in file order`() = api {
+        suspend fun objects(path: String) = json(client.get("/api/file") { parameter("path", path) }.bodyAsText())["result"]!!.jsonObject["objects"]!!.jsonArray.map { o ->
+            val obj = o.jsonObject
+            val head = "${obj["unitKind"]!!.jsonPrimitive.content} ${obj["entity"]!!.jsonObject["key"]!!.jsonPrimitive.content} ${obj["line"]!!.jsonPrimitive.content}"
+            listOf(head) + obj["members"]!!.jsonArray.map { m ->
+                "  ${m.jsonObject["entity"]!!.jsonObject["kind"]!!.jsonPrimitive.content} ${m.jsonObject["entity"]!!.jsonObject["name"]!!.jsonPrimitive.content} ${m.jsonObject["line"]!!.jsonPrimitive.content}"
+            }
+        }.flatten()
+        assertThat(objects("hr/pack_calls.pks")).containsExactly(
+            "PACKAGE db:HR.PACK_CALLS 1", "  TYPE T_NUMS 2", "  PACKAGE_VARIABLE G_TAB 3", "  FUNCTION F_PUB 4", "  PROCEDURE P_PUB 5",
+            "  PROCEDURE P_PUB 6", "  PROCEDURE P_MIX 7", "  PROCEDURE P_MIX 8"
+        )
+        // A body lists its routines, private ones included; a subprogram nested in a routine is not the package's.
+        val body = objects("hr/pack_calls.pkb")
+        assertThat(body).startsWith("PACKAGE_BODY db:HR.PACK_CALLS 1", "  PROCEDURE P_PRIV 2", "  PROCEDURE P_OVER 7", "  PROCEDURE P_OVER 8",
+            "  PROCEDURE P_MIX 10", "  PROCEDURE P_PUB 12", "  PROCEDURE P_PUB 13", "  FUNCTION F_PUB 15", "  PROCEDURE P_MIX 20")
+        assertThat(body).noneMatch { it.contains("LOCAL_P") }
+        // A type and a type body, each its own object; the index has no entities for a type's attributes and methods.
+        assertThat(objects("hr/ty_shapes.typ")).containsExactly("TYPE db:HR.TY_SHAPE 1", "TYPE db:HR.TY_CIRCLE 3", "TYPE_BODY db:HR.TY_CIRCLE 5")
+        assertThat(json(client.get("/api/file") { parameter("path", "hr/pack_calls.pks") }.bodyAsText())["result"]!!.jsonObject["parseStatus"]!!.jsonPrimitive.content)
+            .isEqualTo("OK")
+    }
+
+    @Test
+    fun `a file's colors come only when asked, with the run's conditional compilation, and a colorer that fails gives none`() {
+        val asked = mutableListOf<Pair<String?, String?>>()
+        val span = listOf(1, 0, 1, 6, 0)
+        fun served(colorer: CodeColorer, colors: Boolean): JsonElement? {
+            var result: JsonElement? = null
+            testApplication {
+                application { atlasModule(AtlasIndex(temp.resolve("fixture.db"), Fixture.sources, colorer = colorer)) }
+                val response = client.get("/api/file") { parameter("path", "hr/pack_calls.pks"); if (colors) parameter("colors", "true") }
+                assertThat(response.status).isEqualTo(HttpStatusCode.OK)
+                result = json(response.bodyAsText())["result"]!!.jsonObject["colors"]
+            }
+            return result
+        }
+        val working = CodeColorer { text, ccflags, version -> asked += ccflags to version; if (text.startsWith("create or replace package pack_calls")) listOf(span) else null }
+        assertThat(served(working, colors = false)).isEqualTo(JsonNull)
+        assertThat(asked).isEmpty()
+        assertThat(served(working, colors = true)).isEqualTo(JsonArray(listOf(JsonArray(span.map { JsonPrimitive(it) }))))
+        assertThat(asked).containsExactly(null to null)
+        // A text the lexer cannot read: the file is served, without colors.
+        assertThat(served(CodeColorer { _, _, _ -> null }, colors = true)).isEqualTo(JsonNull)
+        assertThat(served(CodeColorer { _, _, _ -> throw IllegalStateException("cannot lex") }, colors = true)).isEqualTo(JsonNull)
     }
 
     @Test

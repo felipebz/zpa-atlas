@@ -6,36 +6,18 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.query.AtlasIndex
-import io.ktor.client.HttpClient
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.Application
-import io.ktor.server.application.ApplicationCall
-import io.ktor.server.application.ApplicationStopped
-import io.ktor.server.application.createRouteScopedPlugin
-import io.ktor.server.application.install
-import io.ktor.server.application.log
-import io.ktor.server.cio.CIO
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.http.content.staticResources
-import io.ktor.server.request.path
-import io.ktor.server.request.queryString
-import io.ktor.server.response.header
-import io.ktor.server.response.respond
-import io.ktor.server.response.respondRedirect
-import io.ktor.server.response.respondText
-import io.ktor.server.routing.get
-import io.ktor.server.routing.head
-import io.ktor.server.routing.route
-import io.ktor.server.routing.routing
+import com.felipebz.zpa.atlas.query.CodeColorer
+import io.ktor.client.*
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.cio.*
+import io.ktor.server.engine.*
+import io.ktor.server.http.content.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.*
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -46,14 +28,21 @@ internal const val PROJECTS_SEGMENT = "p"
  * A project the server serves: [name] is a segment of its URLs, [indexFile] the index `index --project` writes, and
  * [sources] its sources folder, null when it is not on this machine. The index file may not exist yet: the project is
  * then not indexed, and is served as soon as the file appears. [title] and [description] tell people and agents which
- * codebase it is.
+ * codebase it is. [colorer] colors its files' text on the file page.
  */
-class ServedProject(val name: String, val indexFile: Path, val sources: Path?, val title: String? = null, val description: String? = null) {
+class ServedProject(
+    val name: String,
+    val indexFile: Path,
+    val sources: Path?,
+    val title: String? = null,
+    val description: String? = null,
+    colorer: CodeColorer? = null
+) {
     init {
         require(NAME.matches(name)) { "A project name is lower-case letters, digits, '-' and '_', starting with a letter or a digit: $name" }
     }
 
-    val index = AtlasIndex(indexFile, sources)
+    val index = AtlasIndex(indexFile, sources, colorer = colorer)
 
     /** Whether the index file exists: the project has been indexed. */
     val indexed: Boolean get() = Files.isRegularFile(indexFile)

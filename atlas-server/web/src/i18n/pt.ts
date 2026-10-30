@@ -407,8 +407,8 @@ export default {
 
   "file.missingPath": "Nenhum arquivo informado.",
   "file.lines": { one: "{count} linha", other: "{count} linhas" },
-  "file.occurrences": { one: "{count} nome indexado", other: "{count} nomes indexados" },
-  "popover.definition": "Definição",
+  "file.inThisFile": "Neste arquivo ({count})",
+  "file.openObject": "Abrir a página de {name}",
   "popover.usedBy": "Quem usa",
   "popover.loading": "carregando…",
   "popover.noDefinition": "Nenhuma definição no índice.",

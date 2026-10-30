@@ -215,7 +215,8 @@ internal fun Route.indexApi(index: AtlasIndex) {
             call.optional("containerName"), call.long("after"), call.int("limit") ?: 100))
     }
     get("/file") {
-        val answer = index.file(call.required("path"))
+        // The page asks for the colors; other readers of the answer do not pay for them.
+        val answer = index.file(call.required("path"), colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false)
         if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
     }
 }
