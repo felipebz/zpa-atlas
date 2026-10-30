@@ -84,6 +84,7 @@ class AtlasServerTest {
         assertThat(client.get("/api/occurrences") { parameter("key", runJob5); parameter("roles", "NOPE") }.status).isEqualTo(HttpStatusCode.BadRequest)
         assertThat(client.get("/api/occurrences") { parameter("key", runJob5); parameter("status", "NOPE") }.status).isEqualTo(HttpStatusCode.BadRequest)
         assertThat(client.get("/api/occurrences") { parameter("key", runJob5); parameter("scope", "ALL") }.status).isEqualTo(HttpStatusCode.BadRequest)
+        assertThat(client.get("/api/occurrences") { parameter("key", runJob5); parameter("side", "NEAR") }.status).isEqualTo(HttpStatusCode.BadRequest)
         assertThat(client.get("/api/source") { parameter("path", "../x.sql"); parameter("line", "1") }.status).isEqualTo(HttpStatusCode.BadRequest)
         assertThat(client.get("/api/file") { parameter("path", "hr/no_such.sql") }.status).isEqualTo(HttpStatusCode.BadRequest)
         assertThat(client.get("/api/file").status).isEqualTo(HttpStatusCode.BadRequest)
@@ -91,6 +92,33 @@ class AtlasServerTest {
         assertThat(client.get("/api/occurrences") { parameter("key", "db:NO.SUCH") }.status).isEqualTo(HttpStatusCode.NotFound)
         val error = json(client.get("/api/entity").bodyAsText())
         assertThat(error["error"]!!.jsonPrimitive.content).isEqualTo("Missing parameter: key")
+    }
+
+    @Test
+    fun `a package's uses split into those of other programs and those of its own spec and body`() = api {
+        val pack = "db:HR.PACK_CALLS"
+        suspend fun page(side: String?) = json(client.get("/api/occurrences") {
+            parameter("key", pack); parameter("scope", "SELF,IMPLEMENTATIONS,CHILDREN"); parameter("limit", "500")
+            side?.let { parameter("side", it) }
+        }.bodyAsText())["result"]!!.jsonObject
+        fun JsonObject.total() = getValue("total").jsonPrimitive.long
+        fun JsonObject.units() = getValue("rows").jsonArray.map { it.jsonObject.getValue("unit").jsonObject["entity"]?.takeIf { e -> e != JsonNull }?.jsonObject?.get("key")?.jsonPrimitive?.content }
+        fun JsonObject.bySide() = getValue("facets").jsonObject.getValue("bySide").jsonArray.associate {
+            it.jsonObject.getValue("value").jsonPrimitive.content to it.jsonObject.getValue("count").jsonPrimitive.long
+        }
+        val all = page(null)
+        val outside = page("OUTSIDE")
+        val inside = page("INSIDE")
+        // The same rule as the home page's packages most used from outside: the unit's entity is the package or not.
+        assertThat(inside.units()).isNotEmpty().allMatch { it == pack }
+        assertThat(outside.units()).isNotEmpty().allMatch { it != pack }
+        assertThat(outside.total() + inside.total()).isEqualTo(all.total())
+        // Both sides are counted whatever side is listed; the role facet counts the side listed.
+        for (p in listOf(all, outside, inside)) assertThat(p.bySide()).isEqualTo(mapOf("INSIDE" to inside.total(), "OUTSIDE" to outside.total()))
+        val roles = { p: JsonObject -> p.getValue("facets").jsonObject.getValue("byRole").jsonArray.sumOf { it.jsonObject.getValue("count").jsonPrimitive.long } }
+        assertThat(roles(outside) + roles(inside)).isEqualTo(roles(all))
+        val home = json(client.get("/api/top-packages").bodyAsText())["result"]!!.jsonArray.single { it.jsonObject["entity"]!!.jsonObject["key"]!!.jsonPrimitive.content == pack }
+        assertThat(outside.total()).isEqualTo(home.jsonObject["uses"]!!.jsonPrimitive.long)
     }
 
     @Test
@@ -283,9 +311,33 @@ class AtlasServerTest {
         assertThat(served("statementKinds")).isEqualTo(StatementKind.entries.map { it.name to false })
         assertThat(served("valueKinds")).isEqualTo(ValueKind.entries.map { it.name to false })
         assertThat(served("groupDimensions")).isEqualTo(GroupDimension.entries.map { it.name to false })
+        assertThat(served("reasons")).isEqualTo(Reason.entries.map { it.name to false })
+        assertThat(served("parseStatuses")).isEqualTo(ParseStatus.entries.map { it.name to false })
         assertThat(served("entityKinds").filter { it.second }.map { it.first }).contains("FORMS_TRIGGER").doesNotContain("SYNONYM")
         // Every other endpoint needs the index, which is missing.
         assertThat(client.get("/api/run").status).isNotEqualTo(HttpStatusCode.OK)
+    }
+
+    @Test
+    fun `every served code has a label in each page catalog`() = testApplication {
+        application { atlasModule(AtlasIndex(temp.resolve("no-such-index.db"), null)) }
+        val codes = json(client.get("/api/codes").bodyAsText())
+        // The catalog key of each list's codes, as the pages look them up.
+        val prefixes = mapOf(
+            "roles" to "role", "statuses" to "status", "entityKinds" to "kind", "unitKinds" to "unitKind", "origins" to "origin",
+            "statementKinds" to "statement", "valueKinds" to "valueKind", "groupDimensions" to "query.dimension", "reasons" to "reason",
+            "parseStatuses" to "parse"
+        )
+        assertThat(codes.keys).isEqualTo(prefixes.keys)
+        for (catalog in listOf("en", "pt")) {
+            val text = Files.readString(Path.of("web/src/i18n/$catalog.ts"))
+            // A row's statement kind reads as a phrase of its own ("in an update statement"), so each kind needs one too.
+            val phrases = codes.getValue("statementKinds").jsonArray.map { "usage.inStatement.${it.jsonObject.getValue("code").jsonPrimitive.content}" }
+            val missing = (prefixes.flatMap { (list, prefix) ->
+                codes.getValue(list).jsonArray.map { "$prefix.${it.jsonObject.getValue("code").jsonPrimitive.content}" }
+            } + phrases).filter { "\"$it\":" !in text }
+            assertThat(missing).describedAs("labels missing from $catalog.ts").isEmpty()
+        }
     }
 
     @Test

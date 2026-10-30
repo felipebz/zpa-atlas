@@ -29,6 +29,20 @@ internal val UNIT_KINDS = listOf(
 internal val ORIGINS = listOf("STATIC", "DYNAMIC_LITERAL", "FORMS_IMPLICIT", "HEURISTIC")
 internal val STATEMENT_KINDS = listOf("SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "LOCK", "DYNAMIC", "DDL")
 
+/** Why an occurrence has its status, as the writer's `Reason` declares them. */
+internal val REASONS = listOf(
+    "NOT_IN_PROJECT", "NOT_IN_DICTIONARY", "UNKNOWN_MEMBER", "WRONG_KIND", "QUALIFIER_MISMATCH", "RELATION_UNRESOLVED",
+    "NO_APPLICABLE_CANDIDATE", "INVALID_NOTATION", "LOCAL_SUBPROGRAM", "AMBIGUOUS", "AMBIGUOUS_TARGET", "AMBIGUOUS_COLUMN",
+    "PRIVATE_OVERLOADS", "PRIVATE_SINGLE", "SCHEMA_UNKNOWN", "COLUMNS_UNKNOWN", "COLUMN_NOT_EXCLUDED", "PARTIAL_DECLARATIONS",
+    "INCOMPLETE_INDEX", "DB_LINK", "PARSED", "PARSED_WITH_HOLES", "PARSED_HOLES_DROPPED", "NOT_PARSED", "EXPRESSION",
+    "VARIABLE_PARSED", "VARIABLE_PARSED_WITH_HOLES", "VARIABLE_PARSED_HOLES_DROPPED", "VARIABLE_NOT_PARSED", "VARIABLE_NO_LITERAL",
+    "VARIABLE_SEVERAL_WRITES", "VARIABLE_VALUE_NOT_IN_CODE", "VARIABLE_NEVER_WRITTEN", "VARIABLE_UNSEEN_WRITE",
+    "VARIABLE_NOT_CHARACTER", "VARIABLE_NOT_LOCAL", "VARIABLE_UNRESOLVED"
+)
+
+/** How a file's parse went (`source_file.parse_status`). */
+internal val PARSE_STATUSES = listOf("OK", "RECOVERED", "FAILED")
+
 /** The value kinds whose arguments form one group whatever they pass. */
 internal val VALUES_UNSHOWN = setOf("NULL", "BIND", "EXPRESSION", "DEFAULT")
 internal val USAGE_ROLES: Set<String> = (ROLES - setOf("DEFINITION", "DECLARATION")).toSet()
@@ -62,7 +76,9 @@ fun indexCodes(): Codes {
         origins = codes(ORIGINS, RESERVED_ORIGINS),
         statementKinds = codes(STATEMENT_KINDS),
         valueKinds = codes(VALUE_KINDS),
-        groupDimensions = codes(GroupDimension.entries.map { it.name })
+        groupDimensions = codes(GroupDimension.entries.map { it.name }),
+        reasons = codes(REASONS),
+        parseStatuses = codes(PARSE_STATUSES)
     )
 }
 

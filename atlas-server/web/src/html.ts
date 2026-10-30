@@ -49,9 +49,9 @@ export function scrollTable(inner: string, className?: string) {
   return `<div class="scroll"><table${className ? ` class="${className}"` : ""}>${inner}</table></div>`;
 }
 
-/** `line:col`, linking the whole of [path] at [line]. */
-export function lineLink(path: string, line: number, col: number) {
-  return `<a class="mono" href="file.html?path=${encodeURIComponent(path)}&line=${line}${langSuffix()}#L${line}">${line}:${col}</a>`;
+/** The line number, linking the whole of [path] at [line]; [title] is its tooltip (the column, in words). */
+export function lineLink(path: string, line: number, title: string) {
+  return `<a class="mono" href="file.html?path=${encodeURIComponent(path)}&line=${line}${langSuffix()}#L${line}" title="${esc(title)}">${line}</a>`;
 }
 
 /** A literal as it would be written: strings quoted, the others as stored; null for a name, a bind or an expression. */
@@ -63,9 +63,4 @@ export function literalText(kind: string | null, value: string | null) {
     case "DEFAULT": return "DEFAULT";
     default: return null;
   }
-}
-
-/** Status and reason codes are data, shown as they are; the reason is omitted when it repeats the status. */
-export function statusBadge(status: string, reason?: string | null) {
-  return `<span class="badge st-${esc(status)}">${esc(status)}${reason && reason !== status ? " · " + esc(reason) : ""}</span>`;
 }

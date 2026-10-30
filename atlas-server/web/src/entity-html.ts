@@ -7,6 +7,8 @@ import {listParameterDetail, shownName} from "./names";
 
 export interface NameOptions extends NameShape {
   noBadge?: boolean;
+  /** No "body" badge at all, not even for a member of a body (a header that names the program, not its place). */
+  noBodyBadge?: boolean;
 }
 
 /**
@@ -20,7 +22,7 @@ export function nameHtml(entity: EntitySummary, options?: NameOptions) {
   const qualifier = shown.qualifier ? `<span class="qualifier">${qualifierHtml(shown.qualifier)}</span>` : "";
   const params = shown.params === null ? "" : `<span class="params">${esc(shown.params)}</span>`;
   const name = `<span class="name">${esc(shown.bare).replace(/_/g, "_<wbr>")}${params}${esc(shown.collision)}</span>`;
-  const body = (shown.parts.body && !options?.noBadge) || (shown.parts.qualifierBody && !options?.relative);
+  const body = !options?.noBodyBadge && ((shown.parts.body && !options?.noBadge) || (shown.parts.qualifierBody && !options?.relative));
   const badge = body ? ` <span class="badge">${esc(t("entity.overload.body"))}</span>` : "";
   return `<span class="ename" title="${esc(entity.display)}">${qualifier}${name}${badge}</span>`;
 }
@@ -67,6 +69,29 @@ export const roleLabel = (role: string) => storedLabel("role", role);
 
 /** An entity kind as shown. */
 export const kindLabel = (kind: string) => storedLabel("kind", kind);
+
+/** Other stored codes as shown, by the code list they come from. */
+export const statusLabel = (status: string) => storedLabel("status", status);
+export const reasonLabel = (reason: string) => storedLabel("reason", reason);
+export const originLabel = (origin: string) => storedLabel("origin", origin);
+export const unitKindLabel = (kind: string) => storedLabel("unitKind", kind);
+export const statementLabel = (kind: string) => storedLabel("statement", kind);
+export const valueKindLabel = (kind: string) => storedLabel("valueKind", kind);
+export const parseLabel = (status: string) => storedLabel("parse", status);
+
+/**
+ * A status in words, colored by its meaning, with its reason in words unless it repeats the status; the codes are
+ * the tooltip. A status and reason that together mean something else than the status alone read as one phrase, with
+ * the neutral color: a call to a local subprogram is `UNRESOLVED` only because the index does not list it.
+ */
+export function statusBadge(status: string, reason?: string | null) {
+  const withReason = reason && reason !== status;
+  const codes = withReason ? status + " · " + reason : status;
+  const pairKey = withReason ? `statusReason.${status}.${reason}` : "";
+  const pair = pairKey ? t(pairKey) : "";
+  if (pair && pair !== pairKey) return `<span class="badge" title="${esc(codes)}">${esc(pair)}</span>`;
+  return `<span class="badge st-${esc(status)}" title="${esc(codes)}">${esc(statusLabel(status))}${withReason ? " · " + esc(reasonLabel(reason)) : ""}</span>`;
+}
 
 /** A kind as a colored square with its letters, then its label; [compact] shows the square alone, the label as its tooltip. */
 export function kindBadge(kind: string, compact = false) {

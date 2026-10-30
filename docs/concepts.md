@@ -27,10 +27,13 @@ views, sequences, synonyms, packages, types and standalone subprograms) `DDL_CRE
 | `RESOLVED`       | Found, in the sources or the dictionary.                                     |
 | `UNVERIFIED`     | Not checked, e.g. no dictionary or unknown schema.                           |
 | `AMBIGUOUS`      | Several candidates, e.g. overloads.                                          |
-| `UNRESOLVED`     | Named but not found. The reason says why, e.g. `NOT_IN_DICTIONARY`.          |
+| `UNRESOLVED`     | Named but not found. The reason says why, e.g. `NOT_IN_DICTIONARY`. With `LOCAL_SUBPROGRAM` the name is not missing: it calls a subprogram nested in the caller's own unit, or a method of the type whose body holds the call, which the index does not list as an object. |
 | `EXTERNAL`       | Outside what the index can check, e.g. through a database link (`DB_LINK`). |
 | `DYNAMIC`        | A dynamic statement. The reason says what became of its SQL text, below.     |
 | `PARTIAL_SOURCE` | Inside a region the parser had to recover.                                   |
+
+Every reason the indexer writes is in one declared list, served with the other codes by `/api/codes`; the pages show
+statuses and reasons in words, with the code as the tooltip.
 
 ### Origin
 

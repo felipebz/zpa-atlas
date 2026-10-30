@@ -78,7 +78,10 @@ class AtlasIndex(
      * [Scope.VIEWS] adds gets no children: a join view's columns from another relation stay out. An occurrence hit
      * several ways reports one hit: a direct one before a candidate one, one not added by [Scope.VIEWS] before one
      * added by it ([OccurrenceRow.viaView]). Rows are in occurrence id order, which is source order. Facets count the
-     * whole filtered set: roles under the status filter only, statuses under the role filter only.
+     * whole filtered set: roles under the status filter only, statuses under the role filter only. With [side], only
+     * the rows on that side of [key] ([UsageSide]: in the units whose entity is [key], a package's or type's spec and
+     * body, or elsewhere), and the facets count that side. With [sides], `bySide` counts both sides under the role and
+     * status filters, and each row's [UnitRef.entity] names the program it is in.
      */
     fun occurrences(
         key: String,
@@ -88,11 +91,15 @@ class AtlasIndex(
         includeCandidates: Boolean = true,
         after: Long? = null,
         limit: Int = 100,
-        via: UsagePath? = null
+        via: UsagePath? = null,
+        side: UsageSide? = null,
+        sides: Boolean = false
     ): Answer<OccurrencePage?> {
         if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
         val roleFilter = usageRoles(roles, statuses)
-        return read { connection, _ -> UsageReader(connection).occurrences(key, roleFilter, statuses, scope, includeCandidates, via, after, limit) }
+        return read { connection, _ ->
+            UsageReader(connection).occurrences(key, roleFilter, statuses, scope, includeCandidates, via, side, sides, after, limit)
+        }
     }
 
     /**

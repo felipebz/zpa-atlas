@@ -1,8 +1,8 @@
 import type {Answer, EntitySummary} from "./api";
 import {api, ApiFailure, errorMessage} from "./api";
 import {showBanner} from "./banner";
-import {entityLink, kindBadge, kindLabel, nameHtml} from "./entity-html";
-import {entityHref, esc, langSuffix, scrollTable, statusBadge} from "./html";
+import {entityLink, kindBadge, kindLabel, nameHtml, statusBadge} from "./entity-html";
+import {entityHref, esc, langSuffix, scrollTable} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import type {ImpactAnswer, ImpactTrigger, ImpactView, NodeGroup} from "./impact-model";
 import {

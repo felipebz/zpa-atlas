@@ -137,7 +137,12 @@ internal fun Route.indexApi(index: AtlasIndex) {
             scope = scope,
             includeCandidates = call.optional("candidates")?.toBooleanStrictOrNull() ?: true,
             after = call.long("after"),
-            limit = call.int("limit") ?: 100
+            limit = call.int("limit") ?: 100,
+            side = call.optional("side")?.let { value ->
+                UsageSide.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown side: $value")
+            },
+            // The pages group a package's uses by calling program and count both sides; the MCP tools do not ask.
+            sides = true
         )
         call.respondEntityAnswer(answer)
     }

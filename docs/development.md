@@ -11,7 +11,9 @@ Requirements: JDK 25 (pinned in `.java-version`). `./gradlew build` builds and t
 - `atlas-server`: the web page and its JSON API (`/api/run`, `/api/top-packages`, `/api/codes`, `/api/entities`, `/api/entity`,
   `/api/occurrences`, `/api/source`, `/api/file`, `/api/values`, `/api/value-sites`, `/api/query`,
   `/api/query/summary`, `/api/query/groups`, `/api/impact`, `/api/impact/graph`, `/api/text`), and the MCP endpoint `/mcp` over the same calls. `/api/codes` lists the
-  stored codes and reads no index.
+  stored codes (reasons and parse statuses included) and reads no index; the pages label every one of them in each
+  catalog, which a test checks. `/api/occurrences` takes `side=OUTSIDE|INSIDE` (in the units of the entity itself, a
+  package's or type's spec and body, or elsewhere) and counts both sides in `facets.bySide`.
 - `atlas-cli`: the `zpa-atlas` command.
 - `atlas-devtools`: measurement tools.
 

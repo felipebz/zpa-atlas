@@ -1,24 +1,30 @@
-import { errorMessage } from "./api";
-import { showBanner } from "./banner";
-import { codesOf, loadCodes, NO_CODES } from "./codes";
-import { esc, queryHref } from "./html";
-import { initI18n, t } from "./i18n";
-import { buildForm, readFilters, writeForm } from "./query-form";
-import { runGroups } from "./query-groups";
-import { runList } from "./query-list";
-import { modeAhead, modeBar } from "./query-mode";
-import { filtersOf, hasFilter, modeChosen, modeOf, paramsOf } from "./query-params";
-import type { QueryParams } from "./query-params";
-import { answer, form, state } from "./query-state";
-import { setupSourceToggle } from "./uses";
+import {errorMessage} from "./api";
+import {showBanner} from "./banner";
+import {codesOf, loadCodes, NO_CODES} from "./codes";
+import {esc, queryHref} from "./html";
+import {initI18n, t} from "./i18n";
+import {buildForm, readFilters, writeForm} from "./query-form";
+import {runGroups} from "./query-groups";
+import {runList} from "./query-list";
+import {modeAhead, modeBar} from "./query-mode";
+import type {QueryParams} from "./query-params";
+import {filtersOf, hasFilter, modeChosen, modeOf, paramsOf} from "./query-params";
+import {answer, form, state} from "./query-state";
+import {showExamples} from "./query-try";
+import {setupUseRows} from "./uses";
 
-setupSourceToggle();
+setupUseRows();
+
+/** The "Try" list: shown while no query ran, gone once one runs; Clear brings it back. */
+const tryList = document.getElementById("try")!;
+const offerExamples = () => showExamples(tryList, () => state.current === null);
 
 // ---- running ------------------------------------------------------------------------------------------------------------
 
 /** Runs the query of [params]; the page URL becomes the query. The form stays as it is, the record of the query. */
 function run(params: QueryParams) {
   state.current = params;
+  tryList.hidden = true;
   history.replaceState(null, "", queryHref(params));
   const ran = ++state.generation;
   answer.innerHTML = `<div class="card">${modeBar(params)}<p class="muted">${esc(t("banner.loading"))}</p></div>`;
@@ -35,6 +41,7 @@ function clearAnswer(params?: QueryParams) {
   state.generation++;
   answer.innerHTML = modeAhead(state.opened);
   history.replaceState(null, "", queryHref(params ?? {}));
+  offerExamples();
 }
 
 /**
@@ -115,5 +122,8 @@ document.getElementById("reset")!.addEventListener("click", e => {
   // A URL with filters runs; one without (or with only the mode) never runs the whole index by itself, and shows the
   // mode the next Run uses.
   if (hasFilter(initial)) run(initial);
-  else answer.innerHTML = modeAhead(initial);
+  else {
+    answer.innerHTML = modeAhead(initial);
+    offerExamples();
+  }
 })();

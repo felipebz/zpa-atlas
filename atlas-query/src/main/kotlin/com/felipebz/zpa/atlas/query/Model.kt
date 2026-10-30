@@ -149,6 +149,12 @@ enum class Scope { SELF, IMPLEMENTATIONS, CHILDREN, VIEWS }
 enum class UsagePath { DIRECT, THROUGH_VIEWS }
 
 /**
+ * Where a usage sits against the entity asked about: [INSIDE] its unit is the entity's own (a package's or type's spec
+ * or body: the unit whose entity it is), [OUTSIDE] any other unit, or a script in no entity's unit.
+ */
+enum class UsageSide { OUTSIDE, INSIDE }
+
+/**
  * The scopes "who uses" adds by default for an entity of [kind], as the entity page does: a subprogram's spec or body,
  * a package's spec or body and members, a type's members.
  */
@@ -246,8 +252,12 @@ data class ImpactGraph(
     val nextOffset: Int?
 )
 
+/**
+ * The unit an occurrence is in: its kind, its name, and for "who uses" asked with sides its [entity] (the package,
+ * routine, view, trigger or type whose unit it is; null for a script, and when not asked).
+ */
 @Serializable
-data class UnitRef(val kind: String, val name: String)
+data class UnitRef(val kind: String, val name: String, val entity: EntitySummary? = null)
 
 @Serializable
 data class CallArgument(
@@ -306,7 +316,9 @@ data class Facets(
     val byOrigin: List<Count> = emptyList(),
     val byEntityKind: List<Count> = emptyList(),
     val byUnitKind: List<Count> = emptyList(),
-    val byReason: List<Count> = emptyList()
+    val byReason: List<Count> = emptyList(),
+    /** For "who uses" asked with sides: the hits by [UsageSide], under the role and status filters but not the side's. */
+    val bySide: List<Count>? = null
 )
 
 @Serializable
@@ -402,7 +414,11 @@ data class Codes(
     val origins: List<Code>,
     val statementKinds: List<Code>,
     val valueKinds: List<Code>,
-    val groupDimensions: List<Code>
+    val groupDimensions: List<Code>,
+    /** Why an occurrence has its status (`occurrence.reason`). */
+    val reasons: List<Code>,
+    /** How a file's parse went (`source_file.parse_status`). */
+    val parseStatuses: List<Code>
 )
 
 @Serializable

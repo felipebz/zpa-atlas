@@ -1,5 +1,5 @@
-import { api } from "./api";
-import type { Code, Codes } from "./api";
+import type {Code, Codes} from "./api";
+import {api} from "./api";
 
 // The codes the pages offer and accept come from the server (`/api/codes`), in the order the index writer declares them.
 
@@ -13,7 +13,8 @@ export function loadCodes(): Promise<Codes> {
 
 /** The lists a page shows when the codes could not be read: every picker stays empty. */
 export const NO_CODES: Codes = {
-  roles: [], statuses: [], entityKinds: [], unitKinds: [], origins: [], statementKinds: [], valueKinds: [], groupDimensions: []
+  roles: [], statuses: [], entityKinds: [], unitKinds: [], origins: [], statementKinds: [], valueKinds: [], groupDimensions: [],
+  reasons: [], parseStatuses: []
 };
 
 /** The codes of [list], reserved ones included, in its order. */

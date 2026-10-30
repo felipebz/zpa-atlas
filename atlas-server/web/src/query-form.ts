@@ -1,28 +1,38 @@
-import type { Codes } from "./api";
-import { codesOf, offeredCodes, pickerCodes } from "./codes";
-import { kindLabel, roleLabel } from "./entity-html";
-import { esc } from "./html";
-import { t } from "./i18n";
-import { moreSet } from "./query-params";
-import type { QueryParams } from "./query-params";
-import { field, form, picks, state } from "./query-state";
-import { entityOf, pick, setKept, setupSuggest, suggestBox, unpick } from "./query-suggest";
+import type {Codes} from "./api";
+import {codesOf, offeredCodes, pickerCodes} from "./codes";
+import {
+    kindLabel,
+    originLabel,
+    reasonLabel,
+    roleLabel,
+    statementLabel,
+    statusLabel,
+    unitKindLabel,
+    valueKindLabel
+} from "./entity-html";
+import {esc} from "./html";
+import {t} from "./i18n";
+import type {QueryParams} from "./query-params";
+import {moreSet} from "./query-params";
+import {field, form, picks, state} from "./query-state";
+import {entityOf, pick, setKept, setupSuggest, suggestBox, unpick} from "./query-suggest";
 
 const code = (value: string) => value;
 /** The multi-value filters picked from a list: their code list and how a code is shown. */
 const PICKS: Record<string, [keyof Codes, (code: string) => string]> = {
-  entityKinds: ["entityKinds", kindLabel], unitKinds: ["unitKinds", code], roles: ["roles", roleLabel],
-  statuses: ["statuses", code], origins: ["origins", code], statementKinds: ["statementKinds", code]
+  entityKinds: ["entityKinds", kindLabel], unitKinds: ["unitKinds", unitKindLabel], roles: ["roles", roleLabel],
+  statuses: ["statuses", statusLabel], origins: ["origins", originLabel], statementKinds: ["statementKinds", statementLabel]
 };
 /** The text and select filters of "more filters". */
 const TEXTS = ["schema", "path", "reasons", "value", "external", "valueKind"];
-export const labelOf = (filter: string) => PICKS[filter]?.[1] ?? code;
+/** How a filter's codes are shown: a picker's, and the reasons typed or picked from a facet. */
+export const labelOf = (filter: string) => filter === "reasons" ? reasonLabel : PICKS[filter]?.[1] ?? code;
 
 // ---- the form ---------------------------------------------------------------------------------------------------------
 
 /** One option of a picker; [extra] marks a code the picker shows only because the query has it. */
 function optionHtml(code: string, label: (code: string) => string, extra: boolean) {
-  return `<label class="check"${extra ? " data-extra" : ""}><input type="checkbox" value="${esc(code)}"> ${esc(label(code))}</label>`;
+  return `<label class="check"${extra ? " data-extra" : ""} title="${esc(code)}"><input type="checkbox" value="${esc(code)}"> ${esc(label(code))}</label>`;
 }
 
 /** Fills the pickers with the codes the index produces and sets up the form's fields. */
@@ -31,7 +41,7 @@ export function buildForm(codes: Codes) {
     const [list, label] = PICKS[pick.dataset.name!];
     pick.querySelector(".opts")!.innerHTML = offeredCodes(codes[list]).map(c => optionHtml(c, label, false)).join("");
   }
-  field("valueKind").insertAdjacentHTML("beforeend", codesOf(codes.valueKinds).map(k => `<option value="${k}">${esc(k)}</option>`).join(""));
+  field("valueKind").insertAdjacentHTML("beforeend", codesOf(codes.valueKinds).map(k => `<option value="${esc(k)}" title="${esc(k)}">${esc(valueKindLabel(k))}</option>`).join(""));
   form.querySelectorAll<HTMLElement>(".suggest").forEach(setupSuggest);
   suggestBox("entity").querySelector(".kept button.x")!.addEventListener("click", () => setKept(null));
   form.addEventListener("change", e => {

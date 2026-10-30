@@ -2,27 +2,29 @@ import type {Answer, EntityDetail, EntitySummary, Member, OccurrencePage, Overlo
 import {api, ApiFailure, errorMessage} from "./api";
 import {showBanner} from "./banner";
 import {loadCodes, usageRoles} from "./codes";
-import {entityLink, kindBadge, kindLabel, listNameOptions, nameHtml, roleLabel, specBodyLinks} from "./entity-html";
+import {
+    entityLink,
+    kindBadge,
+    kindLabel,
+    listNameOptions,
+    nameHtml,
+    roleLabel,
+    specBodyLinks,
+    statusBadge,
+    statusLabel,
+    valueKindLabel
+} from "./entity-html";
 import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
 import {entityPath, entityTags, places, routineRows} from "./entity-view";
 import {kindOrder} from "./kinds";
-import {
-    entityHref,
-    esc,
-    getOrPut,
-    impactHref,
-    langSuffix,
-    literalText,
-    queryHref,
-    scrollTable,
-    statusBadge
-} from "./html";
+import {entityHref, esc, getOrPut, impactHref, langSuffix, literalText, queryHref, scrollTable} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {displayParts, parentKeyOf} from "./names";
 import {currentProject, setPageTitle} from "./project";
 import {browserStorage, recordOpened} from "./recent";
 import type {UsesBlock} from "./uses";
-import {renderChips, setupSourceToggle, usesBlock} from "./uses";
+import {renderChips, setupUseRows, usesBlock} from "./uses";
+import type {UsesContext} from "./uses-view";
 
 /** A spec and its body, either of which may be missing. */
 interface SpecBody<T> {
@@ -38,8 +40,10 @@ interface SectionEntry {
 }
 
 type ScopeName = "implementations" | "children" | "views";
+/** Where the uses of a package or type are listed from: other programs, or its own spec and body. */
+type Side = "OUTSIDE" | "INSIDE";
 
-setupSourceToggle();
+setupUseRows();
 
 const key = new URLSearchParams(location.search).get("key") ?? "";
 const SUBPROGRAM_KINDS = ["PROCEDURE", "FUNCTION"];
@@ -49,9 +53,11 @@ const CODE_KINDS = [...SUBPROGRAM_KINDS, "PACKAGE", "TYPE", "TRIGGER"];
 const state: {
   roles: Set<string>; statuses: Set<string>; implementations: boolean; children: boolean; views: boolean; after: number | null;
   scopes: ScopeName[]; direct: UsesBlock | null; ambiguous: UsesBlock | null; own: string;
+  /** The side listed, for a package or a type (null for other entities, which have no switch). */
+  side: Side | null; kind: string; display: string;
 } = {
   roles: new Set(), statuses: new Set(), implementations: false, children: false, views: false, after: null,
-  scopes: [], direct: null, ambiguous: null, own: ""
+  scopes: [], direct: null, ambiguous: null, own: "", side: null, kind: "", display: ""
 };
 
 /** The message [key] as HTML, its placeholders filled with the HTML of [html] (the rest of the text escaped). */
@@ -253,6 +259,10 @@ function renderEntity(entity: EntityDetail) {
 
   state.implementations = [...SUBPROGRAM_KINDS, "PACKAGE"].includes(entity.kind);
   state.children = ["PACKAGE", "TYPE"].includes(entity.kind);
+  // A package or a type lists the uses from other programs first; its own spec and body are the other side.
+  state.kind = entity.kind;
+  state.display = entity.display;
+  state.side = ["PACKAGE", "TYPE"].includes(entity.kind) ? "OUTSIDE" : null;
   state.scopes = [
     [...SUBPROGRAM_KINDS, "PACKAGE"].includes(entity.kind) && "implementations",
     entity.children.length > 0 && "children",
@@ -344,7 +354,7 @@ function valueLabel(group: ValueGroup) {
 function valueRowsHtml(groups: ValueGroup[], from: number, to: number) {
   return groups.slice(from, to).map((g, offset) => {
     const i = from + offset;
-    return `<tr><td><span class="badge">${esc(g.valueKind)}</span></td><td>${valueLabel(g)}</td><td>${esc(formatNumber(g.count))}</td>
+    return `<tr><td><span class="badge" title="${esc(g.valueKind)}">${esc(valueKindLabel(g.valueKind))}</span></td><td>${valueLabel(g)}</td><td>${esc(formatNumber(g.count))}</td>
       <td><a href="#" data-group="${i}">${esc(t("values.sites"))}</a></td></tr>
       <tr hidden data-calls="${i}"><td colspan="4"><button class="more" hidden>${esc(t("usage.more"))}</button></td></tr>`;
   }).join("");
@@ -407,11 +417,38 @@ function renderScope() {
   document.getElementById("scope")!.innerHTML = state.scopes.length === 0 ? "" : esc(t("usage.scope")) + " " + state.scopes.map(toggle).join("");
 }
 
+/** The count of [side] in a page's `bySide` facet. */
+const sideCount = (page: OccurrencePage, side: Side) => page.facets.bySide?.find(c => c.value === side)?.count ?? 0;
+
+/**
+ * The switch between the uses from outside and those inside the package or type, each with its count; none when
+ * neither side has a use.
+ */
+function renderSide(page: OccurrencePage) {
+  const target = document.getElementById("side")!;
+  if (!state.side || sideCount(page, "OUTSIDE") + sideCount(page, "INSIDE") === 0) {
+    target.innerHTML = "";
+    return;
+  }
+  const inside = state.kind === "TYPE" ? "usage.side.insideType" : "usage.side.insidePackage";
+  const button = (side: Side, label: string) =>
+    `<button type="button" data-side="${side}" aria-pressed="${state.side === side}">${esc(t(label, { count: sideCount(page, side) }))}</button>`;
+  target.innerHTML = `<span class="seg" role="group" aria-label="${esc(t("usage.side"))}">${button("OUTSIDE", "usage.side.outside")}${button("INSIDE", inside)}</span>`;
+}
+
+/**
+ * How the rows read: a package or a type groups the uses from outside by calling program, each row naming the member
+ * it hits and the routine it is in, and its own uses by calling routine; other entities group by calling routine.
+ */
+const usesContext = (): UsesContext => ({
+  grouping: state.side === "OUTSIDE" ? "program" : "routine", page: { key, kind: state.kind, display: state.display }
+});
+
 async function loadUsages(reset: boolean) {
   if (reset) {
     state.after = null;
-    state.direct = usesBlock();
-    state.ambiguous = usesBlock();
+    state.direct = usesBlock(usesContext());
+    state.ambiguous = usesBlock(usesContext());
     document.getElementById("direct")!.replaceChildren(state.direct.element);
     document.getElementById("ambiguousRows")!.replaceChildren(state.ambiguous.element);
     document.getElementById("ambiguous")!.hidden = true;
@@ -422,12 +459,13 @@ async function loadUsages(reset: boolean) {
   if (state.views) scope.push("VIEWS");
   const answer = await api<Answer<OccurrencePage>>("api/occurrences", {
     key, scope: scope.join(","), roles: [...state.roles].join(","), status: [...state.statuses].join(","),
-    candidates: true, after: state.after, limit: 100
+    candidates: true, side: state.side, after: state.after, limit: 100
   });
   const page = answer.result;
   renderScope();
+  renderSide(page);
   renderChips("roleChips", page.facets.byRole, state.roles, "role", roleLabel);
-  renderChips("statusChips", page.facets.byStatus, state.statuses, "status");
+  renderChips("statusChips", page.facets.byStatus, state.statuses, "status", statusLabel);
   if (state.roles.size || state.statuses.size) {
     document.getElementById("statusChips")!.insertAdjacentHTML("beforeend", ` <a href="#" id="clear">${esc(t("filters.clear"))}</a>`);
   }
@@ -437,20 +475,25 @@ async function loadUsages(reset: boolean) {
   state.direct!.append(direct);
   state.ambiguous!.append(ambiguous);
   if (ambiguous.length) document.getElementById("ambiguous")!.hidden = false;
-  // Without filters the summary line already says there is no direct use.
-  if (reset && direct.length === 0 && (state.roles.size || state.statuses.size)) {
+  // Without filters the summary line already says there is no direct use; one side can still be empty while the other is not.
+  const otherSide = state.side !== null && sideCount(page, "OUTSIDE") + sideCount(page, "INSIDE") > 0;
+  if (reset && direct.length === 0 && (state.roles.size || state.statuses.size || otherSide)) {
     document.getElementById("direct")!.insertAdjacentHTML("afterbegin", `<p class="muted">${esc(t("usage.noDirect"))}</p>`);
   }
   // The summary line and the section count give the listed total; with members, implementations or views in scope it
-  // is more than the entity's own uses, which the line keeps beside it.
+  // is more than the entity's own uses, which the line keeps beside it. With the switch, the section counts both sides.
   if (reset) {
+    const bothSides = state.side ? sideCount(page, "OUTSIDE") + sideCount(page, "INSIDE") : page.total;
     document.getElementById("total")!.textContent = scope.length > 1
       ? t("usage.scoped", { listed: t("usage.listed", { count: page.total }), own: state.own })
       : t("usage.own", { own: state.own });
-    document.querySelector('#sections a[data-section="usage"] .count')!.textContent = formatNumber(page.total);
-    // The header's count is a fact about the object: the total of the first, unfiltered load, kept while filters change.
+    document.querySelector('#sections a[data-section="usage"] .count')!.textContent = formatNumber(bothSides);
+    // The header's count is a fact about the object: the total of the first, unfiltered load, kept while filters change;
+    // a package or a type names both numbers.
     if (!headerCounted) {
-      document.getElementById("ent-uses")!.textContent = t("search.usages", { count: page.total });
+      document.getElementById("ent-uses")!.textContent = state.side && bothSides > 0
+        ? t("usage.sides", { count: bothSides, outside: sideCount(page, "OUTSIDE") })
+        : t("search.usages", { count: bothSides });
       headerCounted = true;
     }
   }
@@ -477,6 +520,14 @@ document.getElementById("usage")!.addEventListener("click", e => {
     state.roles.clear();
     state.statuses.clear();
     loadUsages(true);
+    return;
+  }
+  const side = (e.target as Element).closest<HTMLElement>("button[data-side]");
+  if (side) {
+    if (side.dataset.side !== state.side) {
+      state.side = side.dataset.side as Side;
+      loadUsages(true);
+    }
     return;
   }
   const chip = (e.target as Element).closest<HTMLElement>(".chip");

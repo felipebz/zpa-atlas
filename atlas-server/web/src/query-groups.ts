@@ -1,6 +1,16 @@
 import type {Answer, EntitySummary, GroupPage, GroupValue, OccurrenceGroup, SearchHit} from "./api";
 import {api} from "./api";
-import {entityLink, kindBadge, roleLabel} from "./entity-html";
+import {
+    entityLink,
+    kindBadge,
+    originLabel,
+    reasonLabel,
+    roleLabel,
+    statementLabel,
+    statusBadge,
+    unitKindLabel,
+    valueKindLabel
+} from "./entity-html";
 import {esc, langSuffix, literalText, queryHref, scrollTable} from "./html";
 import {formatNumber, t} from "./i18n";
 import {parentKeyOf} from "./names";
@@ -54,19 +64,26 @@ async function containerOf(params: QueryParams): Promise<EntitySummary | null> {
   }
 }
 
+/** A stored code in words, the code as its tooltip. */
+const worded = (code: string, label: (code: string) => string) => `<span title="${esc(code)}">${esc(label(code))}</span>`;
+
 /** A group's value; an entity inside the query's [container] without the qualifier the container gives. */
 function groupCell(dimension: string, v: GroupValue, container: EntitySummary | null) {
   const none = `<span class="muted">${esc(t("query.none"))}</span>`;
   switch (dimension) {
     case "ENTITY": case "CONTAINER": return v.entity ? entityLink(v.entity, container ? { within: container } : undefined) : none;
     case "ENTITY_KIND": return v.text ? kindBadge(v.text) : none;
-    case "ROLE": return esc(roleLabel(v.text!));
-    case "UNIT": return v.unit ? `${esc(v.unit.kind)} <span class="mono">${esc(v.unit.name)}</span><div>${fileLink(v.path!)}</div>` : none;
+    case "ROLE": return worded(v.text!, roleLabel);
+    case "STATUS": return v.text ? statusBadge(v.text) : none;
+    case "REASON": return v.text ? worded(v.text, reasonLabel) : none;
+    case "ORIGIN": return v.text ? worded(v.text, originLabel) : none;
+    case "STATEMENT_KIND": return v.text ? worded(v.text, statementLabel) : none;
+    case "UNIT": return v.unit ? `${worded(v.unit.kind, unitKindLabel)} <span class="mono">${esc(v.unit.name)}</span><div>${fileLink(v.path!)}</div>` : none;
     case "FILE": return fileLink(v.path!);
     case "VALUE": {
       const literal = literalText(v.valueKind, v.text);
       const shown = literal ?? (v.valueKind === "NAME" ? v.text : null);
-      return `<span class="badge">${esc(v.valueKind)}</span>` +
+      return `<span class="badge" title="${esc(v.valueKind)}">${esc(valueKindLabel(v.valueKind!))}</span> ` +
         (shown !== null ? `<span class="mono">${esc(shown)}</span>` : `<span class="muted">${esc(t("values.kind." + v.valueKind))}</span>`);
     }
     default: return v.text ? esc(v.text) : none;

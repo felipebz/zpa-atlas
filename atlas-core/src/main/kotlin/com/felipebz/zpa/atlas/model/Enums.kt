@@ -129,6 +129,54 @@ enum class Origin(val reserved: Boolean = false) : StoredEnum {
     HEURISTIC(reserved = true)
 }
 
+/**
+ * Why an occurrence has its status (`occurrence.reason`): every reason the indexer writes. The extractors write them
+ * as text; a test indexes the fixture and fails on a reason missing here.
+ */
+enum class Reason : StoredEnum {
+    // The name is not found, or not what it is used as.
+    NOT_IN_PROJECT,
+    NOT_IN_DICTIONARY,
+    UNKNOWN_MEMBER,
+    WRONG_KIND,
+    QUALIFIER_MISMATCH,
+    RELATION_UNRESOLVED,
+    NO_APPLICABLE_CANDIDATE,
+    INVALID_NOTATION,
+    LOCAL_SUBPROGRAM,
+    // Several candidates.
+    AMBIGUOUS,
+    AMBIGUOUS_TARGET,
+    AMBIGUOUS_COLUMN,
+    PRIVATE_OVERLOADS,
+    // Found, or not checkable, with something the index could not see.
+    PRIVATE_SINGLE,
+    SCHEMA_UNKNOWN,
+    COLUMNS_UNKNOWN,
+    COLUMN_NOT_EXCLUDED,
+    PARTIAL_DECLARATIONS,
+    INCOMPLETE_INDEX,
+    DB_LINK,
+    // What became of a dynamic statement's text.
+    PARSED,
+    PARSED_WITH_HOLES,
+    PARSED_HOLES_DROPPED,
+    NOT_PARSED,
+    EXPRESSION,
+    VARIABLE_PARSED,
+    VARIABLE_PARSED_WITH_HOLES,
+    VARIABLE_PARSED_HOLES_DROPPED,
+    VARIABLE_NOT_PARSED,
+    VARIABLE_NO_LITERAL,
+    VARIABLE_SEVERAL_WRITES,
+    VARIABLE_VALUE_NOT_IN_CODE,
+    VARIABLE_NEVER_WRITTEN,
+    VARIABLE_UNSEEN_WRITE,
+    VARIABLE_NOT_CHARACTER,
+    VARIABLE_NOT_LOCAL,
+    VARIABLE_UNRESOLVED
+}
+
 enum class TriggerTiming : StoredEnum {
     BEFORE,
     AFTER,

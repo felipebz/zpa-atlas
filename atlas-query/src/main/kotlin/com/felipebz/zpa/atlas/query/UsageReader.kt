@@ -10,7 +10,11 @@ import java.sql.Connection
 /** "Who uses" an entity and the values it receives, over one open connection. */
 internal class UsageReader(private val connection: Connection) {
 
-    /** [AtlasIndex.occurrences] after its checks: [roleFilter] is the roles asked for, else every usage role. */
+    /**
+     * [AtlasIndex.occurrences] after its checks: [roleFilter] is the roles asked for, else every usage role; [side],
+     * when set, keeps the rows on that side of [key] (the facets other than `bySide` count those rows only); with
+     * [sides], the facets count both sides and each row's unit names its entity.
+     */
     fun occurrences(
         key: String,
         roleFilter: Set<String>,
@@ -18,20 +22,26 @@ internal class UsageReader(private val connection: Connection) {
         scope: Set<Scope>,
         includeCandidates: Boolean,
         via: UsagePath?,
+        side: UsageSide?,
+        sides: Boolean,
         after: Long?,
         limit: Int
     ): OccurrencePage? {
-        val (hits, filtered) = usageHits(key, roleFilter, statuses, scope, includeCandidates, via) ?: return null
+        val (all, allFiltered) = usageHits(key, roleFilter, statuses, scope, includeCandidates, via) ?: return null
+        fun sideMatch(hit: Hit) = side == null || hit.inside == (side == UsageSide.INSIDE)
+        val hits = all.filter { sideMatch(it) }
+        val filtered = allFiltered.filter { sideMatch(it) }
         fun roleMatch(hit: Hit) = hit.roles.any { it in roleFilter }
         fun statusMatch(hit: Hit) = statuses.isNullOrEmpty() || hit.status in statuses
         val facets = Facets(
             tally(hits.filter { statusMatch(it) }.flatMap { hit -> hit.roles.filter { it in USAGE_ROLES } }),
-            tally(hits.filter { roleMatch(it) }.map { it.status })
+            tally(hits.filter { roleMatch(it) }.map { it.status }),
+            bySide = if (sides) tally(allFiltered.map { if (it.inside) UsageSide.INSIDE.name else UsageSide.OUTSIDE.name }) else null
         )
         val remaining = filtered.filter { after == null || it.id > after }
         val page = remaining.take(limit)
         val nextAfter = if (remaining.size > limit) page.last().id else null
-        return OccurrencePage(rows(connection, page), nextAfter, filtered.size.toLong(), facets)
+        return OccurrencePage(rows(connection, page, unitEntities = sides), nextAfter, filtered.size.toLong(), facets)
     }
 
     /** [AtlasIndex.groupUsages] after its checks: the rows [occurrences] lists, grouped. */
@@ -83,12 +93,13 @@ internal class UsageReader(private val connection: Connection) {
                    SELECT o.id, o.entity_id, 0 FROM occurrence o WHERE o.entity_id IN (SELECT id FROM viewed)
                    UNION ALL
                    SELECT c.occurrence_id, c.entity_id, 1 FROM occurrence_candidate c WHERE ? AND c.entity_id IN (SELECT id FROM viewed))
-               SELECT h.oid, h.matched, h.via_candidate, h.matched NOT IN (SELECT id FROM scope), o.roles, o.status
-               FROM hits h JOIN occurrence o ON o.id = h.oid
+               SELECT h.oid, h.matched, h.via_candidate, h.matched NOT IN (SELECT id FROM scope), o.roles, o.status,
+                      u.entity_id IS NOT NULL AND u.entity_id IN (SELECT id FROM self)
+               FROM hits h JOIN occurrence o ON o.id = h.oid JOIN unit u ON u.id = o.unit_id
                ORDER BY h.oid""",
             listOf(key, Scope.IMPLEMENTATIONS in scope, Scope.IMPLEMENTATIONS in scope, Scope.CHILDREN in scope,
                 Scope.VIEWS in scope, Scope.VIEWS in scope, includeCandidates)
-        ) { Hit(it.getLong(1), it.getLong(2), it.getInt(3) == 1, it.getInt(4) == 1, roles(it.getString(5)), it.getString(6)) }
+        ) { Hit(it.getLong(1), it.getLong(2), it.getInt(3) == 1, it.getInt(4) == 1, roles(it.getString(5)), it.getString(6), it.getInt(7) == 1) }
             .groupBy { it.id }.values.map { it.minWith(hitPreference) }
             .filter { via == null || it.viaView == (via == UsagePath.THROUGH_VIEWS) }
         val filtered = hits.filter { hit -> hit.roles.any { it in roleFilter } && (statuses.isNullOrEmpty() || hit.status in statuses) }

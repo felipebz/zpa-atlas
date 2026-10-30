@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import type { Codes } from "../src/api";
-import { codesOf, offeredCodes, pickerCodes, searchKinds, usageRoles } from "../src/codes";
+import {describe, expect, it} from "vitest";
+import type {Codes} from "../src/api";
+import {codesOf, offeredCodes, pickerCodes, searchKinds, usageRoles} from "../src/codes";
 
 const code = (name: string, reserved = false) => ({ code: name, reserved });
 
@@ -13,7 +13,9 @@ const CODES: Codes = {
   origins: [code("STATIC"), code("HEURISTIC", true)],
   statementKinds: [code("SELECT")],
   valueKinds: [code("STRING"), code("NULL")],
-  groupDimensions: [code("ENTITY"), code("ROLE")]
+  groupDimensions: [code("ENTITY"), code("ROLE")],
+  reasons: [code("NOT_IN_PROJECT")],
+  parseStatuses: [code("OK"), code("RECOVERED")]
 };
 
 describe("codesOf", () => {

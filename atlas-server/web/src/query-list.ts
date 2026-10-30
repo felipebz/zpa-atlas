@@ -1,16 +1,16 @@
-import { api, errorMessage } from "./api";
-import type { Answer, Count, Facets, OccurrencePage, QuerySummary } from "./api";
-import { esc } from "./html";
-import { formatNumber, t } from "./i18n";
-import { labelOf } from "./query-form";
-import { modeBar } from "./query-mode";
-import { filtersOf } from "./query-params";
-import type { QueryParams } from "./query-params";
-import { answer, state } from "./query-state";
-import { renderChips, usesBlock } from "./uses";
+import type {Answer, Count, Facets, OccurrencePage, QuerySummary} from "./api";
+import {api, errorMessage} from "./api";
+import {esc} from "./html";
+import {formatNumber, t} from "./i18n";
+import {labelOf} from "./query-form";
+import {modeBar} from "./query-mode";
+import type {QueryParams} from "./query-params";
+import {filtersOf} from "./query-params";
+import {answer, state} from "./query-state";
+import {renderChips, usesBlock} from "./uses";
 
 /** The facets of a list answer and the filter each one sets. */
-const FACETS: [keyof Facets, string][] = [["byRole", "roles"], ["byStatus", "statuses"], ["byReason", "reasons"], ["byOrigin", "origins"], ["byEntityKind", "entityKinds"],
+const FACETS: [Exclude<keyof Facets, "bySide">, string][] = [["byRole", "roles"], ["byStatus", "statuses"], ["byReason", "reasons"], ["byOrigin", "origins"], ["byEntityKind", "entityKinds"],
   ["byUnitKind", "unitKinds"]];
 const PAGE = 100;
 const FACET_SHOWN = 8;
@@ -26,7 +26,7 @@ export async function runList(params: QueryParams, ran: number) {
   if (ran !== state.generation) return;
   answer.innerHTML = `<div class="card">${modeBar(params)}<div id="facets"></div><p id="total" class="muted">${esc(t("banner.loading"))}</p>
     <div id="rows"></div><button id="more-rows" hidden>${esc(t("usage.more"))}</button></div>`;
-  const block = usesBlock({ entity: true });
+  const block = usesBlock({ listing: true });
   document.getElementById("rows")!.append(block.element);
   let after = page.nextAfter;
   block.append(page.rows);

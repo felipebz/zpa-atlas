@@ -148,9 +148,11 @@ export interface EntityDetail {
   viewColumns: EntitySummary[];
 }
 
+/** The unit an occurrence is in; [entity] is its package, routine, view, trigger or type, null for a script. */
 export interface UnitRef {
   kind: string;
   name: string;
+  entity?: EntitySummary | null;
 }
 
 export interface CallArgument {
@@ -207,6 +209,8 @@ export interface Facets {
   byEntityKind: Count[];
   byUnitKind: Count[];
   byReason: Count[];
+  /** "Who uses": the rows by side (`OUTSIDE`, `INSIDE`), under the role and status filters. */
+  bySide?: Count[] | null;
 }
 
 export interface OccurrencePage {
@@ -257,6 +261,8 @@ export interface Codes {
   statementKinds: Code[];
   valueKinds: Code[];
   groupDimensions: Code[];
+  reasons: Code[];
+  parseStatuses: Code[];
 }
 
 export interface SourceLine {

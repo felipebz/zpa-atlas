@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { esc, getOrPut, literalText, qualifierHtml, scrollTable, statusBadge } from "../src/html";
+import {describe, expect, it} from "vitest";
+import {esc, getOrPut, literalText, qualifierHtml, scrollTable} from "../src/html";
 
 // The expected values are what the code returns today.
 
@@ -54,15 +54,5 @@ describe("literalText", () => {
     expect(literalText("BIND", ":B1")).toBe(null);
     expect(literalText("EXPRESSION", null)).toBe(null);
     expect(literalText(null, null)).toBe(null);
-  });
-});
-
-describe("statusBadge", () => {
-  it("shows the status, and the reason unless it repeats the status", () => {
-    expect(statusBadge("UNRESOLVED", "NOT_IN_PROJECT")).toBe("<span class=\"badge st-UNRESOLVED\">UNRESOLVED · NOT_IN_PROJECT</span>");
-    expect(statusBadge("DYNAMIC", "DYNAMIC")).toBe("<span class=\"badge st-DYNAMIC\">DYNAMIC</span>");
-    expect(statusBadge("RESOLVED")).toBe("<span class=\"badge st-RESOLVED\">RESOLVED</span>");
-    expect(statusBadge("RESOLVED", null)).toBe("<span class=\"badge st-RESOLVED\">RESOLVED</span>");
-    expect(statusBadge("A<B", "x&y")).toBe("<span class=\"badge st-A&lt;B\">A&lt;B · x&amp;y</span>");
   });
 });

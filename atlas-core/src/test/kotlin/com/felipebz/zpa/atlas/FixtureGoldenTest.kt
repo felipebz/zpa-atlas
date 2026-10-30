@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas
 
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.model.Reason
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -59,6 +60,13 @@ class FixtureGoldenTest {
         assertThat(Fixture.query(db, "SELECT count(*) FROM occurrence o WHERE $ddl").single().toInt()).isGreaterThan(0)
         assertThat(Fixture.query(db, "SELECT o.roles FROM occurrence o WHERE $ddl AND o.roles LIKE '%,%'")).isEmpty()
         assertThat(Fixture.query(db, "SELECT o.written FROM occurrence o LEFT JOIN sql_statement s ON s.id = o.statement_id WHERE $ddl AND coalesce(s.kind, '-') <> 'DDL'")).isEmpty()
+    }
+
+    @Test
+    fun `every reason the index writes is in the declared reason list`() {
+        val written = Fixture.query(db, "SELECT DISTINCT reason FROM occurrence WHERE reason IS NOT NULL ORDER BY 1")
+        assertThat(written).isNotEmpty()
+        assertThat(written).isSubsetOf(Reason.entries.map { it.name })
     }
 
     @Test

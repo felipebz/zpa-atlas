@@ -8,12 +8,17 @@ package com.felipebz.zpa.atlas.query
 import java.sql.Connection
 import java.sql.ResultSet
 
-internal class Hit(val id: Long, val matched: Long?, val viaCandidate: Boolean, val viaView: Boolean, val roles: List<String>, val status: String)
+/** One occurrence a listing keeps; [inside] for "who uses": its unit is the asked entity's own ([UsageSide.INSIDE]). */
+internal class Hit(
+    val id: Long, val matched: Long?, val viaCandidate: Boolean, val viaView: Boolean, val roles: List<String>, val status: String,
+    val inside: Boolean = false
+)
 
 /** The hit an occurrence hit several ways reports: not added by [Scope.VIEWS] first, then direct before candidate. */
 internal val hitPreference = compareBy<Hit>({ it.viaView }, { it.viaCandidate }, { it.matched })
 
-internal fun rows(connection: Connection, page: List<Hit>): List<OccurrenceRow> {
+/** The rows of [page]; with [unitEntities], each [UnitRef] names its entity. */
+internal fun rows(connection: Connection, page: List<Hit>, unitEntities: Boolean = false): List<OccurrenceRow> {
     if (page.isEmpty()) return emptyList()
     val marks = page.joinToString(",") { "?" }
     val ids = page.map { it.id }
@@ -40,7 +45,7 @@ internal fun rows(connection: Connection, page: List<Hit>): List<OccurrenceRow> 
     val byId = page.associateBy { it.id }
     return connection.query(
         """SELECT o.id, f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.written, o.roles, o.status, o.reason, o.origin,
-                  o.entity_id, o.container_entity_id, u.kind, u.name, s.kind
+                  o.entity_id, o.container_entity_id, u.kind, u.name, s.kind, u.entity_id
            FROM occurrence o JOIN source_file f ON f.id = o.file_id JOIN unit u ON u.id = o.unit_id
            LEFT JOIN sql_statement s ON s.id = o.statement_id
            WHERE o.id IN ($marks) ORDER BY o.id""",
@@ -50,11 +55,14 @@ internal fun rows(connection: Connection, page: List<Hit>): List<OccurrenceRow> 
         val hit = byId.getValue(id)
         val entityId = (rs.getObject(12) as Number?)?.toLong()
         val containerId = (rs.getObject(13) as Number?)?.toLong()
+        val unitEntityId = (rs.getObject(17) as Number?)?.toLong()
         OccurrenceRow(
             id, rs.getString(2), span(rs, 3), rs.getString(7), roles(rs.getString(8)), rs.getString(9), rs.getString(10), rs.getString(11),
-            entityOf(hit.matched), hit.viaCandidate, hit.viaView, null, null, UnitRef(rs.getString(14), rs.getString(15)), rs.getString(16),
+            entityOf(hit.matched), hit.viaCandidate, hit.viaView, null, null, UnitRef(rs.getString(14), rs.getString(15), null), rs.getString(16),
             candidates[id].orEmpty(), arguments[id].orEmpty(), written[id].orEmpty()
-        ).let { it.copy(entity = entityOf(entityId), container = entityOf(containerId)) }
+        ).let { row ->
+            row.copy(entity = entityOf(entityId), container = entityOf(containerId), unit = if (unitEntities) row.unit.copy(entity = entityOf(unitEntityId)) else row.unit)
+        }
     }
 }
 

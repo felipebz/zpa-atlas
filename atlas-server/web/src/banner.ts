@@ -1,5 +1,6 @@
 import type {Answer, RunStamp, RunSummary, SourceSnippet} from "./api";
 import {api, errorMessage} from "./api";
+import {parseLabel} from "./entity-html";
 import {setupGoto} from "./goto";
 import {esc, langSuffix} from "./html";
 import {formatDate, formatShortDate, t} from "./i18n";
@@ -71,7 +72,7 @@ function showParseNote(date: HTMLElement, summary: RunSummary) {
   const rest = total - summary.parseProblems.length;
   panel(note, `<b>${esc(note.title)}</b><div class="muted">${esc(t("banner.parseHint"))}</div>
     <ul class="parse-files">${summary.parseProblems.map(f =>
-      `<li><a class="mono" href="file.html?path=${encodeURIComponent(f.path)}${langSuffix()}">${esc(f.path)}</a> <span class="badge parse-${esc(f.parseStatus)}">${esc(f.parseStatus)}</span></li>`).join("")}</ul>` +
+      `<li><a class="mono" href="file.html?path=${encodeURIComponent(f.path)}${langSuffix()}">${esc(f.path)}</a> <span class="badge parse-${esc(f.parseStatus)}" title="${esc(f.parseStatus)}">${esc(parseLabel(f.parseStatus))}</span></li>`).join("")}</ul>` +
     (rest > 0 ? `<div class="muted">${esc(t("banner.parseMore", { count: rest }))}</div>` : ""));
 }
 

@@ -10,6 +10,7 @@
   --kind-unit: #6a4bc4; --kind-type: #9a5b12; --kind-relation: #127567; --kind-member: #b0412f; --kind-other: #5b6577;
   --on-kind: #ffffff;
   --ok: #1b7a45; --ok-soft: #e1f3e8;
+  --code-str: #1b7a45;
   --warning: #9a5c00; --warning-soft: #fdf0d9; --warning-line: #f0d39a;
   --error: #b3261e; --error-soft: #fbe4e2;
   --external: #2456c4; --external-soft: #e5edfc;
@@ -110,11 +111,49 @@ h1 { overflow-wrap: anywhere; }
 a, td { overflow-wrap: break-word; }
 .scroll { overflow-x: auto; max-width: 100%; }
 table.compact { width: auto; }
-table.uses { table-layout: fixed; min-width: 600px; }
-col.c-at { width: 7em; } col.c-what { width: 52%; } col.c-role { width: 16%; } col.c-toggle { width: 2.5em; }
-tr.group th { padding-top: 10px; font-weight: 600; background: var(--surface-2); font-size: var(--fs-m); color: var(--fg); text-transform: none; letter-spacing: 0; }
+/*
+ * "Who uses": groups of rows. A group's header names the program (kind square, short name) and its files on a second
+ * line, with its count of rows on the right. A row: the line, what it hit and its arguments, its roles and status, and
+ * the source toggle; on a phone the line and the toggle share the first line and nothing scrolls sideways.
+ */
+.uses { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.grp + .grp { border-top: 1px solid var(--border); }
+.grp-h { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 6px 12px; background: var(--surface-2); }
+.grp-name { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.grp-name .kind { vertical-align: text-bottom; }
+.grp-files { font-weight: 400; font-size: var(--fs-xs); }
+.grp-files a { color: var(--muted); }
+.grp-n { flex: none; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.use { display: grid; grid-template-columns: 4.5em minmax(0, 1fr) minmax(0, max-content) 2em; gap: 2px 12px; align-items: baseline;
+  padding: 4px 12px; border-top: 1px dashed var(--border); font-size: var(--fs-s); }
+.use .at { font-variant-numeric: tabular-nums; min-width: 3ch; }
+.use .what { min-width: 0; overflow-wrap: anywhere; }
+.use .w .member { font-weight: 600; }
+.use .how { color: var(--muted); max-width: 22em; }
+.snippet { padding: 0 12px 6px; }
 button.snip { border: 0; background: none; cursor: pointer; padding: 1px 6px; }
-.args summary { cursor: pointer; }
+.args { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.arg { font-family: var(--mono); font-size: var(--fs-xs); background: var(--surface-2); border: 0; border-radius: 4px; padding: 1px 6px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.arg b { font-weight: 600; color: var(--muted); }
+.arg .s { color: var(--code-str); }
+button.arg { cursor: pointer; color: var(--muted); }
+@media (max-width: 700px) {
+  /* The line, the roles and status, and the toggle on the first line; what was hit and its arguments under them. */
+  .use { grid-template-columns: auto minmax(0, 1fr) auto; padding: 6px 8px 6px 12px; }
+  .use .at { grid-column: 1; grid-row: 1; }
+  .use .how { grid-column: 2; grid-row: 1; max-width: none; }
+  .use .snip { grid-column: 3; grid-row: 1; }
+  .use .what { grid-column: 1 / -1; grid-row: 2; }
+  .use .what:empty { display: none; }
+}
+/* The side switch of a package's or type's uses. */
+#side .seg { margin: 4px 0 8px; flex-wrap: wrap; }
+/* The Uses page's "Try" list. */
+.try-box { margin: var(--gap) 0; }
+.try-box h2 { font-size: var(--fs-m); margin: 0 0 6px; }
+ul.try { margin: 0; padding-left: 1.2em; }
+ul.try li { margin: 3px 0; overflow-wrap: anywhere; }
 /* Cards and panels: one border, one radius, no shadow. */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; }
 .card > :first-child { margin-top: 0; } .card > :last-child { margin-bottom: 0; }
@@ -237,25 +276,11 @@ table.params td { overflow-wrap: anywhere; }
   table.params th:nth-child(3) { width: 4.5em; }
 }
 /*
- * The entity page at phone width. Contents: a member name wraps (at its spaces and underscores, inside a word only
- * when that word alone is wider), so the uses column
- * keeps its place. Used by: each use is a small block, its position, status and toggle on one line, its text and
- * role under them, so that nothing needs a sideways scroll; a group header wraps.
+ * The entity page at phone width: a member name wraps (at its spaces and underscores, inside a word only when that
+ * word alone is wider), so the uses column keeps its place.
  */
 @media (max-width: 700px) {
   table.members td, table.members td * { overflow-wrap: break-word; }
-  main.entity table.uses { display: block; min-width: 0; }
-  main.entity table.uses colgroup { display: none; }
-  main.entity table.uses tbody, main.entity table.uses tr.group, main.entity table.uses tr.snippet { display: block; }
-  main.entity table.uses tr.group th, main.entity table.uses tr.snippet td { display: block; overflow-wrap: anywhere; }
-  main.entity table.uses tr[data-line] { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; border-bottom: 1px solid var(--border); }
-  main.entity table.uses tr[data-line] > td { display: block; min-width: 0; border: 0; overflow-wrap: anywhere; }
-  main.entity table.uses tr[data-line] > td:nth-child(1) { grid-column: 1; grid-row: 1; }
-  main.entity table.uses tr[data-line] > td:nth-child(4) { grid-column: 2; grid-row: 1; }
-  main.entity table.uses tr[data-line] > td:nth-child(5) { grid-column: 3; grid-row: 1; }
-  main.entity table.uses tr[data-line] > td:nth-child(2) { grid-column: 1 / -1; padding-top: 0; }
-  main.entity table.uses tr[data-line] > td:nth-child(3) { grid-column: 1 / -1; padding-top: 0; color: var(--muted); }
-  main.entity table.uses tr[data-line] > td:nth-child(4):empty { padding: 0; }
 }
 ul.cols { columns: 22em; column-gap: 24px; }
 ul.cols li { break-inside: avoid; }
@@ -332,15 +357,6 @@ ul.suggestions li.active, ul.suggestions li[data-index]:hover { background: var(
 .facet { margin: 2px 0; }
 button.chip.more { font: inherit; font-size: var(--fs-xs); }
 td.num, th.num { text-align: right; white-space: nowrap; width: 1%; }
-/* The list rows of the query page: location and roles fixed, the name takes the rest. */
-.query-page table.uses col.c-at { width: 6.5em; }
-.query-page table.uses col.c-what { width: auto; }
-.query-page table.uses col.c-role { width: 22em; }
-.query-page table.uses col.c-status { width: 12em; }
-@media (max-width: 700px) {
-  .query-page table.uses col.c-role { width: 9em; }
-  .query-page table.uses col.c-status { width: 8em; }
-}
 
 /* The impact page. */
 .impact-page { display: flex; flex-direction: column; gap: var(--gap); }
