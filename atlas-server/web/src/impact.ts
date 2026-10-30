@@ -2,7 +2,7 @@ import type {Answer, EntitySummary} from "./api";
 import {api, ApiFailure, errorMessage} from "./api";
 import {showBanner} from "./banner";
 import {entityLink, kindBadge, kindLabel, nameHtml, statusBadge} from "./entity-html";
-import {entityHref, esc, langSuffix, scrollTable} from "./html";
+import {entityHref, esc, langSuffix, scrollTable, stackCell} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import type {ImpactAnswer, ImpactTrigger, ImpactView, NodeGroup} from "./impact-model";
 import {
@@ -245,7 +245,7 @@ function buildRows(details: HTMLDetailsElement) {
       `${state.tab === "all" ? '<col class="c-stop">' : ""}<col class="c-notes"></colgroup>`;
     holder.innerHTML = scrollTable(`${columns}<thead><tr><th></th><th>${esc(t("impact.column.name"))}</th><th>${esc(t("impact.column.kind"))}</th>` +
       `<th class="num">${esc(t("impact.column.depth"))}</th>${stop}<th>${esc(t("impact.column.notes"))}</th></tr></thead><tbody></tbody>`,
-      state.tab === "all" ? "impact with-stop" : "impact");
+      state.tab === "all" ? "impact with-stop stack" : "impact stack");
     body = holder.querySelector("tbody")!;
   }
   body.insertAdjacentHTML("beforeend", rows);
@@ -279,10 +279,11 @@ function rowHtml(index: number) {
   if (!node.certain) notes.push(`<span class="badge uncertain">${esc(t("impact.notCertain"))}</span>`);
   if (node.trigger) notes.push(esc(triggerText(node.trigger)));
   if (node.uses !== null) notes.push(esc(t("impact.fileUses", { count: node.uses })));
-  const stop = state.tab === "all" ? `<td>${esc(t("impact.stopShort." + node.stop))}</td>` : "";
+  // On a phone the header row is gone: the depth and the stop say what they are.
+  const stop = state.tab === "all" ? stackCell(esc(t("impact.stopShort." + node.stop)), t("impact.column.stop").toLowerCase()) : "";
   return `<tr data-node="${index}"><td><button type="button" class="why" aria-expanded="false">${esc(t("impact.why"))}</button></td>` +
-    `<td>${nodeNameHtml(view, index, owner)}</td><td>${node.kind === "FILE" ? esc(t("impact.kind.FILE")) : kindBadge(node.kind)}</td>` +
-    `<td class="num">${esc(formatNumber(node.depth))}</td>${stop}<td>${notes.join(" ")}</td></tr>`;
+    `<td class="grow">${nodeNameHtml(view, index, owner)}</td><td>${node.kind === "FILE" ? esc(t("impact.kind.FILE")) : kindBadge(node.kind)}</td>` +
+    `${stackCell(esc(formatNumber(node.depth)), t("impact.column.depth").toLowerCase(), "num")}${stop}<td>${notes.join(" ")}</td></tr>`;
 }
 
 /** Unfolds the path of a row's node below it, one line per hop back to the entity; a second click folds it. */
@@ -304,7 +305,7 @@ function togglePath(button: HTMLButtonElement) {
   });
   const end = target.key === view.entity.key ? t("impact.path.entity") : t("impact.path.matched");
   lines.push(`<li>${entityLink(target)} <span class="muted">(${esc(end)})</span></li>`);
-  row.insertAdjacentHTML("afterend", `<tr class="path"><td></td><td colspan="${row.children.length - 1}">` +
+  row.insertAdjacentHTML("afterend", `<tr class="path"><td class="pad"></td><td class="whole" colspan="${row.children.length - 1}">` +
     `<p class="muted">${esc(t("impact.path.title"))}</p><ol class="hops">${lines.join("")}</ol></td></tr>`);
 }
 

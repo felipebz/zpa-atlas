@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {esc, getOrPut, literalText, qualifierHtml, scrollTable} from "../src/html";
+import {esc, getOrPut, literalText, qualifierHtml, scrollTable, stackCell} from "../src/html";
 
 // The expected values are what the code returns today.
 
@@ -54,5 +54,13 @@ describe("literalText", () => {
     expect(literalText("BIND", ":B1")).toBe(null);
     expect(literalText("EXPRESSION", null)).toBe(null);
     expect(literalText(null, null)).toBe(null);
+  });
+});
+
+describe("stackCell", () => {
+  it("carries the label a stacked value shows before it, escaped, and none when the value says what it is", () => {
+    expect(stackCell("3", "depth", "num")).toBe(`<td class="num" data-label="depth">3</td>`);
+    expect(stackCell("12", `"sites" & more`)).toBe(`<td data-label="&quot;sites&quot; &amp; more">12</td>`);
+    expect(stackCell(`<span class="badge">string</span>`)).toBe(`<td><span class="badge">string</span></td>`);
   });
 });

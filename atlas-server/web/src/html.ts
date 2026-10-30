@@ -49,6 +49,15 @@ export function scrollTable(inner: string, className?: string) {
   return `<div class="scroll"><table${className ? ` class="${className}"` : ""}>${inner}</table></div>`;
 }
 
+/**
+ * A cell of a table that stacks on a phone (`table.stack`): [inner] is its HTML; [label], when given, says what the
+ * value is once the header row is gone (`depth 1`), shown before it on a phone only.
+ */
+export function stackCell(inner: string, label?: string | null, className?: string) {
+  const attributes = (className ? ` class="${esc(className)}"` : "") + (label ? ` data-label="${esc(label)}"` : "");
+  return `<td${attributes}>${inner}</td>`;
+}
+
 /** The line number, linking the whole of [path] at [line]; [title] is its tooltip (the column, in words). */
 export function lineLink(path: string, line: number, title: string) {
   return `<a class="mono" href="file.html?path=${encodeURIComponent(path)}&line=${line}${langSuffix()}#L${line}" title="${esc(title)}">${line}</a>`;

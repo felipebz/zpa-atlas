@@ -17,7 +17,7 @@ import {
 import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
 import {entityPath, entityTags, places, routineRows} from "./entity-view";
 import {kindOrder} from "./kinds";
-import {entityHref, esc, getOrPut, impactHref, literalText, queryHref, scrollTable} from "./html";
+import {entityHref, esc, getOrPut, impactHref, literalText, queryHref, scrollTable, stackCell} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {displayParts, parentKeyOf} from "./names";
 import {currentProject, setPageTitle} from "./project";
@@ -198,7 +198,7 @@ function triggersHtml(entity: EntityDetail, own: boolean) {
   const title = own ? "trigger.events" : "trigger.firing";
   return sectionHead(t(title), t(title + ".line")) + scrollTable(entity.triggerEvents.map(e =>
     `<tr>${own ? "" : `<td>${entityLink(e.trigger)}</td>`}<td>${esc(t("trigger.timing." + e.timing))}</td><td>${esc(e.level ? t("trigger.level." + e.level) : "")}</td>
-     <td>${esc(e.event)}${e.column ? " " + esc(t("trigger.of")) + " " + entityLink(e.column) : ""}</td></tr>`).join(""), "compact");
+     <td class="grow">${esc(e.event)}${e.column ? " " + esc(t("trigger.of")) + " " + entityLink(e.column) : ""}</td></tr>`).join(""), "compact stack");
 }
 
 function renderEntity(entity: EntityDetail) {
@@ -330,9 +330,9 @@ function valueLabel(group: ValueGroup) {
 function valueRowsHtml(groups: ValueGroup[], from: number, to: number) {
   return groups.slice(from, to).map((g, offset) => {
     const i = from + offset;
-    return `<tr><td><span class="badge" title="${esc(g.valueKind)}">${esc(valueKindLabel(g.valueKind))}</span></td><td>${valueLabel(g)}</td><td>${esc(formatNumber(g.count))}</td>
-      <td><a href="#" data-group="${i}">${esc(t("values.sites"))}</a></td></tr>
-      <tr hidden data-calls="${i}"><td colspan="4"><button class="more" hidden>${esc(t("usage.more"))}</button></td></tr>`;
+    return `<tr><td><span class="badge" title="${esc(g.valueKind)}">${esc(valueKindLabel(g.valueKind))}</span></td>${stackCell(valueLabel(g), null, "grow")}` +
+      `${stackCell(esc(formatNumber(g.count)), t("values.count"))}<td><a href="#" data-group="${i}">${esc(t("values.sites"))}</a></td></tr>
+      <tr hidden data-calls="${i}"><td colspan="4" class="whole"><button class="more" hidden>${esc(t("usage.more"))}</button></td></tr>`;
   }).join("");
 }
 
@@ -344,7 +344,7 @@ async function loadValues(title: string) {
     target.innerHTML = head + `<p class="muted">${esc(t("values.none"))}</p>`;
     return;
   }
-  target.innerHTML = head + `<div class="scroll"><table class="compact"><tbody>${valueRowsHtml(groups, 0, VALUES_SHOWN)}</tbody></table></div>` +
+  target.innerHTML = head + `<div class="scroll"><table class="compact stack"><tbody>${valueRowsHtml(groups, 0, VALUES_SHOWN)}</tbody></table></div>` +
     (groups.length > VALUES_SHOWN ? `<p><a href="#" data-show-all>${esc(t("values.showAll", { count: groups.length }))}</a></p>` : "");
   const blocks = new Map<number, UsesBlock>();
   target.addEventListener("click", e => {

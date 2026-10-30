@@ -150,6 +150,7 @@ export default {
   "values.title.written": "Values written",
   "values.none": "No value is recorded.",
   "values.sites": "show sites",
+  "values.count": "uses",
   "values.kind.NULL": "NULL",
   "values.kind.BIND": "a bind variable",
   "values.kind.EXPRESSION": "an expression",

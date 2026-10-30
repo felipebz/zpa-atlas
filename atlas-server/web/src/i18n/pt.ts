@@ -150,6 +150,7 @@ export default {
   "values.title.written": "Valores gravados",
   "values.none": "Nenhum valor registrado.",
   "values.sites": "ver ocorrências",
+  "values.count": "usos",
   "values.kind.NULL": "NULL",
   "values.kind.BIND": "uma variável de ligação",
   "values.kind.EXPRESSION": "uma expressão",
