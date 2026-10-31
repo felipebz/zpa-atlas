@@ -43,6 +43,41 @@ export function qualifierHtml(text: string) {
   return esc(text).replace(/\./g, ".<wbr>");
 }
 
+/** A name as HTML that may break after each underscore, never inside a word. */
+export function nameBreaksHtml(text: string) {
+  return esc(text).replace(/_/g, "_<wbr>");
+}
+
+/**
+ * Code as HTML that may break at its spaces (as any text) and after a comma, a dot, a percent sign or a run of
+ * operator characters (`||`, `+`, `=`, `<`…) followed by more code; never inside a word, a number or a string literal.
+ * A minus that starts a number is kept with it, even where the page breaks inside words.
+ */
+export function codeBreaksHtml(text: string) {
+  const breakAfter = ",.%|+*/=<>-";
+  const digit = (c: string | undefined) => c !== undefined && c >= "0" && c <= "9";
+  let html = "";
+  let inLiteral = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const previous = text[i - 1];
+    if (!inLiteral && c === "-" && digit(text[i + 1]) && !(previous !== undefined && /[\w)]/.test(previous))) {
+      let end = i + 1;
+      while (end < text.length && (digit(text[end]) || text[end] === ".")) end++;
+      html += `<span class="nobr">${esc(text.slice(i, end))}</span>`;
+      i = end - 1;
+      continue;
+    }
+    html += esc(c);
+    if (c === "'") inLiteral = !inLiteral;
+    const next = text[i + 1];
+    const inNumber = c === "." && digit(previous) && digit(next);
+    const startsNumber = next === "-" && digit(text[i + 2]);
+    if (!inLiteral && !inNumber && breakAfter.includes(c) && next !== undefined && next.trim() !== "" && (!breakAfter.includes(next) || startsNumber)) html += "<wbr>";
+  }
+  return html;
+}
+
 /** The impact page of [key], keeping the language. */
 export function impactHref(key: string) {
   return `impact.html?key=${encodeURIComponent(key)}${langSuffix()}`;

@@ -31,12 +31,14 @@ import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
 import {entityPath, entityTags, places, routineRows} from "./entity-view";
 import {kindOrder} from "./kinds";
 import {
+    codeBreaksHtml,
     entityHref,
     esc,
     getOrPut,
     impactHref,
     langSuffix,
     literalText,
+    nameBreaksHtml,
     queryHref,
     scrollTable,
     stackCell
@@ -151,7 +153,7 @@ function headerHtml(entity: EntityDetail, direct: number) {
   // The uses become the "Used by" section's total once it loads (with a package's members, or a routine's other half).
   const facts = [...places(entity).map(p => placeHtml(p, entity.kind, statusOf(p))), `<span id="ent-uses">${esc(t("search.usages", { count: direct }))}</span>`];
   return `<nav class="crumbs" aria-label="${esc(t("entity.path"))}">${crumbs.join(`<span class="sep" aria-hidden="true">›</span>`)}</nav>
-    <div class="ent-title"><h1><span class="ename" title="${esc(entity.display)}"><span class="name">${esc(parts.base)}</span></span></h1>${kindBadge(entity.kind)}${tags.join("")}</div>
+    <div class="ent-title"><h1><span class="ename" title="${esc(entity.display)}"><span class="name">${nameBreaksHtml(parts.base)}</span></span></h1>${kindBadge(entity.kind)}${tags.join("")}</div>
     ${signature}
     ${declared.length ? `<div class="ent-decl">${declared.join("")}</div>` : ""}
     <div class="ent-facts">${facts.map(f => `<span>${f}</span>`).join("")}</div>
@@ -190,7 +192,8 @@ function setupDocFolds(container: HTMLElement) {
 
 /**
  * A routine's parameters as a table (number, name, mode, type, and the default when one of them has one); each name
- * links to the parameter entity.
+ * links to the parameter entity. On a phone it stacks (`table.stack`, see app.css): each parameter a block of its own,
+ * the number and the name, then the mode, the type and the default, marked as such since the header row is gone.
  */
 function parametersHtml(entity: EntityDetail, params: { name: string; mode?: string; type: string }[]) {
   if (params.length === 0) return sectionHead(t("entity.parameters"), t("entity.parameters.line")) + `<p class="muted">${esc(t("entity.parameters.none"))}</p>`;
@@ -200,25 +203,28 @@ function parametersHtml(entity: EntityDetail, params: { name: string; mode?: str
   const unquoted = (name: string) => name.startsWith('"') && name.endsWith('"') ? name.slice(1, -1) : name;
   // The default in code, like the type beside it; what is said about it in words.
   const defaultCell = (fact: DeclaredFact | null) => {
-    if (!fact) return `<td></td>`;
+    if (!fact) return `<td class="pdefault"></td>`;
     const cut = fact.cut ? ` <span class="note" title="${esc(t("entity.declared.cutTitle"))}">${esc(t("entity.declared.cut"))}</span>` : "";
     const from = fact.fromSpec ? ` <span class="note">${esc(t("entity.declared.fromSpec"))}</span>` : "";
     const spec = fact.spec === null ? "" : ` <span class="note">(${fact.spec === "" ? esc(t("entity.declared.specNone"))
-      : fillHtml("entity.declared.specSays", { text: `<span class="mono">${esc(fact.spec)}</span>` })})</span>`;
-    return `<td class="mono">${esc(fact.text)}${cut}${from}${spec}</td>`;
+      : fillHtml("entity.declared.specSays", { text: `<span class="mono">${codeBreaksHtml(fact.spec)}</span>` })})</span>`;
+    return stackCell(`${codeBreaksHtml(fact.text)}${cut}${from}${spec}`, t("entity.parameters.default"), "mono pdefault");
   };
-  return head + `<table class="params"><thead><tr><th class="num">${esc(t("entity.parameters.number"))}</th><th>${esc(t("entity.parameters.name"))}</th>` +
+  return head + `<table class="params stack"><thead><tr><th class="num">${esc(t("entity.parameters.number"))}</th><th>${esc(t("entity.parameters.name"))}</th>` +
     `<th>${esc(t("entity.parameters.mode"))}</th><th>${esc(t("entity.parameters.type"))}</th>` +
     `${defaults ? `<th>${esc(t("entity.parameters.default"))}</th>` : ""}</tr></thead><tbody>${params.map((p, i) => {
       const child = byName.get(p.name) ?? byName.get(unquoted(p.name));
-      const name = child ? `<a class="mono" href="${entityHref(child.key)}">${esc(p.name)}</a>` : `<span class="mono">${esc(p.name)}</span>`;
+      // A name breaks only after an underscore, a type or default only where its code has a break point.
+      const name = child ? `<a class="mono" href="${entityHref(child.key)}">${nameBreaksHtml(p.name)}</a>` : `<span class="mono">${nameBreaksHtml(p.name)}</span>`;
       // A parameter written without a mode is IN.
       const mode = p.mode ? esc(p.mode) : `<span class="muted">IN</span>`;
       const doc = child ? docSummary(entity.children.find(m => m.entity.key === child.key)?.documentation ?? []) : null;
       const docRow = !doc ? "" : `<tr class="pdoc"><td></td><td colspan="${defaults ? 4 : 3}">${esc(doc.text)}` +
         `${doc.from ? ` <span class="note">${esc(t(docFromKey(doc)!))}</span>` : ""}` +
         `${doc.more ? ` <a class="note" href="${entityHref(child!.key)}">${esc(t("doc.more"))}</a>` : ""}</td></tr>`;
-      return `<tr${doc ? ` class="with-doc"` : ""}><td class="num">${i + 1}</td><td>${name}</td><td class="mono">${mode}</td><td class="mono ptype">${esc(p.type)}</td>` +
+      // A type breaks at the same points as a default: a dot, a percent sign, a comma (company.company_name%type).
+      return `<tr${doc ? ` class="with-doc"` : ""}><td class="num">${i + 1}</td><td class="pname">${name}</td><td class="mono pmode">${mode}</td>` +
+        `<td class="mono ptype">${codeBreaksHtml(p.type)}</td>` +
         `${defaults ? defaultCell(defaults[i]) : ""}</tr>${docRow}`;
     }).join("")}</tbody></table>`;
 }

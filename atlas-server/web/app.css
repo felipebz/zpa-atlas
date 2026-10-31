@@ -287,17 +287,37 @@ nav#sections:empty { display: none; }
 table.members .num { width: 1%; white-space: nowrap; text-align: right; }
 table.members .c-kind { width: 28px; padding-right: 0; }
 table.members th { position: sticky; top: var(--stick-top); z-index: 1; }
-/* Parameters: the type wraps on a phone, so the table never scrolls sideways. */
+/*
+ * Parameters. On a wide screen the columns share the width (fixed layout) and anything may wrap. On a phone the table
+ * stacks (`table.stack`, below): each parameter is a block, the number and the name on its first line, the mode, the
+ * type and the default (marked "Default") under the name, then its documentation. The name keeps its line and breaks
+ * after an underscore only when wider than it; a type or default moves to a line of its own before breaking at its
+ * spaces, operators, commas, dots and percent signs (the page marks them), and inside a word only when still wider.
+ */
 table.params { table-layout: fixed; }
 table.params th:nth-child(1) { width: 2.5em; } table.params th:nth-child(3) { width: 5.5em; }
 table.params td { overflow-wrap: anywhere; }
+.nobr { white-space: nowrap; }
 @media (max-width: 700px) {
+  /* No content of the page widens its column: what does not fit wraps inside its card. */
+  main.entity, .ent-doc { grid-template-columns: minmax(0, 1fr); }
+  .ent-title h1 { overflow-wrap: break-word; }
   .ent-layout { grid-template-columns: minmax(0, 1fr); }
   nav#sections { position: static; display: flex; flex-wrap: wrap; gap: 4px 6px; }
   nav#sections a { border-left: 0; border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: var(--fs-xs); background: var(--surface); }
   nav#sections a[aria-current] { border-color: var(--accent); }
   .ent-title h1 { font-size: var(--fs-xl); }
-  table.params th:nth-child(3) { width: 4.5em; }
+  /*
+   * Every line of a parameter starts under its name: the row is indented by the number's column, the number hangs
+   * into that indent, and the name fills the first line, so the mode, type and default start the next ones.
+   */
+  table.params.stack tr { padding-left: 2.5em; }
+  table.params.stack td.num { flex: 0 0 2em; margin-left: -2.5em; margin-right: calc(0.5em - 10px); }
+  table.params.stack td.pname { flex: 1 1 calc(100% - 1px); }
+  table.params.stack tr.pdoc > td { flex: 1 1 100%; padding: 0; }
+  table.params.stack tr.with-doc { border-bottom: 0; padding-bottom: 2px; }
+  table.params.stack tr.pdoc { padding-top: 0; }
+  table.params.stack td[data-label]::before { font-family: var(--sans); font-size: var(--fs-xs); }
 }
 /*
  * The entity page at phone width: a member name wraps (at its spaces and underscores, inside a word only when that
@@ -485,7 +505,7 @@ table.impact tr.path p { margin: 0 0 4px; }
 table.impact ol.hops { margin: 0; padding-left: 20px; }
 table.impact ol.hops li { padding: 2px 0; }
 /*
- * A table that stacks on a phone (`table.stack`): the triggers, the values and the impact nodes. Below 700px the header
+ * A table that stacks on a phone (`table.stack`): the parameters, the triggers, the values and the impact nodes. Below 700px the header
  * row goes away and each row becomes a wrapping line of its cells, a cell's `data-label` before its value where the
  * value alone does not say what it is (`depth 1`); a long name, event or value wraps in place.
  */
