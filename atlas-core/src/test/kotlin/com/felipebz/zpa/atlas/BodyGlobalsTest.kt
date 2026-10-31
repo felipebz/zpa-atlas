@@ -60,7 +60,7 @@ class BodyGlobalsTest {
             "27:4 pack_globals.g_total WRITE RESOLVED" // qualified, in its own body
             // 37:4: hide's own g_total, not the global.
         )
-        assertThat(uses("$pack.G_IDS@BODY")).containsExactly("23:4 g_ids WRITE RESOLVED", "24:15 g_ids READ RESOLVED")
+        assertThat(uses("$pack.G_IDS@BODY")).containsExactly("23:4 g_ids WRITE RESOLVED", "24:15 g_ids READ RESOLVED", "26:15 g_ids.count READ RESOLVED")
         assertThat(uses("$pack.C_LIMIT@BODY")).containsExactly(
             "20:25 c_limit READ RESOLVED", "28:15 pack_globals.c_limit READ RESOLVED",
             // In SQL, no column of company takes the name.
@@ -74,12 +74,39 @@ class BodyGlobalsTest {
     }
 
     @Test
-    fun `what zpa does not bind is left out - the start of a chain, and a name the body redeclares from its spec`() {
-        // g_pair.a, g_ids.count: zpa answers Unknown for a chain.
-        assertThat(uses("$pack.G_PAIR@BODY")).isEmpty()
-        assertThat(uses("$pack.G_IDS@BODY")).noneMatch { it.startsWith("26:") }
-        // g_shared: declared in the spec and again in the body; zpa does not decide which one the name takes.
+    fun `a name the body redeclares from its spec is left out, zpa not deciding which one it takes`() {
         assertThat(uses("$pack.G_SHARED@BODY")).isEmpty()
         assertThat(uses("$pack.G_SHARED")).isEmpty()
+    }
+
+    /** The uses of `db:HR.PACK_CHAINS.[name]@BODY` in hr/pack_chains.pkb: position, written text, roles, status. */
+    private fun chainUses(name: String): List<String> = Fixture.query(
+        db, """SELECT o.start_line || ':' || o.start_col || ' ' || o.written || ' ' || o.roles || ' ' || o.status
+               FROM occurrence o JOIN entity e ON e.id = o.entity_id JOIN source_file f ON f.id = o.file_id
+               WHERE e.key = 'db:HR.PACK_CHAINS.$name@BODY' AND f.path = 'hr/pack_chains.pkb' AND o.roles <> 'DEFINITION' ORDER BY o.start_line, o.start_col"""
+    )
+
+    @Test
+    fun `a global at the start of a chain is used as a spec variable would be - the whole chain, roles from where it is written`() {
+        assertThat(uses("$pack.G_PAIR@BODY")).containsExactly("25:4 g_pair.a WRITE RESOLVED")
+        assertThat(chainUses("G_REC")).containsExactly(
+            "16:9 g_rec.f READ RESOLVED",
+            "17:4 g_rec.f WRITE RESOLVED",               // assignment target
+            "18:18 g_rec.f WRITE RESOLVED",              // INTO target
+            "19:9 g_rec.f READ RESOLVED",                // IN argument
+            "20:8 g_rec.g WRITE RESOLVED",               // OUT argument
+            "27:4 pack_chains.g_rec.f WRITE RESOLVED",   // through the package's own name
+            "28:9 pack_chains.g_rec.f READ RESOLVED",
+            "34:51 g_rec.f READ RESOLVED"                // in SQL, no source of the statement is named g_rec
+            // 35: `g_rec.id` from `company g_rec` is the alias's column.
+        )
+        assertThat(chainUses("G_TAB")).containsExactly(
+            "21:9 g_tab.count READ RESOLVED", "22:7 g_tab.exists READ RESOLVED", "23:18 g_tab.count READ RESOLVED", "24:4 g_tab.delete WRITE RESOLVED"
+        )
+        assertThat(chainUses("G_NUMS")).containsExactly("25:4 g_nums.extend WRITE RESOLVED", "26:4 g_nums.delete WRITE RESOLVED")
+        // 32: the block's own g_hidden.
+        assertThat(chainUses("G_HIDDEN")).isEmpty()
+        assertThat(Fixture.query(db, "SELECT e.key FROM occurrence o JOIN entity e ON e.id = o.entity_id JOIN source_file f ON f.id = o.file_id " +
+            "WHERE f.path = 'hr/pack_chains.pkb' AND o.start_line = 35 AND o.written = 'g_rec.id'")).containsExactly("db:HR.COMPANY.ID")
     }
 }

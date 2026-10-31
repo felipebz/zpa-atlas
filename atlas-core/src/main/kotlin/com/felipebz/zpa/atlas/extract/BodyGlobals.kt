@@ -54,13 +54,26 @@ internal class BodyGlobals(private val nameBinding: (AstNode) -> NameBinding) {
     }
 
     /**
-     * The global [name] (a `VARIABLE_NAME`, or a `MEMBER_EXPRESSION` such as `pkg.g_x`) is a use of, from zpa's binding;
+     * The global [name] (a `VARIABLE_NAME`, or a `MEMBER_EXPRESSION` such as `pkg.g_x` or `g_rec.f`) is a use of, from
+     * zpa's binding of the whole name, else of the segment of a chain that names the global (`g_rec` of `g_rec.f`);
      * null for anything else. In SQL a column may still take the name ([NameBinding.ColumnOrLocal]): the caller decides
      * by the rules of SQL names. A dynamic text is parsed apart from the file: zpa binds none of its names.
      */
     fun of(name: AstNode, context: Context): String? {
         if (byName.isEmpty() || context.dynamic != null) return null
-        val declaration = when (val binding = nameBinding(name)) {
+        globalOf(nameBinding(name))?.let { return it }
+        if (name.type != PlSqlGrammar.MEMBER_EXPRESSION) return null
+        // `g_rec.f`, `g_tab.count`, `pkg.g_rec.f`: the segment zpa binds to a global. zpa answers a later segment only
+        // when every segment before it names a unit, and a field or method after a value never.
+        for (segment in name.children) {
+            if (segment.type != PlSqlGrammar.VARIABLE_NAME && segment.type != PlSqlGrammar.IDENTIFIER_NAME) continue
+            globalOf(nameBinding(segment))?.let { return it }
+        }
+        return null
+    }
+
+    private fun globalOf(binding: NameBinding): String? {
+        val declaration = when (binding) {
             is NameBinding.Local -> binding.declaration
             is NameBinding.ColumnOrLocal -> binding.declaration
             else -> return null

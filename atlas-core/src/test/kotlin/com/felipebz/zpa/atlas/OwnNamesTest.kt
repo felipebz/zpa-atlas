@@ -42,10 +42,12 @@ class OwnNamesTest {
 
     @Test
     fun `a local or private value qualified by its enclosing units is never an external name`() {
-        // `check_items.l_items.delete`, `.count`; `pack_scoped.g_items.delete`, `.exists(1)`: nothing.
-        for (number in listOf(13, 14, 20, 22)) assertThat(body(number)).describedAs("line $number").isEmpty()
-        // `pack_scoped.g_items(1) :=`: the body's own global, as zpa binds it.
+        // `check_items.l_items.delete`, `.count`: a subprogram's local, nothing.
+        for (number in listOf(13, 14)) assertThat(body(number)).describedAs("line $number").isEmpty()
+        // `pack_scoped.g_items.delete`, `(1) :=`, `.exists(1)`: the body's own global, as zpa binds it.
+        assertThat(body(20)).containsExactly("pack_scoped.g_items.delete db:HR.PACK_SCOPED.G_ITEMS@BODY WRITE -")
         assertThat(body(21)).containsExactly("pack_scoped.g_items db:HR.PACK_SCOPED.G_ITEMS@BODY WRITE -")
+        assertThat(body(22)).containsExactly("pack_scoped.g_items.exists db:HR.PACK_SCOPED.G_ITEMS@BODY READ -")
         assertThat(Fixture.query(db,
             "SELECT key FROM entity WHERE key LIKE 'db:~.CHECK_ITEMS%' OR key LIKE 'db:~.PACK_SCOPED%' OR " +
                 "(key LIKE 'db:HR.PACK_SCOPED.G_ITEMS%' AND key <> 'db:HR.PACK_SCOPED.G_ITEMS@BODY') " +

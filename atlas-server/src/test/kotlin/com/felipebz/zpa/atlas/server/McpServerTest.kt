@@ -347,8 +347,8 @@ class McpServerTest {
         // A table: the table alone.
         val table = client.call("find_usages", args { put("key", "db:HR.COMPANY") }).json()
         assertThat(table).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.COMPANY", limit = AtlasMcpTools.FIND_DEFAULT))))
-        // hr/pack_globals.pkb reads COMPANY once.
-        assertThat(total(table)).isEqualTo(121)
+        // hr/pack_globals.pkb reads COMPANY once, hr/pack_chains.pkb twice.
+        assertThat(total(table)).isEqualTo(123)
         // The body alone has no usage: its callers bind the spec.
         val alone = client.call("find_usages", args { put("key", body); putJsonArray("include") {} }).json()
         assertThat(total(alone)).isEqualTo(0)
