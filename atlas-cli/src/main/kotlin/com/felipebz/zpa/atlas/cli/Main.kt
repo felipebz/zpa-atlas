@@ -214,7 +214,9 @@ internal class ServeLaunch(
     /** The projects of `--projects`; empty with `--db`. */
     val projects: List<ServedProject> = emptyList(),
     /** The project an MCP call without `project` reads; null without `--default-project`. */
-    val defaultProject: String? = null
+    val defaultProject: String? = null,
+    /** How wide the page of `--db` shows a tab; each project has its own. */
+    val tabWidth: Int = DEFAULT_TAB_WIDTH
 )
 
 private fun launch(serve: ServeLaunch) {
@@ -222,7 +224,7 @@ private fun launch(serve: ServeLaunch) {
         serveProjects(serve.projects, serve.host, serve.port, serve.mcp, serve.auth, serve.basePath, serve.defaultProject)
     } else {
         val index = AtlasIndex(serve.database!!, serve.sources, colorer = ZpaCodeColorer)
-        com.felipebz.zpa.atlas.server.serve(index, serve.host, serve.port, serve.mcp, serve.auth, serve.basePath)
+        com.felipebz.zpa.atlas.server.serve(index, serve.host, serve.port, serve.mcp, serve.auth, serve.basePath, serve.tabWidth)
     }
 }
 
@@ -234,6 +236,7 @@ private fun serve(args: ServeArguments, environment: (String) -> String?, launch
     val database = Path.of(args.db)
     if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: ${args.db}")
     if (args.port !in 1..65535) throw CliValidationException("--port must be between 1 and 65535")
+    val tabWidth = tabWidth(args)
     val sources = if (args.sources.isNotBlank()) {
         Path.of(args.sources).also { if (!Files.isDirectory(it)) throw CliValidationException("Sources folder does not exist: ${args.sources}") }
     } else {
@@ -263,7 +266,7 @@ private fun serve(args: ServeArguments, environment: (String) -> String?, launch
     if (args.host !in MCP_LOCAL_HOSTS && mcpHosts.isEmpty() && auth == null) {
         System.err.println("Warning: /mcp accepts only local host names; clients on other machines need --mcp-allowed-host with the name they use")
     }
-    launch(ServeLaunch(database, sources, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath))
+    launch(ServeLaunch(database, sources, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, tabWidth = tabWidth))
     return 0
 }
 
@@ -276,6 +279,7 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
         if (option in given) throw CliValidationException("$option and --projects both say what to serve: give --projects alone, as each project file names its index and sources")
     }
     if (args.port !in 1..65535) throw CliValidationException("--port must be between 1 and 65535")
+    val tabWidth = tabWidth(args)
     val mcpHosts = args.mcpAllowedHosts.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
     if (mcpHosts.any { it.any { c -> c in "/@?#:" && !(it.startsWith("[") && it.endsWith("]")) } }) {
         throw CliValidationException("--mcp-allowed-host takes host names or addresses, without scheme or port")
@@ -289,7 +293,10 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
     val folder = ProjectFolder.read(Path.of(args.projects.trim()))
     val projects = folder.projects.map { project ->
         val sources = Path.of(project["sources"]!!)
-        ServedProject(project.name, Path.of(project["index"]!!), sources.takeIf { Files.isDirectory(it) }, project.title, project.description, ZpaCodeColorer)
+        ServedProject(
+            project.name, Path.of(project["index"]!!), sources.takeIf { Files.isDirectory(it) }, project.title, project.description, ZpaCodeColorer,
+            project.tabWidth ?: tabWidth
+        )
     }
     val defaultProject = args.defaultProject.trim().ifEmpty { null }
     if (defaultProject != null && projects.none { it.name == defaultProject }) {
@@ -376,6 +383,14 @@ fun applicationHome(): Path {
 
 /** The variable `serve` reads the page client's secret from when `--oidc-client-secret-env` names none. */
 internal const val DEFAULT_CLIENT_SECRET_ENV = "ZPA_ATLAS_OIDC_CLIENT_SECRET"
+
+/** `--tab-width`: 2, 4 or 8, and 8 when it is not given. */
+private fun tabWidth(args: ServeArguments): Int {
+    val text = args.tabWidth.trim()
+    if (text.isEmpty()) return DEFAULT_TAB_WIDTH
+    return text.toIntOrNull()?.takeIf { it in TAB_WIDTHS }
+        ?: throw CliValidationException("--tab-width is 2, 4 or 8, the spaces a tab shows as; it is '$text'")
+}
 
 /** The environment variable an option of `serve` can come from: `--oidc-issuer` is `ZPA_ATLAS_OIDC_ISSUER`. */
 internal fun environmentName(option: String) = "ZPA_ATLAS_" + option.removePrefix("--").uppercase().replace('-', '_')

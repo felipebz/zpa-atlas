@@ -13,6 +13,7 @@ import com.charleskorn.kaml.YamlNode
 import com.charleskorn.kaml.YamlNull
 import com.charleskorn.kaml.YamlScalar
 import com.charleskorn.kaml.YamlTaggedNode
+import com.felipebz.zpa.atlas.server.TAB_WIDTHS
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -41,6 +42,9 @@ class ProjectFile(
     /** What the codebase is, in a sentence or two, for the people and agents that pick a project. */
     val description: String? get() = values["description"]
 
+    /** How wide the project's pages show a tab, in spaces (2, 4 or 8), or null when the file leaves it to `serve`. */
+    val tabWidth: Int? get() = values["tabWidth"]?.toInt()
+
     companion object {
         /** A project name: it goes into URLs and into an MCP argument. */
         private val NAME = Regex("[a-z0-9][a-z0-9_-]*")
@@ -65,6 +69,9 @@ class ProjectFile(
 
         /** The keys that describe the project to people and agents, not options of `index`, with their longest length. */
         private val DESCRIPTIVE: Map<String, Int> = linkedMapOf("title" to 80, "description" to 500)
+
+        /** The key that sets how the project's code is shown, not an option of `index`: the width of a tab. */
+        private const val TAB_WIDTH = "tabWidth"
 
         private val REQUIRED = listOf("sources", "index")
 
@@ -137,6 +144,14 @@ class ProjectFile(
                     values[key] = descriptive(shown, key, value, max)
                     continue
                 }
+                if (key == TAB_WIDTH) {
+                    val width = text(shown, key, value, Path.of("")).trim()
+                    if (width.toIntOrNull() !in TAB_WIDTHS) {
+                        throw CliValidationException("$shown, line ${value.location.line}: $key is 2, 4 or 8, the spaces a tab shows as; it is '$width'")
+                    }
+                    values[key] = width
+                    continue
+                }
                 if (key !in KEYS) {
                     val known = if (prefix.isEmpty()) topKeys() else keysUnder(prefix).map { prefix + it }
                     throw CliValidationException("$shown, line $line: unknown key '$key'; the keys are: ${known.joinToString(", ")}")
@@ -177,7 +192,7 @@ class ProjectFile(
 
         private fun untagged(node: YamlNode): YamlNode = if (node is YamlTaggedNode) untagged(node.innerNode) else node
 
-        private fun topKeys() = KEYS.keys.map { it.substringBefore('.') }.distinct() + DESCRIPTIVE.keys
+        private fun topKeys() = KEYS.keys.map { it.substringBefore('.') }.distinct() + DESCRIPTIVE.keys + TAB_WIDTH
 
         private fun keysUnder(prefix: String) = KEYS.keys.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
     }

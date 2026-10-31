@@ -10,9 +10,12 @@ import {field, form, picks} from "./query-state";
 import type {TextParams} from "./text-search";
 import {longEnough, matchesIn, MIN_TEXT, placeRows, shownLine, textHref, textParamsOf} from "./text-search";
 import {showExamples} from "./text-try";
+import {tabWidthControl} from "./tab-width-control";
 
 const PAGE = 100;
 const answer = document.getElementById("answer")!;
+/** The tab width control, made once (after the texts load): every search puts it beside its total. */
+let tabControl: HTMLElement | null = null;
 
 /** Only the latest search fills the answer. */
 let generation = 0;
@@ -51,6 +54,8 @@ function message(text: string) {
 /** [hit]'s line as shown: without its leading whitespace, colored, each place the text matches inside a `<mark>`. */
 function lineNodes(hit: TextHit, text: string): HTMLElement {
   const code = document.createElement("code");
+  // One inline box around the text: its left padding, repeated on every row it wraps to, indents the continuation rows.
+  const flow = code.appendChild(Object.assign(document.createElement("span"), { className: "flow" }));
   const shown = shownLine(hit.text, matchesIn(hit.text, text), hit.colors);
   let mark: HTMLElement | null = null;
   for (const piece of shown.pieces) {
@@ -58,11 +63,11 @@ function lineNodes(hit: TextHit, text: string): HTMLElement {
       : Object.assign(document.createElement("span"), { className: "tok-" + CODE_COLORS[piece.color], textContent: shown.text.slice(piece.from, piece.to) });
     // Consecutive marked pieces share one mark, whatever their colors.
     if (piece.mark) {
-      if (!mark) code.append(mark = document.createElement("mark"));
+      if (!mark) flow.append(mark = document.createElement("mark"));
       mark.append(part);
     } else {
       mark = null;
-      code.append(part);
+      flow.append(part);
     }
   }
   return code;
@@ -128,8 +133,9 @@ async function load(params: TextParams, after: number | null, ran: number) {
   }
   if (ran !== generation) return;
   if (after === null) {
-    answer.innerHTML = `<div class="card"><p class="total"></p><div class="text-groups"></div></div>`;
+    answer.innerHTML = `<div class="card"><div class="total-bar"><p class="total"></p></div><div class="text-groups"></div></div>`;
     answer.querySelector(".total")!.textContent = totalText(page);
+    if (page.total > 0) answer.querySelector(".total-bar")!.appendChild(tabControl ??= tabWidthControl());
     groups = new Map();
     containers = new Map();
   }

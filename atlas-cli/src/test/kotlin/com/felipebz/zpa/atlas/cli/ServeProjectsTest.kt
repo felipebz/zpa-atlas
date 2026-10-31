@@ -157,6 +157,18 @@ class ServeProjectsTest {
     }
 
     @Test
+    fun `a project's tab width wins over serve's, which is 8 when not given, and serve refuses a width it does not know`() {
+        project("hr", "sources: ../src/hr\nindex: ../data/hr.db\ntabWidth: 2")
+        val byFile = serve("--projects", projects.toString(), "--tab-width", "4").launch!!.projects.associate { it.name to it.tabWidth }
+        assertThat(byFile).containsExactlyInAnyOrderEntriesOf(mapOf("hr" to 2, "billing" to 4))
+        assertThat(serve("--projects", projects.toString()).launch!!.projects.first { it.name == "billing" }.tabWidth).isEqualTo(8)
+        assertThat(serve("--db", directory.resolve("data/hr.db").toString(), "--sources", directory.resolve("src/hr").toString()).launch!!.tabWidth).isEqualTo(8)
+        val refused = serve("--db", directory.resolve("data/hr.db").toString(), "--sources", directory.resolve("src/hr").toString(), "--tab-width", "3")
+        assertThat(refused.code).isEqualTo(2)
+        assertThat(refused.stderr).contains("--tab-width is 2, 4 or 8, the spaces a tab shows as; it is '3'")
+    }
+
+    @Test
     fun `without --projects, serve is the single index it was`() {
         val run = serve("--db", directory.resolve("data/hr.db").toString(), "--sources", directory.resolve("src/hr").toString())
 

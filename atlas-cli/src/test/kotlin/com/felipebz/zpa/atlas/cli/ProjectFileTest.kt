@@ -105,6 +105,17 @@ class ProjectFileTest {
     }
 
     @Test
+    fun `a tab width is 2, 4 or 8, refused otherwise, and left to serve when the file gives none`() {
+        assertThat(ProjectFile.read(file("hr.yaml", "sources: src\nindex: x.db\ntabWidth: 2")).tabWidth).isEqualTo(2)
+        assertThat(ProjectFile.read(file("hr.yaml", "sources: src\nindex: x.db\ntabWidth: '4'")).tabWidth).isEqualTo(4)
+        assertThat(ProjectFile.read(file("hr.yaml", "sources: src\nindex: x.db")).tabWidth).isNull()
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ntabWidth: 3")).endsWith("hr.yaml, line 3: tabWidth is 2, 4 or 8, the spaces a tab shows as; it is '3'")
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ntabWidth: wide")).endsWith("hr.yaml, line 3: tabWidth is 2, 4 or 8, the spaces a tab shows as; it is 'wide'")
+        assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ntabWidth: [2, 4]")).endsWith("hr.yaml, line 3: tabWidth takes one value, not a list")
+        assertThat(ProjectFile.KEYS.keys).doesNotContain("tabWidth")
+    }
+
+    @Test
     fun `a title is one line of at most 80 characters, a description at most 500, neither blank nor a list`() {
         assertThat(ProjectFile.read(file("ok.yaml", "sources: src\nindex: x.db\ntitle: ${"t".repeat(80)}\ndescription: ${"d".repeat(500)}")).title).hasSize(80)
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ntitle: ${"t".repeat(81)}")).endsWith("hr.yaml, line 3: title is at most 80 characters; it has 81")
@@ -142,7 +153,7 @@ class ProjectFileTest {
     @Test
     fun `an unknown key is refused with the known keys, at the top and under oracle`() {
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\nsorces: src")).endsWith(
-            "hr.yaml, line 3: unknown key 'sorces'; the keys are: sources, index, extensions, encoding, compilationSchema, databaseVersion, ccflags, oracle, title, description"
+            "hr.yaml, line 3: unknown key 'sorces'; the keys are: sources, index, extensions, encoding, compilationSchema, databaseVersion, ccflags, oracle, title, description, tabWidth"
         )
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\noracle:\n  urll: x")).endsWith(
             "hr.yaml, line 4: unknown key 'oracle.urll'; the keys are: oracle.url, oracle.user, oracle.passwordEnv, oracle.schemas, oracle.relations"
@@ -174,7 +185,7 @@ class ProjectFileTest {
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\nextensions: []")).endsWith("hr.yaml, line 3: extensions has no value")
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ncompilationSchema: \"\"")).endsWith("hr.yaml, line 3: compilationSchema has no value")
         assertThat(refusal("hr.yaml", "index: x.db")).endsWith("hr.yaml: the key 'sources' is required")
-        assertThat(refusal("hr.yaml", "- sources")).endsWith("hr.yaml: a project file is a map of keys: sources, index, extensions, encoding, compilationSchema, databaseVersion, ccflags, oracle, title, description")
+        assertThat(refusal("hr.yaml", "- sources")).endsWith("hr.yaml: a project file is a map of keys: sources, index, extensions, encoding, compilationSchema, databaseVersion, ccflags, oracle, title, description, tabWidth")
         assertThat(refusal("hr.yaml", "sources: src\nsources: other\nindex: x.db")).contains("hr.yaml, line 2: Duplicate key 'sources'")
     }
 

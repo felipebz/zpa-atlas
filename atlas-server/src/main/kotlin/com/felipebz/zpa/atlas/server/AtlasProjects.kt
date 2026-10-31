@@ -28,7 +28,7 @@ internal const val PROJECTS_SEGMENT = "p"
  * A project the server serves: [name] is a segment of its URLs, [indexFile] the index `index --project` writes, and
  * [sources] its sources folder, null when it is not on this machine. The index file may not exist yet: the project is
  * then not indexed, and is served as soon as the file appears. [title] and [description] tell people and agents which
- * codebase it is. [colorer] colors its files' text on the file page.
+ * codebase it is. [colorer] colors its files' text on the file page; [tabWidth] is how wide its pages show a tab.
  */
 class ServedProject(
     val name: String,
@@ -36,7 +36,9 @@ class ServedProject(
     val sources: Path?,
     val title: String? = null,
     val description: String? = null,
-    colorer: CodeColorer? = null
+    colorer: CodeColorer? = null,
+    /** The width the project's pages show a tab with by default, one of [TAB_WIDTHS]. */
+    val tabWidth: Int = DEFAULT_TAB_WIDTH
 ) {
     init {
         require(NAME.matches(name)) { "A project name is lower-case letters, digits, '-' and '_', starting with a letter or a digit: $name" }
@@ -154,7 +156,7 @@ internal fun Application.atlasProjectsModule(
             }
             route("$root/api") {
                 install(ProjectIndexed) { this.project = project }
-                indexApi(project.index)
+                indexApi(project.index, project.tabWidth)
             }
             get("$root/") { call.projectPage(project, "index.html") }
             for (page in PAGES) get("$root/$page") { call.projectPage(project, page) }

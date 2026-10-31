@@ -112,6 +112,13 @@ class ServeArguments {
     @Parameter(names = ["--sources"], description = "Folder of the indexed sources (default: the folder recorded in the index, when it exists) [env ZPA_ATLAS_SOURCES]")
     var sources: String = ""
 
+    @Parameter(
+        names = ["--tab-width"],
+        description = "How wide the page shows a tab, in spaces: 2, 4 or 8 (default 8). With --projects, for the projects whose file " +
+            "gives no tabWidth. A reader may pick another in the page [env ZPA_ATLAS_TAB_WIDTH]"
+    )
+    var tabWidth: String = ""
+
     @Parameter(names = ["--host"], description = "Address to bind; anything but 127.0.0.1 exposes the index to the network [env ZPA_ATLAS_HOST]")
     var host: String = "127.0.0.1"
 

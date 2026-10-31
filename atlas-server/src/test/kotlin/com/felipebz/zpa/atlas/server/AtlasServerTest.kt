@@ -283,6 +283,17 @@ class AtlasServerTest {
     }
 
     @Test
+    fun `the run answer carries the tab width the page shows code with, 8 unless the server is given another`() = testApplication {
+        application { atlasModule(AtlasIndex(temp.resolve("fixture.db"), null), tabWidth = 2) }
+        assertThat(json(client.get("/api/run").bodyAsText())["tabWidth"]!!.jsonPrimitive.content).isEqualTo("2")
+    }
+
+    @Test
+    fun `the run answer's tab width is 8 by default`() = api {
+        assertThat(json(client.get("/api/run").bodyAsText())["tabWidth"]!!.jsonPrimitive.content).isEqualTo("8")
+    }
+
+    @Test
     fun `a file answer lists the objects the file declares, each with the members it declares directly, in file order`() = api {
         suspend fun objects(path: String) = json(client.get("/api/file") { parameter("path", path) }.bodyAsText())["result"]!!.jsonObject["objects"]!!.jsonArray.map { o ->
             val obj = o.jsonObject

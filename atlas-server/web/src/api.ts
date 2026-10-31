@@ -24,6 +24,11 @@ export interface Count {
   count: number;
 }
 
+/** `/api/run`: the run and its counts, and the width the page shows a tab with by default (2, 4 or 8). */
+export interface RunAnswer extends Answer<RunSummary> {
+  tabWidth: number;
+}
+
 export interface RunSummary {
   schemaVersion: number;
   sourcesRoot: string;

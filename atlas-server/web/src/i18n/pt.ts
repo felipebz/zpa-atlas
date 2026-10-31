@@ -409,6 +409,8 @@ export default {
   "source.stale": "O arquivo mudou desde a indexação.",
 
   "file.missingPath": "Nenhum arquivo informado.",
+  "tab.width": "Largura do tab:",
+  "tab.default": "o padrão do projeto",
   "file.lines": { one: "{count} linha", other: "{count} linhas" },
   "file.inThisFile": "Neste arquivo ({count})",
   "file.openObject": "Abrir a página de {name}",

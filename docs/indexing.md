@@ -68,6 +68,7 @@ oracle:                         # optional
   passwordEnv: HR_DB_PASSWORD   # the password itself never goes in the file
   schemas: [hr, common]
   relations: [other.some_table]
+tabWidth: 2                     # optional: how wide the page shows a tab, 2, 4 or 8
 ```
 
 - **The name** is the file's name without `.yaml`: lower-case letters, digits, `-` and `_`, starting with a letter or a
@@ -75,9 +76,11 @@ oracle:                         # optional
 - **Each key is an option** of `index`, with the same values and checks: `index` is `--out`, `compilationSchema` is
   `--compilation-schema`, `oracle.passwordEnv` is `--oracle-password-env`, and so on. `--threads`, `--incremental` and
   `--phase-times` belong to the machine and stay on the command line.
+- **`tabWidth`** is no option of `index`: it tells `serve --projects` how wide the project's pages show a tab (2, 4 or
+  8; without it, `serve`'s `--tab-width`, 8 by default). A reader may pick another width in the page.
 - **Paths** are relative to the file's folder. **Lists** are YAML lists or the comma-separated text the option takes.
 - **An option given beside `--project` wins** over the file's key: `--out other.db` writes elsewhere.
-- **Refused:** an unknown key, a value of the wrong type, a missing `sources` or `index`, and a password in the file;
+- **Refused:** an unknown key, a value of the wrong type, a `tabWidth` other than 2, 4 or 8, a missing `sources` or `index`, and a password in the file;
   each message names the file and the key.
 
 `serve --projects` serves a folder of these files: see [Serving several projects](serving.md#serving-several-projects).

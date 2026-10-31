@@ -9,6 +9,8 @@ import {currentEntry, outlineEntries, segmentClass, segmentsByLine} from "./file
 import {entityHref, getOrPut, langSuffix} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {fileTitleParts, setPageTitle} from "./project";
+import {widestLine} from "./tab-width";
+import {onTabWidth, tabWidth, tabWidthControl} from "./tab-width-control";
 
 // The whole of an indexed file, colored the way the analyzer reads it; every indexed name is clickable and opens a
 // popover with its entity, status, places and who uses it. Beside the code, the objects the file declares. File text
@@ -68,23 +70,20 @@ function renderLine(number: number, text: string, segments: Segment[] | undefine
 // Lines go in blocks the browser may skip laying out while they are off screen (content-visibility).
 const BLOCK = 200;
 
-/** The widest line in columns, tabs at every eighth: the code's width, so line numbers can stay in view across all of it. */
-function widestLine(lines: string[]) {
-  let widest = 0;
-  for (const line of lines) {
-    let column = 0;
-    for (const c of line) column = c === "\t" ? column + 8 - (column % 8) : column + 1;
-    widest = Math.max(widest, column);
-  }
-  return widest;
+/**
+ * Every line box as wide as the widest line at the tab width shown, for the sticky numbers: the number column, its gap
+ * and border, then the code.
+ */
+function fitWidth(inner: HTMLElement) {
+  inner.style.minWidth = `max(100%, calc(${widestLine(view.lines, tabWidth()) + 8}ch + 24px))`;
 }
 
 function renderFile() {
   const segments = segmentsByLine(view.lines, view.occurrences, view.colors);
   const source = el("div", "file-src mono");
   const inner = el("div", "file-lines");
-  // The number column, its gap and border, then the code: every line box as wide as the widest, for the sticky numbers.
-  inner.style.minWidth = `max(100%, calc(${widestLine(view.lines) + 8}ch + 24px))`;
+  fitWidth(inner);
+  onTabWidth(() => fitWidth(inner));
   for (let start = 0; start < view.lines.length; start += BLOCK) {
     const block = el("div", "block");
     block.style.containIntrinsicHeight = `auto ${Math.min(BLOCK, view.lines.length - start) * LINE_HEIGHT}px`;
@@ -117,6 +116,7 @@ function renderHeader() {
     parse.title = view.parseStatus;
     facts.appendChild(parse);
   }
+  facts.append(" · ", tabWidthControl());
   document.getElementById("header")!.replaceChildren(title, facts);
 }
 

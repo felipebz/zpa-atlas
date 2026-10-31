@@ -3,8 +3,8 @@
 `zpa-atlas serve` serves an index as a web page, a JSON API and an MCP endpoint for agents.
 
 ```sh
-zpa-atlas serve --projects <folder> [--default-project <name>] [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [--mcp-allowed-host <name>,...] [authentication options as below]
-zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [--mcp-allowed-host <name>,...] \
+zpa-atlas serve --projects <folder> [--default-project <name>] [--tab-width 2|4|8] [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [--mcp-allowed-host <name>,...] [authentication options as below]
+zpa-atlas serve --db <file.db> [--sources <dir>] [--tab-width 2|4|8] [--host 127.0.0.1] [--port 8080] [--base-path /atlas] [--mcp-allowed-host <name>,...] \
   [--oidc-issuer URL --public-url URL [--oidc-audience VALUE] [--oidc-scope SCOPE] [--oidc-client-id ID [--oidc-client-secret-env VAR]]]
 ```
 
@@ -13,6 +13,7 @@ zpa-atlas serve --db <file.db> [--sources <dir>] [--host 127.0.0.1] [--port 8080
 | `--host`             | `127.0.0.1`                                                                                      |
 | `--port`             | `8080`                                                                                           |
 | `serve --sources`    | the folder recorded in the index                                                                 |
+| `--tab-width`        | `8`: how wide the page shows a tab, 2, 4 or 8. With `--projects`, for the projects whose file gives no `tabWidth` |
 | `--base-path`        | none: everything at the root. With `/atlas`, everything under `/atlas/` and nothing outside it   |
 | `--mcp-allowed-host` | none: `/mcp` accepts only the `Host` names `localhost`, `127.0.0.1` and `[::1]`                  |
 | `--oidc-issuer`      | none: no authentication. With it, `/mcp` and `/api` need an access token of that provider        |
@@ -52,7 +53,13 @@ the path behind each one and a CSV export.
 
 A file page shows the whole file, colored the way zpa's own highlighter colors it (keywords, literals, comments and
 documentation comments, from zpa's lexer, with the run's conditional compilation), each indexed name a link to a
-popover with its status and where it is declared. Beside the code (above it, closed, on a phone), "In this file" lists
+popover with its status and where it is declared.
+
+The file page and the Code page show a tab as wide as the project's `tabWidth` (or `--tab-width`, 8 by default); the
+page reads it from `/api/run`, whose answer has `tabWidth` beside `run` and `result`. "Tab width: 2 · 4 · 8", in the
+file page's header and beside the Code page's total, picks another for this browser and project; picking the
+project's width again follows the project's from then on. Where the browser cannot keep it (some private windows),
+the choice holds until the page is left. Beside the code (above it, closed, on a phone), "In this file" lists
 the objects the file declares and their members; an entry moves the code to its line.
 
 ## Agents (MCP)

@@ -43,6 +43,17 @@ internal val ApiJson = Json { explicitNulls = true; encodeDefaults = true }
 internal suspend inline fun <reified T> ApplicationCall.respondJson(value: T, status: HttpStatusCode = HttpStatusCode.OK) =
     respondText(ApiJson.encodeToString(value), ContentType.Application.Json, status)
 
+/** The widths a tab may be shown with, in spaces; [DEFAULT_TAB_WIDTH] when the project or `serve` gives none. */
+val TAB_WIDTHS = listOf(2, 4, 8)
+const val DEFAULT_TAB_WIDTH = 8
+
+/**
+ * `/api/run`: the run and its counts, as [AtlasIndex.run] answers them, and [tabWidth], the width the page shows a tab
+ * with unless the reader picks another. It is the server's setting, not the index's.
+ */
+@Serializable
+internal class RunAnswer(val run: RunStamp, val result: RunSummary, val tabWidth: Int)
+
 /** Answers [answer] about one entity, or 404 when the key names none. */
 private suspend inline fun <reified T> ApplicationCall.respondEntityAnswer(answer: Answer<T?>) =
     if (answer.result == null) respondJson(ApiError("Unknown entity"), HttpStatusCode.NotFound) else respondJson(answer)
@@ -55,10 +66,13 @@ private suspend inline fun <reified T> ApplicationCall.respondEntityAnswer(answe
  * @param auth when given, `/mcp` and `/api` answer only requests with an access token of that issuer, and the
  *     protected resource metadata is served; the static page stays open. Without it, nothing is checked
  * @param basePath the path everything is served under; outside it, nothing is answered. [auth]'s must be the same
+ * @param tabWidth the width the page shows a tab with by default, one of [TAB_WIDTHS]
  * @throws AuthDiscoveryException when [auth] is given and its issuer's discovery document cannot be read
  */
-fun Application.atlasModule(index: AtlasIndex, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT) =
-    atlasModule(index, mcp, auth, { oidcIdentity(it) }, basePath) {
+fun Application.atlasModule(
+    index: AtlasIndex, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT, tabWidth: Int = DEFAULT_TAB_WIDTH
+) =
+    atlasModule(index, mcp, auth, { oidcIdentity(it) }, basePath, tabWidth) {
         HttpClient(io.ktor.client.engine.cio.CIO).also { client -> monitor.subscribe(ApplicationStopped) { client.close() } }
     }
 
@@ -68,11 +82,12 @@ internal fun Application.atlasModule(
     auth: AuthSettings?,
     identity: IdentityInstaller,
     basePath: BasePath = BasePath.ROOT,
+    tabWidth: Int = DEFAULT_TAB_WIDTH,
     providerClient: () -> HttpClient
 ) {
     atlasCommon(auth, identity, basePath, providerClient)
     routing {
-        route(basePath.of("/api")) { indexApi(index) }
+        route(basePath.of("/api")) { indexApi(index, tabWidth) }
         // Outside the gate: a probe has no token. It answers whether the index opens, nothing of what is in it.
         route(basePath.of("/health")) {
             get { call.health(index, head = false) }
@@ -112,8 +127,9 @@ internal fun Application.atlasCommon(
 }
 
 /** The HTTP API of one index, under the current route: what `/api` answers, and each project's `/p/<name>/api`. */
-internal fun Route.indexApi(index: AtlasIndex) {
-    get("/run") { call.respondJson(index.run()) }
+internal fun Route.indexApi(index: AtlasIndex, tabWidth: Int) {
+    require(tabWidth in TAB_WIDTHS) { "A tab width is one of $TAB_WIDTHS: $tabWidth" }
+    get("/run") { call.respondJson(index.run().let { RunAnswer(it.run, it.result, tabWidth) }) }
     get("/top-packages") { call.respondJson(index.topPackages()) }
     // The code lists read no index: this answers without one, so it has no run stamp.
     get("/codes") { call.respondJson(indexCodes()) }
@@ -296,8 +312,11 @@ private fun ApplicationCall.long(name: String): Long? =
  * @throws AuthDiscoveryException when [auth] is given and its issuer's discovery document cannot be read: the server
  *     does not start
  */
-fun serve(index: AtlasIndex, host: String, port: Int, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT) {
-    val server = embeddedServer(CIO, host = host, port = port) { atlasModule(index, mcp, auth, basePath) }
+fun serve(
+    index: AtlasIndex, host: String, port: Int, mcp: McpSettings = McpSettings(), auth: AuthSettings? = null, basePath: BasePath = BasePath.ROOT,
+    tabWidth: Int = DEFAULT_TAB_WIDTH
+) {
+    val server = embeddedServer(CIO, host = host, port = port) { atlasModule(index, mcp, auth, basePath, tabWidth) }
     try {
         server.start(wait = true)
     } catch (e: Throwable) {

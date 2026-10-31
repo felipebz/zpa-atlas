@@ -3,6 +3,8 @@
  * Kinds share a color by group; each status family has a strong color (text) and a soft one (background).
  */
 :root {
+  /* How wide a tab shows in code: the project's default or the reader's choice, set by the page. */
+  --tab-width: 8;
   --bg: #f4f6f9; --surface: #ffffff; --surface-2: #eef1f5; --border: #e1e5eb; --border-strong: #cbd2dc;
   --fg: #172033; --muted: #5b6577; --faint: #8a93a3;
   --bar: #1c2740; --bar-fg: #e9eef8; --bar-muted: #9fb0cf; --bar-field: #2a3757; --bar-warning: #f5c46b;
@@ -310,11 +312,13 @@ ul.cols li { break-inside: avoid; }
 .outline a.go .line { margin-left: auto; padding-left: 6px; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .outline a.open { flex: none; padding: 0 4px; color: var(--faint); text-decoration: none; font-size: var(--fs-xs); }
 .outline a.open:hover { color: var(--accent); }
-.file-src { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 0; white-space: pre; overflow-x: auto; tab-size: 8; line-height: 18px; }
+.file-src { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 0; white-space: pre; overflow-x: auto; tab-size: var(--tab-width); line-height: 18px; }
 .file-src .file-lines { width: max-content; }
 .file-src .block { content-visibility: auto; }
 .file-src .ln { display: block; min-height: 18px; }
 .file-src .ln.hl { background: var(--hl); }
+/* The code is its own block, so that a tab stop counts from its first character, not from the line number before it. */
+.file-src .code { display: inline-block; }
 .file-src .num { position: sticky; left: 0; z-index: 1; display: inline-block; width: 6ch; padding-right: 1ch; margin-right: 1ch; text-align: right;
   color: var(--faint); background: var(--surface); text-decoration: none; border-right: 1px solid var(--border); user-select: none; }
 .file-src .ln.hl .num { background: var(--hl); }
@@ -502,7 +506,14 @@ button.more-rows { margin-top: 6px; }
 .tline { font-size: var(--fs-xs); line-height: 18px; }
 .tline > a { text-align: right; color: var(--faint); text-decoration: none; font-variant-numeric: tabular-nums; }
 .tline > a:hover { color: var(--accent); }
-.tline > code { display: block; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; padding-left: 2ch; text-indent: -2ch; tab-size: 4; }
+/*
+ * A found line wraps with its continuation rows 2 characters in, while its tab stops count from its first character:
+ * they count from the box's left edge, so the first row starts there (text-indent -2ch, then the 2ch padding of the
+ * inline box around the text), and every later row gets the same padding again (box-decoration-break: clone). The
+ * `hanging` keyword of text-indent would say this directly, but Chromium does not support it.
+ */
+.tline > code { display: block; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; text-indent: -2ch; tab-size: var(--tab-width); }
+.tline > code > .flow { padding-left: 2ch; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .tline mark { background: var(--mark); color: inherit; border-radius: 2px; }
 button.more-rows { margin-top: 8px; }
 
@@ -549,3 +560,10 @@ ul.plain .grow { flex: 1; min-width: 0; }
 /* The action that runs a form: filled with the accent. Last, so it wins over the form's own control rules. */
 form#search > button, form.query .buttons button, form#options > button { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 form#search > button:hover:not(:disabled), form.query .buttons button:hover:not(:disabled), form#options > button:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.08); }
+/* "Tab width: 2 · 4 · 8": a quiet line, the width shown marked. */
+.tab-width { white-space: nowrap; font-size: var(--fs-xs); }
+.tab-width button { border: 0; background: none; padding: 0 3px; font: inherit; color: var(--accent); cursor: pointer; }
+.tab-width button[aria-pressed="true"] { color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.total-bar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+.total-bar .total { margin: 0; }
+.total-bar .tab-width { margin-left: auto; }

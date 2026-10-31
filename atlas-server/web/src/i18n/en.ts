@@ -410,6 +410,8 @@ export default {
   "source.stale": "The file changed since it was indexed.",
 
   "file.missingPath": "No file given.",
+  "tab.width": "Tab width:",
+  "tab.default": "the project's default",
   "file.lines": { one: "{count} line", other: "{count} lines" },
   "file.inThisFile": "In this file ({count})",
   "file.openObject": "Open the page of {name}",

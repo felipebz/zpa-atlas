@@ -1,4 +1,4 @@
-import type {Answer, RunStamp, RunSummary, SourceSnippet} from "./api";
+import type {Answer, RunAnswer, RunStamp, RunSummary, SourceSnippet} from "./api";
 import {api, errorMessage} from "./api";
 import {parseLabel} from "./entity-html";
 import {setupGoto} from "./goto";
@@ -17,6 +17,7 @@ import {
     toBase
 } from "./project";
 import {signInState} from "./session";
+import {setProjectTabWidth} from "./tab-width-control";
 
 /**
  * Fills the top bar: the current page, "Go to object…", the index date with its panel, the parse note with its panel
@@ -35,7 +36,8 @@ export async function showBanner() {
   }
   showUser(date);
   try {
-    const answer = await api<Answer<RunSummary>>("api/run");
+    const answer = await api<RunAnswer>("api/run");
+    setProjectTabWidth(answer.tabWidth);
     date.textContent = formatShortDate(answer.run.finishedAt);
     date.title = t("banner.date", { date: formatDate(answer.run.finishedAt) });
     date.setAttribute("aria-label", date.title);
