@@ -67,6 +67,12 @@ describe("entityTags", () => {
     expect(entityTags(entity({ key: spec.key, kind: "PROCEDURE", parent: pack }))).toEqual([]);
     expect(entityTags(entity({ key: "db:~.EXT_PKG", kind: "PACKAGE", external: true }))).toEqual(["external"]);
   });
+
+  it("marks a package body's own variable or constant as private, a spec variable not at all", () => {
+    expect(entityTags(entity({ key: "db:HR.PACK_ORDERS.G_OPEN_COUNT@BODY", kind: "PACKAGE_VARIABLE", parent: pack }))).toEqual(["private"]);
+    expect(entityTags(entity({ key: "db:HR.PACK_ORDERS.C_MAX_LINES@BODY#2", kind: "PACKAGE_CONSTANT", parent: pack }))).toEqual(["private"]);
+    expect(entityTags(entity({ key: "db:HR.PACK_ORDERS.G_OPEN_COUNT", kind: "PACKAGE_VARIABLE", parent: pack }))).toEqual([]);
+  });
 });
 
 describe("routineRows", () => {

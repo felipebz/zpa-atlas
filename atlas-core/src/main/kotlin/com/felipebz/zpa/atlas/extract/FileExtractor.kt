@@ -58,6 +58,7 @@ class FileExtractor(
     // The collaborators of the walk, created when it starts (they need the file's legacy symbol table).
     private lateinit var triggers: Triggers
     private lateinit var plsql: PlSqlNames
+    private lateinit var bodyGlobals: BodyGlobals
     private lateinit var typeReferences: TypeReferences
     private lateinit var sql: SqlStatements
     private lateinit var lineage: ViewLineage
@@ -75,7 +76,8 @@ class FileExtractor(
     override fun visitFile(node: AstNode) {
         root = node
         val scopes = SqlScopes()
-        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, projectAnalysis())
+        bodyGlobals = BodyGlobals(context::nameBinding)
+        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, projectAnalysis(), bodyGlobals)
         triggers = Triggers(state, resolver, plsql)
         typeReferences = TypeReferences(state, types, resolver, calls, plsql, jsonBuiltIn)
         val columnReads = ColumnReads(state, resolver, scopes, plsql, context::nameBinding)
@@ -218,6 +220,8 @@ class FileExtractor(
             else -> UnitKind.SQL_STATEMENT
         }
         val index = state.addUnit(UnitFact(kind, displayName, entityKey, span, schema), partial)
+        // A package body's own variables and constants, before the walk that finds their uses.
+        if (kind == UnitKind.PACKAGE_BODY) entityKey?.let { bodyGlobals.declare(node, it, catalog.schemaAndName(path, written).first, index, partial, state) }
         if (kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY || kind == UnitKind.TRIGGER || (kind == UnitKind.VIEW || kind == UnitKind.MATERIALIZED_VIEW) && entityKey != null) {
             // Package bodies, type bodies, triggers and views are not in the project index; their definition comes from the AST.
             state.occurrences += OccurrenceFact(index, entityKey, null, span, writtenText(unitName ?: node), entityKey,
@@ -398,6 +402,15 @@ class FileExtractor(
         for (definition in unitDefinitions) {
             val node = definition.node.takeIf { it.type in DocComments.NODE_TYPES }
             docs?.of(definition.entityKey, definition.span, definition.inBody, node)?.let { docComments += it }
+        }
+        // A body's own globals: their definition, what their declaration says and their documentation, as the spec's.
+        // A file the parser rejected was never walked: it has none.
+        for (global in if (::bodyGlobals.isInitialized) bodyGlobals.declared else emptyList()) {
+            val span = spanOf(global.node)
+            state.occurrences += OccurrenceFact(global.unitIndex, global.packageKey, null, span, global.name.tokenOriginalValue, global.key,
+                setOf(Role.DEFINITION), status(Status.RESOLVED, global.partial), Origin.STATIC, null, nameSpan = spanOf(global.name))
+            DeclaredTexts.of(global.key, global.node)?.let { declaredTexts += it }
+            docs?.of(global.key, span, true, null)?.let { docComments += it }
         }
         for (declaration in declarations) {
             val unitIndex = state.units.indices.firstOrNull { state.units[it].span.contains(declaration.span.startLine, declaration.span.startCol) }

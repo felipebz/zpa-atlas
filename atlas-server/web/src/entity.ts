@@ -28,7 +28,7 @@ import {
     valueKindLabel
 } from "./entity-html";
 import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
-import {entityPath, entityTags, places, routineRows} from "./entity-view";
+import {entityPath, entityTags, isBodyValue, places, routineRows} from "./entity-view";
 import {kindOrder} from "./kinds";
 import {
     codeBreaksHtml,
@@ -152,6 +152,8 @@ function headerHtml(entity: EntityDetail, direct: number) {
   const statusOf = (p: Place) => p.partner ? null : entity.definitions.find(d => d.path === p.path && d.span.startLine === p.line)?.status ?? null;
   // The uses become the "Used by" section's total once it loads (with a package's members, or a routine's other half).
   const facts = [...places(entity).map(p => placeHtml(p, entity.kind, statusOf(p))), `<span id="ent-uses">${esc(t("search.usages", { count: direct }))}</span>`];
+  // A body's own variable or constant is not part of the package's interface: said in words, first.
+  if (isBodyValue(entity)) facts.unshift(`<span class="private-note">${esc(t("entity.privateBody"))}</span>`);
   return `<nav class="crumbs" aria-label="${esc(t("entity.path"))}">${crumbs.join(`<span class="sep" aria-hidden="true">›</span>`)}</nav>
     <div class="ent-title"><h1><span class="ename" title="${esc(entity.display)}"><span class="name">${nameBreaksHtml(parts.base)}</span></span></h1>${kindBadge(entity.kind)}${tags.join("")}</div>
     ${signature}
@@ -292,7 +294,11 @@ function contentsSections(members: Member[]): { html: string; entries: SectionEn
       <table class="members">${head(false)}<tbody>${list.map(m => {
         // A package variable's or constant's type follows its name, wrapping under it on a phone.
         const type = memberType(m);
-        return `<tr><td>${entityLink(m.entity, options(m.entity))}${type === null ? "" : ` <span class="mono mtype">${esc(type)}</span>`}</td>${uses(m.usages)}</tr>`;
+        // A body's own variable or constant: marked private, never the "body" badge of a spec member's other half.
+        const name = isBodyValue(m.entity)
+          ? `${entityLink(m.entity, { ...options(m.entity), noBodyBadge: true })} <span class="badge">${esc(t("entity.tag.private"))}</span>`
+          : entityLink(m.entity, options(m.entity));
+        return `<tr><td>${name}${type === null ? "" : ` <span class="mono mtype">${esc(type)}</span>`}</td>${uses(m.usages)}</tr>`;
       }).join("")}</tbody></table></section>`;
   }
   return { html, entries };

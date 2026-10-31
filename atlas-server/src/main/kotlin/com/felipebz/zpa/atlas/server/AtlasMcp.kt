@@ -665,7 +665,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "Entity keys: db:SCHEMA.NAME; a member as db:SCHEMA.PACKAGE.MEMBER, a column as db:SCHEMA.TABLE.COLUMN. " +
                 "A procedure or function ends with its parameter list, db:HR.PKG.RUN(P_A IN NUMBER,P_B IN VARCHAR2), " +
                 "and its parameters add .P_A. Its body adds @BODY after the list; #2, #3 tell apart declarations with " +
-                "the same signature. ~ is the schema when none is known (db:~.DBMS_SQL). An object through a database " +
+                "the same signature. A variable or constant a package body declares for itself, private to the body, is " +
+                "db:HR.PKG.G_X@BODY. ~ is the schema when none is known (db:~.DBMS_SQL). An object through a database " +
                 "link is db:SCHEMA.NAME@LINK, or db:NAME@LINK when no schema is written."
 
         private const val STATUSES =
@@ -682,7 +683,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "DDL_ANALYZE (the object a DDL statement acts on)."
 
         const val SEARCH = "Finds the key of an entity by its name: tables, views, columns, packages, procedures, " +
-            "functions, parameters, types, sequences, synonyms, triggers. Exact name matches first. $KEYS"
+            "functions, parameters, types, package variables and constants (a body's own included), sequences, " +
+            "synonyms, triggers. Exact name matches first. $KEYS"
 
         const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
             "(members or columns, each with its number of uses), relations, triggers and the views that read it. For a " +
@@ -710,7 +712,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "in source order, definitions and declarations left out unless roles asks for them; viaView is true on a row " +
             "reached through a view (a view column computed from the entity, or a view reading it), viaCandidate on an " +
             "AMBIGUOUS row where the entity is one of the candidates. One hop only: for the callers of the callers, up to " +
-            "the entry points, use find_impact. Pages as in find_occurrences. $PATHS $STATUSES $NOT_ANSWERED"
+            "the entry points, use find_impact. A package body's own variable or constant is used only inside its " +
+            "body. Pages as in find_occurrences. $PATHS $STATUSES $NOT_ANSWERED"
 
         const val IMPACT = "Impact analysis: who calls the callers of an entity, transitively, up to the entry " +
             "points (code nothing in the index calls, run from Forms, jobs or other systems). The first hop is who uses " +

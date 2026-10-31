@@ -4,6 +4,13 @@
 import type {EntityDetail, EntitySummary, Location} from "./api";
 
 const ROUTINE_KINDS = ["PROCEDURE", "FUNCTION"];
+/** A package body's own variables and constants: always private to the body. */
+const VALUE_KINDS = ["PACKAGE_VARIABLE", "PACKAGE_CONSTANT"];
+
+/** Whether [member] is a package body's own variable or constant, private to the body. */
+export function isBodyValue(member: Pick<EntitySummary, "key" | "kind">) {
+  return VALUE_KINDS.includes(member.kind) && isBodyKey(member.key);
+}
 
 /** Whether [key] is a body's (`…@BODY`, before a collision's `#2`). */
 export function isBodyKey(key: string) {
@@ -62,14 +69,17 @@ export function places(entity: Pick<EntityDetail, "kind" | "definitions" | "part
   return [...own, ...others].sort((a, b) => rank(a) - rank(b));
 }
 
-/** The tags after the title: external, private for a package routine that exists only in the body, body for a body with a spec. */
+/**
+ * The tags after the title: external; private for a package routine that exists only in the body and for a package
+ * body's own variable or constant; body for a body with a spec.
+ */
 export function entityTags(entity: Pick<EntityDetail, "key" | "kind" | "external" | "partners" | "parent">): ("external" | "private" | "body")[] {
   const tags: ("external" | "private" | "body")[] = [];
   if (entity.external) tags.push("external");
   if (isBodyKey(entity.key)) {
     const hasSpec = entity.partners.some(p => p.direction === "OUT");
     const routine = ROUTINE_KINDS.includes(entity.kind) && entity.parent !== null && ["PACKAGE", "TYPE"].includes(entity.parent.kind);
-    if (!hasSpec && routine) tags.push("private");
+    if (!hasSpec && (routine || isBodyValue(entity))) tags.push("private");
     else tags.push("body");
   }
   return tags;

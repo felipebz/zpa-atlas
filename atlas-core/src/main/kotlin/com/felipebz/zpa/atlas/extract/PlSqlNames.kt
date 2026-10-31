@@ -30,7 +30,9 @@ internal class PlSqlNames(
     typeMembers: ObjectTypeMembers,
     runSchemas: Set<String>,
     private val jsonBuiltIn: Boolean,
-    projectAnalysis: ProjectAnalysis
+    projectAnalysis: ProjectAnalysis,
+    /** The package body's own variables and constants, whose uses zpa's name binding finds. */
+    private val bodyGlobals: BodyGlobals
 ) {
     private val ownNames = OwnNames(typeMembers)
     private val segmentValues = SegmentValues(calls, values)
@@ -74,6 +76,12 @@ internal class PlSqlNames(
         }
         // From version 21 on a call written `json(...)` is Oracle's built-in JSON function, never a user type's constructor.
         if (jsonBuiltIn && segments.size == 1 && normalizeIdentifier(segments[0]) == "JSON") return
+        // `g_tab(i)`, `pkg.g_tab(i)`: an element of a body global, read or written; in SQL, not a qualifier of the statement.
+        bodyGlobals.of(callee, context)?.let { key ->
+            if (statementId != null && scopes.isSqlQualified(callee, segments)) return
+            state.valueOccurrence(spanOf(callee), writtenText(callee), context, statementId, Status.RESOLVED, key, null, emptyList(), roles.valueRoles(callee, segments))
+            return
+        }
         val first = if (callee.type == PlSqlGrammar.VARIABLE_NAME) callee else callee.firstChild
         val symbol = (first as? SemanticAstNode)?.symbol
         val arguments = actuals.map { argument ->
@@ -172,6 +180,11 @@ internal class PlSqlNames(
             return
         }
         if (sql && (segments.size == 1 || scopes.isSqlQualified(name, segments))) return
+        // A body global, as zpa binds it; in SQL the caller already let a column take the name first.
+        if (!attribute) bodyGlobals.of(name, context)?.let { key ->
+            state.valueOccurrence(span, text, context, statementId, Status.RESOLVED, key, null, emptyList(), roles.valueRoles(name, segments))
+            return
+        }
         val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild
         val symbol = (first as? SemanticAstNode)?.symbol
         if (symbol != null) {

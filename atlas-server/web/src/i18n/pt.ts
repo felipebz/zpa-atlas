@@ -84,6 +84,7 @@ export default {
   "entity.viewColumns": "Colunas de view",
   "entity.path": "Onde fica",
   "entity.tag.private": "privada",
+  "entity.privateBody": "Privada do body do package: não faz parte da interface do package",
   "entity.where.declared": "Declaração {part}, {line}",
   "entity.where.implemented": "Implementação {part}, {line}",
   "entity.where.declaredBody": "Declaração {part}, {line}",

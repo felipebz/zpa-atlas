@@ -84,6 +84,7 @@ export default {
   "entity.viewColumns": "View columns",
   "entity.path": "Where it sits",
   "entity.tag.private": "private",
+  "entity.privateBody": "Private to the package body: not part of the package's interface",
   "entity.where.declared": "Declared in {part}, {line}",
   "entity.where.implemented": "Implemented in {part}, {line}",
   "entity.where.declaredBody": "Declared in {part}, {line}",

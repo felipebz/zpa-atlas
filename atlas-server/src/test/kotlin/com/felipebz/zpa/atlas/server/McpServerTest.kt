@@ -342,11 +342,13 @@ class McpServerTest {
         val pack = client.call("find_usages", args { put("key", "db:HR.PACK_PROCESS") }).json()
         assertThat(pack).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.PACK_PROCESS",
             scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN), limit = AtlasMcpTools.FIND_DEFAULT)), "IMPLEMENTATIONS", "CHILDREN"))
-        assertThat(total(pack)).isEqualTo(53)
+        // The members include the body's own globals: `pack_process.g_private :=` in the body.
+        assertThat(total(pack)).isEqualTo(54)
         // A table: the table alone.
         val table = client.call("find_usages", args { put("key", "db:HR.COMPANY") }).json()
         assertThat(table).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.COMPANY", limit = AtlasMcpTools.FIND_DEFAULT))))
-        assertThat(total(table)).isEqualTo(120)
+        // hr/pack_globals.pkb reads COMPANY once.
+        assertThat(total(table)).isEqualTo(121)
         // The body alone has no usage: its callers bind the spec.
         val alone = client.call("find_usages", args { put("key", body); putJsonArray("include") {} }).json()
         assertThat(total(alone)).isEqualTo(0)

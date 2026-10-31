@@ -7,6 +7,11 @@ The words the web page, `stats`, the MCP tools and the index tables use.
 A named thing with a stable key, such as `db:HR.COMPANY.DT_CHANGED`. `~` is the placeholder schema when
 no schema is known.
 
+A package's variables and constants are entities, those of its spec and those its body declares for itself, outside
+any subprogram. A body's own are private to the body and end with `@BODY` (`db:HR.PKG.G_TOTAL@BODY`); their uses
+inside the body are the ones zpa's name resolution binds to them. Variables of a subprogram or a block are not
+entities.
+
 ## Occurrence
 
 One place in the source where an entity is defined or used. It has roles and a status.

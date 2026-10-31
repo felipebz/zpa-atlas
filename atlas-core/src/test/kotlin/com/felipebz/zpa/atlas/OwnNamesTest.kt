@@ -5,10 +5,10 @@
 
 package com.felipebz.zpa.atlas
 
-import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -41,11 +41,14 @@ class OwnNamesTest {
     }
 
     @Test
-    fun `a local or private value qualified by its enclosing units gives nothing`() {
-        // `check_items.l_items.delete`, `.count`; `pack_scoped.g_items.delete`, `(1) :=`, `.exists(1)`.
-        for (number in listOf(13, 14, 20, 21, 22)) assertThat(body(number)).describedAs("line $number").isEmpty()
+    fun `a local or private value qualified by its enclosing units is never an external name`() {
+        // `check_items.l_items.delete`, `.count`; `pack_scoped.g_items.delete`, `.exists(1)`: nothing.
+        for (number in listOf(13, 14, 20, 22)) assertThat(body(number)).describedAs("line $number").isEmpty()
+        // `pack_scoped.g_items(1) :=`: the body's own global, as zpa binds it.
+        assertThat(body(21)).containsExactly("pack_scoped.g_items db:HR.PACK_SCOPED.G_ITEMS@BODY WRITE -")
         assertThat(Fixture.query(db,
-            "SELECT key FROM entity WHERE key LIKE 'db:~.CHECK_ITEMS%' OR key LIKE 'db:~.PACK_SCOPED%' OR key LIKE 'db:HR.PACK_SCOPED.G_ITEMS%' " +
+            "SELECT key FROM entity WHERE key LIKE 'db:~.CHECK_ITEMS%' OR key LIKE 'db:~.PACK_SCOPED%' OR " +
+                "(key LIKE 'db:HR.PACK_SCOPED.G_ITEMS%' AND key <> 'db:HR.PACK_SCOPED.G_ITEMS@BODY') " +
                 "OR key LIKE 'db:HR.PACK_SCOPED.CHECK_ITEMS.%' OR key LIKE 'db:HR.PACK_SCOPED.RECHECK.%'")).isEmpty()
     }
 
