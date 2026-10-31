@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.writer
 
 import com.felipebz.zpa.atlas.index.PhaseTimes
 import com.felipebz.zpa.atlas.model.*
+import com.felipebz.zpa.atlas.writer.AtlasWriter.Companion.REPLACE_WAIT_MILLIS
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -37,6 +38,7 @@ class AtlasWriter private constructor(private val connection: Connection, privat
         val entityIds = globalRows.insertEntities(globalEntities + sortedFiles.flatMap { it.entities })
         globalRows.insertRelations((globalRelations + sortedFiles.flatMap { it.relations }), entityIds)
         globalRows.insertTriggerEvents(sortedFiles.flatMap { it.triggerEvents }, entityIds)
+        globalRows.insertDeclaredTexts(sortedFiles.flatMap { it.declaredTexts }, entityIds)
         phase(PhaseTimes.WRITING_FILES)
         FileRows(connection).write(sortedFiles, entityIds, globalCoverage)
         phase(PhaseTimes.WRITING_LINES)
@@ -49,7 +51,7 @@ class AtlasWriter private constructor(private val connection: Connection, privat
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 13
+        const val SCHEMA_VERSION = 14
 
         /**
          * Writes the index to a temporary file beside [target] and moves it over [target] when everything succeeded.

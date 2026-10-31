@@ -169,7 +169,7 @@ class FileExtractor(
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
         return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, defaultSchema, state.units, state.statements, state.occurrences,
             LinkedHashSet(state.entities).toList(), LinkedHashSet(state.relations).toList(), state.coverage, resolver.dictionaryRelations.toList(),
-            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList())
+            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts)
     }
 
     // ---- units --------------------------------------------------------------------------------------------------
@@ -378,9 +378,13 @@ class FileExtractor(
 
     // ---- declarations -------------------------------------------------------------------------------------------
 
+    /** What the declarations of the file say ([DeclaredTexts]); empty for a file that was not parsed. */
+    private val declaredTexts = ArrayList<DeclaredTextFact>()
+
     private fun addDeclarationOccurrences() {
         val declarations = catalog.occurrencesFor(path)
-        val names = root?.let { declarationNames(it, declarations) }.orEmpty()
+        val found = root?.let { declarationNodes(it, declarations) }
+        val names = found?.let { declarationNames(it, declarations) }.orEmpty()
         for (declaration in declarations) {
             val unitIndex = state.units.indices.firstOrNull { state.units[it].span.contains(declaration.span.startLine, declaration.span.startCol) }
             if (unitIndex == null) {
@@ -391,28 +395,47 @@ class FileExtractor(
             state.occurrences += OccurrenceFact(unitIndex, declaration.containerKey ?: unit.entityKey, null, declaration.span, declaration.written,
                 declaration.entityKey, setOf(declaration.role), status(Status.RESOLVED, state.partialUnits[unitIndex]), Origin.STATIC, null,
                 nameSpan = names[declaration])
+            // A declaration of a region the parser recovered has no node of its span: nothing is read of it.
+            found?.declaring?.get(declaration.span)?.let { node -> DeclaredTexts.of(declaration.entityKey, node)?.let { declaredTexts += it } }
         }
+    }
+
+    /**
+     * The nodes with the span of a declaration, found in one walk over the file, a node checked only when it starts
+     * where a declaration starts: the outermost one ([outermost]) and the one of a [DeclaredTexts.NODE_TYPES] type
+     * ([declaring]), which is the declaration itself under its wrappers.
+     */
+    private class DeclarationNodes(val root: AstNode, val outermost: Map<SourceSpan, AstNode>, val declaring: Map<SourceSpan, AstNode>)
+
+    private fun declarationNodes(root: AstNode, declarations: List<DeclarationOccurrence>): DeclarationNodes {
+        val spans = declarations.mapTo(HashSet()) { it.span }
+        val starts = declarations.mapTo(HashSet()) { position(it.span.startLine, it.span.startCol) }
+        val outermost = HashMap<SourceSpan, AstNode>()
+        val declaring = HashMap<SourceSpan, AstNode>()
+        fun visit(node: AstNode) {
+            if (node.hasToken() && position(node.token.line, node.token.column) in starts) {
+                val span = spanOf(node)
+                if (span in spans) {
+                    outermost.putIfAbsent(span, node)
+                    if (node.type in DeclaredTexts.NODE_TYPES) declaring.putIfAbsent(span, node)
+                }
+            }
+            for (child in node.children) visit(child)
+        }
+        if (declarations.isNotEmpty()) visit(root)
+        return DeclarationNodes(root, outermost, declaring)
     }
 
     /**
      * The name spans of [declarations], found in the AST: the outermost node with the declaration's span, then its
      * first `UNIT_NAME` or `IDENTIFIER_NAME` in source order (for a `UNIT_NAME`, the whole name or its last segment),
-     * kept only when its text is the written name. One walk over the file, a node checked only when it starts where a
-     * declaration starts.
+     * kept only when its text is the written name.
      */
-    private fun declarationNames(root: AstNode, declarations: List<DeclarationOccurrence>): Map<DeclarationOccurrence, SourceSpan> {
+    private fun declarationNames(nodes: DeclarationNodes, declarations: List<DeclarationOccurrence>): Map<DeclarationOccurrence, SourceSpan> {
         if (declarations.isEmpty()) return emptyMap()
         val bySpan = declarations.groupBy { it.span }
-        val starts = declarations.mapTo(HashSet()) { position(it.span.startLine, it.span.startCol) }
-        val found = HashMap<SourceSpan, AstNode>()
-        fun visit(node: AstNode) {
-            if (node.hasToken() && position(node.token.line, node.token.column) in starts) {
-                val span = spanOf(node)
-                if (span in bySpan) found.putIfAbsent(span, node)
-            }
-            for (child in node.children) visit(child)
-        }
-        visit(root)
+        val root = nodes.root
+        val found = nodes.outermost
         val result = HashMap<DeclarationOccurrence, SourceSpan>()
         for ((span, node) in found) {
             val name = firstName(node) ?: continue

@@ -10,28 +10,13 @@ import com.felipebz.zpa.api.project.ProjectIdentifier
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.extract.RelationResolver
-import com.felipebz.zpa.atlas.model.CallArgumentFact
-import com.felipebz.zpa.atlas.model.CoverageFact
-import com.felipebz.zpa.atlas.model.EntityFact
-import com.felipebz.zpa.atlas.model.FileFacts
-import com.felipebz.zpa.atlas.model.OccurrenceFact
-import com.felipebz.zpa.atlas.model.ParseStatus
-import com.felipebz.zpa.atlas.model.RelationFact
-import com.felipebz.zpa.atlas.model.SourceSpan
-import com.felipebz.zpa.atlas.model.StatementFact
-import com.felipebz.zpa.atlas.model.TriggerEventFact
-import com.felipebz.zpa.atlas.model.UnitFact
-import com.felipebz.zpa.atlas.model.WrittenValueFact
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
-import java.io.DataInputStream
-import java.io.DataOutputStream
-import java.io.EOFException
+import com.felipebz.zpa.atlas.model.*
+import java.io.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.util.zip.GZIPInputStream
 import java.util.zip.Deflater
+import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
 /** One declaration of a file as other files' walks can see it, without its position. */
@@ -93,7 +78,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 2
+    private const val FORMAT = 3
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -156,7 +141,8 @@ internal object FactsCache {
         val facts = file.facts
         return FileFacts(
             facts.path, facts.sha256, facts.sizeBytes, facts.encoding, facts.parseStatus, facts.recoveredRegions, facts.compilationSchema, facts.units,
-            facts.statements, facts.occurrences, facts.entities, facts.relations, facts.coverage, relations, facts.dictionarySynonyms, facts.triggerEvents
+            facts.statements, facts.occurrences, facts.entities, facts.relations, facts.coverage, relations, facts.dictionarySynonyms, facts.triggerEvents,
+            facts.declaredTexts
         )
     }
 
@@ -259,6 +245,7 @@ internal object FactsCache {
             list(facts.dictionaryRelations) { string(it.schema.originalSpelling); string(it.name.originalSpelling); string(RelationResolver.dictionaryKey(it)) }
             list(facts.dictionarySynonyms) { string(it.owner); string(it.name); string(it.targetOwner); string(it.targetName); string(it.targetType) }
             list(facts.triggerEvents) { string(it.triggerKey); string(it.timing.name); nullable(it.level?.name); string(it.event); nullable(it.columnKey) }
+            list(facts.declaredTexts) { string(it.entityKey); nullable(it.datatype); nullable(it.value); data.writeBoolean(it.valueCut) }
         }
 
         fun occurrence(it: OccurrenceFact) {
@@ -350,9 +337,10 @@ internal object FactsCache {
             val dictionaryRelations = list { RelationReference(string(), string(), string()) }
             val synonyms = list { DictionarySynonym(string(), string(), string(), string(), string()) }
             val triggerEvents = list { TriggerEventFact(string(), enumValueOf(string()), nullable()?.let { enumValueOf(it) }, string(), nullable()) }
+            val declaredTexts = list { DeclaredTextFact(string(), nullable(), nullable(), data.readBoolean()) }
             return FileFacts(
                 path, sha256, sizeBytes, encoding, parseStatus, recoveredRegions, compilationSchema, units, statements, occurrences, entities,
-                relations, coverage, emptyList(), synonyms, triggerEvents
+                relations, coverage, emptyList(), synonyms, triggerEvents, declaredTexts
             ) to dictionaryRelations
         }
 

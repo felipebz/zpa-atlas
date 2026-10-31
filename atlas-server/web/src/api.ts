@@ -109,10 +109,30 @@ export interface Overload {
   self: boolean;
 }
 
-/** A `CONTAINS` child and its uses (occurrences that are not a definition or declaration). */
+/** A `CONTAINS` child, its uses (occurrences that are not a definition or declaration) and what its declaration says. */
 export interface Member {
   entity: EntitySummary;
   usages: number;
+  declared: Declared | null;
+}
+
+/** A declaration's type and value as the index keeps them: written, not resolved or evaluated. */
+export interface DeclaredText {
+  type: string | null;
+  value: string | null;
+  /** The value was too long and ends with `…`: the whole text is in the file. */
+  valueCut: boolean;
+}
+
+/**
+ * What a declaration says: a function's or cursor's return type, else its type; a parameter's default, or a variable's,
+ * constant's or field's initial value.
+ */
+export interface Declared extends DeclaredText {
+  /** `SPEC` when the value is the default the spec writes and this body's parameter leaves out. */
+  valueFrom: string | null;
+  /** On a body that says otherwise than its spec: what the spec says. */
+  specText: DeclaredText | null;
 }
 
 export interface UsageSummary {
@@ -151,6 +171,7 @@ export interface EntityDetail {
   views: EntitySummary[];
   baseColumns: EntitySummary[];
   viewColumns: EntitySummary[];
+  declared: Declared | null;
 }
 
 /** The unit an occurrence is in; [entity] is its package, routine, view, trigger or type, null for a script. */

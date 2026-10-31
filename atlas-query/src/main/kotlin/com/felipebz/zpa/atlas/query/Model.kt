@@ -92,9 +92,53 @@ data class RelationLink(val kind: String, val direction: String, val entity: Ent
 @Serializable
 data class Overload(val entity: EntitySummary, val body: Boolean, val self: Boolean)
 
-/** A `CONTAINS` child and its uses (occurrences that are not a definition or declaration). */
+/** A `CONTAINS` child, its uses (occurrences that are not a definition or declaration) and what its declaration says. */
 @Serializable
-data class Member(val entity: EntitySummary, val usages: Long)
+data class Member(val entity: EntitySummary, val usages: Long, val declared: Declared? = null)
+
+/**
+ * What a declaration says, as written in the source: comments and line breaks left out, spaces collapsed, nothing
+ * resolved (`t.c%TYPE` stays) or evaluated (`sysdate + 1` stays); for code under conditional compilation, the branch the
+ * run kept.
+ */
+@Serializable
+data class Declared(
+    /** A function's or cursor's return type, else the declared type (with `NOT NULL` when written); null when not written. */
+    val type: String?,
+    /** A parameter's default, or a variable's, constant's or record field's initial value; null when there is none. */
+    val value: String?,
+    /** [value] was longer than the index keeps and ends with `…`: the whole text is at the definition. */
+    val valueCut: Boolean,
+    /**
+     * `SPEC` when [value] is not written here but in the spec: a body's parameter without a default takes the spec's.
+     * Null when [value] is written here or there is none.
+     */
+    val valueFrom: String?,
+    /** For a body (a routine or its parameter) whose spec says otherwise: what the spec says. Null when they agree. */
+    val specText: DeclaredText?
+) {
+    companion object {
+        /**
+         * The facts of a declaration from its own text and, for a body or a body's parameter, the spec's ([spec]); null
+         * when neither says anything. A default only the spec writes is the body's too; a type or value both write is
+         * compared ignoring case, and when they differ (Oracle refuses such a pair) each keeps its own, the spec's
+         * shown beside.
+         */
+        fun of(own: DeclaredText?, spec: DeclaredText?): Declared? {
+            val fromSpec = own?.value == null && spec?.value != null
+            val value = if (fromSpec) spec else own
+            if (own?.type == null && value?.value == null) return null
+            val differs = spec != null && (!same(own?.type, spec.type) || (!fromSpec && own?.value != null && !same(own.value, spec.value)))
+            return Declared(own?.type, value?.value, value?.valueCut == true, if (fromSpec) "SPEC" else null, spec.takeIf { differs })
+        }
+
+        private fun same(a: String?, b: String?) = a.equals(b, ignoreCase = true)
+    }
+}
+
+/** A declaration's text as the index keeps it: see [Declared]. */
+@Serializable
+data class DeclaredText(val type: String?, val value: String?, val valueCut: Boolean)
 
 @Serializable
 data class UsageSummary(val byRole: List<Count>, val byStatus: List<Count>, val asCandidate: Long)
@@ -133,7 +177,10 @@ data class EntityDetail(
      * another view's column). */
     val baseColumns: List<EntitySummary> = emptyList(),
     /** For a column, the view columns computed from it (`VIEW_BASE` sources, one hop). */
-    val viewColumns: List<EntitySummary> = emptyList()
+    val viewColumns: List<EntitySummary> = emptyList(),
+    /** What its declaration says (a function's return type, a parameter's type and default, a variable's type and
+     * initial value); null when it says nothing beside its name. Each child in [children] has its own. */
+    val declared: Declared? = null
 )
 
 /**

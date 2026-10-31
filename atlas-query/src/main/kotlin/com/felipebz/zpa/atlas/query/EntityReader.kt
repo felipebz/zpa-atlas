@@ -50,12 +50,14 @@ internal class EntityReader(private val connection: Connection) {
                SELECT e.key, e.kind, e.display, e.external, e.name FROM up JOIN entity e ON e.id = up.id ORDER BY up.depth DESC""",
             listOf(row.id), ::entitySummary
         )
-        val children = connection.query(
+        val childRows = connection.query(
             """SELECT c.key, c.kind, c.display, c.external, c.name,
-                      (SELECT count(*) FROM occurrence o WHERE o.entity_id = c.id AND o.roles NOT IN ('DEFINITION', 'DECLARATION'))
+                      (SELECT count(*) FROM occurrence o WHERE o.entity_id = c.id AND o.roles NOT IN ('DEFINITION', 'DECLARATION')), c.id
                FROM relation r JOIN entity c ON c.id = r.to_id
                WHERE r.from_id = ? AND r.kind = 'CONTAINS' ORDER BY c.kind, c.name COLLATE NOCASE, c.key""", listOf(row.id)
-        ) { Member(entitySummary(it), it.getLong(6)) }
+        ) { Triple(entitySummary(it), it.getLong(6), it.getLong(7)) }
+        val declared = declared(childRows.map { it.third } + row.id)
+        val children = childRows.map { (entity, usages, id) -> Member(entity, usages, declared[id]) }
         // VIEW_BASE edges have their own lists (baseColumns, viewColumns).
         val relations = connection.query(
             """SELECT r.kind, 'OUT', t.key, t.kind, t.display, t.external, t.name FROM relation r JOIN entity t ON t.id = r.to_id
@@ -86,9 +88,30 @@ internal class EntityReader(private val connection: Connection) {
             if (row.kind in VIEW_KINDS) viewReads(row.id) else emptyList(),
             if (row.kind in VIEWED_KINDS) viewsReading(row.id) else emptyList(),
             if (row.kind == "COLUMN") viewBase(row.id, outgoing = true) else emptyList(),
-            if (row.kind == "COLUMN") viewBase(row.id, outgoing = false) else emptyList()
+            if (row.kind == "COLUMN") viewBase(row.id, outgoing = false) else emptyList(),
+            declared[row.id]
         )
     }
+
+    /**
+     * What the declarations of [ids] say ([Declared.of]), with the spec's text for a body: the spec a routine body
+     * `IMPLEMENTS`, or for a body's parameter, the parameter of the same name of that spec.
+     */
+    private fun declared(ids: List<Long>): Map<Long, Declared> = connection.query(
+        """SELECT e.id, d.datatype, d.value, d.value_cut, sd.entity_id, sd.datatype, sd.value, sd.value_cut
+           FROM entity e
+           LEFT JOIN declared_text d ON d.entity_id = e.id
+           LEFT JOIN declared_text sd ON sd.entity_id = CASE WHEN e.kind = 'PARAMETER'
+               THEN (SELECT p.id FROM relation r JOIN entity p ON p.parent_id = r.to_id AND p.kind = 'PARAMETER' AND p.name = e.name
+                     WHERE r.from_id = e.parent_id AND r.kind = 'IMPLEMENTS' ORDER BY p.id LIMIT 1)
+               ELSE (SELECT r.to_id FROM relation r WHERE r.from_id = e.id AND r.kind = 'IMPLEMENTS' ORDER BY r.to_id LIMIT 1) END
+           WHERE e.id IN (SELECT value FROM json_each(?)) AND (d.entity_id IS NOT NULL OR sd.entity_id IS NOT NULL)""",
+        listOf(ids.joinToString(",", "[", "]"))
+    ) { rows ->
+        val own = DeclaredText(rows.getString(2), rows.getString(3), rows.getInt(4) == 1)
+        val spec = rows.getObject(5)?.let { DeclaredText(rows.getString(6), rows.getString(7), rows.getInt(8) == 1) }
+        rows.getLong(1) to Declared.of(own, spec)
+    }.mapNotNull { (id, declared) -> declared?.let { id to it } }.toMap()
 
     /** The definitions and declarations of the entity [key], alone; empty for an unknown key. */
     fun definitions(key: String): List<Location> = definitions("o.entity_id = (SELECT id FROM entity WHERE key = ?)", key)

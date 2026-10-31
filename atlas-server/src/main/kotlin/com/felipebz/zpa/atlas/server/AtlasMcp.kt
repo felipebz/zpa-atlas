@@ -629,8 +629,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "and for the values passed to a parameter or written to a column.\n" +
                 "Which tool answers which question:\n" +
                 "- search_entities: the key of an entity from its name; dotted names work (pack.proc, table.column).\n" +
-                "- get_entity: what an entity is: kind, definitions, members or columns, the views reading it; for a " +
-                "routine, where its spec and its bodies are.\n" +
+                "- get_entity: what an entity is: kind, definitions, members or columns, declared type/value, views " +
+                "over it; for a routine, where its spec and bodies are.\n" +
                 "- find_usages: who uses one entity, following its spec and body, its members and the views built on " +
                 "it; group_usages counts them by routine, file or view. via keeps only the direct uses or only those " +
                 "through views. For a table, CHILDREN with VIEWS also follows the view columns computed from its columns.\n" +
@@ -687,7 +687,12 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
             "(members or columns, each with its number of uses), relations, triggers and the views that read it. For a " +
             "package routine, bodies lists the key and definitions of every body (two when the body is in two files), " +
-            "never cut; for a body, spec gives those of its spec: one call answers where both are. $PATHS $KEYS"
+            "never cut; for a body, spec gives those of its spec: one call answers where both are. declared, on the " +
+            "entity and on each child, is what the declaration says, as written (not resolved, not evaluated): type is " +
+            "a function's or cursor's return type, else the declared type; value is a parameter's default or a " +
+            "variable's, constant's or record field's initial value, valueCut true when cut (the whole text is at the " +
+            "definition); valueFrom SPEC when a body's parameter takes the default its spec writes; specText, on a " +
+            "body that differs from its spec, what the spec says. $PATHS $KEYS"
 
         const val FIND = "Where entities are defined, called, read or written across the code (occurrences), with " +
             "filters combined with AND (at least one; for the whole index, use group_occurrences), and total and " +

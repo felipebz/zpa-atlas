@@ -1,9 +1,12 @@
 import type {Answer, EntityDetail, EntitySummary, Member, OccurrencePage, Overload, ValueGroup} from "./api";
 import {api, ApiFailure, errorMessage} from "./api";
+import type {DeclaredFact} from "./declared-view";
+import {declaredFacts, memberType, parameterDefaults, returnType} from "./declared-view";
 import {showBanner} from "./banner";
 import {loadCodes, usageRoles} from "./codes";
 import {
     entityLink,
+    fillHtml,
     kindBadge,
     kindLabel,
     listNameOptions,
@@ -17,7 +20,17 @@ import {
 import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
 import {entityPath, entityTags, places, routineRows} from "./entity-view";
 import {kindOrder} from "./kinds";
-import {entityHref, esc, getOrPut, impactHref, literalText, queryHref, scrollTable, stackCell} from "./html";
+import {
+    entityHref,
+    esc,
+    getOrPut,
+    impactHref,
+    langSuffix,
+    literalText,
+    queryHref,
+    scrollTable,
+    stackCell
+} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {displayParts, parentKeyOf} from "./names";
 import {currentProject, setPageTitle} from "./project";
@@ -83,8 +96,30 @@ function specBodyGroups<T>(list: T[], keyOf: (item: T) => string) {
 }
 
 /**
- * The header: the path from the schema, the title with its kind and tags, a routine's parameter names, where it is
- * (the spec and the body, each half linking to its page when it is another), its uses, and the actions.
+ * One fact of what the declaration says, the text as written in code: a cut text links the definition's line, where
+ * the whole one is; a default taken from the spec says so; a body that differs from its spec says what the spec says.
+ */
+function declaredFactHtml(fact: DeclaredFact, entity: EntityDetail) {
+  let html = fillHtml("entity.declared." + fact.label, { text: `<code class="decl">${esc(fact.text)}</code>` });
+  const definition = entity.definitions[0];
+  if (fact.cut) {
+    html += definition && !fact.fromSpec
+      ? ` <a href="file.html?path=${encodeURIComponent(definition.path)}&line=${definition.span.startLine}${langSuffix()}#L${definition.span.startLine}" ` +
+        `title="${esc(t("entity.declared.cutTitle"))}">${esc(t("entity.declared.whole"))}</a>`
+      : ` <span class="muted" title="${esc(t("entity.declared.cutTitle"))}">${esc(t("entity.declared.cut"))}</span>`;
+  }
+  if (fact.fromSpec) html += ` <span class="muted">${esc(t("entity.declared.fromSpec"))}</span>`;
+  if (fact.spec !== null) {
+    html += ` <span class="muted">(${fact.spec === "" ? esc(t("entity.declared.specNone"))
+      : fillHtml("entity.declared.specSays", { text: `<code class="decl">${esc(fact.spec)}</code>` })})</span>`;
+  }
+  return html;
+}
+
+/**
+ * The header: the path from the schema, the title with its kind and tags, a routine's parameter names and a function's
+ * return type, what a declaration says (type, default or initial value), where it is (the spec and the body, each half
+ * linking to its page when it is another), its uses, and the actions.
  */
 function headerHtml(entity: EntityDetail, direct: number) {
   const path = entityPath(entity);
@@ -98,33 +133,51 @@ function headerHtml(entity: EntityDetail, direct: number) {
   const tags = entityTags(entity).map(tag => tag === "external"
     ? `<span class="badge external">${esc(t("entity.external"))}</span>`
     : tag === "private" ? `<span class="badge">${esc(t("entity.tag.private"))}</span>` : `<span class="badge">${esc(t("entity.overload.body"))}</span>`);
+  const returns = returnType(entity.kind, entity.declared);
   const signature = SUBPROGRAM_KINDS.includes(entity.kind) && parts.params !== null
-    ? `<div class="ent-sig">(${esc(parts.params.map(p => p.name).join(", "))})</div>` : "";
+    ? `<div class="ent-sig">(${esc(parts.params.map(p => p.name).join(", "))})${returns === null ? "" : ` return ${esc(returns)}`}</div>` : "";
+  const declared = declaredFacts(entity.kind, entity.declared).map(f => `<span>${declaredFactHtml(f, entity)}</span>`);
   const statusOf = (p: Place) => p.partner ? null : entity.definitions.find(d => d.path === p.path && d.span.startLine === p.line)?.status ?? null;
   // The uses become the "Used by" section's total once it loads (with a package's members, or a routine's other half).
   const facts = [...places(entity).map(p => placeHtml(p, entity.kind, statusOf(p))), `<span id="ent-uses">${esc(t("search.usages", { count: direct }))}</span>`];
   return `<nav class="crumbs" aria-label="${esc(t("entity.path"))}">${crumbs.join(`<span class="sep" aria-hidden="true">›</span>`)}</nav>
     <div class="ent-title"><h1><span class="ename" title="${esc(entity.display)}"><span class="name">${esc(parts.base)}</span></span></h1>${kindBadge(entity.kind)}${tags.join("")}</div>
     ${signature}
+    ${declared.length ? `<div class="ent-decl">${declared.join("")}</div>` : ""}
     <div class="ent-facts">${facts.map(f => `<span>${f}</span>`).join("")}</div>
     <div class="ent-actions"><a class="button" id="openImpact" href="${impactHref(entity.key)}">${esc(t("impact.open"))}</a>` +
     `<a class="button" id="openQuery" href="${queryHref({ entity: entity.key })}">${esc(t("entity.openUses"))}</a>` +
     `<button class="copy quiet" title="${esc(entity.key)}">${esc(t("entity.copyKey"))}</button></div>`;
 }
 
-/** A routine's parameters as a table (number, name, mode, type); each name links to the parameter entity. */
+/**
+ * A routine's parameters as a table (number, name, mode, type, and the default when one of them has one); each name
+ * links to the parameter entity.
+ */
 function parametersHtml(entity: EntityDetail, params: { name: string; mode?: string; type: string }[]) {
-  const head = sectionHead(t("entity.parameters"), t("entity.parameters.line"));
-  if (params.length === 0) return head + `<p class="muted">${esc(t("entity.parameters.none"))}</p>`;
+  if (params.length === 0) return sectionHead(t("entity.parameters"), t("entity.parameters.line")) + `<p class="muted">${esc(t("entity.parameters.none"))}</p>`;
+  const defaults = parameterDefaults(params, entity.children);
+  const head = sectionHead(t("entity.parameters"), t(defaults ? "entity.parameters.lineDefaults" : "entity.parameters.line"));
   const byName = new Map(entity.children.map((m): [string, EntitySummary] => [m.entity.name, m.entity]));
   const unquoted = (name: string) => name.startsWith('"') && name.endsWith('"') ? name.slice(1, -1) : name;
+  // The default in code, like the type beside it; what is said about it in words.
+  const defaultCell = (fact: DeclaredFact | null) => {
+    if (!fact) return `<td></td>`;
+    const cut = fact.cut ? ` <span class="note" title="${esc(t("entity.declared.cutTitle"))}">${esc(t("entity.declared.cut"))}</span>` : "";
+    const from = fact.fromSpec ? ` <span class="note">${esc(t("entity.declared.fromSpec"))}</span>` : "";
+    const spec = fact.spec === null ? "" : ` <span class="note">(${fact.spec === "" ? esc(t("entity.declared.specNone"))
+      : fillHtml("entity.declared.specSays", { text: `<span class="mono">${esc(fact.spec)}</span>` })})</span>`;
+    return `<td class="mono">${esc(fact.text)}${cut}${from}${spec}</td>`;
+  };
   return head + `<table class="params"><thead><tr><th class="num">${esc(t("entity.parameters.number"))}</th><th>${esc(t("entity.parameters.name"))}</th>` +
-    `<th>${esc(t("entity.parameters.mode"))}</th><th>${esc(t("entity.parameters.type"))}</th></tr></thead><tbody>${params.map((p, i) => {
+    `<th>${esc(t("entity.parameters.mode"))}</th><th>${esc(t("entity.parameters.type"))}</th>` +
+    `${defaults ? `<th>${esc(t("entity.parameters.default"))}</th>` : ""}</tr></thead><tbody>${params.map((p, i) => {
       const child = byName.get(p.name) ?? byName.get(unquoted(p.name));
       const name = child ? `<a class="mono" href="${entityHref(child.key)}">${esc(p.name)}</a>` : `<span class="mono">${esc(p.name)}</span>`;
       // A parameter written without a mode is IN.
       const mode = p.mode ? esc(p.mode) : `<span class="muted">IN</span>`;
-      return `<tr><td class="num">${i + 1}</td><td>${name}</td><td class="mono">${mode}</td><td class="mono ptype">${esc(p.type)}</td></tr>`;
+      return `<tr><td class="num">${i + 1}</td><td>${name}</td><td class="mono">${mode}</td><td class="mono ptype">${esc(p.type)}</td>` +
+        `${defaults ? defaultCell(defaults[i]) : ""}</tr>`;
     }).join("")}</tbody></table>`;
 }
 
@@ -188,7 +241,11 @@ function contentsSections(members: Member[]): { html: string; entries: SectionEn
     const options = listNameOptions(list.map(m => m.entity), { relative: true });
     entries.push({ id: "sec-" + kind, label: title, count: list.length });
     html += `<section id="sec-${esc(kind)}" class="sec">${sectionHead(title, t("entity.group.line"))}
-      <table class="members">${head(false)}<tbody>${list.map(m => `<tr><td>${entityLink(m.entity, options(m.entity))}</td>${uses(m.usages)}</tr>`).join("")}</tbody></table></section>`;
+      <table class="members">${head(false)}<tbody>${list.map(m => {
+        // A package variable's or constant's type follows its name, wrapping under it on a phone.
+        const type = memberType(m);
+        return `<tr><td>${entityLink(m.entity, options(m.entity))}${type === null ? "" : ` <span class="mono mtype">${esc(type)}</span>`}</td>${uses(m.usages)}</tr>`;
+      }).join("")}</tbody></table></section>`;
   }
   return { html, entries };
 }

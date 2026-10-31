@@ -1,8 +1,9 @@
 # Querying the index with SQL
 
 The index is a plain SQLite file with the tables `run`, `source_file`, `source_line`, `unit`, `entity`, `relation`,
-`sql_statement`, `occurrence`, `occurrence_candidate`, `call_argument`, `written_value`, `coverage_note` and
-`trigger_event`. The words they use are in [concepts.md](concepts.md). Who writes a column:
+`sql_statement`, `occurrence`, `occurrence_candidate`, `call_argument`, `written_value`, `coverage_note`,
+`trigger_event` and `declared_text` (a declaration's type and value as written: `datatype`, `value`, `value_cut`). The
+words they use are in [concepts.md](concepts.md). Who writes a column:
 
 ```sql
 SELECT f.path, o.start_line, o.written, c.key AS container

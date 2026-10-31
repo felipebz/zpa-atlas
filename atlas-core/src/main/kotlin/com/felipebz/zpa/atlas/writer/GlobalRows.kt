@@ -5,7 +5,10 @@
 
 package com.felipebz.zpa.atlas.writer
 
-import com.felipebz.zpa.atlas.model.*
+import com.felipebz.zpa.atlas.model.DeclaredTextFact
+import com.felipebz.zpa.atlas.model.EntityFact
+import com.felipebz.zpa.atlas.model.RelationFact
+import com.felipebz.zpa.atlas.model.TriggerEventFact
 import java.sql.Connection
 import java.sql.PreparedStatement
 
@@ -83,6 +86,27 @@ internal class GlobalRows(private val connection: Connection) {
                 insert.setNullableString(3, row.level?.name)
                 insert.setString(4, row.event)
                 insert.setNullableLong(5, row.columnKey?.let { ids.getValue(it) })
+                batches.add(insert)
+                batches.flushIfFull()
+            }
+            batches.flush()
+        }
+    }
+
+    /**
+     * The declared texts, one row per entity: when several files declare the same entity (a package cursor's spec and
+     * body), the first file in path order that has a type gives it, and the first that has a value gives it.
+     */
+    fun insertDeclaredTexts(facts: List<DeclaredTextFact>, ids: Map<String, Long>) {
+        val byEntity = facts.groupBy { ids.getValue(it.entityKey) }.toSortedMap()
+        prepare("INSERT INTO declared_text(entity_id, datatype, value, value_cut) VALUES (?,?,?,?)").use { insert ->
+            val batches = Batches(insert)
+            for ((id, same) in byEntity) {
+                val valued = same.firstOrNull { it.value != null }
+                insert.setLong(1, id)
+                insert.setNullableString(2, same.firstNotNullOfOrNull { it.datatype })
+                insert.setNullableString(3, valued?.value)
+                insert.setInt(4, if (valued?.valueCut == true) 1 else 0)
                 batches.add(insert)
                 batches.flushIfFull()
             }

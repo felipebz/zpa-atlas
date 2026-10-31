@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {esc, getOrPut, literalText, qualifierHtml, scrollTable, stackCell} from "../src/html";
+import {esc, fillMarks, getOrPut, literalText, qualifierHtml, scrollTable, stackCell} from "../src/html";
 
 // The expected values are what the code returns today.
 
@@ -10,6 +10,13 @@ describe("esc", () => {
     expect(esc(undefined)).toBe("");
     expect(esc(12)).toBe("12");
     expect(esc("")).toBe("");
+  });
+});
+
+describe("fillMarks", () => {
+  it("puts each piece in its mark as written, a dollar sign in it included", () => {
+    expect(fillMarks("Initial value \u00010\u0001 (\u00011\u0001)", ["<code>'^a+$&#39;</code>", "$' $& $1"]))
+      .toBe("Initial value <code>'^a+$&#39;</code> ($' $& $1)");
   });
 });
 

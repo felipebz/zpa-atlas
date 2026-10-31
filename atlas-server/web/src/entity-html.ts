@@ -1,6 +1,6 @@
 import type {EntitySummary} from "./api";
 import type {Place} from "./entity-view";
-import {entityHref, esc, langSuffix, qualifierHtml} from "./html";
+import {entityHref, esc, fillMarks, langSuffix, qualifierHtml} from "./html";
 import {t} from "./i18n";
 import {kindMark} from "./kinds";
 import type {NameShape} from "./names";
@@ -98,9 +98,7 @@ export function statusBadge(status: string, reason?: string | null) {
 /** The message [key] as HTML, its placeholders filled with the HTML of [html] (the rest of the text escaped). */
 export function fillHtml(key: string, html: Record<string, string>) {
   const names = Object.keys(html);
-  let text = esc(t(key, Object.fromEntries(names.map((name, i) => [name, `\u0001${i}\u0001`]))));
-  names.forEach((name, i) => { text = text.replace(`\u0001${i}\u0001`, html[name]); });
-  return text;
+  return fillMarks(esc(t(key, Object.fromEntries(names.map((name, i) => [name, `\u0001${i}\u0001`])))), names.map(name => html[name]));
 }
 
 /** Kinds whose body holds code: their body place reads "implemented". */

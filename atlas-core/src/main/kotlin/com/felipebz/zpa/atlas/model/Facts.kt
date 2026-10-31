@@ -100,6 +100,13 @@ data class CoverageFact(val kind: String, val message: String)
  */
 data class TriggerEventFact(val triggerKey: String, val timing: TriggerTiming, val level: TriggerLevel?, val event: String, val columnKey: String?)
 
+/**
+ * What the declaration of [entityKey] says, as written ([com.felipebz.zpa.atlas.extract.DeclaredTexts]): [datatype] is
+ * a function's or cursor's return type, else the declared type; [value] a parameter's default or a variable's,
+ * constant's or field's initial value, cut when [valueCut].
+ */
+data class DeclaredTextFact(val entityKey: String, val datatype: String?, val value: String?, val valueCut: Boolean)
+
 /** Everything one file contributes, produced off the writer thread. */
 class FileFacts(
     val path: String,
@@ -120,5 +127,6 @@ class FileFacts(
     val dictionaryRelations: List<ProjectExternalRelation> = emptyList(),
     /** The synonyms the file followed: their entities and `SYNONYM_FOR` relations are added once per run. */
     val dictionarySynonyms: List<DictionarySynonym> = emptyList(),
-    val triggerEvents: List<TriggerEventFact> = emptyList()
+    val triggerEvents: List<TriggerEventFact> = emptyList(),
+    val declaredTexts: List<DeclaredTextFact> = emptyList()
 )

@@ -51,6 +51,10 @@ first, grouped by calling program, and switches to the uses inside its own spec 
 a change to the entity reaches, up to the entry points (the code nothing in the index calls), grouped by package, with
 the path behind each one and a CSV export.
 
+The header of a function says its return type, and a variable's, constant's, record field's or cursor's says its type
+and initial value, as written in the source (see [What a declaration says](#what-a-declaration-says)). A routine's
+parameter table has a "Default" column when one of its parameters has a default.
+
 A file page shows the whole file, colored the way zpa's own highlighter colors it (keywords, literals, comments and
 documentation comments, from zpa's lexer, with the run's conditional compilation), each indexed name a link to a
 popover with its status and where it is declared.
@@ -65,6 +69,31 @@ the objects the file declares and their members; an entry moves the code to its 
 ## Agents (MCP)
 
 The server answers MCP at `/mcp` (Streamable HTTP), with read-only tools over the same answers as the web page.
+`get_entity` answers what the entity's declaration says in `declared`, and each child's in its own `declared`:
+
+| Field       | What it holds                                                                                          |
+|-------------|--------------------------------------------------------------------------------------------------------|
+| `type`      | A function's or cursor's return type, else the declared type (with `not null` when written).           |
+| `value`     | A parameter's default, or a variable's, constant's or record field's initial value.                   |
+| `valueCut`  | `true` when `value` was longer than 200 characters: it is cut and ends with `…`.                      |
+| `valueFrom` | `SPEC` when a body's parameter has no default and `value` is the one its spec writes.                 |
+| `specText`  | On a body that says otherwise than its spec (Oracle refuses such a pair): the spec's `type` and `value`. |
+
+## What a declaration says
+
+The index keeps a declaration's type and value as the source writes them, read from zpa's syntax tree: comments and
+line breaks left out, spaces between two tokens made one. Nothing is resolved (`company.company_name%type` stays) or
+evaluated (`sysdate + 1` stays). A value longer than 200 characters is cut and marked with `…`: the page's link
+opens the file at the declaration, where the whole text is.
+
+- **Spec and body:** each keeps its own text. A default the spec writes and the body leaves out is the body's too:
+  the body's page shows it, saying it comes from the spec. When both write a type or a default and they differ
+  (ignoring case), each shows its own, and the body says what the spec says. A function whose body returns another
+  type than its spec's is not its body for zpa: it is listed as a private function of the package body.
+- **Conditional compilation:** the text is the branch the run kept, with its `--database-version` and `--ccflags`
+  ([indexing.md](indexing.md)). A declaration in a branch not kept is not in the index: no entity, no text. Without
+  either option, zpa keeps the first branch of each `$IF`; with them, a condition they cannot decide (a package
+  constant, say) keeps the first branch from that condition on.
 
 ## Serving under a base path
 

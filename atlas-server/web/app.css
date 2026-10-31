@@ -233,6 +233,12 @@ main.entity { display: grid; gap: var(--gap); }
 .ent-facts { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: var(--fs-s); color: var(--muted); }
 .ent-facts > span { min-width: 0; overflow-wrap: anywhere; }
 .ent-facts a.half { font-weight: 600; }
+/* What the declaration says: the code as written, wrapping anywhere so a long value never widens the page. */
+.ent-decl { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: var(--fs-s); }
+.ent-decl > span { min-width: 0; overflow-wrap: anywhere; }
+code.decl { font-family: var(--mono); overflow-wrap: anywhere; white-space: normal; }
+table.members .mtype { color: var(--muted); font-size: var(--fs-xs); }
+table.params .note { font-family: var(--sans); color: var(--muted); }
 .ent-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 a.button { display: inline-flex; align-items: center; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 4px 11px;
   font-size: var(--fs-s); color: var(--fg); background: var(--surface); }

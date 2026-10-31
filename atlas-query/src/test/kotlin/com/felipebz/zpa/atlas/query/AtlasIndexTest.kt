@@ -138,6 +138,31 @@ class AtlasIndexTest {
     }
 
     @Test
+    fun `entity and each child say what their declaration says`() {
+        assertThat(index.entity("db:HR.PACK_PROCESS.F_NEXT()").result!!.declared).isEqualTo(Declared("number", null, false, null, null))
+        assertThat(index.entity("db:HR.PACK_PROCESS.C_KIND").result!!.declared).isEqualTo(Declared("varchar2(1)", "'J'", false, null, null))
+        val defaults = index.entity(runJob5).result!!.children.associate { it.entity.name to it.declared?.value }
+        assertThat(defaults).containsExactlyInAnyOrderEntriesOf(mapOf("P_A" to null, "P_B" to null, "P_C" to null, "P_D" to null, "P_E" to "0"))
+        assertThat(index.entity(runJob5).result!!.declared).isNull()
+        val pack = index.entity("db:HR.PACK_PROCESS").result!!.children.associate { it.entity.name to it.declared?.type }
+        assertThat(pack).containsEntry("G_COUNTER", "number").containsEntry("C_KIND", "varchar2(1)").containsEntry("E_FAILED", null)
+    }
+
+    @Test
+    fun `a body's parameter takes the default only its spec writes, and says what the spec says when they differ`() {
+        val post = "db:HR.PACK_DECLARED.POST(P_ID IN NUMBER,P_NOTE IN VARCHAR2,P_WHEN IN DATE)"
+        assertThat(index.entity("$post@BODY.P_NOTE").result!!.declared).isEqualTo(Declared("varchar2", "'none'", false, "SPEC", null))
+        assertThat(index.entity("$post@BODY.P_WHEN").result!!.declared)
+            .isEqualTo(Declared("date", "trunc(sysdate)", false, null, DeclaredText("date", "sysdate", false)))
+        assertThat(index.entity("$post@BODY.P_ID").result!!.declared).isEqualTo(Declared("number", null, false, null, null))
+        // The body routine's page has the same facts on its parameter children.
+        val children = index.entity("$post@BODY").result!!.children.associate { it.entity.name to it.declared }
+        assertThat(children["P_NOTE"]?.valueFrom).isEqualTo("SPEC")
+        // The spec's own page: its own default, nothing to compare.
+        assertThat(index.entity("$post.P_WHEN").result!!.declared).isEqualTo(Declared("date", "sysdate", false, null, null))
+    }
+
+    @Test
     fun `role filter keeps occurrences with any of the roles`() {
         val page = index.occurrences("db:HR.COMPANY", roles = setOf("SQL_DELETE")).result!!
         assertThat(page.rows).isNotEmpty.allMatch { "SQL_DELETE" in it.roles }

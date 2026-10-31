@@ -4,6 +4,14 @@ export function esc(text: unknown) {
   return String(text ?? "").replace(/[&<>"']/g, c => HTML_ESCAPES[c]);
 }
 
+/**
+ * [text] with each mark `\u0001<i>\u0001` replaced by `html[i]` as it is: a `$'` or `$&` in the HTML (a regular
+ * expression written in code) is not a replacement pattern.
+ */
+export function fillMarks(text: string, html: string[]) {
+  return text.replace(/\u0001(\d+)\u0001/g, (_, i: string) => html[Number(i)]);
+}
+
 /** The value of [key] in [map], put there first when it is missing. */
 export function getOrPut<K, V>(map: Map<K, V>, key: K, create: () => V): V {
   let value = map.get(key);

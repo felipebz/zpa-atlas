@@ -194,6 +194,16 @@ internal fun tableDdl(): List<String> = listOf(
         column_id INTEGER NULL REFERENCES entity(id)
     )
     """,
+    // What a declaration says, as written: one row per entity whose declaration has a type or a value. The entity is
+    // the key: a routine's spec and body are two entities, so each keeps its own text.
+    """
+    CREATE TABLE declared_text (
+        entity_id INTEGER PRIMARY KEY REFERENCES entity(id),
+        datatype TEXT NULL,
+        value TEXT NULL,
+        value_cut INTEGER NOT NULL CHECK (value_cut IN (0, 1))
+    )
+    """,
     SOURCE_LINE_DDL
 ).map { it.trimIndent() }
 
