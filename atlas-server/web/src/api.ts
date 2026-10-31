@@ -109,11 +109,26 @@ export interface Overload {
   self: boolean;
 }
 
-/** A `CONTAINS` child, its uses (occurrences that are not a definition or declaration) and what its declaration says. */
+/** A `CONTAINS` child, its uses (occurrences that are not a definition or declaration), what its declaration says and its documentation. */
 export interface Member {
   entity: EntitySummary;
   usages: number;
   declared: Declared | null;
+  documentation: Documentation[];
+}
+
+/**
+ * A declaration's documentation comment: its text (markers, separator and annotation lines left out, line breaks
+ * kept), where it is, and `from` `SPEC` or `BODY` when it is the other half's (null when it is the declaration's own).
+ */
+export interface Documentation {
+  text: string;
+  textCut: boolean;
+  /** `ABOVE`, `AFTER_IS`, `AFTER_BEGIN` or `END_OF_LINE`. */
+  shape: string;
+  path: string;
+  line: number;
+  from: string | null;
 }
 
 /** A declaration's type and value as the index keeps them: written, not resolved or evaluated. */
@@ -172,6 +187,8 @@ export interface EntityDetail {
   baseColumns: EntitySummary[];
   viewColumns: EntitySummary[];
   declared: Declared | null;
+  /** Its own documentation first, then the other half's when it says something else; the other half's alone when it has none. */
+  documentation: Documentation[];
 }
 
 /** The unit an occurrence is in; [entity] is its package, routine, view, trigger or type, null for a script. */

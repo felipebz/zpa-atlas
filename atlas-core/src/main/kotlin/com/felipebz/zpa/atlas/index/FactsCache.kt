@@ -78,7 +78,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 3
+    private const val FORMAT = 4
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -142,7 +142,7 @@ internal object FactsCache {
         return FileFacts(
             facts.path, facts.sha256, facts.sizeBytes, facts.encoding, facts.parseStatus, facts.recoveredRegions, facts.compilationSchema, facts.units,
             facts.statements, facts.occurrences, facts.entities, facts.relations, facts.coverage, relations, facts.dictionarySynonyms, facts.triggerEvents,
-            facts.declaredTexts
+            facts.declaredTexts, facts.docComments
         )
     }
 
@@ -246,6 +246,9 @@ internal object FactsCache {
             list(facts.dictionarySynonyms) { string(it.owner); string(it.name); string(it.targetOwner); string(it.targetName); string(it.targetType) }
             list(facts.triggerEvents) { string(it.triggerKey); string(it.timing.name); nullable(it.level?.name); string(it.event); nullable(it.columnKey) }
             list(facts.declaredTexts) { string(it.entityKey); nullable(it.datatype); nullable(it.value); data.writeBoolean(it.valueCut) }
+            list(facts.docComments) {
+                string(it.entityKey); data.writeBoolean(it.inBody); string(it.shape.name); data.writeInt(it.line); string(it.text); data.writeBoolean(it.textCut)
+            }
         }
 
         fun occurrence(it: OccurrenceFact) {
@@ -338,9 +341,10 @@ internal object FactsCache {
             val synonyms = list { DictionarySynonym(string(), string(), string(), string(), string()) }
             val triggerEvents = list { TriggerEventFact(string(), enumValueOf(string()), nullable()?.let { enumValueOf(it) }, string(), nullable()) }
             val declaredTexts = list { DeclaredTextFact(string(), nullable(), nullable(), data.readBoolean()) }
+            val docComments = list { DocCommentFact(string(), data.readBoolean(), enumValueOf(string()), data.readInt(), string(), data.readBoolean()) }
             return FileFacts(
                 path, sha256, sizeBytes, encoding, parseStatus, recoveredRegions, compilationSchema, units, statements, occurrences, entities,
-                relations, coverage, emptyList(), synonyms, triggerEvents, declaredTexts
+                relations, coverage, emptyList(), synonyms, triggerEvents, declaredTexts, docComments
             ) to dictionaryRelations
         }
 

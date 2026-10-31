@@ -629,7 +629,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "and for the values passed to a parameter or written to a column.\n" +
                 "Which tool answers which question:\n" +
                 "- search_entities: the key of an entity from its name; dotted names work (pack.proc, table.column).\n" +
-                "- get_entity: what an entity is: kind, definitions, members or columns, declared type/value, views " +
+                "- get_entity: what an entity is: kind, definitions, members or columns, declaration and docs, views " +
                 "over it; for a routine, where its spec and bodies are.\n" +
                 "- find_usages: who uses one entity, following its spec and body, its members and the views built on " +
                 "it; group_usages counts them by routine, file or view. via keeps only the direct uses or only those " +
@@ -692,7 +692,10 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "a function's or cursor's return type, else the declared type; value is a parameter's default or a " +
             "variable's, constant's or record field's initial value, valueCut true when cut (the whole text is at the " +
             "definition); valueFrom SPEC when a body's parameter takes the default its spec writes; specText, on a " +
-            "body that differs from its spec, what the spec says. $PATHS $KEYS"
+            "body that differs from its spec, what the spec says. documentation, on the entity and on each child, is " +
+            "its doc comment (text without comment markers, line breaks kept, textCut when cut; shape ABOVE, AFTER_IS, " +
+            "AFTER_BEGIN or END_OF_LINE; path and line), then the other half's, from SPEC or BODY, when it says " +
+            "something else, or the other half's alone. $PATHS $KEYS"
 
         const val FIND = "Where entities are defined, called, read or written across the code (occurrences), with " +
             "filters combined with AND (at least one; for the whole index, use group_occurrences), and total and " +

@@ -204,6 +204,19 @@ internal fun tableDdl(): List<String> = listOf(
         value_cut INTEGER NOT NULL CHECK (value_cut IN (0, 1))
     )
     """,
+    // The documentation comment of one declaration: a package or a cursor declared in a spec and defined in a body is
+    // one entity with a row for each half (in_body), a routine's spec and body are two entities.
+    """
+    CREATE TABLE doc_comment (
+        entity_id INTEGER NOT NULL REFERENCES entity(id),
+        file_id INTEGER NOT NULL REFERENCES source_file(id),
+        in_body INTEGER NOT NULL CHECK (in_body IN (0, 1)),
+        shape TEXT NOT NULL ${check<DocShape>("shape")},
+        start_line INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        text_cut INTEGER NOT NULL CHECK (text_cut IN (0, 1))
+    )
+    """,
     SOURCE_LINE_DDL
 ).map { it.trimIndent() }
 
@@ -241,5 +254,6 @@ internal fun indexDdl(): List<String> = listOf(
     "CREATE INDEX call_argument_parameter ON call_argument(parameter_entity_id)",
     "CREATE INDEX relation_to ON relation(to_id)",
     "CREATE INDEX trigger_event_trigger ON trigger_event(trigger_id)",
-    "CREATE INDEX trigger_event_column ON trigger_event(column_id)"
+    "CREATE INDEX trigger_event_column ON trigger_event(column_id)",
+    "CREATE INDEX doc_comment_entity ON doc_comment(entity_id)"
 )

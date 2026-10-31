@@ -163,6 +163,27 @@ class AtlasIndexTest {
     }
 
     @Test
+    fun `each half shows its own documentation, then the other half's when it says something else, or the other's alone`() {
+        fun docs(key: String) = index.entity(key).result!!.documentation.map { "${it.from ?: "OWN"} ${it.shape} ${it.text}" }
+        val pack = "db:HR.PACK_DOC"
+        // Both the same: shown once, on either page.
+        assertThat(docs("$pack.SAME_BOTH()")).containsExactly("OWN ABOVE Spec and body say the same.")
+        assertThat(docs("$pack.SAME_BOTH()@BODY")).containsExactly("OWN AFTER_BEGIN Spec and body say the same.")
+        // Both different: its own first, then the other half's, marked.
+        assertThat(docs("$pack.DIFFER_BOTH()")).containsExactly("OWN ABOVE The spec says this.", "BODY AFTER_BEGIN The body says that.")
+        assertThat(docs("$pack.DIFFER_BOTH()@BODY")).containsExactly("OWN AFTER_BEGIN The body says that.", "SPEC ABOVE The spec says this.")
+        // One half only: the other page shows it, marked.
+        assertThat(docs("$pack.BODY_ONLY()")).containsExactly("BODY AFTER_IS Only the body says this,\n  indented on its second line.")
+        assertThat(docs("$pack.SPEC_ONLY()@BODY")).containsExactly("SPEC ABOVE Only the spec says this.\n  Indented under a star.")
+        // A package holds both halves: the spec has none, the body's block after IS shows from the body.
+        assertThat(docs(pack)).containsExactly("BODY AFTER_IS Purpose:  Ledger posting.\n\nWho     Date        Description\nABC     01.02.2024  Created")
+        // Each child has its own: the body's parameters show the spec's end-of-line comments.
+        val post = "$pack.POST_ENTRY(P_ACCOUNT IN NUMBER,P_AMOUNT IN NUMBER)"
+        val parameters = index.entity("$post@BODY").result!!.children.associate { it.entity.name to it.documentation.map { doc -> "${doc.from} ${doc.text} ${doc.path}:${doc.line}" } }
+        assertThat(parameters).containsEntry("P_ACCOUNT", listOf("SPEC the account to post to hr/pack_doc.pks:4"))
+    }
+
+    @Test
     fun `role filter keeps occurrences with any of the roles`() {
         val page = index.occurrences("db:HR.COMPANY", roles = setOf("SQL_DELETE")).result!!
         assertThat(page.rows).isNotEmpty.allMatch { "SQL_DELETE" in it.roles }

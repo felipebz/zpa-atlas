@@ -169,7 +169,7 @@ class FileExtractor(
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
         return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, defaultSchema, state.units, state.statements, state.occurrences,
             LinkedHashSet(state.entities).toList(), LinkedHashSet(state.relations).toList(), state.coverage, resolver.dictionaryRelations.toList(),
-            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts)
+            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts, docComments)
     }
 
     // ---- units --------------------------------------------------------------------------------------------------
@@ -222,6 +222,7 @@ class FileExtractor(
             // Package bodies, type bodies, triggers and views are not in the project index; their definition comes from the AST.
             state.occurrences += OccurrenceFact(index, entityKey, null, span, writtenText(unitName ?: node), entityKey,
                 setOf(Role.DEFINITION), status(Status.RESOLVED, partial), Origin.STATIC, null, nameSpan = unitName?.let(::spanOf))
+            entityKey?.let { unitDefinitions += UnitDefinition(it, span, kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY, node) }
         }
         val enclosingPackage = if (kind == UnitKind.PACKAGE || kind == UnitKind.PACKAGE_BODY) {
             unitName?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.map { it.tokenOriginalValue }?.takeIf { it.isNotEmpty() }
@@ -381,10 +382,23 @@ class FileExtractor(
     /** What the declarations of the file say ([DeclaredTexts]); empty for a file that was not parsed. */
     private val declaredTexts = ArrayList<DeclaredTextFact>()
 
+    /** The documentation comments of the declarations of the file ([DocComments]); empty for a file that was not parsed. */
+    private val docComments = ArrayList<DocCommentFact>()
+
+    /** The definitions the units give (package and type bodies, triggers, views): their documentation is read with the declarations'. */
+    private class UnitDefinition(val entityKey: String, val span: SourceSpan, val inBody: Boolean, val node: AstNode)
+
+    private val unitDefinitions = ArrayList<UnitDefinition>()
+
     private fun addDeclarationOccurrences() {
         val declarations = catalog.occurrencesFor(path)
         val found = root?.let { declarationNodes(it, declarations) }
         val names = found?.let { declarationNames(it, declarations) }.orEmpty()
+        val docs = root?.takeIf { declarations.isNotEmpty() || unitDefinitions.isNotEmpty() }?.let(::DocComments)
+        for (definition in unitDefinitions) {
+            val node = definition.node.takeIf { it.type in DocComments.NODE_TYPES }
+            docs?.of(definition.entityKey, definition.span, definition.inBody, node)?.let { docComments += it }
+        }
         for (declaration in declarations) {
             val unitIndex = state.units.indices.firstOrNull { state.units[it].span.contains(declaration.span.startLine, declaration.span.startCol) }
             if (unitIndex == null) {
@@ -397,33 +411,39 @@ class FileExtractor(
                 nameSpan = names[declaration])
             // A declaration of a region the parser recovered has no node of its span: nothing is read of it.
             found?.declaring?.get(declaration.span)?.let { node -> DeclaredTexts.of(declaration.entityKey, node)?.let { declaredTexts += it } }
+            val inBody = unit.kind == UnitKind.PACKAGE_BODY || unit.kind == UnitKind.TYPE_BODY
+            docs?.of(declaration.entityKey, declaration.span, inBody, found?.documented?.get(declaration.span))?.let { docComments += it }
         }
     }
 
     /**
      * The nodes with the span of a declaration, found in one walk over the file, a node checked only when it starts
-     * where a declaration starts: the outermost one ([outermost]) and the one of a [DeclaredTexts.NODE_TYPES] type
-     * ([declaring]), which is the declaration itself under its wrappers.
+     * where a declaration starts: the outermost one ([outermost]), the one of a [DeclaredTexts.NODE_TYPES] type
+     * ([declaring]), which is the declaration itself under its wrappers, and a package or routine ([documented]).
      */
-    private class DeclarationNodes(val root: AstNode, val outermost: Map<SourceSpan, AstNode>, val declaring: Map<SourceSpan, AstNode>)
+    private class DeclarationNodes(
+        val root: AstNode, val outermost: Map<SourceSpan, AstNode>, val declaring: Map<SourceSpan, AstNode>, val documented: Map<SourceSpan, AstNode>
+    )
 
     private fun declarationNodes(root: AstNode, declarations: List<DeclarationOccurrence>): DeclarationNodes {
         val spans = declarations.mapTo(HashSet()) { it.span }
         val starts = declarations.mapTo(HashSet()) { position(it.span.startLine, it.span.startCol) }
         val outermost = HashMap<SourceSpan, AstNode>()
         val declaring = HashMap<SourceSpan, AstNode>()
+        val documented = HashMap<SourceSpan, AstNode>()
         fun visit(node: AstNode) {
             if (node.hasToken() && position(node.token.line, node.token.column) in starts) {
                 val span = spanOf(node)
                 if (span in spans) {
                     outermost.putIfAbsent(span, node)
                     if (node.type in DeclaredTexts.NODE_TYPES) declaring.putIfAbsent(span, node)
+                    if (node.type in DocComments.NODE_TYPES) documented.putIfAbsent(span, node)
                 }
             }
             for (child in node.children) visit(child)
         }
         if (declarations.isNotEmpty()) visit(root)
-        return DeclarationNodes(root, outermost, declaring)
+        return DeclarationNodes(root, outermost, declaring, documented)
     }
 
     /**

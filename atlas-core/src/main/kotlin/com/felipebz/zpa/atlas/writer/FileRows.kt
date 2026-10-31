@@ -22,7 +22,8 @@ internal class FileRows(private val connection: Connection) {
         val writtenValueInsert = prepare("INSERT INTO written_value(occurrence_id, row_number, value_kind, value, start_line, start_col, end_line, end_col) VALUES (?,?,?,?,?,?,?,?)")
         val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col, value_kind, value) VALUES (?,?,?,?,?,?,?,?,?,?)")
         val coverageInsert = prepare("INSERT INTO coverage_note(id, file_id, kind, message) VALUES (?,?,?,?)")
-        val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert)
+        val docInsert = prepare("INSERT INTO doc_comment(entity_id, file_id, in_body, shape, start_line, text, text_cut) VALUES (?,?,?,?,?,?,?)")
+        val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert, docInsert)
 
         var unitId = 0L
         var statementId = 0L
@@ -109,6 +110,16 @@ internal class FileRows(private val connection: Connection) {
                     writtenValueInsert.setSpan(5, written.span)
                     batches.add(writtenValueInsert)
                 }
+            }
+            for (doc in file.docComments.sortedWith(compareBy({ it.line }, { it.entityKey }))) {
+                docInsert.setLong(1, entityIds.getValue(doc.entityKey))
+                docInsert.setLong(2, fileId)
+                docInsert.setInt(3, if (doc.inBody) 1 else 0)
+                docInsert.setString(4, doc.shape.name)
+                docInsert.setInt(5, doc.line)
+                docInsert.setString(6, doc.text)
+                docInsert.setInt(7, if (doc.textCut) 1 else 0)
+                batches.add(docInsert)
             }
             // At a file boundary, so that the rows of one file go out together.
             batches.flushIfFull()

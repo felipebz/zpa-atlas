@@ -15,7 +15,7 @@ function entity(over: Partial<EntityDetail> & Pick<EntityDetail, "key" | "kind">
   return {
     schema: "HR", name: "X", display: "HR.X", external: false, parent: null, ancestors: [], children: [], relations: [],
     definitions: [], overloads: [], partners: [], usage: { byRole: [], byStatus: [], asCandidate: 0 }, triggerEvents: [], reads: [],
-    views: [], baseColumns: [], viewColumns: [], declared: null, ...over
+    views: [], baseColumns: [], viewColumns: [], declared: null, documentation: [], ...over
   };
 }
 

@@ -55,6 +55,11 @@ The header of a function says its return type, and a variable's, constant's, rec
 and initial value, as written in the source (see [What a declaration says](#what-a-declaration-says)). A routine's
 parameter table has a "Default" column when one of its parameters has a default.
 
+Under the header, the entity's documentation comment ([A declaration's documentation](#a-declarations-documentation))
+shows as written, its line breaks and indentation kept, with a link to its line; a long one folds after six lines,
+with "more". A routine's parameter table shows each parameter's documentation in a row under it, across the table:
+its first line, with "more" leading to the parameter's page when there is more.
+
 A file page shows the whole file, colored the way zpa's own highlighter colors it (keywords, literals, comments and
 documentation comments, from zpa's lexer, with the run's conditional compilation), each indexed name a link to a
 popover with its status and where it is declared.
@@ -79,6 +84,16 @@ The server answers MCP at `/mcp` (Streamable HTTP), with read-only tools over th
 | `valueFrom` | `SPEC` when a body's parameter has no default and `value` is the one its spec writes.                 |
 | `specText`  | On a body that says otherwise than its spec (Oracle refuses such a pair): the spec's `type` and `value`. |
 
+Its `documentation`, and each child's, lists the documentation comments shown on the page:
+
+| Field      | What it holds                                                                                           |
+|------------|---------------------------------------------------------------------------------------------------------|
+| `text`     | The comment without its markers, separator lines or `--%` annotation lines; line breaks and indentation kept. |
+| `textCut`  | `true` when the comment was longer than 4,000 characters: it is cut at a line break and ends with `…`. |
+| `shape`    | Where it is: `ABOVE` the declaration, `AFTER_IS` or `AFTER_BEGIN`, or at the `END_OF_LINE`.             |
+| `path`, `line` | The file and the comment's first line.                                                          |
+| `from`     | Absent for the declaration's own; `SPEC` or `BODY` for the other half's.                               |
+
 ## What a declaration says
 
 The index keeps a declaration's type and value as the source writes them, read from zpa's syntax tree: comments and
@@ -94,6 +109,33 @@ opens the file at the declaration, where the whole text is.
   ([indexing.md](indexing.md)). A declaration in a branch not kept is not in the index: no entity, no text. Without
   either option, zpa keeps the first branch of each `$IF`; with them, a condition they cannot decide (a package
   constant, say) keeps the first branch from that condition on.
+
+## A declaration's documentation
+
+A declaration's documentation is the first of these comment blocks, read from zpa's lexer (a block is a run of
+comments with no blank line between them):
+
+1. **Right above it**, with no blank line between: `/** */`, `/* */` and `--` alike. A comment that ends the previous
+   line of code is that line's, never part of the block.
+2. **For a package, a routine body or a standalone routine:** the first block after its `IS`/`AS`, then, for a routine,
+   the first block after its `BEGIN`. Each counts only when a blank line follows it: a block glued to the next line
+   comments that line. After a package's `IS`, a glued block is its first member's (rule 1).
+3. **At the end of its own line**, after nothing but `,`, `;` or `)`: a parameter's, a variable's or a field's.
+
+A block below a declaration is never its documentation. A block is never taken when it holds only `--%`
+annotations or only separator lines (no letter or digit), has license words (copyright, license, licence, "(c)"),
+comes before the file's first token, or reads as commented-out code (half its lines or more, read by zpa's lexer, end
+with `;` or hold `:=`).
+
+The text kept is the comment's words: without the markers (`--`, the opening and closing of a block comment, a
+leading `*`), without separator lines and annotation lines, with its line breaks and its indentation (dedented
+together, so the tables written with spaces keep their columns). A text longer than 4,000 characters is cut at a line
+break and marked with `…`; the link opens the file at the comment.
+
+**Spec and body:** each half keeps its own. A page shows its own half's comment, then the other half's, marked "From
+the spec" or "From the body", when it says something else; when its own half has none, it shows the other half's.
+Texts that differ only in case, spacing or line breaks are shown once. A package's spec and body are its two halves,
+as are a routine's spec and its body, and a body's parameter and the spec's parameter of the same name.
 
 ## Serving under a base path
 

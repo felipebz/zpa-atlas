@@ -9,7 +9,7 @@ function declared(over: Partial<Declared>): Declared {
 
 function member(name: string, kind: string, d: Declared | null): Member {
   const key = `db:HR.PACK_LEDGER.POST_ENTRY(P_ID IN NUMBER).${name}`;
-  return { entity: { key, kind, display: key.slice(3), external: false, name }, usages: 0, declared: d };
+  return { entity: { key, kind, display: key.slice(3), external: false, name }, usages: 0, declared: d, documentation: [] };
 }
 
 describe("returnType", () => {

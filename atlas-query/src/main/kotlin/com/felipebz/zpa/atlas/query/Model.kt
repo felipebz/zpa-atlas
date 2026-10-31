@@ -92,9 +92,12 @@ data class RelationLink(val kind: String, val direction: String, val entity: Ent
 @Serializable
 data class Overload(val entity: EntitySummary, val body: Boolean, val self: Boolean)
 
-/** A `CONTAINS` child, its uses (occurrences that are not a definition or declaration) and what its declaration says. */
+/**
+ * A `CONTAINS` child, its uses (occurrences that are not a definition or declaration), what its declaration says and
+ * its documentation.
+ */
 @Serializable
-data class Member(val entity: EntitySummary, val usages: Long, val declared: Declared? = null)
+data class Member(val entity: EntitySummary, val usages: Long, val declared: Declared? = null, val documentation: List<Documentation> = emptyList())
 
 /**
  * What a declaration says, as written in the source: comments and line breaks left out, spaces collapsed, nothing
@@ -140,6 +143,31 @@ data class Declared(
 @Serializable
 data class DeclaredText(val type: String?, val value: String?, val valueCut: Boolean)
 
+/**
+ * A documentation comment of a declaration: its [text] without comment markers, separator lines or `--%` annotation
+ * lines, line breaks and indentation kept, cut when [textCut]; where it is ([shape]: `ABOVE` the declaration,
+ * `AFTER_IS` or `AFTER_BEGIN` of a package or routine, at the `END_OF_LINE` of the declaration; [path], first [line]);
+ * [from] `SPEC` or `BODY` when it is the other half's (a routine's spec or body, a package's spec or body), null when
+ * it is the declaration's own.
+ */
+@Serializable
+data class Documentation(val text: String, val textCut: Boolean, val shape: String, val path: String, val line: Int, val from: String?) {
+    companion object {
+        /**
+         * What a page of the [body] half (else the spec half) shows from the [spec] and [body] documentation of a
+         * declaration: its own half's, then the other half's (marked) when it says something else; the other half's
+         * alone when its own has none. Texts are compared without case, spacing or line breaks.
+         */
+        fun shown(spec: Documentation?, body: Documentation?, onBody: Boolean): List<Documentation> {
+            val (own, other) = if (onBody) body to spec?.copy(from = "SPEC") else spec to body?.copy(from = "BODY")
+            if (own == null) return listOfNotNull(other)
+            return if (other == null || normalized(own.text) == normalized(other.text)) listOf(own) else listOf(own, other)
+        }
+
+        private fun normalized(text: String) = text.split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ").lowercase(java.util.Locale.ROOT)
+    }
+}
+
 @Serializable
 data class UsageSummary(val byRole: List<Count>, val byStatus: List<Count>, val asCandidate: Long)
 
@@ -180,7 +208,12 @@ data class EntityDetail(
     val viewColumns: List<EntitySummary> = emptyList(),
     /** What its declaration says (a function's return type, a parameter's type and default, a variable's type and
      * initial value); null when it says nothing beside its name. Each child in [children] has its own. */
-    val declared: Declared? = null
+    val declared: Declared? = null,
+    /**
+     * Its documentation ([Documentation.shown]): its own, then the other half's when it says something else, or the
+     * other half's alone; empty when neither has one. Each child in [children] has its own.
+     */
+    val documentation: List<Documentation> = emptyList()
 )
 
 /**

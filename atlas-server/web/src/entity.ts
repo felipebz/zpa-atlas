@@ -1,7 +1,17 @@
-import type {Answer, EntityDetail, EntitySummary, Member, OccurrencePage, Overload, ValueGroup} from "./api";
+import type {
+    Answer,
+    Documentation,
+    EntityDetail,
+    EntitySummary,
+    Member,
+    OccurrencePage,
+    Overload,
+    ValueGroup
+} from "./api";
 import {api, ApiFailure, errorMessage} from "./api";
 import type {DeclaredFact} from "./declared-view";
 import {declaredFacts, memberType, parameterDefaults, returnType} from "./declared-view";
+import {docFromKey, docPlaceKey, docSummary} from "./doc-view";
 import {showBanner} from "./banner";
 import {loadCodes, usageRoles} from "./codes";
 import {
@@ -151,6 +161,34 @@ function headerHtml(entity: EntityDetail, direct: number) {
 }
 
 /**
+ * The documentation under the header: each comment as written (its line breaks and indentation kept), what it is (the
+ * other half's is marked) and a link to its line; a long one folds, with "more".
+ */
+function documentationHtml(docs: Documentation[]) {
+  return docs.map(doc => {
+    const from = docFromKey(doc);
+    const place = `<a href="file.html?path=${encodeURIComponent(doc.path)}&line=${doc.line}${langSuffix()}#L${doc.line}" title="${esc(`${doc.path}:${doc.line}`)}">` +
+      `${esc(t(docPlaceKey(doc), { line: doc.line }))}</a>`;
+    return `<div class="doc"><div class="doc-src">${from ? `<b>${esc(t(from))}</b> · ` : ""}${place}</div>` +
+      `<pre class="doc-text folded">${esc(doc.text)}</pre><button type="button" class="doc-more quiet" aria-expanded="false" hidden>${esc(t("doc.more"))}</button></div>`;
+  }).join("");
+}
+
+/** Shows "more" under each folded comment taller than the fold, and opens or closes it. */
+function setupDocFolds(container: HTMLElement) {
+  for (const doc of container.querySelectorAll<HTMLElement>(".doc")) {
+    const text = doc.querySelector<HTMLElement>(".doc-text")!;
+    const button = doc.querySelector<HTMLButtonElement>(".doc-more")!;
+    button.hidden = text.scrollHeight <= text.clientHeight + 1;
+    button.addEventListener("click", () => {
+      const open = text.classList.toggle("folded") === false;
+      button.setAttribute("aria-expanded", String(open));
+      button.textContent = t(open ? "doc.less" : "doc.more");
+    });
+  }
+}
+
+/**
  * A routine's parameters as a table (number, name, mode, type, and the default when one of them has one); each name
  * links to the parameter entity.
  */
@@ -176,8 +214,12 @@ function parametersHtml(entity: EntityDetail, params: { name: string; mode?: str
       const name = child ? `<a class="mono" href="${entityHref(child.key)}">${esc(p.name)}</a>` : `<span class="mono">${esc(p.name)}</span>`;
       // A parameter written without a mode is IN.
       const mode = p.mode ? esc(p.mode) : `<span class="muted">IN</span>`;
-      return `<tr><td class="num">${i + 1}</td><td>${name}</td><td class="mono">${mode}</td><td class="mono ptype">${esc(p.type)}</td>` +
-        `${defaults ? defaultCell(defaults[i]) : ""}</tr>`;
+      const doc = child ? docSummary(entity.children.find(m => m.entity.key === child.key)?.documentation ?? []) : null;
+      const docRow = !doc ? "" : `<tr class="pdoc"><td></td><td colspan="${defaults ? 4 : 3}">${esc(doc.text)}` +
+        `${doc.from ? ` <span class="note">${esc(t(docFromKey(doc)!))}</span>` : ""}` +
+        `${doc.more ? ` <a class="note" href="${entityHref(child!.key)}">${esc(t("doc.more"))}</a>` : ""}</td></tr>`;
+      return `<tr${doc ? ` class="with-doc"` : ""}><td class="num">${i + 1}</td><td>${name}</td><td class="mono">${mode}</td><td class="mono ptype">${esc(p.type)}</td>` +
+        `${defaults ? defaultCell(defaults[i]) : ""}</tr>${docRow}`;
     }).join("")}</tbody></table>`;
 }
 
@@ -265,6 +307,9 @@ function renderEntity(entity: EntityDetail) {
   const u = entity.usage;
   const direct = u.byStatus.reduce((n, c) => n + c.count, 0);
   set("header", headerHtml(entity, direct));
+  const documentation = document.getElementById("documentation")!;
+  documentation.innerHTML = documentationHtml(entity.documentation);
+  setupDocFolds(documentation);
   const params = SUBPROGRAM_KINDS.includes(entity.kind) ? displayParts(entity.display, entity.name).params ?? [] : null;
   set("parameters", params === null ? "" : parametersHtml(entity, params));
   const overloads = specBodyGroups(entity.overloads, o => o.entity.key);

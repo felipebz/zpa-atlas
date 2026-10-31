@@ -331,7 +331,7 @@ class AtlasIndex(
         val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 14
+        const val SCHEMA_VERSION = 15
 
         /** The fewest characters a text search takes: one trigram. */
         const val MIN_TEXT = 3

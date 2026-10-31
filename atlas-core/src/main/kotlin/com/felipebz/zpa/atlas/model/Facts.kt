@@ -107,6 +107,13 @@ data class TriggerEventFact(val triggerKey: String, val timing: TriggerTiming, v
  */
 data class DeclaredTextFact(val entityKey: String, val datatype: String?, val value: String?, val valueCut: Boolean)
 
+/**
+ * The documentation comment of one declaration of [entityKey] ([com.felipebz.zpa.atlas.extract.DocComments]): where it
+ * is ([shape], its first [line]), whether the declaration is in a package or type body ([inBody]), and its [text]
+ * without comment markers, separator lines or annotation lines, cut when [textCut].
+ */
+data class DocCommentFact(val entityKey: String, val inBody: Boolean, val shape: DocShape, val line: Int, val text: String, val textCut: Boolean)
+
 /** Everything one file contributes, produced off the writer thread. */
 class FileFacts(
     val path: String,
@@ -128,5 +135,6 @@ class FileFacts(
     /** The synonyms the file followed: their entities and `SYNONYM_FOR` relations are added once per run. */
     val dictionarySynonyms: List<DictionarySynonym> = emptyList(),
     val triggerEvents: List<TriggerEventFact> = emptyList(),
-    val declaredTexts: List<DeclaredTextFact> = emptyList()
+    val declaredTexts: List<DeclaredTextFact> = emptyList(),
+    val docComments: List<DocCommentFact> = emptyList()
 )

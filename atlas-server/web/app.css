@@ -239,6 +239,21 @@ main.entity { display: grid; gap: var(--gap); }
 code.decl { font-family: var(--mono); overflow-wrap: anywhere; white-space: normal; }
 table.members .mtype { color: var(--muted); font-size: var(--fs-xs); }
 table.params .note { font-family: var(--sans); color: var(--muted); }
+/* A parameter's documentation: a row of its own under the parameter, across the table, so it wraps on a phone. */
+table.params tr.with-doc > td { border-bottom: 0; }
+table.params tr.pdoc > td { padding-top: 0; font-size: var(--fs-xs); color: var(--muted); overflow-wrap: anywhere; }
+/*
+ * The documentation under the header: quiet, in the code's font so the tables written with spaces line up, wrapping
+ * anywhere so a long line never widens the page; folded after a few lines.
+ */
+.ent-doc { display: grid; gap: 10px; }
+.ent-doc:empty { display: none; }
+.ent-doc .doc { border-left: 2px solid var(--border-strong); padding: 2px 0 2px 12px; min-width: 0; }
+.ent-doc .doc-src { font-size: var(--fs-xs); color: var(--muted); margin-bottom: 4px; }
+.ent-doc .doc-text { margin: 0; font-family: var(--mono); font-size: var(--fs-s); color: var(--muted); white-space: pre-wrap;
+  overflow-wrap: anywhere; tab-size: var(--tab-width); line-height: 1.5; }
+.ent-doc .doc-text.folded { max-height: calc(6 * 1.5em); overflow: hidden; }
+.ent-doc .doc-more { padding: 0; margin-top: 2px; font-size: var(--fs-xs); }
 .ent-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 a.button { display: inline-flex; align-items: center; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 4px 11px;
   font-size: var(--fs-s); color: var(--fg); background: var(--surface); }

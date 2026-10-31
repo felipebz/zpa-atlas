@@ -57,7 +57,8 @@ internal class EntityReader(private val connection: Connection) {
                WHERE r.from_id = ? AND r.kind = 'CONTAINS' ORDER BY c.kind, c.name COLLATE NOCASE, c.key""", listOf(row.id)
         ) { Triple(entitySummary(it), it.getLong(6), it.getLong(7)) }
         val declared = declared(childRows.map { it.third } + row.id)
-        val children = childRows.map { (entity, usages, id) -> Member(entity, usages, declared[id]) }
+        val documentation = documentation(childRows.associate { it.third to it.first.key } + (row.id to row.key))
+        val children = childRows.map { (entity, usages, id) -> Member(entity, usages, declared[id], documentation[id].orEmpty()) }
         // VIEW_BASE edges have their own lists (baseColumns, viewColumns).
         val relations = connection.query(
             """SELECT r.kind, 'OUT', t.key, t.kind, t.display, t.external, t.name FROM relation r JOIN entity t ON t.id = r.to_id
@@ -89,8 +90,39 @@ internal class EntityReader(private val connection: Connection) {
             if (row.kind in VIEWED_KINDS) viewsReading(row.id) else emptyList(),
             if (row.kind == "COLUMN") viewBase(row.id, outgoing = true) else emptyList(),
             if (row.kind == "COLUMN") viewBase(row.id, outgoing = false) else emptyList(),
-            declared[row.id]
+            declared[row.id],
+            documentation[row.id].orEmpty()
         )
+    }
+
+    /**
+     * The documentation of the entities [keys] (by id) shows ([Documentation.shown]): each one's own rows, and the other
+     * half's. A package or a cursor holds both halves (`in_body`); a routine's other half is the spec it `IMPLEMENTS` or
+     * the body implementing it; a parameter's, the parameter of the same name of that routine. A key with `@BODY` is a
+     * body's page.
+     */
+    private fun documentation(keys: Map<Long, String>): Map<Long, List<Documentation>> {
+        if (keys.isEmpty()) return emptyMap()
+        val rows = connection.query(
+            """WITH ids(id) AS (SELECT value FROM json_each(?)),
+               halves(id, other) AS (
+                   SELECT id, id FROM ids
+                   UNION SELECT i.id, r.to_id FROM ids i JOIN relation r ON r.from_id = i.id AND r.kind = 'IMPLEMENTS'
+                   UNION SELECT i.id, r.from_id FROM ids i JOIN relation r ON r.to_id = i.id AND r.kind = 'IMPLEMENTS'
+                   UNION SELECT i.id, p.id FROM ids i JOIN entity e ON e.id = i.id AND e.kind = 'PARAMETER'
+                         JOIN relation r ON r.kind = 'IMPLEMENTS' AND (r.from_id = e.parent_id OR r.to_id = e.parent_id)
+                         JOIN entity p ON p.parent_id = CASE WHEN r.from_id = e.parent_id THEN r.to_id ELSE r.from_id END
+                                      AND p.kind = 'PARAMETER' AND p.name = e.name)
+               SELECT h.id, d.in_body, d.shape, d.text, d.text_cut, f.path, d.start_line
+               FROM halves h JOIN doc_comment d ON d.entity_id = h.other JOIN source_file f ON f.id = d.file_id
+               ORDER BY h.id, f.path, d.start_line""",
+            listOf(keys.keys.joinToString(",", "[", "]"))
+        ) { it.getLong(1) to ((it.getInt(2) == 1) to Documentation(it.getString(4), it.getInt(5) == 1, it.getString(3), it.getString(6), it.getInt(7), null)) }
+        // A body routine's parameter is on the body's side too.
+        fun onBody(key: String) = isBody(key) || isBody(key.substringBeforeLast('.'))
+        return rows.groupBy({ it.first }, { it.second }).mapValues { (id, docs) ->
+            Documentation.shown(docs.firstOrNull { !it.first }?.second, docs.firstOrNull { it.first }?.second, onBody(keys.getValue(id)))
+        }
     }
 
     /**

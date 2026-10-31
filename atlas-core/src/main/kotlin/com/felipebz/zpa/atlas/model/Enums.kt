@@ -190,6 +190,18 @@ enum class TriggerLevel : StoredEnum {
     STATEMENT
 }
 
+/**
+ * Where a declaration's documentation comment is: the block right [ABOVE] it, the first block after the `IS`/`AS` of
+ * a package or a routine ([AFTER_IS]) or after a routine's `BEGIN` ([AFTER_BEGIN]), or the comment ending its own line
+ * ([END_OF_LINE]).
+ */
+enum class DocShape : StoredEnum {
+    ABOVE,
+    AFTER_IS,
+    AFTER_BEGIN,
+    END_OF_LINE
+}
+
 /** What a call argument passes or a column write writes; see `ExpressionValues`. `DEFAULT` is only written. */
 enum class ValueKind : StoredEnum {
     STRING,

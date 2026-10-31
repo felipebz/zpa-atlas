@@ -2,8 +2,10 @@
 
 The index is a plain SQLite file with the tables `run`, `source_file`, `source_line`, `unit`, `entity`, `relation`,
 `sql_statement`, `occurrence`, `occurrence_candidate`, `call_argument`, `written_value`, `coverage_note`,
-`trigger_event` and `declared_text` (a declaration's type and value as written: `datatype`, `value`, `value_cut`). The
-words they use are in [concepts.md](concepts.md). Who writes a column:
+`trigger_event`, `declared_text` (a declaration's type and value as written: `datatype`, `value`, `value_cut`) and
+`doc_comment` (a declaration's documentation comment, one row per declaration: `entity_id`, `file_id`, `in_body`,
+`shape`, `start_line`, `text`, `text_cut`; see [serving.md](serving.md#a-declarations-documentation)). The words they
+use are in [concepts.md](concepts.md). Who writes a column:
 
 ```sql
 SELECT f.path, o.start_line, o.written, c.key AS container
