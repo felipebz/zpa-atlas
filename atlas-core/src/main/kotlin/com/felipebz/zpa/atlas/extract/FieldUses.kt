@@ -15,14 +15,16 @@ import com.felipebz.zpa.atlas.model.Status
 import java.util.*
 
 /**
- * The uses of record fields: each segment of a value's chain that zpa's [FieldBinding] names as a field of a record type
- * with an entity (a package spec's type) is a use of that field, at the segment's own span, with the roles of the value
- * the chain starts from ([NameRoles.valueRoles]): a field of a field written by an assignment is written too.
+ * The uses of record fields and object attributes: each segment of a value's chain that zpa's [FieldBinding] names as
+ * a field with an entity (a package spec's type, a standalone object type) is a use of that field, at the segment's own
+ * span, with the roles of the value the chain starts from ([NameRoles.valueRoles]): a field of a field written by an
+ * assignment is written too. In a type body the first name, or a name written alone, may itself be an attribute read
+ * through the implicit `SELF` (`items.extend`, `tag := 'x'`): zpa answers it as it answers `self.items`.
  *
  * zpa resolves the members after an element, a call result or a package variable of another file when the file is
  * left: the chains are gathered during the walk ([chain]) and asked in [record], from `leaveFile`. A segment whose value
  * zpa could not decide records nothing, and so does a field of a type without an entity (declared in a body or a
- * subprogram, an object attribute).
+ * subprogram).
  */
 internal class FieldUses(
     private val state: FileState,
@@ -49,7 +51,10 @@ internal class FieldUses(
             if (parent.type != PlSqlGrammar.OBJECT_REFERENCE || parent.firstChild !== root) break
             root = parent
         }
-        if (root === start && start.type != PlSqlGrammar.MEMBER_EXPRESSION) return
+        // A name alone is a chain of its own only when it starts an expression (a member after an element or a call
+        // result is a segment of the chain around it); any other lone node waits for the name the walk reads in it.
+        if (root === start && start.type != PlSqlGrammar.MEMBER_EXPRESSION && (start.type != PlSqlGrammar.VARIABLE_NAME ||
+                start.parentOrNull?.type == PlSqlGrammar.OBJECT_REFERENCE || start.previousSiblingOrNull?.type == PlSqlPunctuator.DOT)) return
         chains.putIfAbsent(root, Chain(root, start, segments, context, statementId))
     }
 
@@ -58,8 +63,13 @@ internal class FieldUses(
         // A chain that starts with a call works on the function's result, a copy: its fields are read, never written.
         val calls = state.occurrences.filter { Role.CALL in it.roles }.mapTo(HashSet()) { it.span }
         for (chain in chains.values) {
-            val segments = segmentsOf(chain.root)
-            if (segments.isEmpty()) continue
+            // In a type body, a name written alone or first may be an attribute read through the implicit `SELF`.
+            val first = when (chain.start.type) {
+                PlSqlGrammar.MEMBER_EXPRESSION -> chain.start.firstChild
+                PlSqlGrammar.VARIABLE_NAME -> chain.start
+                else -> null
+            }
+            val segments = listOfNotNull(first) + segmentsOf(chain.root)
             var valueRoles: Set<Role>? = null
             var status: Status? = null
             for (segment in segments) {

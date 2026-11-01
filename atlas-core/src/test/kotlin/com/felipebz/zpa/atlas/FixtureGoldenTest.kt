@@ -165,8 +165,9 @@ class FixtureGoldenTest {
             "37:32-37:41 db:HR.TY_CIRCLE",                             // treat(p as ref t) in PL/SQL
             "41:30-41:39 db:HR.TY_CIRCLE"                              // treat(p as ref t) in static SQL
         )
-        // The only column read; the other reads are of the routines' parameters.
-        assertThat(refs.filter { it[4] == "READ" && !it[3].contains(")@BODY.P_") }.map { it[3] }).containsExactly("db:HR.COMPANY.ID")
+        // The only column read; the other reads are of the routines' parameters and of an attribute named without SELF.
+        assertThat(refs.filter { it[4] == "READ" && !it[3].contains(")@BODY.P_") }.map { it[3] })
+            .containsExactly("db:HR.TY_RING.INNER_R", "db:HR.TY_RING.INNER_R", "db:HR.COMPANY.ID")
         assertThat(Fixture.query(db, "SELECT key FROM entity WHERE kind = 'COLUMN' AND name IN ('TY_CIRCLE', 'TY_SHAPE')")).isEmpty()
         // `ref t@lnk` and `t@lnk` get the same coverage.
         assertThat(Fixture.query(db, "SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE f.path = 'hr/ty_refs.sql' ORDER BY 1"))

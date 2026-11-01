@@ -55,4 +55,67 @@ class ImplicitSelfTest {
         assertThat(line(20)).isEqualTo(line(14))
         assertThat(line(21)).isEqualTo(line(15))
     }
+
+    @Test
+    fun `an attribute named without self is a use of the attribute`() {
+        val sources = Files.createDirectories(temp.resolve("bare"))
+        Files.writeString(sources.resolve("ty_crate.typ"), """
+            create or replace type ty_crate_base as object (base_n number) not final;
+            /
+            create or replace type ty_nums as table of number;
+            /
+            create or replace type ty_crate under ty_crate_base (
+              items ty_nums, tag varchar2(10),
+              member procedure fill, member function label return varchar2,
+              member procedure clash(items ty_nums), member procedure shadow
+            );
+            /
+        """.trimIndent())
+        Files.writeString(sources.resolve("ty_crate.tpb"), """
+            create or replace type body ty_crate is
+              member procedure fill is
+              begin
+                items.extend;
+                items(1) := 2;
+                tag := 'x';
+                base_n := 3;
+                select 'y' into tag from dual;
+              end;
+              member function label return varchar2 is
+              begin
+                return tag;
+              end;
+              member procedure clash(items ty_nums) is
+              begin
+                items.extend;
+              end;
+              member procedure shadow is
+                tag varchar2(10);
+              begin
+                tag := 'z';
+              end;
+            end;
+            /
+        """.trimIndent())
+        // The same rows with a compilation schema, under its keys.
+        for (schema in listOf(null, "APP")) {
+            val output = temp.resolve("bare-${schema ?: "none"}.db")
+            Indexer().index(IndexOptions(sources, output, compilationSchema = schema, dictionary = AtlasDictionary.NONE, threads = 1))
+            val rows = Fixture.query(
+                output, """SELECT o.start_line || ' ' || o.written || ' ' || e.key || ' ' || o.roles || ' ' || o.status FROM occurrence o
+                           JOIN source_file f ON f.id = o.file_id JOIN entity e ON e.id = o.entity_id
+                           WHERE f.path = 'ty_crate.tpb' AND e.kind = 'ATTRIBUTE' ORDER BY o.start_line, o.start_col"""
+            )
+            val s = schema ?: "~"
+            assertThat(rows).describedAs("schema $schema").containsExactly(
+                "4 items db:$s.TY_CRATE.ITEMS WRITE RESOLVED",
+                "5 items db:$s.TY_CRATE.ITEMS WRITE RESOLVED",
+                "6 tag db:$s.TY_CRATE.TAG WRITE RESOLVED",
+                "7 base_n db:$s.TY_CRATE_BASE.BASE_N WRITE RESOLVED",
+                "8 tag db:$s.TY_CRATE.TAG WRITE RESOLVED",
+                "12 tag db:$s.TY_CRATE.TAG READ RESOLVED"
+                // Lines 16 and 21: the parameter and the local take the name first.
+            )
+        }
+    }
 }

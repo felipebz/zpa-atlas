@@ -399,6 +399,8 @@ hr/nested_scopes.sql	23:5-23:9	area	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TRG
 hr/nested_scopes.sql	28:0-32:2	ty_square	db:HR.TY_SQUARE	DEFINITION	RESOLVED	-	db:HR.TY_SQUARE	-
 hr/nested_scopes.sql	29:2-29:13	side	db:HR.TY_SQUARE.SIDE	DEFINITION	RESOLVED	-	db:HR.TY_SQUARE	-
 hr/nested_scopes.sql	34:0-44:4	ty_square	db:HR.TY_SQUARE	DEFINITION	RESOLVED	-	db:HR.TY_SQUARE	-
+hr/nested_scopes.sql	37:11-37:15	side	db:HR.TY_SQUARE.SIDE	READ	RESOLVED	-	db:HR.TY_SQUARE	-
+hr/nested_scopes.sql	37:18-37:22	side	db:HR.TY_SQUARE.SIDE	READ	RESOLVED	-	db:HR.TY_SQUARE	-
 hr/nested_scopes.sql	42:15-42:19	area	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TY_SQUARE	-
 hr/object_views.sql	1:0-1:101	v_shape_obj	db:HR.V_SHAPE_OBJ	DEFINITION	RESOLVED	-	db:HR.V_SHAPE_OBJ	-
 hr/object_views.sql	1:38-1:46	ty_shape	db:HR.TY_SHAPE	TYPE_USE	RESOLVED	-	db:HR.V_SHAPE_OBJ	-
@@ -1916,8 +1918,11 @@ hr/trg_imp.trg	5:17-5:24	:new.id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.TRG_IMP	
 hr/trg_syn_company.trg	1:0-4:4	trg_syn_company	db:HR.TRG_SYN_COMPANY	DEFINITION	RESOLVED	-	db:HR.TRG_SYN_COMPANY	-
 hr/trg_syn_company.trg	3:5-3:12	:old.id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.TRG_SYN_COMPANY	-
 hr/ty_bag.tpb	1:0-13:4	ty_bag	db:HR.TY_BAG	DEFINITION	RESOLVED	-	db:HR.TY_BAG	-
+hr/ty_bag.tpb	6:9-6:16	entries	db:HR.TY_BAG.ENTRIES	READ	RESOLVED	-	db:HR.TY_BAG	-
+hr/ty_bag.tpb	7:4-7:11	entries	db:HR.TY_BAG.ENTRIES	WRITE	RESOLVED	-	db:HR.TY_BAG	-
 hr/ty_bag.tpb	8:9-8:10	g	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TY_BAG	-
 hr/ty_bag.tpb	9:9-9:15	self.g	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TY_BAG	-
+hr/ty_bag.tpb	10:9-10:16	entries	db:HR.TY_BAG.ENTRIES	READ	RESOLVED	-	db:HR.TY_BAG	-
 hr/ty_bag.tpb	10:17-10:33	pack_methods.f_x	db:HR.PACK_METHODS.F_X(P IN NUMBER)	CALL	RESOLVED	-	db:HR.TY_BAG	-
 hr/ty_bag.tpb	11:16-11:23	entries	db:HR.TY_BAG.ENTRIES	READ	RESOLVED	-	db:HR.TY_BAG	-
 hr/ty_bag.tpb	11:29-11:36	entries	db:HR.TY_BAG.ENTRIES	READ	RESOLVED	-	db:HR.TY_BAG	-
@@ -1959,6 +1964,8 @@ hr/ty_refs.sql	5:37-5:46	ty_circle	db:HR.TY_CIRCLE	TYPE_USE	RESOLVED	-	db:HR.TY_
 hr/ty_refs.sql	5:48-5:62	inner_r	db:HR.TY_RING.INNER_R	DEFINITION	RESOLVED	-	db:HR.TY_RING	-
 hr/ty_refs.sql	7:0-12:4	ty_ring	db:HR.TY_RING	DEFINITION	RESOLVED	-	db:HR.TY_RING	-
 hr/ty_refs.sql	10:20-10:29	ty_circle	db:HR.TY_CIRCLE	TYPE_USE	RESOLVED	-	db:HR.TY_RING	-
+hr/ty_refs.sql	10:40-10:47	inner_r	db:HR.TY_RING.INNER_R	READ	RESOLVED	-	db:HR.TY_RING	-
+hr/ty_refs.sql	10:50-10:57	inner_r	db:HR.TY_RING.INNER_R	READ	RESOLVED	-	db:HR.TY_RING	-
 hr/ty_refs.sql	14:0-20:4	pack_refs	db:HR.PACK_REFS	DECLARATION	RESOLVED	-	db:HR.PACK_REFS	-
 hr/ty_refs.sql	15:2-15:21	g_ref	db:HR.PACK_REFS.G_REF	DECLARATION	RESOLVED	-	db:HR.PACK_REFS	-
 hr/ty_refs.sql	15:12-15:20	ty_shape	db:HR.TY_SHAPE	TYPE_USE	RESOLVED	-	db:HR.PACK_REFS	-
@@ -2013,6 +2020,8 @@ hr/ty_shapes.typ	3:0-3:95	ty_circle	db:HR.TY_CIRCLE	DEFINITION	RESOLVED	-	db:HR.
 hr/ty_shapes.typ	3:39-3:47	ty_shape	db:HR.TY_SHAPE	TYPE_USE	RESOLVED	-	db:HR.TY_CIRCLE	-
 hr/ty_shapes.typ	3:49-3:57	r	db:HR.TY_CIRCLE.R	DEFINITION	RESOLVED	-	db:HR.TY_CIRCLE	-
 hr/ty_shapes.typ	5:0-10:4	ty_circle	db:HR.TY_CIRCLE	DEFINITION	RESOLVED	-	db:HR.TY_CIRCLE	-
+hr/ty_shapes.typ	8:11-8:12	r	db:HR.TY_CIRCLE.R	READ	RESOLVED	-	db:HR.TY_CIRCLE	-
+hr/ty_shapes.typ	8:15-8:16	r	db:HR.TY_CIRCLE.R	READ	RESOLVED	-	db:HR.TY_CIRCLE	-
 hr/ty_tray.tpb	1:0-27:4	ty_tray	db:HR.TY_TRAY	DEFINITION	RESOLVED	-	db:HR.TY_TRAY	-
 hr/ty_tray.tpb	4:9-4:14	items	db:HR.TY_TRAY.ITEMS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
 hr/ty_tray.tpb	4:18-4:29	ty_int_list	db:HR.TY_INT_LIST	CALL	RESOLVED	-	db:HR.TY_TRAY	-

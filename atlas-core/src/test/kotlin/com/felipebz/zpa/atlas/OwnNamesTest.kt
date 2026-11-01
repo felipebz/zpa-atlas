@@ -64,13 +64,14 @@ class OwnNamesTest {
     @Test
     fun `in a type body SELF and the type's attributes are the object, its methods local subprograms`() {
         fun typeBody(line: Int) = line("hr/ty_bag.tpb", line)
-        // `entries.next(i)`, `entries.trim(1)`: nothing; `self.entries(self.entries.first)`: two reads of the attribute.
-        for (number in listOf(6, 7)) assertThat(typeBody(number)).describedAs("line $number").isEmpty()
+        // `entries.next(i)` reads the attribute through the implicit SELF, `entries.trim(1)` writes it; neither is a call.
+        assertThat(typeBody(6)).containsExactly("entries db:HR.TY_BAG.ENTRIES READ -")
+        assertThat(typeBody(7)).containsExactly("entries db:HR.TY_BAG.ENTRIES WRITE -")
         assertThat(typeBody(11)).containsExactly("entries db:HR.TY_BAG.ENTRIES READ -", "entries db:HR.TY_BAG.ENTRIES READ -")
         assertThat(typeBody(8)).containsExactly("g - CALL LOCAL_SUBPROGRAM")
         assertThat(typeBody(9)).containsExactly("self.g - CALL LOCAL_SUBPROGRAM")
         // A project function in the arguments of an attribute still resolves.
-        assertThat(typeBody(10)).containsExactly("pack_methods.f_x db:HR.PACK_METHODS.F_X(P IN NUMBER) CALL -")
+        assertThat(typeBody(10)).containsExactly("entries db:HR.TY_BAG.ENTRIES READ -", "pack_methods.f_x db:HR.PACK_METHODS.F_X(P IN NUMBER) CALL -")
         assertThat(Fixture.query(db, "SELECT key FROM entity WHERE key LIKE 'db:~.SELF%' OR key LIKE 'db:~.ENTRIES%'")).isEmpty()
     }
 
