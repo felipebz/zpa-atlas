@@ -31,14 +31,6 @@ internal class OwnNames(private val typeMembers: ObjectTypeMembers) {
         context.objectType?.let { type ->
             val members = typeMembers.of(type)
             val methods = typeMembers.methods(type)
-            // Without a known schema the type key is a placeholder: only an attribute, its element or one of its
-            // collection methods is taken as the object's own; a method call keeps the external guess it had.
-            if (type.startsWith("db:$UNKNOWN_SCHEMA.")) {
-                val first = if (names[0] == "SELF") 1 else 0
-                val attribute = names.getOrNull(first)?.takeIf { it in members && it !in methods } ?: return null
-                val rest = names.size - first - 1
-                return if (rest == 0 || rest == 1 && names.last() in COLLECTION_METHODS) OwnName.VALUE else null
-            }
             if (names[0] == "SELF") {
                 val member = names.getOrNull(1) ?: return OwnName.VALUE
                 return if (names.size == 2 && (member in methods || isUnitSubprogram(name, member, context))) OwnName.SUBPROGRAM else OwnName.VALUE
@@ -144,6 +136,3 @@ internal fun isLocalDeclaration(symbol: Symbol): Boolean {
     val scope = symbol.scope
     return scope.outer != null && scope.type != PlSqlGrammar.CREATE_PACKAGE
 }
-
-/** The methods of a collection: after an attribute that is a collection, never a call of a schema-level name. */
-private val COLLECTION_METHODS = setOf("COUNT", "DELETE", "EXISTS", "EXTEND", "FIRST", "LAST", "LIMIT", "NEXT", "PRIOR", "TRIM")

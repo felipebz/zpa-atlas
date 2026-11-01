@@ -118,4 +118,60 @@ class ImplicitSelfTest {
             )
         }
     }
+
+    @Test
+    fun `a method of the type called through self or alone is a local subprogram, with or without a schema`() {
+        val sources = Files.createDirectories(temp.resolve("box"))
+        Files.writeString(sources.resolve("ty_box.typ"), """
+            create or replace type ty_box as object (
+              n number,
+              member procedure a5,
+              member procedure show,
+              member function label return varchar2
+            );
+            /
+        """.trimIndent())
+        Files.writeString(sources.resolve("ty_box.tpb"), """
+            create or replace type body ty_box is
+              member procedure a5 is
+                l varchar2(10);
+              begin
+                self.show;
+                self.show();
+                show;
+                l := self.label();
+                l := label;
+              end;
+              member procedure show is
+              begin
+                null;
+              end;
+              member function label return varchar2 is
+              begin
+                return 'x';
+              end;
+            end;
+            /
+        """.trimIndent())
+        fun rows(schema: String?): List<String> {
+            val output = temp.resolve("box-${schema ?: "none"}.db")
+            Indexer().index(IndexOptions(sources, output, compilationSchema = schema, dictionary = AtlasDictionary.NONE, threads = 1))
+            assertThat(Fixture.query(output, "SELECT key FROM entity WHERE key LIKE 'db:%.SELF%'")).describedAs("schema $schema").isEmpty()
+            return Fixture.query(
+                output, """SELECT o.start_line || ' ' || o.written || ' ' || coalesce(e.key, '-') || ' ' || o.roles || ' ' || o.status || ' ' ||
+                                  coalesce(o.reason, '-') FROM occurrence o JOIN source_file f ON f.id = o.file_id
+                           LEFT JOIN entity e ON e.id = o.entity_id
+                           WHERE f.path = 'ty_box.tpb' AND o.start_line BETWEEN 5 AND 9 ORDER BY o.start_line, o.start_col"""
+            ).map { it.replace("db:${schema ?: "~"}.", "db:S.") }
+        }
+        val local = rows(null)
+        assertThat(local).containsExactly(
+            "5 self.show - CALL UNRESOLVED LOCAL_SUBPROGRAM",
+            "6 self.show - CALL UNRESOLVED LOCAL_SUBPROGRAM",
+            "7 show - CALL UNRESOLVED LOCAL_SUBPROGRAM",
+            "8 self.label - CALL UNRESOLVED LOCAL_SUBPROGRAM"
+            // Line 9, `label` without parentheses: no row in either mode.
+        )
+        assertThat(rows("HR")).isEqualTo(local)
+    }
 }
