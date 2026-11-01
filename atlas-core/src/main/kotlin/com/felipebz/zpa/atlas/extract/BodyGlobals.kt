@@ -8,7 +8,6 @@ package com.felipebz.zpa.atlas.extract
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
-import com.felipebz.zpa.api.semantics.NameBinding
 import com.felipebz.zpa.api.semantics.NameDeclarationKind
 import com.felipebz.zpa.api.semantics.UsageEvidence
 import com.felipebz.zpa.api.semantics.UsageUncertainty
@@ -21,15 +20,14 @@ import com.felipebz.zpa.atlas.model.*
  * routines, so that a name the body redeclares from its spec (Oracle compiles it, and fails where the name is used)
  * keeps the spec's entity and adds the body's beside it. A second declaration of a name in the same body adds `#2`.
  *
- * Their uses are read from zpa's name binding ([NameBinding]): a name whose binding is the declaration of one of them
+ * Their uses are read from zpa's name binding ([BoundNames]): a name whose binding is the declaration of one of them
  * is a use of its entity, so a local of a subprogram that hides a global takes its own uses.
  */
-internal class BodyGlobals(private val nameBinding: (AstNode) -> NameBinding) {
+internal class BodyGlobals(private val bound: BoundNames) {
     /** One global: its entity, its declaration node and name, and the unit (the package body) it is declared in. */
     class Global(val key: String, val packageKey: String, val body: AstNode, val node: AstNode, val name: AstNode, val unitIndex: Int, val partial: Boolean)
 
     val declared = ArrayList<Global>()
-    private val byName = HashMap<Long, String>()
 
     /**
      * Registers the globals of [body] (a `CREATE_PACKAGE_BODY`) of the package [packageKey] in [schema]: their entities and
@@ -48,7 +46,7 @@ internal class BodyGlobals(private val nameBinding: (AstNode) -> NameBinding) {
             state.entities += EntityFact(key, kind, schema, normalized, packageKey, key.removePrefix("db:"), external = false, precedence = Precedence.DECLARED)
             state.relations += RelationFact(packageKey, RelationKind.CONTAINS, key)
             declared += Global(key, packageKey, body, item, name, unitIndex, partial)
-            byName.putIfAbsent(position(name.token.line, name.token.column), key)
+            bound.add(NameDeclarationKind.VARIABLE, name.token.line, name.token.column, key)
         }
     }
 
@@ -72,39 +70,8 @@ internal class BodyGlobals(private val nameBinding: (AstNode) -> NameBinding) {
         }
     }
 
-    /**
-     * The global [name] (a `VARIABLE_NAME`, or a `MEMBER_EXPRESSION` such as `pkg.g_x` or `g_rec.f`) is a use of, from
-     * zpa's binding of the whole name, else of the segment of a chain that names the global (`g_rec` of `g_rec.f`);
-     * null for anything else. In SQL a column may still take the name ([NameBinding.ColumnOrLocal]): the caller decides
-     * by the rules of SQL names. A dynamic text is parsed apart from the file: zpa binds none of its names.
-     */
-    fun of(name: AstNode, context: Context): String? {
-        if (byName.isEmpty() || context.dynamic != null) return null
-        globalOf(nameBinding(name))?.let { return it }
-        if (name.type != PlSqlGrammar.MEMBER_EXPRESSION) return null
-        // `g_rec.f`, `g_tab.count`, `pkg.g_rec.f`: the segment zpa binds to a global. zpa answers a later segment only
-        // when every segment before it names a unit, and a field or method after a value never.
-        for (segment in name.children) {
-            if (segment.type != PlSqlGrammar.VARIABLE_NAME && segment.type != PlSqlGrammar.IDENTIFIER_NAME) continue
-            globalOf(nameBinding(segment))?.let { return it }
-        }
-        return null
-    }
-
-    private fun globalOf(binding: NameBinding): String? {
-        val declaration = when (binding) {
-            is NameBinding.Local -> binding.declaration
-            is NameBinding.ColumnOrLocal -> binding.declaration
-            else -> return null
-        }
-        if (declaration.fileId != null || declaration.kind != NameDeclarationKind.VARIABLE) return null
-        return byName[position(declaration.line, declaration.column)]
-    }
-
-    private fun position(line: Int, column: Int) = (line.toLong() shl 32) or column.toLong()
-
-    private companion object {
-        /** What the index records anyway, or what cannot apply to a body global. */
+    companion object {
+        /** What the index records anyway, or what cannot apply to a name of the file: never a gap. */
         val NOT_GAPS = setOf(UsageUncertainty.SQL_NAME_MAY_BE_COLUMN, UsageUncertainty.VISIBLE_OUTSIDE_FILE)
     }
 }

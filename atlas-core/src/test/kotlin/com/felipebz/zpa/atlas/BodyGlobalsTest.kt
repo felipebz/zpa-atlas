@@ -112,7 +112,7 @@ class BodyGlobalsTest {
 
     @Test
     fun `a body with a $IF says every global's uses may be incomplete, a body without one says nothing`() {
-        val gaps = Fixture.query(db, "SELECT e.key || ' ' || g.reasons FROM uses_gap g JOIN entity e ON e.id = g.entity_id ORDER BY e.key")
+        val gaps = Fixture.query(db, "SELECT e.key || ' ' || g.reasons FROM uses_gap g JOIN entity e ON e.id = g.entity_id WHERE e.kind LIKE 'PACKAGE_%' ORDER BY e.key")
         // pack_switch: the $IF hides names anywhere in the body, so neither g_level (whose uses zpa left undecided) nor
         // g_quiet (no name written) can be counted; pack_globals: only the name the body redeclares from its spec.
         assertThat(gaps).containsExactly(

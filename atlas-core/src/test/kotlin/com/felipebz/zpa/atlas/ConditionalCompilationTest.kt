@@ -87,7 +87,7 @@ class ConditionalCompilationTest {
     fun `for 11_2 the 11g branches are indexed and an unset inquiry directive is NULL`() {
         val db = index("11.2")
         assertThat(sql(db)).containsExactly(
-            "23 event_log db:HR.EVENT_LOG SQL_DELETE",
+            "23 event_log db:HR.EVENT_LOG SQL_DELETE", "23 p_id db:HR.PACK_COND.RUN_OLD(P_ID IN NUMBER)@BODY.P_ID READ",
             "29 company db:HR.COMPANY SQL_SELECT",
             "42 company db:HR.COMPANY SQL_UPDATE", "42 company_name db:HR.COMPANY.COMPANY_NAME SQL_UPDATE,WRITE"
         )
@@ -105,7 +105,7 @@ class ConditionalCompilationTest {
     fun `for 19 the 12c branches are indexed`() {
         val db = index("19")
         assertThat(sql(db)).containsExactly(
-            "21 send_queue db:HR.SEND_QUEUE SQL_DELETE",
+            "21 send_queue db:HR.SEND_QUEUE SQL_DELETE", "21 p_id db:HR.PACK_COND.RUN_NEW(P_ID IN NUMBER)@BODY.P_ID READ",
             "31 send_queue db:HR.SEND_QUEUE SQL_SELECT",
             "44 company db:HR.COMPANY SQL_UPDATE", "44 dt_changed db:HR.COMPANY.DT_CHANGED SQL_UPDATE,WRITE"
         )

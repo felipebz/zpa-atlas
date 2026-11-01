@@ -93,7 +93,7 @@ internal class EntityReader(private val connection: Connection) {
             if (row.kind == "COLUMN") viewBase(row.id, outgoing = false) else emptyList(),
             declared[row.id],
             documentation[row.id].orEmpty(),
-            gaps[row.id]
+            ownAndPartnerGaps(row, gaps[row.id])
         )
     }
 
@@ -131,6 +131,18 @@ internal class EntityReader(private val connection: Connection) {
     private fun usesGaps(ids: List<Long>): Map<Long, List<String>> = connection.query(
         "SELECT entity_id, reasons FROM uses_gap WHERE entity_id IN (SELECT value FROM json_each(?))", listOf(ids.joinToString(",", "[", "]"))
     ) { it.getLong(1) to it.getString(2).split(',') }.toMap()
+
+    /**
+     * [own], and for a parameter the reasons of its partners ([PARAMETER_PARTNERS]): the page and "who uses" show a
+     * parameter with the uses of its spec's or body's, so they say when those may be incomplete.
+     */
+    private fun ownAndPartnerGaps(row: Entity, own: List<String>?): List<String>? {
+        if (row.kind != "PARAMETER") return own
+        val partners = connection.query(
+            "SELECT g.reasons FROM entity e $PARAMETER_PARTNERS JOIN uses_gap g ON g.entity_id = p.id WHERE e.id = ?", listOf(row.id)
+        ) { it.getString(1).split(',') }.flatten()
+        return (own.orEmpty() + partners).distinct().ifEmpty { null }
+    }
 
     /**
      * What the declarations of [ids] say ([Declared.of]), with the spec's text for a body: the spec a routine body

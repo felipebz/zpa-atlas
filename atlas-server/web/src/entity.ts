@@ -357,14 +357,15 @@ function renderEntity(entity: EntityDetail) {
     ? t("usage.summary", { direct: t("usage.direct", { count: direct }), candidate: t("usage.candidate", { count: u.asCandidate }) })
     : t("usage.direct", { count: direct });
 
-  state.implementations = [...SUBPROGRAM_KINDS, "PACKAGE"].includes(entity.kind);
+  // A parameter follows the same parameter of its routine's spec or body: its uses are on the body's side.
+  state.implementations = [...SUBPROGRAM_KINDS, "PACKAGE", "PARAMETER"].includes(entity.kind);
   state.children = ["PACKAGE", "TYPE"].includes(entity.kind);
   // A package or a type lists the uses from other programs first; its own spec and body are the other side.
   state.kind = entity.kind;
   state.display = entity.display;
   state.side = ["PACKAGE", "TYPE"].includes(entity.kind) ? "OUTSIDE" : null;
   state.scopes = [
-    [...SUBPROGRAM_KINDS, "PACKAGE"].includes(entity.kind) && "implementations",
+    [...SUBPROGRAM_KINDS, "PACKAGE", "PARAMETER"].includes(entity.kind) && "implementations",
     entity.children.length > 0 && "children",
     VIEWED_KINDS.includes(entity.kind) && "views"
   ].filter((scope): scope is ScopeName => Boolean(scope));

@@ -193,7 +193,7 @@ export interface EntityDetail {
   documentation: Documentation[];
   /**
    * zpa's reasons (CONDITIONAL_COMPILATION, …) why uses the index did not record cannot be ruled out; null when nothing
-   * says so. Only a package body's own variables and constants have it.
+   * says so. Body globals and parameters have it; a parameter also gets its spec's or body's, whose uses it shows.
    */
   usesIncomplete: string[] | null;
 }

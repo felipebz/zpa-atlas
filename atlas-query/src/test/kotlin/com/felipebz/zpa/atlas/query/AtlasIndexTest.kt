@@ -45,6 +45,37 @@ class AtlasIndexTest {
     }
 
     @Test
+    fun `a spec parameter's uses are those of the same parameter of its body, the page's default for a parameter`() {
+        // hr/param_uses.sql: zpa binds the uses in the body to the body's declaration.
+        val spec = "db:HR.PK_P.RUN(P_ROWS IN T_ROWS,P_REC IN OUT T_ROW).P_REC"
+        val body = "db:HR.PK_P.RUN(P_ROWS IN T_ROWS,P_REC IN OUT T_ROW)@BODY.P_REC"
+        fun rows(key: String, scope: Set<Scope>) = index.occurrences(key, scope = scope).result!!.rows.map { "${it.span.startLine} ${it.entity?.key}" }
+        assertThat(defaultUsageScopes("PARAMETER")).containsExactly(Scope.IMPLEMENTATIONS)
+        assertThat(rows(spec, setOf(Scope.SELF))).isEmpty()
+        val bodyUses = listOf("23 $body", "26 $body")
+        assertThat(rows(spec, setOf(Scope.SELF, Scope.IMPLEMENTATIONS))).isEqualTo(bodyUses)
+        assertThat(rows(body, setOf(Scope.SELF, Scope.IMPLEMENTATIONS))).isEqualTo(bodyUses)
+        // A parameter of another routine with the same name is not a partner.
+        assertThat(rows("db:HR.PK_P.FILL(P_OUT OUT NUMBER).P_OUT", setOf(Scope.SELF, Scope.IMPLEMENTATIONS))).containsExactly(
+            "18 db:HR.PK_P.FILL(P_OUT OUT NUMBER)@BODY.P_OUT"
+        )
+    }
+
+    @Test
+    fun `a spec parameter carries the flag of the body parameter whose uses it shows, and alone carries none`() {
+        // hr/param_fixes.sql: the body of PK_G.RUN has a $IF zpa does not decide.
+        val spec = "db:HR.PK_G.RUN(P_V IN NUMBER).P_V"
+        val body = "db:HR.PK_G.RUN(P_V IN NUMBER)@BODY.P_V"
+        assertThat(index.entity(spec).result!!.usesIncomplete).containsExactly("CONDITIONAL_COMPILATION")
+        assertThat(index.entity(body).result!!.usesIncomplete).containsExactly("CONDITIONAL_COMPILATION")
+        assertThat(index.occurrences(spec, scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS)).result!!.usesIncomplete)
+            .containsExactly(UsesGap(body, listOf("CONDITIONAL_COMPILATION")))
+        assertThat(index.occurrences(spec, scope = setOf(Scope.SELF)).result!!.usesIncomplete).isNull()
+        // The routine itself, with its spec and body, is unchanged: no flag.
+        assertThat(index.entity("db:HR.PK_G.RUN(P_V IN NUMBER)").result!!.usesIncomplete).isNull()
+    }
+
+    @Test
     fun `every answer carries the run it was read from`() {
         val answer = index.run()
         assertThat(answer.run.compilationSchema).isEqualTo("HR")

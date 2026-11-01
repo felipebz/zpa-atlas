@@ -111,8 +111,11 @@ class FixtureGoldenTest {
         assertThat(rows.filter { it[4] == "READ" && it[1].startsWith("12:") }.map { it[3] }).containsExactly("db:HR.SHAPE_HOLDER.S", "db:HR.SHAPE_HOLDER.ID")
         val notes = Fixture.query(db, "SELECT c.kind || ' ' || c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE f.path = 'hr/proc_objects.prc' ORDER BY 1")
         assertThat(notes).noneMatch { it.startsWith("COLUMN_EXPRESSION") }
-        // Only the PL/SQL parameters inside TABLE(…) stay undecided, not the aliases of the table functions.
-        assertThat(notes).contains("SQL_NAME_UNDECIDED 2 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed")
+        // The PL/SQL parameters inside TABLE(…) may still be columns: kept as reads of the parameters, unverified; the
+        // aliases of the table functions are nothing.
+        assertThat(notes).noneMatch { it.startsWith("SQL_NAME_UNDECIDED") }
+        assertThat(objects(db).filter { it[3].contains(").P_") && it[4] == "READ" }.map { "${it[2]} ${it[4]} ${it[5]} ${it[6]}" })
+            .containsExactly("p_list READ UNVERIFIED COLUMN_NOT_EXCLUDED", "p_doc READ UNVERIFIED COLUMN_NOT_EXCLUDED")
     }
 
     @Test
@@ -162,7 +165,8 @@ class FixtureGoldenTest {
             "37:32-37:41 db:HR.TY_CIRCLE",                             // treat(p as ref t) in PL/SQL
             "41:30-41:39 db:HR.TY_CIRCLE"                              // treat(p as ref t) in static SQL
         )
-        assertThat(refs.filter { it[4] == "READ" }.map { it[3] }).containsExactly("db:HR.COMPANY.ID")
+        // The only column read; the other reads are of the routines' parameters.
+        assertThat(refs.filter { it[4] == "READ" && !it[3].contains(")@BODY.P_") }.map { it[3] }).containsExactly("db:HR.COMPANY.ID")
         assertThat(Fixture.query(db, "SELECT key FROM entity WHERE kind = 'COLUMN' AND name IN ('TY_CIRCLE', 'TY_SHAPE')")).isEmpty()
         // `ref t@lnk` and `t@lnk` get the same coverage.
         assertThat(Fixture.query(db, "SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE f.path = 'hr/ty_refs.sql' ORDER BY 1"))
@@ -198,7 +202,7 @@ class FixtureGoldenTest {
         assertThat(Fixture.query(noSchema, "SELECT f.path FROM coverage_note c JOIN source_file f ON f.id = c.file_id WHERE c.kind = 'SCHEMA_UNKNOWN' ORDER BY 1"))
             .containsExactly("hr/collection_writes.sql", "hr/conditional.sql", "hr/fn_company_name.fun", "hr/imp_amb.prc", "hr/imp_echo_a.prc", "hr/imp_echo_b.prc", "hr/imp_fn.fun", "hr/imp_ovl.sql", "hr/imp_read_view.prc", "hr/imp_rec.prc", "hr/it_audit.prc", "hr/it_io_triggers.trg", "hr/it_io_views.sql", "hr/it_io_writers.sql", "hr/it_tables.sql", "hr/it_triggers.trg", "hr/it_writers.sql", "hr/json_holder.typ", "hr/json_type.typ", "hr/mv_company.sql", "hr/nested_calls.sql", "hr/nested_scopes.sql", "hr/object_views.sql", "hr/pack_args.pkb", "hr/pack_args.pks", "hr/pack_calls.pkb", "hr/pack_calls.pks", "hr/pack_chains.pkb", "hr/pack_chains.pks",
                 "hr/pack_collection.pkb", "hr/pack_collection.pks", "hr/pack_ddl.pkb", "hr/pack_ddl.pks", "hr/pack_declared.pkb", "hr/pack_declared.pks", "hr/pack_doc.pkb", "hr/pack_doc.pks", "hr/pack_dynamic.pkb", "hr/pack_dynamic.pks", "hr/pack_globals.pkb", "hr/pack_globals.pks", "hr/pack_imp_a.pkb", "hr/pack_imp_a.pks", "hr/pack_imp_b.pkb", "hr/pack_imp_b.pks", "hr/pack_inline.sql", "hr/pack_json.pkb", "hr/pack_json.pks", "hr/pack_methods.pkb", "hr/pack_methods.pks", "hr/pack_nested.pkb", "hr/pack_nested.pks", "hr/pack_process.pkb",
-                "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_switch.pkb", "hr/pack_switch.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_doc.prc", "hr/proc_mview.prc", "hr/proc_objects.prc", "hr/proc_own_objects.prc",
+                "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_switch.pkb", "hr/pack_switch.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/param_fixes.sql", "hr/param_uses.sql", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_doc.prc", "hr/proc_mview.prc", "hr/proc_objects.prc", "hr/proc_own_objects.prc",
                 "hr/proc_source_view.prc",
                 "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_view_chain.prc", "hr/proc_view_writes.prc", "hr/proc_writes.prc", "hr/proc_xmlseq.prc", "hr/remote_calls.prc", "hr/remote_names.prc", "hr/text_tags.sql", "hr/trg_company_bu.trg", "hr/trg_company_values.trg", "hr/trg_dynamic.trg",
                 "hr/trg_forms.trg", "hr/trg_imp.trg", "hr/trg_syn_company.trg", "hr/ty_bag.tpb", "hr/ty_bag.typ", "hr/ty_num_list.typ", "hr/ty_point.typ", "hr/ty_refs.sql", "hr/ty_shapes.typ", "hr/v_imp.sql", "hr/view_ioi.sql", "hr/views.sql", "hr/views_lineage.sql", "hr/views_remote.sql", "hr/views_star.sql",

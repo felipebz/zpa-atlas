@@ -28,11 +28,11 @@ class MethodCallsTest {
 
     @Test
     fun `a method of an indexed element is not a call`() {
-        // `i_doc(1).items.exists(1)`, `.next(n)`: no call of a name ITEMS.
-        assertThat(line(8)).isEmpty()
-        assertThat(line(11)).isEmpty()
+        // `i_doc(1).items.exists(1)`, `.next(n)`: no call of a name ITEMS; the parameter I_DOC is read.
+        assertThat(line(8)).containsExactly("7-12 i_doc db:HR.PACK_METHODS.RUN(I_DOC IN T_DOC_TAB)@BODY.I_DOC READ")
+        assertThat(line(11)).containsExactly("9-14 i_doc db:HR.PACK_METHODS.RUN(I_DOC IN T_DOC_TAB)@BODY.I_DOC READ")
         // `i_doc(1).line_rec(1).line_no`: the field LINE_REC is not a constructor of the record type LINE_REC.
-        assertThat(line(9)).isEmpty()
+        assertThat(line(9)).containsExactly("11-16 i_doc db:HR.PACK_METHODS.RUN(I_DOC IN T_DOC_TAB)@BODY.I_DOC READ")
     }
 
     @Test

@@ -11,6 +11,7 @@ import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectSnapshot
+import com.felipebz.zpa.api.semantics.NameDeclarationKind
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.model.*
 
@@ -76,8 +77,15 @@ class FileExtractor(
     override fun visitFile(node: AstNode) {
         root = node
         val scopes = SqlScopes()
-        bodyGlobals = BodyGlobals(context::nameBinding)
-        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, projectAnalysis(), bodyGlobals)
+        val bound = BoundNames(context::nameBinding)
+        // The parameters of the file's subprograms and cursors that have an entity: their uses are the names zpa binds
+        // to them. A parameter's declaration starts with its name, where zpa places it.
+        for (declaration in catalog.occurrencesFor(path)) {
+            if (declaration.containerKey == null) continue
+            bound.add(NameDeclarationKind.PARAMETER, declaration.span.startLine, declaration.span.startCol, declaration.entityKey)
+        }
+        bodyGlobals = BodyGlobals(bound)
+        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, projectAnalysis(), bound)
         triggers = Triggers(state, resolver, plsql)
         typeReferences = TypeReferences(state, types, resolver, calls, plsql, jsonBuiltIn)
         val columnReads = ColumnReads(state, resolver, scopes, plsql, context::nameBinding)
@@ -168,8 +176,8 @@ class FileExtractor(
         if (state.undecidedSqlNames > 0) {
             state.coverage += CoverageFact("SQL_NAME_UNDECIDED", "${state.undecidedSqlNames} unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed")
         }
-        // A file the parser rejected was never walked: no body globals, no gaps.
-        val usesGaps = if (::bodyGlobals.isInitialized) bodyGlobals.gaps(context::usageEvidence, context::regionUncertainty) else emptyList()
+        // A file the parser rejected was never walked: no body globals, no parameter uses, no gaps.
+        val usesGaps = if (::bodyGlobals.isInitialized) bodyGlobals.gaps(context::usageEvidence, context::regionUncertainty) + parameterGaps else emptyList()
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
         return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, defaultSchema, state.units, state.statements, state.occurrences,
             LinkedHashSet(state.entities).toList(), LinkedHashSet(state.relations).toList(), state.coverage, resolver.dictionaryRelations.toList(),
@@ -425,11 +433,19 @@ class FileExtractor(
                 declaration.entityKey, setOf(declaration.role), status(Status.RESOLVED, state.partialUnits[unitIndex]), Origin.STATIC, null,
                 nameSpan = names[declaration])
             // A declaration of a region the parser recovered has no node of its span: nothing is read of it.
-            found?.declaring?.get(declaration.span)?.let { node -> DeclaredTexts.of(declaration.entityKey, node)?.let { declaredTexts += it } }
+            val node = found?.declaring?.get(declaration.span)
+            node?.let { DeclaredTexts.of(declaration.entityKey, it)?.let { text -> declaredTexts += text } }
+            // A parameter's uses are zpa's bindings: say when its subprogram hides some (a file that was walked only).
+            if (declaration.containerKey != null && node != null && ::bodyGlobals.isInitialized) {
+                ParameterGaps.of(declaration.entityKey, node, context::usageEvidence, context::regionUncertainty)?.let { parameterGaps += it }
+            }
             val inBody = unit.kind == UnitKind.PACKAGE_BODY || unit.kind == UnitKind.TYPE_BODY
             docs?.of(declaration.entityKey, declaration.span, inBody, found?.documented?.get(declaration.span))?.let { docComments += it }
         }
     }
+
+    /** The parameters whose recorded uses may be incomplete ([ParameterGaps]). */
+    private val parameterGaps = ArrayList<UsesGapFact>()
 
     /**
      * The nodes with the span of a declaration, found in one walk over the file, a node checked only when it starts

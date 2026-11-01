@@ -220,14 +220,16 @@ data class EntityDetail(
     /**
      * Why its recorded uses may be incomplete: zpa could not decide some names where it is visible, so uses the index
      * did not record cannot be ruled out. zpa's reasons (`CONDITIONAL_COMPILATION`, `DECLARATION_OUTSIDE_FILE`, ...);
-     * null when nothing says so. Only a package body's own variables and constants have it.
+     * null when nothing says so. A package body's own variables and constants have it, and parameters: a parameter
+     * gets its spec's or body's too, whose uses its "who uses" shows.
      */
     val usesIncomplete: List<String>? = null
 )
 
 /**
- * What "who uses" covers besides the entity itself: [IMPLEMENTATIONS] its `IMPLEMENTS` partners, [CHILDREN] its
- * `CONTAINS` descendants, [VIEWS] the view columns computed from them and the views reading them, transitively.
+ * What "who uses" covers besides the entity itself: [IMPLEMENTATIONS] its `IMPLEMENTS` partners (for a parameter, the
+ * parameter of the same name of its routine's partners), [CHILDREN] its `CONTAINS` descendants, [VIEWS] the view
+ * columns computed from them and the views reading them, transitively.
  */
 enum class Scope { SELF, IMPLEMENTATIONS, CHILDREN, VIEWS }
 
@@ -244,11 +246,11 @@ enum class UsagePath { DIRECT, THROUGH_VIEWS }
 enum class UsageSide { OUTSIDE, INSIDE }
 
 /**
- * The scopes "who uses" adds by default for an entity of [kind], as the entity page does: a subprogram's spec or body,
- * a package's spec or body and members, a type's members.
+ * The scopes "who uses" adds by default for an entity of [kind], as the entity page does: a subprogram's or parameter's
+ * spec or body, a package's spec or body and members, a type's members.
  */
 fun defaultUsageScopes(kind: String): List<Scope> = listOfNotNull(
-    Scope.IMPLEMENTATIONS.takeIf { kind in setOf("PROCEDURE", "FUNCTION", "PACKAGE") },
+    Scope.IMPLEMENTATIONS.takeIf { kind in setOf("PROCEDURE", "FUNCTION", "PACKAGE", "PARAMETER") },
     Scope.CHILDREN.takeIf { kind in setOf("PACKAGE", "TYPE") }
 )
 

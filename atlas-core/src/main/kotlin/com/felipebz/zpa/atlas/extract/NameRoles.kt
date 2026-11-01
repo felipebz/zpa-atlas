@@ -8,6 +8,7 @@ package com.felipebz.zpa.atlas.extract
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.DmlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
+import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.project.ProjectParameterMode
 import com.felipebz.zpa.atlas.model.Role
@@ -31,8 +32,8 @@ internal class NameRoles(private val state: FileState) {
 
     /**
      * The roles of a value: `WRITE` for an assignment target, an `INTO` target, an actual bound to an `OUT`
-     * formal of a resolved call or a modifying collection method ([endsInModifyingMethod]); `READ` and `WRITE` for an
-     * `IN OUT` formal; else `READ`.
+     * formal of a resolved call, an `OUT` bind of dynamic SQL or a modifying collection method ([endsInModifyingMethod]);
+     * `READ` and `WRITE` for an `IN OUT` formal or bind; else `READ`.
      */
     fun valueRoles(name: AstNode, segments: List<String>): Set<Role> {
         var expression = name
@@ -49,6 +50,10 @@ internal class NameRoles(private val state: FileState) {
                 if (parent.children.indexOf(expression) < assignment) return setOf(Role.WRITE)
             }
             if (parent.type == DmlGrammar.INTO_CLAUSE) return setOf(Role.WRITE)
+            // A bind of `EXECUTE IMMEDIATE … USING` (or `OPEN … FOR … USING`), with its written mode, as an actual of a call.
+            if (parent.type == PlSqlGrammar.UNNAMED_ACTUAL_PAMETER && parent.hasDirectChildren(PlSqlKeyword.OUT)) {
+                return if (parent.hasDirectChildren(PlSqlKeyword.IN)) setOf(Role.READ, Role.WRITE) else setOf(Role.WRITE)
+            }
             val mode = state.argumentModes[expression] ?: if (parent.type == PlSqlGrammar.ARGUMENT) state.argumentModes[parent] else null
             when (mode) {
                 ProjectParameterMode.OUT -> return setOf(Role.WRITE)

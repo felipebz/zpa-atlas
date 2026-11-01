@@ -13,6 +13,10 @@ inside the body are the ones zpa's name resolution binds to them. Where zpa cann
 `$IF`, a name the spec declares too), the page and the MCP answers say that the uses may be incomplete
 (`usesIncomplete`): the count is then a lower bound. Variables of a subprogram or a block are not entities.
 
+The parameters of package subprograms, standalone subprograms and package cursors are entities too, with their uses
+found the same way. A use in a package body is the body parameter's (`…@BODY.P_ID`); the spec parameter's "who uses"
+follows it there. Parameters of nested subprograms and of object type methods are not entities.
+
 ## Occurrence
 
 One place in the source where an entity is defined or used. It has roles and a status.

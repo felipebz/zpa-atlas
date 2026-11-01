@@ -445,8 +445,9 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     private fun SchemaBuilder.usageFilters() {
         string("key", KEY_DESCRIPTION)
         enumArray("include", USAGE_SCOPES.map { it.name }, "Entities added to the one asked for: IMPLEMENTATIONS its spec or " +
-            "body, CHILDREN its contents, VIEWS the view columns computed from it and the views reading it, transitively. " +
-            "Default by kind, as the entity page: IMPLEMENTATIONS for a procedure or function, IMPLEMENTATIONS and CHILDREN " +
+            "body (for a parameter, the same parameter of its routine's spec or body), CHILDREN its contents, VIEWS the view " +
+            "columns computed from it and the views reading it, transitively. Default by kind, as the entity page: " +
+            "IMPLEMENTATIONS for a procedure, function or parameter, IMPLEMENTATIONS and CHILDREN " +
             "for a package, CHILDREN for a type, none otherwise; [] for the entity alone. The answer's included lists what was followed.")
         enumArray("roles", produced(codes.roles), "The occurrence has any of these roles. Without it, every role but DEFINITION and DECLARATION.")
         enumArray("statuses", produced(codes.statuses), "The occurrence has one of these statuses.")

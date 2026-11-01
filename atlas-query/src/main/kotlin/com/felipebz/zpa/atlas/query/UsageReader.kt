@@ -41,16 +41,21 @@ internal class UsageReader(private val connection: Connection) {
         val remaining = filtered.filter { after == null || it.id > after }
         val page = remaining.take(limit)
         val nextAfter = if (remaining.size > limit) page.last().id else null
-        return OccurrencePage(rows(connection, page, unitEntities = sides), nextAfter, filtered.size.toLong(), facets, usesGaps(key, Scope.CHILDREN in scope))
+        return OccurrencePage(rows(connection, page, unitEntities = sides), nextAfter, filtered.size.toLong(), facets,
+            usesGaps(key, Scope.IMPLEMENTATIONS in scope, Scope.CHILDREN in scope))
     }
 
-    /** The entities whose recorded uses may be incomplete: [key] itself and, with [children], its `CONTAINS` descendants. */
-    private fun usesGaps(key: String, children: Boolean): List<UsesGap>? = connection.query(
+    /**
+     * The entities whose recorded uses may be incomplete: [key] itself, with [implementations] a parameter's partner
+     * (whose uses the rows include), and with [children] its `CONTAINS` descendants.
+     */
+    private fun usesGaps(key: String, implementations: Boolean, children: Boolean): List<UsesGap>? = connection.query(
         """WITH RECURSIVE scope(id) AS (
                SELECT id FROM entity WHERE key = ?
+               UNION SELECT p.id FROM entity e $PARAMETER_PARTNERS WHERE e.key = ? AND e.kind = 'PARAMETER' AND ?
                UNION SELECT r.to_id FROM relation r JOIN scope s ON r.from_id = s.id WHERE ? AND r.kind = 'CONTAINS')
            SELECT e.key, g.reasons FROM uses_gap g JOIN scope s ON s.id = g.entity_id JOIN entity e ON e.id = g.entity_id ORDER BY e.key""",
-        listOf(key, children)
+        listOf(key, key, implementations, children)
     ) { UsesGap(it.getString(1), it.getString(2).split(',')) }.ifEmpty { null }
 
     /** [AtlasIndex.groupUsages] after its checks: the rows [occurrences] lists, grouped. */
@@ -88,7 +93,9 @@ internal class UsageReader(private val connection: Connection) {
                  linked(id) AS (
                    SELECT id FROM self
                    UNION SELECT r.to_id FROM relation r JOIN self s ON r.from_id = s.id WHERE ? AND r.kind = 'IMPLEMENTS'
-                   UNION SELECT r.from_id FROM relation r JOIN self s ON r.to_id = s.id WHERE ? AND r.kind = 'IMPLEMENTS'),
+                   UNION SELECT r.from_id FROM relation r JOIN self s ON r.to_id = s.id WHERE ? AND r.kind = 'IMPLEMENTS'
+                   -- A parameter's partner: the parameter of the same name of its routine's spec or body.
+                   UNION SELECT p.id FROM self s JOIN entity e ON e.id = s.id AND e.kind = 'PARAMETER' $PARAMETER_PARTNERS WHERE ?),
                  scope(id) AS (
                    SELECT id FROM linked
                    UNION SELECT r.to_id FROM relation r JOIN scope s ON r.from_id = s.id WHERE ? AND r.kind = 'CONTAINS'),
@@ -106,7 +113,7 @@ internal class UsageReader(private val connection: Connection) {
                       u.entity_id IS NOT NULL AND u.entity_id IN (SELECT id FROM self)
                FROM hits h JOIN occurrence o ON o.id = h.oid JOIN unit u ON u.id = o.unit_id
                ORDER BY h.oid""",
-            listOf(key, Scope.IMPLEMENTATIONS in scope, Scope.IMPLEMENTATIONS in scope, Scope.CHILDREN in scope,
+            listOf(key, Scope.IMPLEMENTATIONS in scope, Scope.IMPLEMENTATIONS in scope, Scope.IMPLEMENTATIONS in scope, Scope.CHILDREN in scope,
                 Scope.VIEWS in scope, Scope.VIEWS in scope, includeCandidates)
         ) { Hit(it.getLong(1), it.getLong(2), it.getInt(3) == 1, it.getInt(4) == 1, roles(it.getString(5)), it.getString(6), it.getInt(7) == 1) }
             .groupBy { it.id }.values.map { it.minWith(hitPreference) }
@@ -220,3 +227,10 @@ internal class UsageReader(private val connection: Connection) {
         }
     }
 }
+
+/**
+ * The joins from a `PARAMETER` entity `e` to its partners `p`: the parameter of the same name of the spec or body its
+ * routine `IMPLEMENTS`, or that implements it.
+ */
+internal const val PARAMETER_PARTNERS = """JOIN relation r ON r.kind = 'IMPLEMENTS' AND (r.from_id = e.parent_id OR r.to_id = e.parent_id)
+    JOIN entity p ON p.parent_id = CASE WHEN r.from_id = e.parent_id THEN r.to_id ELSE r.from_id END AND p.kind = 'PARAMETER' AND p.name = e.name"""

@@ -42,8 +42,9 @@ class OwnNamesTest {
 
     @Test
     fun `a local or private value qualified by its enclosing units is never an external name`() {
-        // `check_items.l_items.delete`, `.count`: a subprogram's local, nothing.
-        for (number in listOf(13, 14)) assertThat(body(number)).describedAs("line $number").isEmpty()
+        // `check_items.l_items.delete`, `.count`: a subprogram's local, nothing; `o :=` writes the OUT parameter.
+        assertThat(body(13)).isEmpty()
+        assertThat(body(14)).containsExactly("o db:HR.PACK_SCOPED.CHECK_ITEMS(O OUT NUMBER)@BODY.O WRITE -")
         // `pack_scoped.g_items.delete`, `(1) :=`, `.exists(1)`: the body's own global, as zpa binds it.
         assertThat(body(20)).containsExactly("pack_scoped.g_items.delete db:HR.PACK_SCOPED.G_ITEMS@BODY WRITE -")
         assertThat(body(21)).containsExactly("pack_scoped.g_items db:HR.PACK_SCOPED.G_ITEMS@BODY WRITE -")
