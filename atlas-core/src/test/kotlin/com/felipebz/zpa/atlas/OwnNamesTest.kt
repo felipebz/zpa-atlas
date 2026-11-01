@@ -64,8 +64,9 @@ class OwnNamesTest {
     @Test
     fun `in a type body SELF and the type's attributes are the object, its methods local subprograms`() {
         fun typeBody(line: Int) = line("hr/ty_bag.tpb", line)
-        // `entries.next(i)`, `entries.trim(1)`, `self.entries(self.entries.first)`.
-        for (number in listOf(6, 7, 11)) assertThat(typeBody(number)).describedAs("line $number").isEmpty()
+        // `entries.next(i)`, `entries.trim(1)`: nothing; `self.entries(self.entries.first)`: two reads of the attribute.
+        for (number in listOf(6, 7)) assertThat(typeBody(number)).describedAs("line $number").isEmpty()
+        assertThat(typeBody(11)).containsExactly("entries db:HR.TY_BAG.ENTRIES READ -", "entries db:HR.TY_BAG.ENTRIES READ -")
         assertThat(typeBody(8)).containsExactly("g - CALL LOCAL_SUBPROGRAM")
         assertThat(typeBody(9)).containsExactly("self.g - CALL LOCAL_SUBPROGRAM")
         // A project function in the arguments of an attribute still resolves.

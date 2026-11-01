@@ -196,6 +196,8 @@ export interface EntityDetail {
    * says so. Body globals and parameters have it; a parameter also gets its spec's or body's, whose uses it shows.
    */
   usesIncomplete: string[] | null;
+  /** A standalone object type's: why its listed attributes may not be all (NOT_EXTRACTED, ALTER_TYPE); null when complete. */
+  membersIncomplete: string[] | null;
 }
 
 /** The unit an occurrence is in; [entity] is its package, routine, view, trigger or type, null for a script. */

@@ -40,6 +40,7 @@ class AtlasWriter private constructor(private val connection: Connection, privat
         globalRows.insertTriggerEvents(sortedFiles.flatMap { it.triggerEvents }, entityIds)
         globalRows.insertDeclaredTexts(sortedFiles.flatMap { it.declaredTexts }, entityIds)
         globalRows.insertUsesGaps(sortedFiles.flatMap { it.usesGaps }, entityIds)
+        globalRows.insertMembersGaps(sortedFiles.flatMap { it.membersGaps }, entityIds)
         phase(PhaseTimes.WRITING_FILES)
         FileRows(connection).write(sortedFiles, entityIds, globalCoverage)
         phase(PhaseTimes.WRITING_LINES)
@@ -52,7 +53,7 @@ class AtlasWriter private constructor(private val connection: Connection, privat
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 16
+        const val SCHEMA_VERSION = 17
 
         /**
          * Writes the index to a temporary file beside [target] and moves it over [target] when everything succeeded.

@@ -185,10 +185,12 @@ class FileExtractor(
         }
         // A file the parser rejected was never walked: no body globals, no parameter uses, no gaps.
         val usesGaps = if (::bodyGlobals.isInitialized) bodyGlobals.gaps(context::usageEvidence, context::regionUncertainty) + parameterGaps else emptyList()
+        // From the declarations, as the declaration occurrences: a file the parser rejected keeps them.
+        val membersGaps = if (::catalog.isInitialized) catalog.membersGapsFor(path) else emptyList()
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
         return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, defaultSchema, state.units, state.statements, state.occurrences,
             LinkedHashSet(state.entities).toList(), LinkedHashSet(state.relations).toList(), state.coverage, resolver.dictionaryRelations.toList(),
-            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts, docComments, usesGaps)
+            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts, docComments, usesGaps, membersGaps)
     }
 
     // ---- units --------------------------------------------------------------------------------------------------

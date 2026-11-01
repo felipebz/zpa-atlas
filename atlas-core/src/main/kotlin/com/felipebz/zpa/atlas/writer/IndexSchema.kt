@@ -225,6 +225,14 @@ internal fun tableDdl(): List<String> = listOf(
         reasons TEXT NOT NULL
     )
     """,
+    // The object types whose listed attributes may not be all, one row per type: reasons, comma-separated, are
+    // NOT_EXTRACTED and ALTER_TYPE. A type without a row lists every attribute its CREATE TYPE writes.
+    """
+    CREATE TABLE members_gap (
+        entity_id INTEGER PRIMARY KEY REFERENCES entity(id),
+        reasons TEXT NOT NULL
+    )
+    """,
     SOURCE_LINE_DDL
 ).map { it.trimIndent() }
 

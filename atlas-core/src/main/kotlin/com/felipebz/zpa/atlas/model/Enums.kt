@@ -59,6 +59,8 @@ enum class EntityKind(val reserved: Boolean = false) : StoredEnum {
     PARAMETER,
     TYPE,
     RECORD_FIELD,
+    /** An attribute of a standalone object type, written in its `CREATE TYPE`. */
+    ATTRIBUTE,
     PACKAGE_VARIABLE,
     PACKAGE_CONSTANT,
     EXCEPTION,

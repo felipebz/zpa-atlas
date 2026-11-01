@@ -25,6 +25,12 @@ export function usesGapKey(reasons: string[] | null | undefined): string | null 
   return named ? `entity.usesIncomplete.${named}` : "entity.usesIncomplete";
 }
 
+/** The message key that says why a type's listed attributes may not be all, `ALTER TYPE` first; null when complete. */
+export function membersGapKey(reasons: string[] | null | undefined): string | null {
+  if (!reasons?.length) return null;
+  return reasons.includes("ALTER_TYPE") ? "entity.membersIncomplete.ALTER_TYPE" : "entity.membersIncomplete.NOT_EXTRACTED";
+}
+
 /** Whether [key] is a body's (`…@BODY`, before a collision's `#2`). */
 export function isBodyKey(key: string) {
   return /@BODY(#\d+)?$/.test(key);

@@ -29,7 +29,7 @@ internal object DeclaredTexts {
     val NODE_TYPES = setOf(
         PlSqlGrammar.FUNCTION_DECLARATION, PlSqlGrammar.CREATE_FUNCTION, PlSqlGrammar.CURSOR_DECLARATION,
         PlSqlGrammar.PARAMETER_DECLARATION, PlSqlGrammar.CURSOR_PARAMETER_DECLARATION,
-        PlSqlGrammar.VARIABLE_DECLARATION, PlSqlGrammar.RECORD_FIELD_DECLARATION
+        PlSqlGrammar.VARIABLE_DECLARATION, PlSqlGrammar.RECORD_FIELD_DECLARATION, PlSqlGrammar.TYPE_ATTRIBUTE
     )
 
     /** The fact of [entityKey] declared by [node] (one of [NODE_TYPES]); null when it says nothing beside its name. */

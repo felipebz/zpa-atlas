@@ -120,6 +120,13 @@ data class DocCommentFact(val entityKey: String, val inBody: Boolean, val shape:
  */
 data class UsesGapFact(val entityKey: String, val reasons: List<String>)
 
+/**
+ * The members the index lists for [entityKey], a standalone object type, may not be all its attributes: [reasons] says
+ * why, `NOT_EXTRACTED` (an attribute zpa could not read, or conditional-compilation text it cannot decide in the
+ * declaration) or `ALTER_TYPE` (an `ALTER TYPE` of the project adds, drops or changes attributes).
+ */
+data class MembersGapFact(val entityKey: String, val reasons: List<String>)
+
 /** Everything one file contributes, produced off the writer thread. */
 class FileFacts(
     val path: String,
@@ -143,5 +150,6 @@ class FileFacts(
     val triggerEvents: List<TriggerEventFact> = emptyList(),
     val declaredTexts: List<DeclaredTextFact> = emptyList(),
     val docComments: List<DocCommentFact> = emptyList(),
-    val usesGaps: List<UsesGapFact> = emptyList()
+    val usesGaps: List<UsesGapFact> = emptyList(),
+    val membersGaps: List<MembersGapFact> = emptyList()
 )

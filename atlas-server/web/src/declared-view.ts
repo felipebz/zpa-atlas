@@ -60,7 +60,7 @@ export function parameterDefaults(params: { name: string }[], children: Member[]
   return defaults.some(d => d !== null) ? defaults : null;
 }
 
-/** The type shown beside a package variable or constant in the contents list; null for other members. */
+/** The type shown beside a package variable or constant, or an object type's attribute, in the contents list; null for other members. */
 export function memberType(member: Member): string | null {
-  return ["PACKAGE_VARIABLE", "PACKAGE_CONSTANT"].includes(member.entity.kind) ? member.declared?.type ?? null : null;
+  return ["PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "ATTRIBUTE"].includes(member.entity.kind) ? member.declared?.type ?? null : null;
 }

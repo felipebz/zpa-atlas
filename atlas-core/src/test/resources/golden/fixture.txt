@@ -350,8 +350,10 @@ hr/it_writers.sql	71:14-71:22	it_stage	db:HR.IT_STAGE	SQL_INSERT	RESOLVED	-	db:H
 hr/it_writers.sql	71:24-71:26	id	db:HR.IT_STAGE.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.IT_STAGE_LOAD(P_ID IN NUMBER)	INSERT
 hr/it_writers.sql	71:36-71:40	p_id	db:HR.IT_STAGE_LOAD(P_ID IN NUMBER).P_ID	READ	RESOLVED	-	db:HR.IT_STAGE_LOAD(P_ID IN NUMBER)	INSERT
 hr/json_holder.typ	1:0-3:1	json_holder	db:HR.JSON_HOLDER	DEFINITION	RESOLVED	-	db:HR.JSON_HOLDER	-
+hr/json_holder.typ	2:2-2:10	doc	db:HR.JSON_HOLDER.DOC	DEFINITION	RESOLVED	-	db:HR.JSON_HOLDER	-
 hr/json_holder.typ	2:6-2:10	json	db:HR.JSON	TYPE_USE	RESOLVED	-	db:HR.JSON_HOLDER	-
 hr/json_type.typ	1:0-5:1	json	db:HR.JSON	DEFINITION	RESOLVED	-	db:HR.JSON	-
+hr/json_type.typ	2:2-2:10	n	db:HR.JSON.N	DEFINITION	RESOLVED	-	db:HR.JSON	-
 hr/mv_company.sql	1:0-3:63	mv_company_log	db:HR.MV_COMPANY_LOG	DEFINITION	RESOLVED	-	db:HR.MV_COMPANY_LOG	-
 hr/mv_company.sql	2:9-2:13	c.id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.MV_COMPANY_LOG	SELECT
 hr/mv_company.sql	2:11-2:13	id	db:HR.MV_COMPANY_LOG.ID	DEFINITION	RESOLVED	-	db:HR.MV_COMPANY_LOG	-
@@ -395,6 +397,7 @@ hr/nested_scopes.sql	11:13-11:14	x	db:HR.AREA(X IN NUMBER).X	READ	RESOLVED	-	db:
 hr/nested_scopes.sql	14:0-26:4	trg_area_check	db:HR.TRG_AREA_CHECK	DEFINITION	RESOLVED	-	db:HR.TRG_AREA_CHECK	-
 hr/nested_scopes.sql	23:5-23:9	area	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TRG_AREA_CHECK	-
 hr/nested_scopes.sql	28:0-32:2	ty_square	db:HR.TY_SQUARE	DEFINITION	RESOLVED	-	db:HR.TY_SQUARE	-
+hr/nested_scopes.sql	29:2-29:13	side	db:HR.TY_SQUARE.SIDE	DEFINITION	RESOLVED	-	db:HR.TY_SQUARE	-
 hr/nested_scopes.sql	34:0-44:4	ty_square	db:HR.TY_SQUARE	DEFINITION	RESOLVED	-	db:HR.TY_SQUARE	-
 hr/nested_scopes.sql	42:15-42:19	area	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TY_SQUARE	-
 hr/object_views.sql	1:0-1:101	v_shape_obj	db:HR.V_SHAPE_OBJ	DEFINITION	RESOLVED	-	db:HR.V_SHAPE_OBJ	-
@@ -1086,7 +1089,9 @@ hr/pack_process.pkb	26:16-26:26	send_queue	db:HR.SEND_QUEUE	SQL_INSERT	RESOLVED	
 hr/pack_process.pkb	26:28-26:30	id	db:HR.SEND_QUEUE.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY	INSERT
 hr/pack_process.pkb	26:32-26:43	record_type	db:HR.SEND_QUEUE.RECORD_TYPE	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY	INSERT
 hr/pack_process.pkb	26:62-26:71	g_rec.msg	db:HR.PACK_PROCESS.G_REC	WRITE	RESOLVED	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY	-
+hr/pack_process.pkb	26:68-26:71	msg	db:HR.PACK_PROCESS.R_EVENT.MSG	WRITE	RESOLVED	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY	-
 hr/pack_process.pkb	26:75-26:97	pack_process.g_rec.msg	db:HR.PACK_PROCESS.G_REC	READ	RESOLVED	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY	-
+hr/pack_process.pkb	26:94-26:97	msg	db:HR.PACK_PROCESS.R_EVENT.MSG	READ	RESOLVED	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY	-
 hr/pack_process.pkb	27:16-27:26	send_queue	db:HR.SEND_QUEUE	SQL_INSERT	RESOLVED	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY	INSERT
 hr/pack_process.pkb	27:31-27:33	id	db:HR.SEND_QUEUE.ID	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY	INSERT
 hr/pack_process.pkb	27:39-27:50	record_type	db:HR.SEND_QUEUE.RECORD_TYPE	SQL_INSERT,WRITE	RESOLVED	-	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE,P_E IN NUMBER)@BODY	INSERT
@@ -1914,18 +1919,44 @@ hr/ty_bag.tpb	1:0-13:4	ty_bag	db:HR.TY_BAG	DEFINITION	RESOLVED	-	db:HR.TY_BAG	-
 hr/ty_bag.tpb	8:9-8:10	g	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TY_BAG	-
 hr/ty_bag.tpb	9:9-9:15	self.g	-	CALL	UNRESOLVED	LOCAL_SUBPROGRAM	db:HR.TY_BAG	-
 hr/ty_bag.tpb	10:17-10:33	pack_methods.f_x	db:HR.PACK_METHODS.F_X(P IN NUMBER)	CALL	RESOLVED	-	db:HR.TY_BAG	-
+hr/ty_bag.tpb	11:16-11:23	entries	db:HR.TY_BAG.ENTRIES	READ	RESOLVED	-	db:HR.TY_BAG	-
+hr/ty_bag.tpb	11:29-11:36	entries	db:HR.TY_BAG.ENTRIES	READ	RESOLVED	-	db:HR.TY_BAG	-
 hr/ty_bag.typ	1:0-5:1	ty_bag	db:HR.TY_BAG	DEFINITION	RESOLVED	-	db:HR.TY_BAG	-
+hr/ty_bag.typ	2:2-2:21	entries	db:HR.TY_BAG.ENTRIES	DEFINITION	RESOLVED	-	db:HR.TY_BAG	-
 hr/ty_bag.typ	2:10-2:21	ty_num_list	db:HR.TY_NUM_LIST	TYPE_USE	RESOLVED	-	db:HR.TY_BAG	-
+hr/ty_dial.typ	1:0-3:2	ty_dial	db:HR.TY_DIAL	DEFINITION	RESOLVED	-	db:HR.TY_DIAL	-
+hr/ty_dial.typ	1:37-1:45	ty_gauge	db:HR.TY_GAUGE	TYPE_USE	RESOLVED	-	db:HR.TY_DIAL	-
+hr/ty_dial.typ	2:2-2:12	c	db:HR.TY_DIAL.C	DEFINITION	RESOLVED	-	db:HR.TY_DIAL	-
+hr/ty_dial.typ	2:4-2:12	ty_point	db:HR.TY_POINT	TYPE_USE	RESOLVED	-	db:HR.TY_DIAL	-
+hr/ty_gauge.tpb	1:0-8:4	ty_gauge	db:HR.TY_GAUGE	DEFINITION	RESOLVED	-	db:HR.TY_GAUGE	-
+hr/ty_gauge.tpb	4:12-4:13	a	db:HR.TY_GAUGE.A	READ	RESOLVED	-	db:HR.TY_GAUGE	-
+hr/ty_gauge.tpb	5:11-5:12	b	db:HR.TY_GAUGE.B	WRITE	RESOLVED	-	db:HR.TY_GAUGE	-
+hr/ty_gauge.typ	1:0-5:12	ty_gauge	db:HR.TY_GAUGE	DEFINITION	RESOLVED	-	db:HR.TY_GAUGE	-
+hr/ty_gauge.typ	2:2-2:10	a	db:HR.TY_GAUGE.A	DEFINITION	RESOLVED	-	db:HR.TY_GAUGE	-
+hr/ty_gauge.typ	3:2-3:16	b	db:HR.TY_GAUGE.B	DEFINITION	RESOLVED	-	db:HR.TY_GAUGE	-
+hr/ty_grown.typ	1:0-1:53	ty_grown	db:HR.TY_GROWN	DEFINITION	RESOLVED	-	db:HR.TY_GROWN	-
+hr/ty_grown.typ	1:43-1:51	k	db:HR.TY_GROWN.K	DEFINITION	RESOLVED	-	db:HR.TY_GROWN	-
+hr/ty_grown.typ	3:11-3:19	ty_grown	db:HR.TY_GROWN	DDL_ALTER	RESOLVED	-	-	DDL
 hr/ty_num_list.typ	1:0-1:53	ty_num_list	db:HR.TY_NUM_LIST	DEFINITION	RESOLVED	-	db:HR.TY_NUM_LIST	-
 hr/ty_owned.typ	1:0-1:56	ty_owned	db:HR.TY_OWNED	DEFINITION	RESOLVED	-	db:HR.TY_OWNED	-
+hr/ty_owned.typ	1:46-1:54	x	db:HR.TY_OWNED.X	DEFINITION	RESOLVED	-	db:HR.TY_OWNED	-
+hr/ty_peg.typ	1:0-1:59	ty_peg	db:HR.TY_PEG	DEFINITION	RESOLVED	-	db:HR.TY_PEG	-
+hr/ty_peg.typ	1:41-1:57	tag	db:HR.TY_PEG.TAG	DEFINITION	RESOLVED	-	db:HR.TY_PEG	-
+hr/ty_peg.typ	3:0-3:54	ty_peg_list	db:HR.TY_PEG_LIST	DEFINITION	RESOLVED	-	db:HR.TY_PEG_LIST	-
+hr/ty_peg.typ	3:47-3:53	ty_peg	db:HR.TY_PEG	TYPE_USE	RESOLVED	-	db:HR.TY_PEG_LIST	-
+hr/ty_peg.typ	5:0-5:54	ty_int_list	db:HR.TY_INT_LIST	DEFINITION	RESOLVED	-	db:HR.TY_INT_LIST	-
 hr/ty_point.typ	1:0-1:53	ty_point	db:HR.TY_POINT	DEFINITION	RESOLVED	-	db:HR.TY_POINT	-
+hr/ty_point.typ	1:43-1:51	x	db:HR.TY_POINT.X	DEFINITION	RESOLVED	-	db:HR.TY_POINT	-
 hr/ty_refs.sql	1:0-1:92	ty_shape_link	db:HR.TY_SHAPE_LINK	DEFINITION	RESOLVED	-	db:HR.TY_SHAPE_LINK	-
+hr/ty_refs.sql	1:48-1:67	target	db:HR.TY_SHAPE_LINK.TARGET	DEFINITION	RESOLVED	-	db:HR.TY_SHAPE_LINK	-
 hr/ty_refs.sql	1:59-1:67	ty_shape	db:HR.TY_SHAPE	TYPE_USE	RESOLVED	-	db:HR.TY_SHAPE_LINK	-
+hr/ty_refs.sql	1:69-1:90	other	db:HR.TY_SHAPE_LINK.OTHER	DEFINITION	RESOLVED	-	db:HR.TY_SHAPE_LINK	-
 hr/ty_refs.sql	1:79-1:90	hr.ty_shape	db:HR.TY_SHAPE	TYPE_USE	RESOLVED	-	db:HR.TY_SHAPE_LINK	-
 hr/ty_refs.sql	3:0-3:62	ty_shape_refs	db:HR.TY_SHAPE_REFS	DEFINITION	RESOLVED	-	db:HR.TY_SHAPE_REFS	-
 hr/ty_refs.sql	3:53-3:61	ty_shape	db:HR.TY_SHAPE	TYPE_USE	RESOLVED	-	db:HR.TY_SHAPE_REFS	-
 hr/ty_refs.sql	5:0-5:105	ty_ring	db:HR.TY_RING	DEFINITION	RESOLVED	-	db:HR.TY_RING	-
 hr/ty_refs.sql	5:37-5:46	ty_circle	db:HR.TY_CIRCLE	TYPE_USE	RESOLVED	-	db:HR.TY_RING	-
+hr/ty_refs.sql	5:48-5:62	inner_r	db:HR.TY_RING.INNER_R	DEFINITION	RESOLVED	-	db:HR.TY_RING	-
 hr/ty_refs.sql	7:0-12:4	ty_ring	db:HR.TY_RING	DEFINITION	RESOLVED	-	db:HR.TY_RING	-
 hr/ty_refs.sql	10:20-10:29	ty_circle	db:HR.TY_CIRCLE	TYPE_USE	RESOLVED	-	db:HR.TY_RING	-
 hr/ty_refs.sql	14:0-20:4	pack_refs	db:HR.PACK_REFS	DECLARATION	RESOLVED	-	db:HR.PACK_REFS	-
@@ -1977,9 +2008,38 @@ hr/ty_refs.sql	41:30-41:39	ty_circle	db:HR.TY_CIRCLE	TYPE_USE	RESOLVED	-	db:HR.P
 hr/ty_refs.sql	42:11-42:18	p_shape	db:HR.PACK_REFS.CHECK_SHAPE(P_SHAPE IN TY_SHAPE,P_REF IN REF TY_SHAPE)@BODY.P_SHAPE	READ	RESOLVED	-	db:HR.PACK_REFS.CHECK_SHAPE(P_SHAPE IN TY_SHAPE,P_REF IN REF TY_SHAPE)@BODY	SELECT
 hr/ty_refs.sql	42:36-42:45	ty_circle	db:HR.TY_CIRCLE	TYPE_USE	RESOLVED	-	db:HR.PACK_REFS.CHECK_SHAPE(P_SHAPE IN TY_SHAPE,P_REF IN REF TY_SHAPE)@BODY	SELECT
 hr/ty_shapes.typ	1:0-1:64	ty_shape	db:HR.TY_SHAPE	DEFINITION	RESOLVED	-	db:HR.TY_SHAPE	-
+hr/ty_shapes.typ	1:43-1:52	id	db:HR.TY_SHAPE.ID	DEFINITION	RESOLVED	-	db:HR.TY_SHAPE	-
 hr/ty_shapes.typ	3:0-3:95	ty_circle	db:HR.TY_CIRCLE	DEFINITION	RESOLVED	-	db:HR.TY_CIRCLE	-
 hr/ty_shapes.typ	3:39-3:47	ty_shape	db:HR.TY_SHAPE	TYPE_USE	RESOLVED	-	db:HR.TY_CIRCLE	-
+hr/ty_shapes.typ	3:49-3:57	r	db:HR.TY_CIRCLE.R	DEFINITION	RESOLVED	-	db:HR.TY_CIRCLE	-
 hr/ty_shapes.typ	5:0-10:4	ty_circle	db:HR.TY_CIRCLE	DEFINITION	RESOLVED	-	db:HR.TY_CIRCLE	-
+hr/ty_tray.tpb	1:0-27:4	ty_tray	db:HR.TY_TRAY	DEFINITION	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	4:9-4:14	items	db:HR.TY_TRAY.ITEMS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	4:18-4:29	ty_int_list	db:HR.TY_INT_LIST	CALL	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	5:9-5:14	items	db:HR.TY_TRAY.ITEMS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	6:9-6:14	items	db:HR.TY_TRAY.ITEMS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	7:9-7:14	slots	db:HR.TY_TRAY.SLOTS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	7:18-7:29	ty_peg_list	db:HR.TY_PEG_LIST	CALL	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	7:30-7:36	ty_peg	db:HR.TY_PEG	CALL	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	8:9-8:14	slots	db:HR.TY_TRAY.SLOTS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	8:18-8:21	tag	db:HR.TY_PEG.TAG	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	13:9-13:14	items	db:HR.TY_TRAY.ITEMS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	14:9-14:14	items	db:HR.TY_TRAY.ITEMS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	14:26-14:31	items	db:HR.TY_TRAY.ITEMS	READ	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	15:9-15:14	slots	db:HR.TY_TRAY.SLOTS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	15:18-15:21	tag	db:HR.TY_PEG.TAG	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	19:9-19:14	items	db:HR.TY_TRAY.ITEMS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	20:9-20:14	items	db:HR.TY_TRAY.ITEMS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	20:26-20:31	items	db:HR.TY_TRAY.ITEMS	READ	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	21:9-21:14	slots	db:HR.TY_TRAY.SLOTS	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	21:18-21:21	tag	db:HR.TY_PEG.TAG	WRITE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	25:16-25:21	slots	db:HR.TY_TRAY.SLOTS	READ	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.tpb	25:25-25:28	tag	db:HR.TY_PEG.TAG	READ	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.typ	1:0-8:2	ty_tray	db:HR.TY_TRAY	DEFINITION	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.typ	2:2-2:19	items	db:HR.TY_TRAY.ITEMS	DEFINITION	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.typ	2:8-2:19	ty_int_list	db:HR.TY_INT_LIST	TYPE_USE	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.typ	3:2-3:19	slots	db:HR.TY_TRAY.SLOTS	DEFINITION	RESOLVED	-	db:HR.TY_TRAY	-
+hr/ty_tray.typ	3:8-3:19	ty_peg_list	db:HR.TY_PEG_LIST	TYPE_USE	RESOLVED	-	db:HR.TY_TRAY	-
 hr/use_f.sql	1:0-7:4	use_f	db:HR.USE_F()	DEFINITION	RESOLVED	-	db:HR.USE_F()	-
 hr/use_f.sql	2:6-2:16	pk_f.t_row	db:HR.PK_F.T_ROW	TYPE_USE	RESOLVED	-	db:HR.USE_F()	-
 hr/use_f.sql	4:6-4:11	items	db:HR.PK_F.T_ROW.ITEMS	WRITE	RESOLVED	-	db:HR.USE_F()	-
@@ -1989,6 +2049,18 @@ hr/use_f.sql	5:13-5:17	code	db:HR.PK_F.T_ROW.CODE	WRITE	RESOLVED	-	db:HR.USE_F()
 hr/use_f.sql	6:2-6:22	dbms_output.put_line	db:SYS.DBMS_OUTPUT.PUT_LINE	CALL	UNRESOLVED	NOT_IN_PROJECT	db:HR.USE_F()	-
 hr/use_f.sql	6:23-6:38	pk_f.s_rec.code	db:HR.PK_F.S_REC	READ	RESOLVED	-	db:HR.USE_F()	-
 hr/use_f.sql	6:34-6:38	code	db:HR.PK_F.T_ROW.CODE	READ	RESOLVED	-	db:HR.USE_F()	-
+hr/use_gauge.prc	1:0-7:4	use_gauge	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	DEFINITION	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	1:38-1:48	o	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).O	DEFINITION	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	1:40-1:48	ty_gauge	db:HR.TY_GAUGE	TYPE_USE	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	1:50-1:66	d	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).D	DEFINITION	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	1:59-1:66	ty_dial	db:HR.TY_DIAL	TYPE_USE	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	4:7-4:10	o.a	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).O	READ	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	4:9-4:10	a	db:HR.TY_GAUGE.A	READ	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	5:2-5:5	d.b	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).D	WRITE	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	5:4-5:5	b	db:HR.TY_GAUGE.B	WRITE	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	6:7-6:12	d.c.x	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).D	READ	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	6:9-6:10	c	db:HR.TY_DIAL.C	READ	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
+hr/use_gauge.prc	6:11-6:12	x	db:HR.TY_POINT.X	READ	RESOLVED	-	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	-
 hr/v_imp.sql	1:0-1:68	v_imp	db:HR.V_IMP	DEFINITION	RESOLVED	-	db:HR.V_IMP	-
 hr/v_imp.sql	1:39-1:45	imp_fn	db:HR.IMP_FN(P_N IN NUMBER)	CALL	RESOLVED	-	db:HR.V_IMP	SELECT
 hr/v_imp.sql	1:46-1:48	id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.V_IMP	SELECT
@@ -2399,7 +2471,9 @@ hr/it_writers.sql	64:0-67:4	it_truncate	64:28-64:39
 hr/it_writers.sql	69:0-72:4	it_stage_load	69:28-69:41
 hr/it_writers.sql	69:42-69:53	p_id	69:42-69:46
 hr/json_holder.typ	1:0-3:1	json_holder	1:23-1:34
+hr/json_holder.typ	2:2-2:10	doc	2:2-2:5
 hr/json_type.typ	1:0-5:1	json	1:23-1:27
+hr/json_type.typ	2:2-2:10	n	2:2-2:3
 hr/mv_company.sql	1:0-3:63	mv_company_log	1:25-1:39
 hr/nested_calls.sql	1:0-4:4	md5	1:27-1:30
 hr/nested_calls.sql	1:31-1:41	p	1:31-1:32
@@ -2417,6 +2491,7 @@ hr/nested_scopes.sql	9:0-12:4	area	9:27-9:31
 hr/nested_scopes.sql	9:32-9:40	x	9:32-9:33
 hr/nested_scopes.sql	14:0-26:4	trg_area_check	14:26-14:40
 hr/nested_scopes.sql	28:0-32:2	ty_square	28:23-28:32
+hr/nested_scopes.sql	29:2-29:13	side	29:2-29:6
 hr/nested_scopes.sql	34:0-44:4	ty_square	34:28-34:37
 hr/object_views.sql	1:0-1:101	v_shape_obj	1:23-1:34
 hr/object_views.sql	2:0-2:98	v_circle_obj	2:23-2:35
@@ -2902,12 +2977,30 @@ hr/trg_imp.trg	1:0-6:4	trg_imp	1:26-1:33
 hr/trg_syn_company.trg	1:0-4:4	trg_syn_company	1:26-1:41
 hr/ty_bag.tpb	1:0-13:4	ty_bag	1:28-1:34
 hr/ty_bag.typ	1:0-5:1	ty_bag	1:23-1:29
+hr/ty_bag.typ	2:2-2:21	entries	2:2-2:9
+hr/ty_dial.typ	1:0-3:2	ty_dial	1:23-1:30
+hr/ty_dial.typ	2:2-2:12	c	2:2-2:3
+hr/ty_gauge.tpb	1:0-8:4	ty_gauge	1:28-1:36
+hr/ty_gauge.typ	1:0-5:12	ty_gauge	1:23-1:31
+hr/ty_gauge.typ	2:2-2:10	a	2:2-2:3
+hr/ty_gauge.typ	3:2-3:16	b	3:2-3:3
+hr/ty_grown.typ	1:0-1:53	ty_grown	1:23-1:31
+hr/ty_grown.typ	1:43-1:51	k	1:43-1:44
 hr/ty_num_list.typ	1:0-1:53	ty_num_list	1:23-1:34
 hr/ty_owned.typ	1:0-1:56	ty_owned	1:26-1:34
+hr/ty_owned.typ	1:46-1:54	x	1:46-1:47
+hr/ty_peg.typ	1:0-1:59	ty_peg	1:23-1:29
+hr/ty_peg.typ	1:41-1:57	tag	1:41-1:44
+hr/ty_peg.typ	3:0-3:54	ty_peg_list	3:23-3:34
+hr/ty_peg.typ	5:0-5:54	ty_int_list	5:23-5:34
 hr/ty_point.typ	1:0-1:53	ty_point	1:23-1:31
+hr/ty_point.typ	1:43-1:51	x	1:43-1:44
 hr/ty_refs.sql	1:0-1:92	ty_shape_link	1:23-1:36
+hr/ty_refs.sql	1:48-1:67	target	1:48-1:54
+hr/ty_refs.sql	1:69-1:90	other	1:69-1:74
 hr/ty_refs.sql	3:0-3:62	ty_shape_refs	3:23-3:36
 hr/ty_refs.sql	5:0-5:105	ty_ring	5:23-5:30
+hr/ty_refs.sql	5:48-5:62	inner_r	5:48-5:55
 hr/ty_refs.sql	7:0-12:4	ty_ring	7:28-7:35
 hr/ty_refs.sql	14:0-20:4	pack_refs	14:26-14:35
 hr/ty_refs.sql	15:2-15:21	g_ref	15:2-15:7
@@ -2927,9 +3020,18 @@ hr/ty_refs.sql	28:2-43:6	check_shape	28:12-28:23
 hr/ty_refs.sql	28:24-28:40	p_shape	28:24-28:31
 hr/ty_refs.sql	28:42-28:60	p_ref	28:42-28:47
 hr/ty_shapes.typ	1:0-1:64	ty_shape	1:23-1:31
+hr/ty_shapes.typ	1:43-1:52	id	1:43-1:45
 hr/ty_shapes.typ	3:0-3:95	ty_circle	3:23-3:32
+hr/ty_shapes.typ	3:49-3:57	r	3:49-3:50
 hr/ty_shapes.typ	5:0-10:4	ty_circle	5:28-5:37
+hr/ty_tray.tpb	1:0-27:4	ty_tray	1:28-1:35
+hr/ty_tray.typ	1:0-8:2	ty_tray	1:23-1:30
+hr/ty_tray.typ	2:2-2:19	items	2:2-2:7
+hr/ty_tray.typ	3:2-3:19	slots	3:2-3:7
 hr/use_f.sql	1:0-7:4	use_f	1:28-1:33
+hr/use_gauge.prc	1:0-7:4	use_gauge	1:28-1:37
+hr/use_gauge.prc	1:38-1:48	o	1:38-1:39
+hr/use_gauge.prc	1:50-1:66	d	1:50-1:51
 hr/v_imp.sql	1:0-1:68	v_imp	1:23-1:28
 hr/view_ioi.sql	1:0-2:38	v_company_ioi	1:23-1:36
 hr/view_ioi.sql	4:0-9:4	trg_v_company_ioi2	4:26-4:44
@@ -3186,7 +3288,9 @@ db:HR.IT_WRITE_VIEW(P_ID IN NUMBER).P_ID	PARAMETER	HR	P_ID	db:HR.IT_WRITE_VIEW(P
 db:HR.IT_WRITE_VIEW_IO(P_ID IN NUMBER)	PROCEDURE	HR	IT_WRITE_VIEW_IO	-	HR.IT_WRITE_VIEW_IO(P_ID IN NUMBER)	0
 db:HR.IT_WRITE_VIEW_IO(P_ID IN NUMBER).P_ID	PARAMETER	HR	P_ID	db:HR.IT_WRITE_VIEW_IO(P_ID IN NUMBER)	HR.IT_WRITE_VIEW_IO(P_ID IN NUMBER).P_ID	0
 db:HR.JSON	TYPE	HR	JSON	-	HR.JSON	0
+db:HR.JSON.N	ATTRIBUTE	HR	N	db:HR.JSON	HR.JSON.N	0
 db:HR.JSON_HOLDER	TYPE	HR	JSON_HOLDER	-	HR.JSON_HOLDER	0
+db:HR.JSON_HOLDER.DOC	ATTRIBUTE	HR	DOC	db:HR.JSON_HOLDER	HR.JSON_HOLDER.DOC	0
 db:HR.MD5(P IN VARCHAR2)	FUNCTION	HR	MD5	-	HR.MD5(P IN VARCHAR2)	0
 db:HR.MD5(P IN VARCHAR2).P	PARAMETER	HR	P	db:HR.MD5(P IN VARCHAR2)	HR.MD5(P IN VARCHAR2).P	0
 db:HR.MISSING_OBJ_TAB	UNKNOWN_RELATION	HR	MISSING_OBJ_TAB	-	HR.MISSING_OBJ_TAB	1
@@ -3720,22 +3824,48 @@ db:HR.TRG_SYN_COMPANY	TRIGGER	HR	TRG_SYN_COMPANY	-	HR.TRG_SYN_COMPANY	0
 db:HR.TRG_V_COMPANY_IOI	TRIGGER	HR	TRG_V_COMPANY_IOI	-	HR.TRG_V_COMPANY_IOI	0
 db:HR.TRG_V_COMPANY_IOI2	TRIGGER	HR	TRG_V_COMPANY_IOI2	-	HR.TRG_V_COMPANY_IOI2	0
 db:HR.TY_BAG	TYPE	HR	TY_BAG	-	HR.TY_BAG	0
+db:HR.TY_BAG.ENTRIES	ATTRIBUTE	HR	ENTRIES	db:HR.TY_BAG	HR.TY_BAG.ENTRIES	0
 db:HR.TY_CIRCLE	TYPE	HR	TY_CIRCLE	-	HR.TY_CIRCLE	0
+db:HR.TY_CIRCLE.R	ATTRIBUTE	HR	R	db:HR.TY_CIRCLE	HR.TY_CIRCLE.R	0
+db:HR.TY_DIAL	TYPE	HR	TY_DIAL	-	HR.TY_DIAL	0
+db:HR.TY_DIAL.C	ATTRIBUTE	HR	C	db:HR.TY_DIAL	HR.TY_DIAL.C	0
+db:HR.TY_GAUGE	TYPE	HR	TY_GAUGE	-	HR.TY_GAUGE	0
+db:HR.TY_GAUGE.A	ATTRIBUTE	HR	A	db:HR.TY_GAUGE	HR.TY_GAUGE.A	0
+db:HR.TY_GAUGE.B	ATTRIBUTE	HR	B	db:HR.TY_GAUGE	HR.TY_GAUGE.B	0
+db:HR.TY_GROWN	TYPE	HR	TY_GROWN	-	HR.TY_GROWN	0
+db:HR.TY_GROWN.K	ATTRIBUTE	HR	K	db:HR.TY_GROWN	HR.TY_GROWN.K	0
+db:HR.TY_INT_LIST	TYPE	HR	TY_INT_LIST	-	HR.TY_INT_LIST	0
 db:HR.TY_MISSING	TYPE	HR	TY_MISSING	-	HR.TY_MISSING	1
 db:HR.TY_NUM_LIST	TYPE	HR	TY_NUM_LIST	-	HR.TY_NUM_LIST	0
 db:HR.TY_OWNED	TYPE	HR	TY_OWNED	-	HR.TY_OWNED	0
+db:HR.TY_OWNED.X	ATTRIBUTE	HR	X	db:HR.TY_OWNED	HR.TY_OWNED.X	0
+db:HR.TY_PEG	TYPE	HR	TY_PEG	-	HR.TY_PEG	0
+db:HR.TY_PEG.TAG	ATTRIBUTE	HR	TAG	db:HR.TY_PEG	HR.TY_PEG.TAG	0
+db:HR.TY_PEG_LIST	TYPE	HR	TY_PEG_LIST	-	HR.TY_PEG_LIST	0
 db:HR.TY_POINT	TYPE	HR	TY_POINT	-	HR.TY_POINT	0
+db:HR.TY_POINT.X	ATTRIBUTE	HR	X	db:HR.TY_POINT	HR.TY_POINT.X	0
 db:HR.TY_RING	TYPE	HR	TY_RING	-	HR.TY_RING	0
+db:HR.TY_RING.INNER_R	ATTRIBUTE	HR	INNER_R	db:HR.TY_RING	HR.TY_RING.INNER_R	0
 db:HR.TY_SHAPE	TYPE	HR	TY_SHAPE	-	HR.TY_SHAPE	0
+db:HR.TY_SHAPE.ID	ATTRIBUTE	HR	ID	db:HR.TY_SHAPE	HR.TY_SHAPE.ID	0
 db:HR.TY_SHAPE_LINK	TYPE	HR	TY_SHAPE_LINK	-	HR.TY_SHAPE_LINK	0
+db:HR.TY_SHAPE_LINK.OTHER	ATTRIBUTE	HR	OTHER	db:HR.TY_SHAPE_LINK	HR.TY_SHAPE_LINK.OTHER	0
+db:HR.TY_SHAPE_LINK.TARGET	ATTRIBUTE	HR	TARGET	db:HR.TY_SHAPE_LINK	HR.TY_SHAPE_LINK.TARGET	0
 db:HR.TY_SHAPE_REFS	TYPE	HR	TY_SHAPE_REFS	-	HR.TY_SHAPE_REFS	0
 db:HR.TY_SQUARE	TYPE	HR	TY_SQUARE	-	HR.TY_SQUARE	0
+db:HR.TY_SQUARE.SIDE	ATTRIBUTE	HR	SIDE	db:HR.TY_SQUARE	HR.TY_SQUARE.SIDE	0
+db:HR.TY_TRAY	TYPE	HR	TY_TRAY	-	HR.TY_TRAY	0
+db:HR.TY_TRAY.ITEMS	ATTRIBUTE	HR	ITEMS	db:HR.TY_TRAY	HR.TY_TRAY.ITEMS	0
+db:HR.TY_TRAY.SLOTS	ATTRIBUTE	HR	SLOTS	db:HR.TY_TRAY	HR.TY_TRAY.SLOTS	0
 db:HR.T_COPY	UNKNOWN_RELATION	HR	T_COPY	-	HR.T_COPY	1
 db:HR.T_COPY2	UNKNOWN_RELATION	HR	T_COPY2	-	HR.T_COPY2	1
 db:HR.UNKNOWN_B	UNKNOWN_RELATION	HR	UNKNOWN_B	-	HR.UNKNOWN_B	1
 db:HR.UNKNOWN_B.FLAG	COLUMN	HR	FLAG	db:HR.UNKNOWN_B	HR.UNKNOWN_B.FLAG	1
 db:HR.UNKNOWN_TAB	UNKNOWN_RELATION	HR	UNKNOWN_TAB	-	HR.UNKNOWN_TAB	1
 db:HR.USE_F()	PROCEDURE	HR	USE_F	-	HR.USE_F()	0
+db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	PROCEDURE	HR	USE_GAUGE	-	HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	0
+db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).D	PARAMETER	HR	D	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).D	0
+db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).O	PARAMETER	HR	O	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).O	0
 db:HR.USE_R()	PROCEDURE	HR	USE_R	-	HR.USE_R()	0
 db:HR.V_ACTIVE_COMPANY	VIEW	HR	V_ACTIVE_COMPANY	-	HR.V_ACTIVE_COMPANY	0
 db:HR.V_ACTIVE_COMPANY.COMPANY_NAME	COLUMN	HR	COMPANY_NAME	db:HR.V_ACTIVE_COMPANY	HR.V_ACTIVE_COMPANY.COMPANY_NAME	0
@@ -4028,6 +4158,8 @@ db:HR.IT_WRITE_CALC(P_ID IN NUMBER)	CONTAINS	db:HR.IT_WRITE_CALC(P_ID IN NUMBER)
 db:HR.IT_WRITE_SYN(P_ID IN NUMBER)	CONTAINS	db:HR.IT_WRITE_SYN(P_ID IN NUMBER).P_ID
 db:HR.IT_WRITE_VIEW(P_ID IN NUMBER)	CONTAINS	db:HR.IT_WRITE_VIEW(P_ID IN NUMBER).P_ID
 db:HR.IT_WRITE_VIEW_IO(P_ID IN NUMBER)	CONTAINS	db:HR.IT_WRITE_VIEW_IO(P_ID IN NUMBER).P_ID
+db:HR.JSON	CONTAINS	db:HR.JSON.N
+db:HR.JSON_HOLDER	CONTAINS	db:HR.JSON_HOLDER.DOC
 db:HR.MD5(P IN VARCHAR2)	CONTAINS	db:HR.MD5(P IN VARCHAR2).P
 db:HR.MISSING_TABLE	CONTAINS	db:HR.MISSING_TABLE.A
 db:HR.MISSING_TABLE	CONTAINS	db:HR.MISSING_TABLE.B
@@ -4568,7 +4700,25 @@ db:HR.TRG_IT_V_IU	TRIGGER_ON	db:HR.IT_V_ORDERS_IU
 db:HR.TRG_SYN_COMPANY	TRIGGER_ON	db:HR.COMPANY
 db:HR.TRG_V_COMPANY_IOI	TRIGGER_ON	db:HR.V_COMPANY
 db:HR.TRG_V_COMPANY_IOI2	TRIGGER_ON	db:HR.V_COMPANY_IOI
+db:HR.TY_BAG	CONTAINS	db:HR.TY_BAG.ENTRIES
+db:HR.TY_CIRCLE	CONTAINS	db:HR.TY_CIRCLE.R
+db:HR.TY_DIAL	CONTAINS	db:HR.TY_DIAL.C
+db:HR.TY_GAUGE	CONTAINS	db:HR.TY_GAUGE.A
+db:HR.TY_GAUGE	CONTAINS	db:HR.TY_GAUGE.B
+db:HR.TY_GROWN	CONTAINS	db:HR.TY_GROWN.K
+db:HR.TY_OWNED	CONTAINS	db:HR.TY_OWNED.X
+db:HR.TY_PEG	CONTAINS	db:HR.TY_PEG.TAG
+db:HR.TY_POINT	CONTAINS	db:HR.TY_POINT.X
+db:HR.TY_RING	CONTAINS	db:HR.TY_RING.INNER_R
+db:HR.TY_SHAPE	CONTAINS	db:HR.TY_SHAPE.ID
+db:HR.TY_SHAPE_LINK	CONTAINS	db:HR.TY_SHAPE_LINK.OTHER
+db:HR.TY_SHAPE_LINK	CONTAINS	db:HR.TY_SHAPE_LINK.TARGET
+db:HR.TY_SQUARE	CONTAINS	db:HR.TY_SQUARE.SIDE
+db:HR.TY_TRAY	CONTAINS	db:HR.TY_TRAY.ITEMS
+db:HR.TY_TRAY	CONTAINS	db:HR.TY_TRAY.SLOTS
 db:HR.UNKNOWN_B	CONTAINS	db:HR.UNKNOWN_B.FLAG
+db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	CONTAINS	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).D
+db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	CONTAINS	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).O
 db:HR.V_ACTIVE_COMPANY	CONTAINS	db:HR.V_ACTIVE_COMPANY.COMPANY_NAME
 db:HR.V_ACTIVE_COMPANY	CONTAINS	db:HR.V_ACTIVE_COMPANY.ID
 db:HR.V_ACTIVE_COMPANY.COMPANY_NAME	VIEW_BASE	db:HR.COMPANY.COMPANY_NAME
@@ -4842,12 +4992,20 @@ hr/trg_imp.trg	DB_SOURCE	111	HR	OK	0
 hr/trg_syn_company.trg	DB_SOURCE	133	HR	OK	0
 hr/ty_bag.tpb	DB_SOURCE	357	HR	OK	0
 hr/ty_bag.typ	DB_SOURCE	160	HR	OK	0
+hr/ty_dial.typ	DB_SOURCE	66	HR	OK	0
+hr/ty_gauge.tpb	DB_SOURCE	146	HR	OK	0
+hr/ty_gauge.typ	DB_SOURCE	113	HR	OK	0
+hr/ty_grown.typ	DB_SOURCE	112	HR	OK	0
 hr/ty_num_list.typ	DB_SOURCE	56	HR	OK	0
 hr/ty_owned.typ	DB_SOURCE	59	HR	OK	0
+hr/ty_peg.typ	DB_SOURCE	176	HR	OK	0
 hr/ty_point.typ	DB_SOURCE	56	HR	OK	0
 hr/ty_refs.sql	DB_SOURCE	1471	HR	OK	0
 hr/ty_shapes.typ	DB_SOURCE	286	HR	OK	0
+hr/ty_tray.tpb	DB_SOURCE	879	HR	OK	0
+hr/ty_tray.typ	DB_SOURCE	268	HR	OK	0
 hr/use_f.sql	DB_SOURCE	165	HR	OK	0
+hr/use_gauge.prc	DB_SOURCE	136	HR	OK	0
 hr/v_imp.sql	DB_SOURCE	69	HR	OK	0
 hr/view_ioi.sql	DB_SOURCE	195	HR	OK	0
 hr/views.sql	DB_SOURCE	864	HR	OK	0
@@ -5037,8 +5195,16 @@ hr/trg_imp.trg	TRIGGER	TRG_IMP	db:HR.TRG_IMP	1:0-6:4
 hr/trg_syn_company.trg	TRIGGER	TRG_SYN_COMPANY	db:HR.TRG_SYN_COMPANY	1:0-4:4
 hr/ty_bag.tpb	TYPE_BODY	TY_BAG	db:HR.TY_BAG	1:0-13:4
 hr/ty_bag.typ	TYPE	TY_BAG	db:HR.TY_BAG	1:0-5:1
+hr/ty_dial.typ	TYPE	TY_DIAL	db:HR.TY_DIAL	1:0-3:2
+hr/ty_gauge.tpb	TYPE_BODY	TY_GAUGE	db:HR.TY_GAUGE	1:0-8:4
+hr/ty_gauge.typ	TYPE	TY_GAUGE	db:HR.TY_GAUGE	1:0-5:12
+hr/ty_grown.typ	TYPE	TY_GROWN	db:HR.TY_GROWN	1:0-1:53
+hr/ty_grown.typ	SQL_STATEMENT		-	3:0-3:53
 hr/ty_num_list.typ	TYPE	TY_NUM_LIST	db:HR.TY_NUM_LIST	1:0-1:53
 hr/ty_owned.typ	TYPE	HR.TY_OWNED	db:HR.TY_OWNED	1:0-1:56
+hr/ty_peg.typ	TYPE	TY_PEG	db:HR.TY_PEG	1:0-1:59
+hr/ty_peg.typ	TYPE	TY_PEG_LIST	db:HR.TY_PEG_LIST	3:0-3:54
+hr/ty_peg.typ	TYPE	TY_INT_LIST	db:HR.TY_INT_LIST	5:0-5:54
 hr/ty_point.typ	TYPE	TY_POINT	db:HR.TY_POINT	1:0-1:53
 hr/ty_refs.sql	TYPE	TY_SHAPE_LINK	db:HR.TY_SHAPE_LINK	1:0-1:92
 hr/ty_refs.sql	TYPE	TY_SHAPE_REFS	db:HR.TY_SHAPE_REFS	3:0-3:62
@@ -5049,7 +5215,10 @@ hr/ty_refs.sql	PACKAGE_BODY	PACK_REFS	db:HR.PACK_REFS	22:0-44:4
 hr/ty_shapes.typ	TYPE	TY_SHAPE	db:HR.TY_SHAPE	1:0-1:64
 hr/ty_shapes.typ	TYPE	TY_CIRCLE	db:HR.TY_CIRCLE	3:0-3:95
 hr/ty_shapes.typ	TYPE_BODY	TY_CIRCLE	db:HR.TY_CIRCLE	5:0-10:4
+hr/ty_tray.tpb	TYPE_BODY	TY_TRAY	db:HR.TY_TRAY	1:0-27:4
+hr/ty_tray.typ	TYPE	TY_TRAY	db:HR.TY_TRAY	1:0-8:2
 hr/use_f.sql	PROCEDURE	USE_F	db:HR.USE_F()	1:0-7:4
+hr/use_gauge.prc	PROCEDURE	USE_GAUGE	db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL)	1:0-7:4
 hr/v_imp.sql	VIEW	V_IMP	db:HR.V_IMP	1:0-1:68
 hr/view_ioi.sql	VIEW	V_COMPANY_IOI	db:HR.V_COMPANY_IOI	1:0-2:38
 hr/view_ioi.sql	TRIGGER	TRG_V_COMPANY_IOI2	db:HR.TRG_V_COMPANY_IOI2	4:0-9:4
@@ -5420,6 +5589,7 @@ hr/trg_forms.trg	SELECT	db:HR.TRG_COMPANY_FORMS	8:14-8:46
 hr/trg_forms.trg	SELECT	db:HR.TRG_COMPANY_FORMS	12:2-12:72
 hr/trg_forms.trg	INSERT	db:HR.TRG_COMPANY_FORMS	18:2-18:65
 hr/trg_forms.trg	INSERT	db:HR.TRG_V_COMPANY_IOI	36:2-36:76
+hr/ty_grown.typ	DDL	-	3:0-3:53
 hr/ty_refs.sql	SELECT	db:HR.PACK_REFS.CHECK_SHAPE(P_SHAPE IN TY_SHAPE,P_REF IN REF TY_SHAPE)@BODY	39:4-42:46
 hr/v_imp.sql	SELECT	db:HR.V_IMP	1:32-1:67
 hr/view_ioi.sql	SELECT	db:HR.V_COMPANY_IOI	2:2-2:38
@@ -5767,6 +5937,8 @@ hr/ty_bag.tpb	8:9	g	1	-	-	8:11-8:12	NUMBER	1
 hr/ty_bag.tpb	9:9	self.g	1	-	-	9:16-9:17	NUMBER	2
 hr/ty_bag.tpb	10:17	pack_methods.f_x	1	-	db:HR.PACK_METHODS.F_X(P IN NUMBER).P	10:34-10:35	NUMBER	1
 hr/ty_refs.sql	39:11	count	1	-	-	39:17-39:18	EXPRESSION	-
+hr/ty_tray.tpb	7:18	ty_peg_list	1	-	-	7:30-7:41	EXPRESSION	-
+hr/ty_tray.tpb	7:30	ty_peg	1	-	-	7:37-7:40	STRING	a
 hr/use_f.sql	6:2	dbms_output.put_line	1	-	-	6:23-6:38	NAME	PK_F.S_REC.CODE
 hr/v_imp.sql	1:39	imp_fn	1	-	db:HR.IMP_FN(P_N IN NUMBER).P_N	1:46-1:48	NAME	ID
 hr/views.sql	5:37	length	1	-	-	5:44-5:58	NAME	C.COMPANY_NAME
@@ -5962,6 +6134,8 @@ hr/trg_forms.trg	WRITE_VALUE_UNKNOWN	1 column write(s) without a value: INTO wit
 hr/trg_forms.trg	WRITE_VALUE_UNKNOWN	2 column write(s) without a value: OUT argument
 hr/ty_refs.sql	TYPE_NOT_A_NAME	Datatype at line 31 is not a plain name
 hr/ty_refs.sql	TYPE_NOT_A_NAME	Datatype at line 32 is not a plain name
+hr/ty_tray.tpb	LOCAL_ANCHOR	1 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
+hr/ty_tray.typ	LOCAL_ANCHOR	1 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
 hr/views.sql	VIEW_COLUMN_UNMATCHED	db:HR.V_COMPANY_CALC: column LEGACY_COL has no site in the CREATE VIEW text
 hr/views_lineage.sql	VIEW_COLUMN_UNMATCHED	db:HR.V_LIN_SHORT: column EXTRA has no site in the CREATE VIEW text
 hr/views_lineage.sql	VIEW_LINEAGE_UNKNOWN	db:HR.V_LIN_FN: column COL_A comes from a source whose columns cannot be followed
@@ -6055,6 +6229,8 @@ db:HR.IT_WRITE_CALC(P_ID IN NUMBER).P_ID	number	-	0
 db:HR.IT_WRITE_SYN(P_ID IN NUMBER).P_ID	number	-	0
 db:HR.IT_WRITE_VIEW(P_ID IN NUMBER).P_ID	number	-	0
 db:HR.IT_WRITE_VIEW_IO(P_ID IN NUMBER).P_ID	number	-	0
+db:HR.JSON.N	number	-	0
+db:HR.JSON_HOLDER.DOC	json	-	0
 db:HR.MD5(P IN VARCHAR2)	varchar2	-	0
 db:HR.MD5(P IN VARCHAR2).P	varchar2	-	0
 db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER).P_IN	number	-	0
@@ -6315,6 +6491,24 @@ db:HR.PROC_OBJECTS(P_LIST IN SYS.ODCINUMBERLIST,P_DOC IN XMLTYPE).P_LIST	sys.odc
 db:HR.PROC_OWNED(P IN NUMBER).P	number	-	0
 db:HR.PROC_STANDALONE(P_ID IN NUMBER).P_ID	number	-	0
 db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE).P_DOC	xmltype	-	0
+db:HR.TY_BAG.ENTRIES	ty_num_list	-	0
+db:HR.TY_CIRCLE.R	number	-	0
+db:HR.TY_DIAL.C	ty_point	-	0
+db:HR.TY_GAUGE.A	number	-	0
+db:HR.TY_GAUGE.B	varchar2(20)	-	0
+db:HR.TY_GROWN.K	number	-	0
+db:HR.TY_OWNED.X	number	-	0
+db:HR.TY_PEG.TAG	varchar2(10)	-	0
+db:HR.TY_POINT.X	number	-	0
+db:HR.TY_RING.INNER_R	number	-	0
+db:HR.TY_SHAPE.ID	number	-	0
+db:HR.TY_SHAPE_LINK.OTHER	ref hr.ty_shape	-	0
+db:HR.TY_SHAPE_LINK.TARGET	ref ty_shape	-	0
+db:HR.TY_SQUARE.SIDE	number	-	0
+db:HR.TY_TRAY.ITEMS	ty_int_list	-	0
+db:HR.TY_TRAY.SLOTS	ty_peg_list	-	0
+db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).D	ty_dial	-	0
+db:HR.USE_GAUGE(O IN TY_GAUGE,D IN OUT TY_DIAL).O	ty_gauge	-	0
 db:OTHER.PROC_EXTERNAL(P IN NUMBER).P	number	-	0
 ## doc_comment
 db:HR.FN_DOC_BALANCE()	hr/proc_doc.prc	0	ABOVE	11	Returns the ledger balance.	0

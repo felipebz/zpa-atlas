@@ -687,7 +687,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "DDL_ANALYZE (the object a DDL statement acts on)."
 
         const val SEARCH = "Finds the key of an entity by its name: tables, views, columns, packages, procedures, " +
-            "functions, parameters, types, package variables and constants (a body's own included), sequences, " +
+            "functions, parameters, types, object type attributes, package variables and constants (a body's own included), sequences, " +
             "synonyms, triggers. Exact name matches first. $KEYS"
 
         const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
@@ -698,11 +698,10 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "a function's or cursor's return type, else the declared type; value is a parameter's default or a " +
             "variable's, constant's or record field's initial value, valueCut true when cut (the whole text is at the " +
             "definition); valueFrom SPEC when a body's parameter takes the default its spec writes; specText, on a " +
-            "body that differs from its spec, what the spec says. documentation, on the entity and on each child, is " +
-            "its doc comment (text without comment markers, line breaks kept, textCut when cut; shape ABOVE, AFTER_IS, " +
-            "AFTER_BEGIN or END_OF_LINE; path and line), then the other half's, from SPEC or BODY, when it says " +
-            "something else, or the other half's alone. usesIncomplete (entity, child): reasons (CONDITIONAL_COMPILATION) " +
-            "unrecorded uses can't be ruled out; its uses are a lower bound. $PATHS $KEYS"
+            "body that differs from its spec, what the spec says. documentation (entity, child): its doc comment (text, " +
+            "textCut; shape ABOVE, AFTER_IS, AFTER_BEGIN or END_OF_LINE; path, line), then the other half's, from SPEC or " +
+            "BODY, when it differs. usesIncomplete (entity, child): reasons unrecorded uses can't be ruled out; uses are " +
+            "a lower bound. membersIncomplete (object type): its attributes may not be all. $PATHS $KEYS"
 
         const val FIND = "Where entities are defined, called, read or written across the code (occurrences), with " +
             "filters combined with AND (at least one; for the whole index, use group_occurrences), and total and " +

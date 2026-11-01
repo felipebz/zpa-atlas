@@ -205,7 +205,7 @@ class FixtureGoldenTest {
                 "hr/pack_process.pks", "hr/pack_remote.pks", "hr/pack_scoped.pkb", "hr/pack_scoped.pks", "hr/pack_switch.pkb", "hr/pack_switch.pks", "hr/pack_types.pkb", "hr/pack_types.pks", "hr/param_fixes.sql", "hr/param_uses.sql", "hr/pk_f.sql", "hr/proc_column_reads.prc", "hr/proc_columns.prc", "hr/proc_doc.prc", "hr/proc_mview.prc", "hr/proc_objects.prc", "hr/proc_own_objects.prc",
                 "hr/proc_source_view.prc",
                 "hr/proc_standalone.prc", "hr/proc_synonym_objects.prc", "hr/proc_synonyms.prc", "hr/proc_view_chain.prc", "hr/proc_view_writes.prc", "hr/proc_writes.prc", "hr/proc_xmlseq.prc", "hr/remote_calls.prc", "hr/remote_names.prc", "hr/text_tags.sql", "hr/trg_company_bu.trg", "hr/trg_company_values.trg", "hr/trg_dynamic.trg",
-                "hr/trg_forms.trg", "hr/trg_imp.trg", "hr/trg_syn_company.trg", "hr/ty_bag.tpb", "hr/ty_bag.typ", "hr/ty_num_list.typ", "hr/ty_point.typ", "hr/ty_refs.sql", "hr/ty_shapes.typ", "hr/use_f.sql", "hr/v_imp.sql", "hr/view_ioi.sql", "hr/views.sql", "hr/views_lineage.sql", "hr/views_remote.sql", "hr/views_star.sql",
+                "hr/trg_forms.trg", "hr/trg_imp.trg", "hr/trg_syn_company.trg", "hr/ty_bag.tpb", "hr/ty_bag.typ", "hr/ty_dial.typ", "hr/ty_gauge.tpb", "hr/ty_gauge.typ", "hr/ty_grown.typ", "hr/ty_num_list.typ", "hr/ty_peg.typ", "hr/ty_point.typ", "hr/ty_refs.sql", "hr/ty_shapes.typ", "hr/ty_tray.tpb", "hr/ty_tray.typ", "hr/use_f.sql", "hr/use_gauge.prc", "hr/v_imp.sql", "hr/view_ioi.sql", "hr/views.sql", "hr/views_lineage.sql", "hr/views_remote.sql", "hr/views_star.sql",
                 "scripts/broken.sql", "scripts/broken_call.sql")
     }
 

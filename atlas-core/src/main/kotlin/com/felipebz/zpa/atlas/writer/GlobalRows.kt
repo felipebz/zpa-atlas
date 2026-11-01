@@ -125,5 +125,19 @@ internal class GlobalRows(private val connection: Connection) {
         }
     }
 
+    /** The types whose listed attributes may not be all: one row per entity, its reasons comma-separated. */
+    fun insertMembersGaps(facts: List<MembersGapFact>, ids: Map<String, Long>) {
+        prepare("INSERT INTO members_gap(entity_id, reasons) VALUES (?,?)").use { insert ->
+            val batches = Batches(insert)
+            for ((id, fact) in facts.associateBy { ids.getValue(it.entityKey) }.toSortedMap()) {
+                insert.setLong(1, id)
+                insert.setString(2, fact.reasons.joinToString(","))
+                batches.add(insert)
+                batches.flushIfFull()
+            }
+            batches.flush()
+        }
+    }
+
     private fun prepare(sql: String): PreparedStatement = connection.prepareStatement(sql)
 }

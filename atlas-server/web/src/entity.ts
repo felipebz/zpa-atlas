@@ -28,7 +28,7 @@ import {
     valueKindLabel
 } from "./entity-html";
 import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
-import {entityPath, entityTags, isBodyValue, places, routineRows, usesGapKey} from "./entity-view";
+import {entityPath, entityTags, isBodyValue, membersGapKey, places, routineRows, usesGapKey} from "./entity-view";
 import {kindOrder} from "./kinds";
 import {
     codeBreaksHtml,
@@ -157,6 +157,9 @@ function headerHtml(entity: EntityDetail, direct: number) {
   // Uses the index could not record cannot be ruled out: said beside the count, so it is not read as the whole answer.
   const gap = usesGapKey(entity.usesIncomplete);
   if (gap !== null) facts.push(`<span class="uses-gap">${esc(t(gap))}</span>`);
+  // A type whose attribute list may be partial says so: its contents are not the whole shape.
+  const members = membersGapKey(entity.membersIncomplete);
+  if (members !== null) facts.push(`<span class="uses-gap">${esc(t(members))}</span>`);
   return `<nav class="crumbs" aria-label="${esc(t("entity.path"))}">${crumbs.join(`<span class="sep" aria-hidden="true">›</span>`)}</nav>
     <div class="ent-title"><h1><span class="ename" title="${esc(entity.display)}"><span class="name">${nameBreaksHtml(parts.base)}</span></span></h1>${kindBadge(entity.kind)}${tags.join("")}</div>
     ${signature}

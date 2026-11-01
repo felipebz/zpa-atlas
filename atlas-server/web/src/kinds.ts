@@ -1,7 +1,7 @@
 /** Each kind's letters and color group: program units, types, relations and columns, members, and the rest. */
 const KIND_MARKS: Record<string, [string, string]> = {
   PACKAGE: ["K", "unit"], PROCEDURE: ["P", "unit"], FUNCTION: ["F", "unit"], TRIGGER: ["G", "unit"],
-  TYPE: ["T", "type"], RECORD_FIELD: ["RF", "type"],
+  TYPE: ["T", "type"], RECORD_FIELD: ["RF", "type"], ATTRIBUTE: ["AT", "type"],
   SCHEMA: ["SC", "relation"], TABLE: ["TB", "relation"], VIEW: ["W", "relation"], MATERIALIZED_VIEW: ["MW", "relation"],
   OBJECT_TABLE: ["OT", "relation"], COLUMN: ["c", "relation"], SYNONYM: ["SY", "relation"], SEQUENCE: ["S", "relation"],
   PARAMETER: ["PA", "member"], PACKAGE_VARIABLE: ["V", "member"], PACKAGE_CONSTANT: ["C", "member"], EXCEPTION: ["E", "member"],
@@ -20,7 +20,7 @@ export function kindMark(kind: string): [string, string] {
  * type, program units, a schema's objects, then declarations. A kind not listed comes after them.
  */
 const KIND_ORDER = [
-  "COLUMN", "RECORD_FIELD",
+  "COLUMN", "RECORD_FIELD", "ATTRIBUTE",
   "PACKAGE", "PROCEDURE", "FUNCTION", "TRIGGER",
   "TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "SEQUENCE", "SYNONYM",
   "TYPE", "CURSOR", "PACKAGE_CONSTANT", "PACKAGE_VARIABLE", "LOCAL_CONSTANT", "LOCAL_VARIABLE", "EXCEPTION", "LABEL"

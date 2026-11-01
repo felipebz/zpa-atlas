@@ -223,7 +223,13 @@ data class EntityDetail(
      * null when nothing says so. A package body's own variables and constants have it, and parameters: a parameter
      * gets its spec's or body's too, whose uses its "who uses" shows.
      */
-    val usesIncomplete: List<String>? = null
+    val usesIncomplete: List<String>? = null,
+    /**
+     * For a standalone object type, why the attributes in [children] may not be all its attributes: `NOT_EXTRACTED` (one
+     * zpa could not read, or conditional compilation it cannot decide), `ALTER_TYPE` (an `ALTER TYPE` of the project
+     * changes them; what it adds is not listed). Null when the list is complete.
+     */
+    val membersIncomplete: List<String>? = null
 )
 
 /**

@@ -93,7 +93,8 @@ internal class EntityReader(private val connection: Connection) {
             if (row.kind == "COLUMN") viewBase(row.id, outgoing = false) else emptyList(),
             declared[row.id],
             documentation[row.id].orEmpty(),
-            ownAndPartnerGaps(row, gaps[row.id])
+            ownAndPartnerGaps(row, gaps[row.id]),
+            connection.query("SELECT reasons FROM members_gap WHERE entity_id = ?", listOf(row.id)) { it.getString(1).split(',') }.singleOrNull()
         )
     }
 

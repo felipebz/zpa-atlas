@@ -63,11 +63,14 @@ class ObjectTypeMembers {
     }
 
     companion object {
-        /** The key of a type named by [unitName]: `db:S.T`, with [defaultSchema] when no schema is written; null without one. */
+        /**
+         * The key of a type named by [unitName]: `db:S.T`, with [defaultSchema] when no schema is written, else the
+         * placeholder schema, as the entity keys: a type body without a known schema still knows its own type.
+         */
         fun typeKey(unitName: AstNode?, defaultSchema: String?): String? {
             val written = unitName?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.map { normalizeIdentifier(it.tokenOriginalValue) }.orEmpty()
             if (written.isEmpty()) return null
-            val schema = if (written.size >= 2) written[written.size - 2] else defaultSchema ?: return null
+            val schema = if (written.size >= 2) written[written.size - 2] else defaultSchema ?: UNKNOWN_SCHEMA
             return dbKey(schema, written.last())
         }
 

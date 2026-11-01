@@ -36,8 +36,11 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
 
     private val keysById = HashMap<ProjectDeclarationId, String>()
 
-    /** Record field entity by the start of its declaration (file id, line, column), where zpa places a field. */
+    /** Record field and attribute entity by the start of its declaration (file id, line, column), where zpa places it. */
     private val fieldsByStart = HashMap<Triple<String, Int, Int>, String>()
+
+    /** The object types of each file whose listed attributes may not be all. */
+    private val membersGaps = HashMap<String, MutableList<MembersGapFact>>()
 
     /** Parameter entity keys by owner key (subprogram or cursor) and normalized name: one shared instance per key. */
     private val parameterKeys = HashMap<String, HashMap<String, String>>()
@@ -49,7 +52,7 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
         val declarations = snapshot.declarations
         val usedKeys = HashMap<String, Int>()
         for (declaration in declarations) {
-            val key = register(declaration, usedKeys) ?: continue
+            val key = register(declaration, usedKeys, snapshot) ?: continue
             keysById[declaration.id] = key
         }
         for (declaration in declarations) {
@@ -70,7 +73,7 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
      */
     fun keyOf(id: ProjectDeclarationId): String = keysById[id] ?: error("No entity for declaration $id")
 
-    /** The record field entity declared at [line] and [column] (the start of its declaration) of [fileId], or null. */
+    /** The record field or attribute entity declared at [line] and [column] (the start of its declaration) of [fileId], or null. */
     fun fieldAt(fileId: String, line: Int, column: Int): String? = fieldsByStart[Triple(fileId, line, column)]
 
     fun isPrivate(id: ProjectDeclarationId): Boolean = id in privateBodies
@@ -108,11 +111,15 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
                     implemented[key]?.forEach { append("implements ").append(it.fromKey).append(" -> ").append(it.toKey).append('\n') }
                 }
                 coverageFor(fileId).forEach { append(it.kind).append(": ").append(it.message).append('\n') }
+                membersGapsFor(fileId).forEach { append("members ").append(it.entityKey).append(' ').append(it.reasons).append('\n') }
             }
         }
     }
 
     fun coverageFor(fileId: String): List<CoverageFact> = synchronized(fileCoverage) { fileCoverage[fileId].orEmpty().toList() }
+
+    /** The object types [fileId] declares whose listed attributes may not be all their attributes. */
+    fun membersGapsFor(fileId: String): List<MembersGapFact> = membersGaps[fileId].orEmpty()
 
     fun subprogramAt(fileId: String, line: Int, column: Int): String? = subprogramsByStart[Triple(fileId, line, column)]
 
@@ -129,7 +136,7 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
         return UNKNOWN_SCHEMA to segments
     }
 
-    private fun register(declaration: ProjectDeclarationView, usedKeys: MutableMap<String, Int>): String? {
+    private fun register(declaration: ProjectDeclarationView, usedKeys: MutableMap<String, Int>, snapshot: ProjectSnapshot): String? {
         val fileId = declaration.fileId
         val role = if (declaration.role == ProjectDeclarationRole.SPECIFICATION) Role.DECLARATION else Role.DEFINITION
         val span = declaration.sourceRange.toSpan()
@@ -146,6 +153,7 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
                 }
                 entity(key, kind, schema, rest.last(), null)
                 occurrence(fileId, span, local, key, role, null)
+                if (declaration is ProjectStandaloneTypeView) attributes(declaration, key, schema, snapshot)
                 key
             }
             ProjectDeclarationKind.PACKAGE_TYPE, ProjectDeclarationKind.PACKAGE_SUBTYPE,
@@ -216,6 +224,28 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
                 key
             }
         }
+    }
+
+    /**
+     * The attributes [type] (whose entity is [key]) writes in its `CREATE TYPE`, as zpa extracts them: each an
+     * `ATTRIBUTE` entity `key.NAME`, a child of the type, defined where zpa places it. An attribute a subtype inherits
+     * is its supertype's. When zpa could not read them all, or an `ALTER TYPE` changes them, the type says so.
+     */
+    private fun attributes(type: ProjectStandaloneTypeView, key: String, schema: String, snapshot: ProjectSnapshot) {
+        val fileId = type.fileId
+        for (attribute in type.attributes) {
+            val name = normalizeIdentifier(attribute.name.originalSpelling)
+            val attributeKey = "$key.$name"
+            entity(attributeKey, EntityKind.ATTRIBUTE, schema, name, key)
+            val span = attribute.sourceRange.toSpan()
+            occurrence(fileId, span, attribute.name.originalSpelling, attributeKey, Role.DEFINITION, null)
+            fieldsByStart.putIfAbsent(Triple(fileId, span.startLine, span.startCol), attributeKey)
+        }
+        val reasons = listOfNotNull(
+            "NOT_EXTRACTED".takeIf { !type.attributesComplete },
+            "ALTER_TYPE".takeIf { snapshot.isAttributeListAltered(type.qualifiedName) }
+        )
+        if (reasons.isNotEmpty()) membersGaps.getOrPut(fileId) { ArrayList() } += MembersGapFact(key, reasons)
     }
 
     /** A package member: the schema rule applies to the owning package, the member name is appended. */
