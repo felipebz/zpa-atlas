@@ -1,5 +1,6 @@
 import type {EntitySummary} from "./api";
 import type {Place} from "./entity-view";
+import {isBodyOwn} from "./entity-view";
 import {entityHref, esc, fillMarks, langSuffix, qualifierHtml} from "./html";
 import {t} from "./i18n";
 import {kindMark} from "./kinds";
@@ -106,9 +107,10 @@ const CODE_KINDS = ["PROCEDURE", "FUNCTION", "PACKAGE", "TYPE", "TRIGGER"];
 
 /**
  * A place of an entity as HTML: the half it is in (a link to the other half's page) and its line, linking to the file
- * (`Declared in the spec, pkg/a.pks, line 1`); with [status] other than resolved, its badge.
+ * (`Declared in the spec, pkg/a.pks, line 1`); with [status] other than resolved, its badge. A package body's own type
+ * is declared there, like its variables, not implemented.
  */
-export function placeHtml(place: Place, kind: string, status: string | null) {
+export function placeHtml(place: Place, entity: Pick<EntitySummary, "key" | "kind">, status: string | null) {
   const lineLink = `<a href="file.html?path=${encodeURIComponent(place.path)}&line=${place.line}${langSuffix()}#L${place.line}" ` +
     `title="${esc(`${place.path}:${place.line}:${place.col}`)}">${esc(t("entity.line", { line: place.line }))}</a>`;
   // A path may break after each slash, so a long one wraps on a phone.
@@ -117,7 +119,8 @@ export function placeHtml(place: Place, kind: string, status: string | null) {
   if (place.half === null) return line + badge;
   const word = esc(t(place.half === "spec" ? "entity.where.theSpec" : "entity.where.theBody"));
   const part = place.partner ? `<a class="half" href="${entityHref(place.partner.key)}">${word}</a>` : word;
-  const message = place.half === "spec" ? "entity.where.declared" : CODE_KINDS.includes(kind) ? "entity.where.implemented" : "entity.where.declaredBody";
+  const implemented = CODE_KINDS.includes(entity.kind) && !isBodyOwn(entity);
+  const message = place.half === "spec" ? "entity.where.declared" : implemented ? "entity.where.implemented" : "entity.where.declaredBody";
   return fillHtml(message, { part, line }) + badge;
 }
 

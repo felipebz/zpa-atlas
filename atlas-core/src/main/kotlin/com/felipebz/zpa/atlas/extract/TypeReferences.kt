@@ -9,13 +9,15 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.DdlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
-import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.SingleRowSqlFunctionsGrammar
 import com.felipebz.zpa.api.project.ProjectCallKind
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.squid.SemanticAstNode
 import com.felipebz.zpa.api.symbols.Symbol
-import com.felipebz.zpa.atlas.model.*
+import com.felipebz.zpa.atlas.model.CoverageFact
+import com.felipebz.zpa.atlas.model.OccurrenceFact
+import com.felipebz.zpa.atlas.model.Role
+import com.felipebz.zpa.atlas.model.Status
 
 /** Type references (`TYPE_USE`) and the built-in SQL functions a type or a synonym may name. */
 internal class TypeReferences(
@@ -24,14 +26,15 @@ internal class TypeReferences(
     private val resolver: RelationResolver,
     private val calls: CallResolver,
     private val plsql: PlSqlNames,
+    private val bound: BoundNames,
     private val jsonBuiltIn: Boolean
 ) {
     /**
      * One `TYPE_USE` occurrence for the name of an `ANCHORED_DATATYPE` (`name%TYPE`, `name%ROWTYPE`), a
      * `CUSTOM_DATATYPE` or a `REF_DATATYPE` (the name after `REF`, which the span leaves out). A one-segment name is a
      * `VARIABLE_NAME`, a longer one a `MEMBER_EXPRESSION`. A REF CURSOR type of an enclosing block is local only for a
-     * `CUSTOM_DATATYPE`. A first segment
-     * the legacy table binds to a local declaration is counted (`LOCAL_ANCHOR`), not indexed; built-ins give nothing.
+     * `CUSTOM_DATATYPE`. A type of the package body that zpa binds the name to is its entity ([BodyGlobals]); a first segment
+     * the legacy table binds to another local declaration is counted (`LOCAL_ANCHOR`), not indexed; built-ins give nothing.
      * A binding to the declaration the datatype belongs to is ignored: `comentario comentario.texto%type` names the
      * table, the item is not visible in its own declaration.
      */
@@ -41,6 +44,11 @@ internal class TypeReferences(
         if (node.type == PlSqlGrammar.ANCHORED_DATATYPE && remoteAnchor(node, context, statementId)) return
         val segments = plsql.nameSegments(name) ?: run {
             state.coverage += CoverageFact("TYPE_NOT_A_NAME", "Datatype at line ${name.tokenLine} is not a plain name")
+            return
+        }
+        if (node.type == PlSqlGrammar.CUSTOM_DATATYPE) bound.typeOf(name, context)?.let { key ->
+            state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), key,
+                setOf(Role.TYPE_USE), status(Status.RESOLVED, context.partial), context.origin, null)
             return
         }
         val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild

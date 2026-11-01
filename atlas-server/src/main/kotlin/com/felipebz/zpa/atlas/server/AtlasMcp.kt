@@ -669,8 +669,9 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "Entity keys: db:SCHEMA.NAME; a member as db:SCHEMA.PACKAGE.MEMBER, a column as db:SCHEMA.TABLE.COLUMN. " +
                 "A procedure or function ends with its parameter list, db:HR.PKG.RUN(P_A IN NUMBER,P_B IN VARCHAR2), " +
                 "and its parameters add .P_A. Its body adds @BODY after the list; #2, #3 tell apart declarations with " +
-                "the same signature. A variable or constant a package body declares for itself, private to the body, is " +
-                "db:HR.PKG.G_X@BODY. ~ is the schema when none is known (db:~.DBMS_SQL). An object through a database " +
+                "the same signature. A variable, constant or type a package body declares for itself, private to the " +
+                "body, is db:HR.PKG.G_X@BODY; a field of such a record type adds .F. ~ is the schema when none is known " +
+                "(db:~.DBMS_SQL). An object through a database " +
                 "link is db:SCHEMA.NAME@LINK, or db:NAME@LINK when no schema is written."
 
         private const val STATUSES =

@@ -216,7 +216,7 @@ async function definitionLinks(entity: EntitySummary, target: HTMLElement) {
     const list = el("ul");
     for (const place of all) {
       const item = el("li");
-      item.appendChild(html(placeHtml(place, own.kind, null)));
+      item.appendChild(html(placeHtml(place, own, null)));
       list.appendChild(item);
     }
     target.replaceChildren(list);

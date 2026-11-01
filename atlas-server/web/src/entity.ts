@@ -28,7 +28,7 @@ import {
     valueKindLabel
 } from "./entity-html";
 import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
-import {entityPath, entityTags, isBodyValue, membersGapKey, places, routineRows, usesGapKey} from "./entity-view";
+import {entityPath, entityTags, isBodyOwn, membersGapKey, places, routineRows, usesGapKey} from "./entity-view";
 import {kindOrder} from "./kinds";
 import {
     codeBreaksHtml,
@@ -151,9 +151,9 @@ function headerHtml(entity: EntityDetail, direct: number) {
   const declared = declaredFacts(entity.kind, entity.declared).map(f => `<span>${declaredFactHtml(f, entity)}</span>`);
   const statusOf = (p: Place) => p.partner ? null : entity.definitions.find(d => d.path === p.path && d.span.startLine === p.line)?.status ?? null;
   // The uses become the "Used by" section's total once it loads (with a package's members, or a routine's other half).
-  const facts = [...places(entity).map(p => placeHtml(p, entity.kind, statusOf(p))), `<span id="ent-uses">${esc(t("search.usages", { count: direct }))}</span>`];
-  // A body's own variable or constant is not part of the package's interface: said in words, first.
-  if (isBodyValue(entity)) facts.unshift(`<span class="private-note">${esc(t("entity.privateBody"))}</span>`);
+  const facts = [...places(entity).map(p => placeHtml(p, entity, statusOf(p))), `<span id="ent-uses">${esc(t("search.usages", { count: direct }))}</span>`];
+  // A body's own variable, constant or type is not part of the package's interface: said in words, first.
+  if (isBodyOwn(entity)) facts.unshift(`<span class="private-note">${esc(t("entity.privateBody"))}</span>`);
   // Uses the index could not record cannot be ruled out: said beside the count, so it is not read as the whole answer.
   const gap = usesGapKey(entity.usesIncomplete);
   if (gap !== null) facts.push(`<span class="uses-gap">${esc(t(gap))}</span>`);
@@ -300,8 +300,8 @@ function contentsSections(members: Member[]): { html: string; entries: SectionEn
       <table class="members">${head(false)}<tbody>${list.map(m => {
         // A package variable's or constant's type follows its name, wrapping under it on a phone.
         const type = memberType(m);
-        // A body's own variable or constant: marked private, never the "body" badge of a spec member's other half.
-        const name = isBodyValue(m.entity)
+        // A body's own variable, constant or type: marked private, never the "body" badge of a spec member's other half.
+        const name = isBodyOwn(m.entity)
           ? `${entityLink(m.entity, { ...options(m.entity), noBodyBadge: true })} <span class="badge">${esc(t("entity.tag.private"))}</span>`
           : entityLink(m.entity, options(m.entity));
         const gap = usesGapKey(m.usesIncomplete);

@@ -19,7 +19,12 @@ follows it there. Parameters of nested subprograms and of object type methods ar
 
 The fields of a package spec's record types are entities with uses: each name in a chain that zpa says is the field
 (`g_rec.code`, `g_rows(1).items`), with the roles of the value the chain starts from; after a function call, only read.
-Fields of record types declared in a body or a subprogram are not entities.
+
+The types a package body declares for itself, outside any subprogram, are entities too, like its variables
+(`db:HR.PKG.T_ROW@BODY`), with a use where a declaration names them; a body record type's fields are its children
+(`db:HR.PKG.T_ROW@BODY.CODE`), with uses found as for the spec's. A body type with the name of a spec type is a
+second entity: where zpa cannot tell which one a name means, neither gets the use. Types and fields declared in a
+subprogram are not entities.
 
 The attributes a standalone object type's `CREATE TYPE` writes are `ATTRIBUTE` entities, children of the type
 (`db:HR.TY_POINT.X`), found and used the same way; an attribute a subtype inherits is its supertype's. An attribute an

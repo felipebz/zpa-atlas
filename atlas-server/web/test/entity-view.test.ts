@@ -56,6 +56,11 @@ describe("places", () => {
     const page = entity({ key: spec.key, kind: "PROCEDURE", definitions: [at("pkg/pack_orders.pks", 41, "PACKAGE", ["DECLARATION"])], partners: [toBody] });
     expect(places(page).map(p => p.file)).toEqual([false, false]);
   });
+
+  it("leaves the file out of a package body's own type: a member of the package, not a type with a body", () => {
+    const page = entity({ key: "db:HR.PACK_ORDERS.T_LINE@BODY", kind: "TYPE", definitions: [at("pkg/pack_orders.pkb", 7, "PACKAGE_BODY")] });
+    expect(places(page).map(p => [p.half, p.file])).toEqual([["body", false]]);
+  });
 });
 
 describe("entityTags", () => {
@@ -68,10 +73,12 @@ describe("entityTags", () => {
     expect(entityTags(entity({ key: "db:~.EXT_PKG", kind: "PACKAGE", external: true }))).toEqual(["external"]);
   });
 
-  it("marks a package body's own variable or constant as private, a spec variable not at all", () => {
+  it("marks a package body's own variable, constant or type as private, a spec variable or type not at all", () => {
     expect(entityTags(entity({ key: "db:HR.PACK_ORDERS.G_OPEN_COUNT@BODY", kind: "PACKAGE_VARIABLE", parent: pack }))).toEqual(["private"]);
     expect(entityTags(entity({ key: "db:HR.PACK_ORDERS.C_MAX_LINES@BODY#2", kind: "PACKAGE_CONSTANT", parent: pack }))).toEqual(["private"]);
+    expect(entityTags(entity({ key: "db:HR.PACK_ORDERS.T_LINE@BODY", kind: "TYPE", parent: pack }))).toEqual(["private"]);
     expect(entityTags(entity({ key: "db:HR.PACK_ORDERS.G_OPEN_COUNT", kind: "PACKAGE_VARIABLE", parent: pack }))).toEqual([]);
+    expect(entityTags(entity({ key: "db:HR.PACK_ORDERS.T_LINE", kind: "TYPE", parent: pack }))).toEqual([]);
   });
 });
 

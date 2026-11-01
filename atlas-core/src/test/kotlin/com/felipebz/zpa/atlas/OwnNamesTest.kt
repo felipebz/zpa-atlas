@@ -91,8 +91,8 @@ class OwnNamesTest {
             """.trimIndent() + "\n")
         val index = temp.resolve("cursor.db")
         Indexer().index(IndexOptions(sources, index, compilationSchema = "HR", threads = 1))
-        // The body's own type, like its variables: no occurrence guessing a member of the package.
-        assertThat(Fixture.query(index, "SELECT written FROM occurrence WHERE lower(written) LIKE '%t_cursor%'")).isEmpty()
-        assertThat(Fixture.query(index, "SELECT key FROM entity WHERE key LIKE '%T_CURSOR%'")).isEmpty()
+        // The body's own type, like its variables: its definition, and no occurrence guessing a member of the package.
+        assertThat(Fixture.query(index, "SELECT written || ' ' || roles FROM occurrence WHERE lower(written) LIKE '%t_cursor%'")).containsExactly("t_cursor DEFINITION")
+        assertThat(Fixture.query(index, "SELECT key FROM entity WHERE key LIKE '%T_CURSOR%'")).containsExactly("db:HR.PACK_FEED.T_CURSOR@BODY")
     }
 }

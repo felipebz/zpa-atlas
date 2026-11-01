@@ -4,12 +4,12 @@
 import type {EntityDetail, EntitySummary, Location} from "./api";
 
 const ROUTINE_KINDS = ["PROCEDURE", "FUNCTION"];
-/** A package body's own variables and constants: always private to the body. */
-const VALUE_KINDS = ["PACKAGE_VARIABLE", "PACKAGE_CONSTANT"];
+/** A package body's own variables, constants and types: always private to the body. */
+const BODY_OWN_KINDS = ["PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "TYPE"];
 
-/** Whether [member] is a package body's own variable or constant, private to the body. */
-export function isBodyValue(member: Pick<EntitySummary, "key" | "kind">) {
-  return VALUE_KINDS.includes(member.kind) && isBodyKey(member.key);
+/** Whether [member] is a package body's own variable, constant or type, private to the body. */
+export function isBodyOwn(member: Pick<EntitySummary, "key" | "kind">) {
+  return BODY_OWN_KINDS.includes(member.kind) && isBodyKey(member.key);
 }
 
 /** The reasons the page names, the first one found wins: what most often hides names comes first. */
@@ -72,10 +72,11 @@ export function halfOf(location: Location): Half | null {
 /**
  * Where [entity] is: its own definitions, then its partners' (a routine's body, or a body's spec), the spec before
  * the body; each partner place names the partner, whose page it is. A package's or a type's places name their files
- * (its spec and body may be two); a member's places do not, its file being its package's or type's.
+ * (its spec and body may be two); a member's places do not, its file being its package's or type's. A package body's
+ * own type is a member of the package.
  */
-export function places(entity: Pick<EntityDetail, "kind" | "definitions" | "partners">): Place[] {
-  const named = (half: Half | null) => half === null || entity.kind === "PACKAGE" || entity.kind === "TYPE";
+export function places(entity: Pick<EntityDetail, "key" | "kind" | "definitions" | "partners">): Place[] {
+  const named = (half: Half | null) => half === null || (entity.kind === "PACKAGE" || entity.kind === "TYPE") && !isBodyOwn(entity);
   const own = entity.definitions.map(d => {
     const half = halfOf(d);
     return { half, path: d.path, line: d.span.startLine, col: d.span.startCol, partner: null, file: named(half) };
@@ -90,7 +91,7 @@ export function places(entity: Pick<EntityDetail, "kind" | "definitions" | "part
 
 /**
  * The tags after the title: external; private for a package routine that exists only in the body and for a package
- * body's own variable or constant; body for a body with a spec.
+ * body's own variable, constant or type; body for a body with a spec.
  */
 export function entityTags(entity: Pick<EntityDetail, "key" | "kind" | "external" | "partners" | "parent">): ("external" | "private" | "body")[] {
   const tags: ("external" | "private" | "body")[] = [];
@@ -98,7 +99,7 @@ export function entityTags(entity: Pick<EntityDetail, "key" | "kind" | "external
   if (isBodyKey(entity.key)) {
     const hasSpec = entity.partners.some(p => p.direction === "OUT");
     const routine = ROUTINE_KINDS.includes(entity.kind) && entity.parent !== null && ["PACKAGE", "TYPE"].includes(entity.parent.kind);
-    if (!hasSpec && (routine || isBodyValue(entity))) tags.push("private");
+    if (!hasSpec && (routine || isBodyOwn(entity))) tags.push("private");
     else tags.push("body");
   }
   return tags;

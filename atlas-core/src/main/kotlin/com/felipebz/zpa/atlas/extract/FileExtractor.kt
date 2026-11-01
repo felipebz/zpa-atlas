@@ -78,18 +78,18 @@ class FileExtractor(
     override fun visitFile(node: AstNode) {
         root = node
         val scopes = SqlScopes()
-        val bound = BoundNames(context::nameBinding)
+        val bound = BoundNames(context::nameBinding, context::typeBinding)
         // The parameters of the file's subprograms and cursors that have an entity: their uses are the names zpa binds
         // to them. A parameter's declaration starts with its name, where zpa places it.
         for (declaration in catalog.occurrencesFor(path)) {
             if (declaration.containerKey == null) continue
             bound.add(NameDeclarationKind.PARAMETER, declaration.span.startLine, declaration.span.startCol, declaration.entityKey)
         }
-        bodyGlobals = BodyGlobals(bound)
-        fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding)
+        bodyGlobals = BodyGlobals(bound, context::recordFields)
+        fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding, bodyGlobals::fieldAt)
         plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, projectAnalysis(), bound, fields)
         triggers = Triggers(state, resolver, plsql)
-        typeReferences = TypeReferences(state, types, resolver, calls, plsql, jsonBuiltIn)
+        typeReferences = TypeReferences(state, types, resolver, calls, plsql, bound, jsonBuiltIn)
         val columnReads = ColumnReads(state, resolver, scopes, plsql, context::nameBinding)
         sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads)
         lineage = ViewLineage(state, scopes, columnReads, plsql)
@@ -239,7 +239,7 @@ class FileExtractor(
             else -> UnitKind.SQL_STATEMENT
         }
         val index = state.addUnit(UnitFact(kind, displayName, entityKey, span, schema), partial)
-        // A package body's own variables and constants, before the walk that finds their uses.
+        // A package body's own variables, constants and types, before the walk that finds their uses.
         if (kind == UnitKind.PACKAGE_BODY) entityKey?.let { bodyGlobals.declare(node, it, catalog.schemaAndName(path, written).first, index, partial, state) }
         if (kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY || kind == UnitKind.TRIGGER || (kind == UnitKind.VIEW || kind == UnitKind.MATERIALIZED_VIEW) && entityKey != null) {
             // Package bodies, type bodies, triggers and views are not in the project index; their definition comes from the AST.
@@ -430,6 +430,14 @@ class FileExtractor(
                 setOf(Role.DEFINITION), status(Status.RESOLVED, global.partial), Origin.STATIC, null, nameSpan = spanOf(global.name))
             DeclaredTexts.of(global.key, global.node)?.let { declaredTexts += it }
             docs?.of(global.key, span, true, null)?.let { docComments += it }
+        }
+        // A body's own types and their fields: their definition and what their declaration says.
+        for (member in if (::bodyGlobals.isInitialized) bodyGlobals.types else emptyList()) {
+            val span = spanOf(member.node)
+            state.occurrences += OccurrenceFact(member.unitIndex, member.packageKey, null, span, member.name.tokenOriginalValue, member.key,
+                setOf(Role.DEFINITION), status(Status.RESOLVED, member.partial), Origin.STATIC, null, nameSpan = spanOf(member.name))
+            DeclaredTexts.of(member.key, member.node)?.let { declaredTexts += it }
+            docs?.of(member.key, span, true, null)?.let { docComments += it }
         }
         for (declaration in declarations) {
             val unitIndex = state.units.indices.firstOrNull { state.units[it].span.contains(declaration.span.startLine, declaration.span.startCol) }

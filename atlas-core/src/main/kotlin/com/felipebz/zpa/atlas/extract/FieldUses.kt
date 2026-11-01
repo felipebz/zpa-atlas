@@ -16,15 +16,15 @@ import java.util.*
 
 /**
  * The uses of record fields and object attributes: each segment of a value's chain that zpa's [FieldBinding] names as
- * a field with an entity (a package spec's type, a standalone object type) is a use of that field, at the segment's own
- * span, with the roles of the value the chain starts from ([NameRoles.valueRoles]): a field of a field written by an
- * assignment is written too. In a type body the first name, or a name written alone, may itself be an attribute read
- * through the implicit `SELF` (`items.extend`, `tag := 'x'`): zpa answers it as it answers `self.items`.
+ * a field with an entity (a package spec's type, a standalone object type, a type of the file's package body) is a use
+ * of that field, at the segment's own span, with the roles of the value the chain starts from ([NameRoles.valueRoles]):
+ * a field of a field written by an assignment is written too. In a type body the first name, or a name written alone,
+ * may itself be an attribute read through the implicit `SELF` (`items.extend`, `tag := 'x'`): zpa answers it as it
+ * answers `self.items`.
  *
  * zpa resolves the members after an element, a call result or a package variable of another file when the file is
  * left: the chains are gathered during the walk ([chain]) and asked in [record], from `leaveFile`. A segment whose value
- * zpa could not decide records nothing, and so does a field of a type without an entity (declared in a body or a
- * subprogram).
+ * zpa could not decide records nothing, and so does a field of a type without an entity (declared in a subprogram).
  */
 internal class FieldUses(
     private val state: FileState,
@@ -32,7 +32,9 @@ internal class FieldUses(
     private val path: String,
     private val roles: NameRoles,
     private val fieldBinding: (AstNode) -> FieldBinding,
-    private val nameBinding: (AstNode) -> NameBinding
+    private val nameBinding: (AstNode) -> NameBinding,
+    /** The field entity of a type of the file's package body declared at a line and column of this file ([BodyGlobals.fieldAt]). */
+    private val bodyFieldAt: (Int, Int) -> String?
 ) {
     private class Chain(val root: AstNode, val start: AstNode, val segments: List<String>, val context: Context, val statementId: Int?)
 
@@ -76,7 +78,8 @@ internal class FieldUses(
                 when (val binding = fieldBinding(segment)) {
                     is FieldBinding.Field -> {
                         val declaration = binding.declaration
-                        val key = catalog.fieldAt(declaration.fileId ?: path, declaration.line, declaration.column) ?: continue
+                        val key = catalog.fieldAt(declaration.fileId ?: path, declaration.line, declaration.column)
+                            ?: (if (declaration.fileId == null) bodyFieldAt(declaration.line, declaration.column) else null) ?: continue
                         val roles = valueRoles ?: (if (spanOf(chain.start) in calls) setOf(Role.READ) else roles.valueRoles(chain.start, chain.segments))
                             .also { valueRoles = it }
                         val decided = status ?: startStatus(chain).also { status = it }
