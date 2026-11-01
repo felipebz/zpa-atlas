@@ -12,6 +12,27 @@ export function isBodyOwn(member: Pick<EntitySummary, "key" | "kind">) {
   return BODY_OWN_KINDS.includes(member.kind) && isBodyKey(member.key);
 }
 
+/**
+ * For a routine's own variable or constant, the routine its page names: its parent (the routine, or for a method of a
+ * type body, the type), then what its key holds between the parent's key and its own name (a method's or a nested
+ * subprogram's name and signature, which tell overloads apart: `RUN.HELPER(P_A IN NUMBER)`), and the parent's key to
+ * link to. Null for any other entity.
+ */
+export function localOf(entity: Pick<EntityDetail, "key" | "kind" | "parent">): { name: string; key: string } | null {
+  if (!["LOCAL_VARIABLE", "LOCAL_CONSTANT"].includes(entity.kind) || !entity.parent) return null;
+  const parent = entity.parent;
+  const rest = entity.key.startsWith(parent.key + ".") ? entity.key.slice(parent.key.length + 1) : "";
+  // The segments split at the dots outside a signature's parentheses (a parameter's type may be `PKG.T%TYPE`).
+  const segments: string[] = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "(") depth++;
+    else if (rest[i] === ")") depth--;
+    else if (rest[i] === "." && depth === 0) { segments.push(rest.slice(start, i)); start = i + 1; }
+  }
+  return { name: [parent.name ?? parent.display, ...segments].join("."), key: parent.key };
+}
+
 /** The reasons the page names, the first one found wins: what most often hides names comes first. */
 const GAP_REASONS = ["CONDITIONAL_COMPILATION", "SUBSTITUTION", "PARSE_RECOVERY", "INCOMPLETE_SOURCE", "DECLARATION_OUTSIDE_FILE", "UNSUPPORTED_REFERENCE"];
 

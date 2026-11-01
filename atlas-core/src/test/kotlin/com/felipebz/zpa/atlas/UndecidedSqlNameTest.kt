@@ -41,7 +41,9 @@ class UndecidedSqlNameTest {
     }
 
     @Test
-    fun `a name a local variable has stays undecided`() {
+    fun `a name a local variable has is the local's use, not a column`() {
+        // The local's definition, then its use in the query: a column of SHOP_ORDERS may still take the name, so the use
+        // is UNVERIFIED (COLUMN_NOT_EXCLUDED), as a body global's is; nothing is left undecided.
         assertThat(reads("""
             create or replace procedure proc_total is
               order_total number;
@@ -50,7 +52,7 @@ class UndecidedSqlNameTest {
               select order_total into v from shop_orders;
             end;
             /
-            """)).containsExactly("note SQL_NAME_UNDECIDED")
+            """)).containsExactly("read db:HR.PROC_TOTAL().ORDER_TOTAL", "read db:HR.PROC_TOTAL().ORDER_TOTAL")
     }
 
     @Test

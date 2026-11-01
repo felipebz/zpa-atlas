@@ -20,7 +20,7 @@ class ReservedValuesTest {
     @Test
     fun `the reserved values are the ones the later phases need`() {
         assertThat(EntityKind.entries.filter { it.reserved }.map { it.name }).containsExactly(
-            "SCHEMA", "LOCAL_VARIABLE", "LOCAL_CONSTANT", "LABEL", "FORMS_MODULE",
+            "SCHEMA", "LABEL", "FORMS_MODULE",
             "FORMS_BLOCK", "FORMS_ITEM", "FORMS_TRIGGER", "FORMS_PROGRAM_UNIT", "FORMS_LIBRARY"
         )
         assertThat(RelationKind.entries.filter { it.reserved }.map { it.name }).containsExactly(

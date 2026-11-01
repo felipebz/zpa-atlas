@@ -239,8 +239,9 @@ class FileExtractor(
             else -> UnitKind.SQL_STATEMENT
         }
         val index = state.addUnit(UnitFact(kind, displayName, entityKey, span, schema), partial)
-        // A package body's own variables, constants and types, before the walk that finds their uses.
+        // A package body's own variables, constants and types, and each routine's, before the walk that finds their uses.
         if (kind == UnitKind.PACKAGE_BODY) entityKey?.let { bodyGlobals.declare(node, it, catalog.schemaAndName(path, written).first, index, partial, state) }
+        declareRoutines(node, kind, entityKey, written, index, partial)
         if (kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY || kind == UnitKind.TRIGGER || (kind == UnitKind.VIEW || kind == UnitKind.MATERIALIZED_VIEW) && entityKey != null) {
             // Package bodies, type bodies, triggers and views are not in the project index; their definition comes from the AST.
             state.occurrences += OccurrenceFact(index, entityKey, null, span, writtenText(unitName ?: node), entityKey,
@@ -260,6 +261,41 @@ class FileExtractor(
         val objectType = if (kind == UnitKind.TYPE_BODY) ObjectTypeMembers.typeKey(unitName, defaultSchema) else null
         walk(node, Context(index, partial, schema, entityKey, trigger, enclosingPackage, bodyNames, objectType))
         view = null
+    }
+
+    /**
+     * The routines of the unit [node] of [kind] whose entity is [entityKey]: a package body's subprograms, a standalone
+     * subprogram, a trigger, a type body's methods (whose declarations hang on the type, keyed with the method's name and
+     * signature);
+     * each one's own declarations ([BodyGlobals.declareRoutine]). An anonymous block or script has no routine: its
+     * declarations are left out.
+     */
+    private fun declareRoutines(node: AstNode, kind: UnitKind, entityKey: String?, written: List<String>, index: Int, partial: Boolean) {
+        val routines = ArrayList<Triple<AstNode, String, String>>()
+        when (kind) {
+            UnitKind.PACKAGE_BODY -> for (item in node.getFirstChildOrNull(PlSqlGrammar.DECLARE_SECTION)?.children.orEmpty()) {
+                if (item.type != PlSqlGrammar.PROCEDURE_DECLARATION && item.type != PlSqlGrammar.FUNCTION_DECLARATION) continue
+                subprogramAt(item)?.let { routines += Triple(item, it, it) }
+            }
+            UnitKind.PROCEDURE, UnitKind.FUNCTION, UnitKind.TRIGGER -> entityKey?.let { routines += Triple(node, it, it) }
+            UnitKind.TYPE_BODY -> if (entityKey != null) for (member in node.children) {
+                val method = when (member.type) {
+                    PlSqlGrammar.TYPE_SUBPROGRAM, PlSqlGrammar.MAP_ORDER_FUNCTION ->
+                        member.children.firstOrNull { it.type == PlSqlGrammar.PROCEDURE_DECLARATION || it.type == PlSqlGrammar.FUNCTION_DECLARATION }
+                    PlSqlGrammar.TYPE_CONSTRUCTOR -> member
+                    else -> null
+                } ?: continue
+                val name = method.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { normalizeIdentifier(it.tokenOriginalValue) } ?: continue
+                // The method's signature tells its overloads apart: `TY.PATH_PUT(ELEM IN PLJSON_ELEMENT,…)`.
+                routines += Triple(method, entityKey, "$entityKey.$name${BodyGlobals.signature(method)}")
+            }
+            else -> Unit
+        }
+        if (routines.isEmpty()) return
+        val schema = catalog.schemaAndName(path, written).first
+        for ((routine, parentKey, keyBase) in routines) {
+            bodyGlobals.declareRoutine(routine, parentKey, keyBase, schema, index, partial, state, catalog::isDeclared)
+        }
     }
 
     private fun subprogramAt(node: AstNode): String? = catalog.subprogramAt(path, node.token.line, node.token.column)

@@ -161,7 +161,8 @@ class ImplicitSelfTest {
                 output, """SELECT o.start_line || ' ' || o.written || ' ' || coalesce(e.key, '-') || ' ' || o.roles || ' ' || o.status || ' ' ||
                                   coalesce(o.reason, '-') FROM occurrence o JOIN source_file f ON f.id = o.file_id
                            LEFT JOIN entity e ON e.id = o.entity_id
-                           WHERE f.path = 'ty_box.tpb' AND o.start_line BETWEEN 5 AND 9 ORDER BY o.start_line, o.start_col"""
+                           WHERE f.path = 'ty_box.tpb' AND o.start_line BETWEEN 5 AND 9
+                             AND coalesce(e.kind, '-') NOT IN ('LOCAL_VARIABLE', 'LOCAL_CONSTANT') ORDER BY o.start_line, o.start_col"""
             ).map { it.replace("db:${schema ?: "~"}.", "db:S.") }
         }
         val local = rows(null)

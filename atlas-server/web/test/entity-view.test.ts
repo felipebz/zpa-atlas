@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 import type {EntityDetail, EntitySummary, Location, Partner} from "../src/api";
-import {entityPath, entityTags, places, routineRows, usesGapKey} from "../src/entity-view";
+import {entityPath, entityTags, localOf, places, routineRows, usesGapKey} from "../src/entity-view";
 
 // Invented names: a package PACK_ORDERS with a routine SHIP_ORDER in its spec and body, and a private one.
 const pack: EntitySummary = { key: "db:HR.PACK_ORDERS", kind: "PACKAGE", display: "HR.PACK_ORDERS", external: false, name: "PACK_ORDERS" };
@@ -105,5 +105,19 @@ describe("usesGapKey", () => {
     expect(usesGapKey(["DECLARATION_OUTSIDE_FILE", "CONDITIONAL_COMPILATION"])).toBe("entity.usesIncomplete.CONDITIONAL_COMPILATION");
     expect(usesGapKey(["DECLARATION_OUTSIDE_FILE"])).toBe("entity.usesIncomplete.DECLARATION_OUTSIDE_FILE");
     expect(usesGapKey(["SOMETHING_NEW"])).toBe("entity.usesIncomplete");
+  });
+});
+
+describe("localOf", () => {
+  const routine: EntitySummary = { key: body.key, kind: "PROCEDURE", display: body.display, external: false, name: "SHIP_ORDER" };
+  it("names the routine of a local, and the nested subprogram or method its key holds", () => {
+    expect(localOf(entity({ key: body.key + ".L_TOTAL", kind: "LOCAL_VARIABLE", parent: routine }))).toEqual({ name: "SHIP_ORDER", key: body.key });
+    expect(localOf(entity({ key: body.key + ".HELPER.L_H#2", kind: "LOCAL_CONSTANT", parent: routine }))).toEqual({ name: "SHIP_ORDER.HELPER", key: body.key });
+    const box: EntitySummary = { key: "db:HR.TY_BOX", kind: "TYPE", display: "HR.TY_BOX", external: false, name: "TY_BOX" };
+    expect(localOf(entity({ key: "db:HR.TY_BOX.AREA.L_SIDE", kind: "LOCAL_VARIABLE", parent: box }))).toEqual({ name: "TY_BOX.AREA", key: box.key });
+  });
+
+  it("is null for anything but a local", () => {
+    expect(localOf(entity({ key: body.key + ".P_ID", kind: "PARAMETER", parent: routine }))).toBeNull();
   });
 });

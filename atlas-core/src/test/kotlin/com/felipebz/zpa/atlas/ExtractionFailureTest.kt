@@ -42,10 +42,11 @@ class ExtractionFailureTest {
             .containsExactly("0")
 
         // Only the project-index declarations remain, in the unparsed unit; the AST-derived package body definition and
-        // the body's own globals (read from the walk) are gone.
+        // the body's and its routines' own declarations (read from the walk) are gone.
         val keys = "SELECT e.key || ' ' || o.roles FROM occurrence o JOIN source_file f ON f.id = o.file_id JOIN entity e ON e.id = o.entity_id " +
             "WHERE f.path = '$failing' AND o.roles = 'DEFINITION' AND NOT (e.key = 'db:HR.PACK_PROCESS' AND o.start_col = 0 AND o.start_line = 1) " +
-            "AND NOT (e.kind IN ('PACKAGE_VARIABLE', 'PACKAGE_CONSTANT') AND e.key LIKE '%@BODY') ORDER BY 1"
+            "AND NOT (e.kind IN ('PACKAGE_VARIABLE', 'PACKAGE_CONSTANT') AND e.key LIKE '%@BODY') " +
+            "AND e.kind NOT IN ('LOCAL_VARIABLE', 'LOCAL_CONSTANT') AND NOT (e.kind IN ('TYPE', 'RECORD_FIELD') AND e.key LIKE '%)@BODY.%') ORDER BY 1"
         assertThat(Fixture.query(broken, keys)).isNotEmpty.isEqualTo(Fixture.query(normal, keys))
         assertThat(Fixture.query(broken, "SELECT DISTINCT o.roles || ' ' || o.status FROM occurrence o JOIN source_file f ON f.id = o.file_id WHERE f.path = '$failing'"))
             .containsExactly("DEFINITION PARTIAL_SOURCE")

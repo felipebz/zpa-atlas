@@ -78,6 +78,69 @@ internal class BodyGlobals(private val bound: BoundNames, private val recordFiel
         }
     }
 
+    /**
+     * Registers the variables, constants and types a routine declares: in its own declare section, in its inner blocks
+     * and in its nested subprograms. [routine] is the routine's node, [parentKey] the entity its declarations are
+     * children of (the routine, or for a method of a type body, the type), and [keyBase] the key their keys start with
+     * (the routine's key, or the type's key and the method's name and [signature]). Each is keyed `keyBase.NAME`, as a
+     * parameter is, with each nested subprogram it is in between, by name and [signature] (`keyBase.HELPER(P_A IN NUMBER).NAME`),
+     * so overloads keep apart whatever their order; the same key again (an inner block), or a key
+     * [taken] already (a parameter's), adds `#2`. A variable or constant is a `LOCAL_VARIABLE` or `LOCAL_CONSTANT`, a
+     * type is a `TYPE` entity with its fields, as for the body's own. Cursors and exceptions are left out. Their uses are
+     * read as the body globals' are, and their gaps come from [routine] as a body global's come from its body.
+     */
+    fun declareRoutine(
+        routine: AstNode, parentKey: String, keyBase: String, schema: String?, unitIndex: Int, partial: Boolean, state: FileState,
+        taken: (String) -> Boolean
+    ) {
+        val used = HashSet<String>()
+        fun entity(key: String, kind: EntityKind, name: String, parentKey: String) {
+            state.entities += EntityFact(key, kind, schema, name, parentKey, key.removePrefix("db:"), external = false, precedence = Precedence.DECLARED)
+            state.relations += RelationFact(parentKey, RelationKind.CONTAINS, key)
+        }
+        fun section(section: AstNode, prefix: String) {
+            for (item in section.children) {
+                val type = item.type in TYPE_DECLARATIONS
+                if (!type && (item.type != PlSqlGrammar.VARIABLE_DECLARATION || item.hasDirectChildren(PlSqlKeyword.EXCEPTION))) continue
+                val name = item.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
+                val normalized = normalizeIdentifier(name.tokenOriginalValue)
+                val base = "$prefix.$normalized"
+                var count = 1
+                while ((if (count == 1) base else "$base#$count").let { it in used || taken(it) }) count++
+                val key = if (count == 1) base else "$base#$count"
+                used += key
+                if (type) {
+                    entity(key, EntityKind.TYPE, normalized, parentKey)
+                    types += Member(key, parentKey, item, name, unitIndex, partial)
+                    bound.add(NameDeclarationKind.TYPE, name.token.line, name.token.column, key)
+                    if (item.type == PlSqlGrammar.RECORD_DECLARATION) fields(item, key, parentKey, unitIndex, partial, ::entity)
+                    continue
+                }
+                val kind = if (item.hasDirectChildren(PlSqlKeyword.CONSTANT)) EntityKind.LOCAL_CONSTANT else EntityKind.LOCAL_VARIABLE
+                entity(key, kind, normalized, parentKey)
+                declared += Global(key, parentKey, routine, item, name, unitIndex, partial)
+                bound.add(NameDeclarationKind.VARIABLE, name.token.line, name.token.column, key)
+            }
+        }
+        // Every declare section of the routine, an inner block's included; a nested subprogram adds its name.
+        fun visit(node: AstNode, prefix: String) {
+            for (child in node.children) {
+                when (child.type) {
+                    PlSqlGrammar.DECLARE_SECTION -> {
+                        section(child, prefix)
+                        visit(child, prefix)
+                    }
+                    PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION -> {
+                        val name = child.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { normalizeIdentifier(it.tokenOriginalValue) }
+                        if (name != null) visit(child, "$prefix.$name${signature(child)}")
+                    }
+                    else -> visit(child, prefix)
+                }
+            }
+        }
+        visit(routine, keyBase)
+    }
+
     /** The fields zpa gives the record type [record] (whose entity is [typeKey]), each at its written declaration. */
     private fun fields(record: AstNode, typeKey: String, packageKey: String, unitIndex: Int, partial: Boolean, entity: (String, EntityKind, String, String) -> Unit) {
         val name = record.getFirstChild(PlSqlGrammar.IDENTIFIER_NAME)
@@ -114,6 +177,38 @@ internal class BodyGlobals(private val bound: BoundNames, private val recordFiel
     }
 
     companion object {
+        /**
+         * The written signature of a subprogram or method [node] (a `PROCEDURE_DECLARATION`, `FUNCTION_DECLARATION` or
+         * `TYPE_CONSTRUCTOR`), as a key segment after its name: its parameters as a subprogram key writes them,
+         * `(P_A IN NUMBER,P_B OUT VARCHAR2)`, and a function's ` RETURN` type. Overloads differ in it, so their
+         * declarations get keys of their own whatever their order in the file.
+         */
+        fun signature(node: AstNode): String {
+            val parameters = (node.getFirstChildOrNull(PlSqlGrammar.PARAMETER_DECLARATIONS) ?: node).getChildren(PlSqlGrammar.PARAMETER_DECLARATION)
+            val list = parameters.joinToString(",", "(", ")") { parameter ->
+                val name = normalizeIdentifier(parameter.getFirstChild(PlSqlGrammar.IDENTIFIER_NAME).tokenOriginalValue)
+                val mode = when {
+                    !parameter.hasDirectChildren(PlSqlKeyword.OUT) -> "IN"
+                    parameter.hasDirectChildren(PlSqlKeyword.IN) -> "IN OUT"
+                    else -> "OUT"
+                }
+                "$name $mode ${parameter.getFirstChildOrNull(PlSqlGrammar.DATATYPE)?.let(::typeText).orEmpty()}"
+            }
+            val returns = if (node.type == PlSqlGrammar.FUNCTION_DECLARATION) node.getFirstChildOrNull(PlSqlGrammar.DATATYPE)?.let { " RETURN ${typeText(it)}" }.orEmpty() else ""
+            return list + returns
+        }
+
+        /** A datatype as written, upper-cased, a space only between two words (`VARCHAR2(10)`, `PKG.T%TYPE`, `REF T`). */
+        private fun typeText(datatype: AstNode): String {
+            val text = StringBuilder()
+            for (token in datatype.tokens) {
+                val value = token.originalValue.uppercase()
+                if (text.isNotEmpty() && text.last().isLetterOrDigit() && value.first().isLetterOrDigit()) text.append(' ')
+                text.append(value)
+            }
+            return text.toString()
+        }
+
         /** What the index records anyway, or what cannot apply to a name of the file: never a gap. */
         val NOT_GAPS = setOf(UsageUncertainty.SQL_NAME_MAY_BE_COLUMN, UsageUncertainty.VISIBLE_OUTSIDE_FILE)
 

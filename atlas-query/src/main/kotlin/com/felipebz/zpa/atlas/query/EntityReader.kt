@@ -23,7 +23,12 @@ internal class EntityReader(private val connection: Connection) {
             parameters + listOfNotNull(kind, text, limit)
         ) { SearchHit(it.getString(1), it.getString(2), it.getString(3), it.getInt(4) == 1, it.getLong(5), it.getString(6)) }
 
-        if (segments.size == 1) return search("", "e.name LIKE ? ESCAPE '\\'", listOf("${escapeLike(text)}%"))
+        // A routine's own variables and constants are many and share names (`i`, `l_result`): a plain name finds them
+        // only when the kind is asked for; a dotted name naming their routine finds them below.
+        if (segments.size == 1) {
+            val locals = if (kind == null) " AND e.kind NOT IN ('LOCAL_VARIABLE', 'LOCAL_CONSTANT')" else ""
+            return search("", "e.name LIKE ? ESCAPE '\\'$locals", listOf("${escapeLike(text)}%"))
+        }
         val structural = if (segments.size > OccurrenceQuerySql.MAX_SEGMENTS || segments.any { it.isEmpty() }) {
             emptyList()
         } else {

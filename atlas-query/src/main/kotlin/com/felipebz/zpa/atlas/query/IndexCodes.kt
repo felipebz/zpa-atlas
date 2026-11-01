@@ -56,7 +56,7 @@ internal val ENTITY_KINDS = listOf(
 
 /** The codes only a later phase of the indexer produces; the other code lists have none. */
 internal val RESERVED_ENTITY_KINDS = setOf(
-    "SCHEMA", "LOCAL_VARIABLE", "LOCAL_CONSTANT", "LABEL", "FORMS_MODULE", "FORMS_BLOCK", "FORMS_ITEM", "FORMS_TRIGGER",
+    "SCHEMA", "LABEL", "FORMS_MODULE", "FORMS_BLOCK", "FORMS_ITEM", "FORMS_TRIGGER",
     "FORMS_PROGRAM_UNIT", "FORMS_LIBRARY"
 )
 internal val RESERVED_UNIT_KINDS = setOf("FORMS_TRIGGER", "FORMS_PROGRAM_UNIT")

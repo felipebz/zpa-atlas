@@ -85,6 +85,8 @@ export default {
   "entity.path": "Where it sits",
   "entity.tag.private": "private",
   "entity.privateBody": "Private to the package body: not part of the package's interface",
+  "entity.localOf.LOCAL_VARIABLE": "Local variable of {routine}",
+  "entity.localOf.LOCAL_CONSTANT": "Local constant of {routine}",
   "entity.usesIncomplete": "Uses may be incomplete: some names in this package body could not be decided.",
   "entity.usesIncomplete.CONDITIONAL_COMPILATION": "Uses may be incomplete: conditional compilation in this package body hides some names.",
   "entity.usesIncomplete.SUBSTITUTION": "Uses may be incomplete: a substitution variable in this package body hides some names.",

@@ -11,7 +11,17 @@ A package's variables and constants are entities, those of its spec and those it
 any subprogram. A body's own are private to the body and end with `@BODY` (`db:HR.PKG.G_TOTAL@BODY`); their uses
 inside the body are the ones zpa's name resolution binds to them. Where zpa cannot decide some names of the body (a
 `$IF`, a name the spec declares too), the page and the MCP answers say that the uses may be incomplete
-(`usesIncomplete`): the count is then a lower bound. Variables of a subprogram or a block are not entities.
+(`usesIncomplete`): the count is then a lower bound.
+
+A routine's own variables and constants (`LOCAL_VARIABLE`, `LOCAL_CONSTANT`), and the types it declares with their
+fields, are entities too: of a package body's subprogram, a standalone subprogram, a trigger, or a type body's method
+(those hang on the type, keyed with the method's name and signature, `db:HR.TY_BOX.AREA(P_SCALE IN NUMBER) RETURN NUMBER.L_SIDE`).
+Their key is the routine's, then the name, as a parameter's (`db:HR.PKG.RUN(P_A IN NUMBER)@BODY.L_TOTAL`); one in a
+nested subprogram has the subprogram's name and signature between (`….HELPER(P_N IN NUMBER).L_H`), so overloads keep
+their own locals whatever their order, and a second of the same name in one routine gets `#2`. Their uses are found as the body
+globals', with the same note when zpa could not decide some names of the routine. A plain name search leaves them out
+(`bind_json.keylist` finds one), and they add nothing to a package's "Used by" or "Impact". An anonymous block's or a
+script's declarations, loop indexes, and local cursors and exceptions are not entities.
 
 The parameters of package subprograms, standalone subprograms and package cursors are entities too, with their uses
 found the same way. A use in a package body is the body parameter's (`…@BODY.P_ID`); the spec parameter's "who uses"
@@ -23,8 +33,7 @@ The fields of a package spec's record types are entities with uses: each name in
 The types a package body declares for itself, outside any subprogram, are entities too, like its variables
 (`db:HR.PKG.T_ROW@BODY`), with a use where a declaration names them; a body record type's fields are its children
 (`db:HR.PKG.T_ROW@BODY.CODE`), with uses found as for the spec's. A body type with the name of a spec type is a
-second entity: where zpa cannot tell which one a name means, neither gets the use. Types and fields declared in a
-subprogram are not entities.
+second entity: where zpa cannot tell which one a name means, neither gets the use.
 
 The attributes a standalone object type's `CREATE TYPE` writes are `ATTRIBUTE` entities, children of the type
 (`db:HR.TY_POINT.X`), found and used the same way; an attribute a subtype inherits is its supertype's. An attribute an

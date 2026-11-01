@@ -7,6 +7,14 @@ package com.felipebz.zpa.atlas.query
 
 import java.sql.Connection
 
+/**
+ * A `CONTAINS` edge `r` that does not lead into a routine's own declarations: its local variables and constants, and the
+ * types it declares (a type whose parent is not a package), with their fields. A package's or type's members are its
+ * spec's and body's, never what its routines declare inside them: those stay out of "who uses" and "Impact".
+ */
+private const val NOT_ROUTINE_OWN = """AND NOT EXISTS (SELECT 1 FROM entity c JOIN entity p ON p.id = r.from_id WHERE c.id = r.to_id
+        AND (c.kind IN ('LOCAL_VARIABLE', 'LOCAL_CONSTANT') OR c.kind = 'TYPE' AND p.kind <> 'PACKAGE'))"""
+
 /** "Who uses" an entity and the values it receives, over one open connection. */
 internal class UsageReader(private val connection: Connection) {
 
@@ -53,7 +61,7 @@ internal class UsageReader(private val connection: Connection) {
         """WITH RECURSIVE scope(id) AS (
                SELECT id FROM entity WHERE key = ?
                UNION SELECT p.id FROM entity e $PARAMETER_PARTNERS WHERE e.key = ? AND e.kind = 'PARAMETER' AND ?
-               UNION SELECT r.to_id FROM relation r JOIN scope s ON r.from_id = s.id WHERE ? AND r.kind = 'CONTAINS')
+               UNION SELECT r.to_id FROM relation r JOIN scope s ON r.from_id = s.id WHERE ? AND r.kind = 'CONTAINS' $NOT_ROUTINE_OWN)
            SELECT e.key, g.reasons FROM uses_gap g JOIN scope s ON s.id = g.entity_id JOIN entity e ON e.id = g.entity_id ORDER BY e.key""",
         listOf(key, key, implementations, children)
     ) { UsesGap(it.getString(1), it.getString(2).split(',')) }.ifEmpty { null }
@@ -98,7 +106,7 @@ internal class UsageReader(private val connection: Connection) {
                    UNION SELECT p.id FROM self s JOIN entity e ON e.id = s.id AND e.kind = 'PARAMETER' $PARAMETER_PARTNERS WHERE ?),
                  scope(id) AS (
                    SELECT id FROM linked
-                   UNION SELECT r.to_id FROM relation r JOIN scope s ON r.from_id = s.id WHERE ? AND r.kind = 'CONTAINS'),
+                   UNION SELECT r.to_id FROM relation r JOIN scope s ON r.from_id = s.id WHERE ? AND r.kind = 'CONTAINS' $NOT_ROUTINE_OWN),
                  viewed(id) AS (
                    SELECT id FROM scope
                    UNION SELECT r.from_id FROM viewed v JOIN relation r ON r.to_id = v.id WHERE ? AND r.kind = 'VIEW_BASE'

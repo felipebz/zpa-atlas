@@ -82,8 +82,9 @@ class BodyTypesTest {
             "$img.WIDTH RECORD_FIELD $img",
             "db:~.PACK_IMG.T_IMGS@BODY TYPE db:~.PACK_IMG"
         )
-        // A type declared inside a subprogram has no entity.
-        assertThat(Fixture.query(db, "SELECT key FROM entity WHERE name IN ('T_INNER', 'Q')")).isEmpty()
+        // A type declared inside a subprogram is the subprogram's own (RoutineLocalsTest).
+        assertThat(Fixture.query(db, "SELECT key FROM entity WHERE name IN ('T_INNER', 'Q') ORDER BY 1"))
+            .containsExactly("db:~.PACK_IMG.RUN()@BODY.T_INNER", "db:~.PACK_IMG.RUN()@BODY.T_INNER.Q")
     }
 
     @Test
@@ -101,13 +102,15 @@ class BodyTypesTest {
             "10:10 t_imgs db:~.PACK_IMG.T_IMGS@BODY TYPE_USE RESOLVED",
             "13:8 t_code db:~.PACK_IMG.T_CODE@BODY TYPE_USE RESOLVED",
             "14:8 t_cur db:~.PACK_IMG.T_CUR@BODY TYPE_USE RESOLVED",
+            "16:8 t_inner db:~.PACK_IMG.RUN()@BODY.T_INNER TYPE_USE RESOLVED",   // RUN's own type
             "18:8 width $img.WIDTH WRITE RESOLVED",
             "19:15 height $img.HEIGHT READ RESOLVED",
             "20:13 tag $img.TAG WRITE RESOLVED",            // a field of an element
             "21:10 width $img.WIDTH WRITE RESOLVED",
-            "21:28 width $img.WIDTH READ RESOLVED"
+            "21:28 width $img.WIDTH READ RESOLVED",
+            "22:8 q db:~.PACK_IMG.RUN()@BODY.T_INNER.Q WRITE RESOLVED"
             // T_DUP, declared in the spec and again in the body: zpa decides neither (line 12, line 23), so neither entity
-            // is used. T_INNER and Q, declared in RUN: no entity, no use (lines 16, 22).
+            // is used.
         )
     }
 

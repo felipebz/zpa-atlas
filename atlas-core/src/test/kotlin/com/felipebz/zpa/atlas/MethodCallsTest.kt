@@ -21,10 +21,12 @@ class MethodCallsTest {
     private val db by lazy { Fixture.index(temp.resolve("fixture.db")) }
 
     /** The occurrences of [line] as `col written key roles`. */
+    /** The occurrences of [line] but the uses of the routine's own variables (RoutineLocalsTest). */
     private fun line(line: Int) = Fixture.query(db,
         """SELECT o.start_col || '-' || o.end_col || ' ' || o.written || ' ' || coalesce(e.key, '-') || ' ' || o.roles
            FROM occurrence o JOIN source_file f ON f.id = o.file_id LEFT JOIN entity e ON e.id = o.entity_id
-           WHERE f.path = 'hr/pack_methods.pkb' AND o.start_line = $line ORDER BY o.id""")
+           WHERE f.path = 'hr/pack_methods.pkb' AND o.start_line = $line
+             AND coalesce(e.kind, '-') NOT IN ('LOCAL_VARIABLE', 'LOCAL_CONSTANT') ORDER BY o.id""")
 
     @Test
     fun `a method of an indexed element is not a call`() {

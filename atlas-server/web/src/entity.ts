@@ -28,7 +28,16 @@ import {
     valueKindLabel
 } from "./entity-html";
 import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
-import {entityPath, entityTags, isBodyOwn, membersGapKey, places, routineRows, usesGapKey} from "./entity-view";
+import {
+    entityPath,
+    entityTags,
+    isBodyOwn,
+    localOf,
+    membersGapKey,
+    places,
+    routineRows,
+    usesGapKey
+} from "./entity-view";
 import {kindOrder} from "./kinds";
 import {
     codeBreaksHtml,
@@ -154,6 +163,9 @@ function headerHtml(entity: EntityDetail, direct: number) {
   const facts = [...places(entity).map(p => placeHtml(p, entity, statusOf(p))), `<span id="ent-uses">${esc(t("search.usages", { count: direct }))}</span>`];
   // A body's own variable, constant or type is not part of the package's interface: said in words, first.
   if (isBodyOwn(entity)) facts.unshift(`<span class="private-note">${esc(t("entity.privateBody"))}</span>`);
+  // A routine's own variable or constant: whose it is, first.
+  const local = localOf(entity);
+  if (local) facts.unshift(fillHtml("entity.localOf." + entity.kind, { routine: `<a class="mono" href="${entityHref(local.key)}">${esc(local.name)}</a>` }));
   // Uses the index could not record cannot be ruled out: said beside the count, so it is not read as the whole answer.
   const gap = usesGapKey(entity.usesIncomplete);
   if (gap !== null) facts.push(`<span class="uses-gap">${esc(t(gap))}</span>`);

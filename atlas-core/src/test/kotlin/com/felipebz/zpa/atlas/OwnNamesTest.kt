@@ -23,11 +23,12 @@ class OwnNamesTest {
 
     private val db by lazy { Fixture.index(temp.resolve("fixture.db")) }
 
-    /** The non-definition occurrences of [path] at [line] as `written key roles reason`. */
+    /** The non-definition occurrences of [path] at [line] as `written key roles reason`, but a routine's own variables' (RoutineLocalsTest). */
     private fun line(path: String, line: Int) = Fixture.query(db,
         """SELECT o.written || ' ' || coalesce(e.key, '-') || ' ' || o.roles || ' ' || coalesce(o.reason, '-')
            FROM occurrence o JOIN source_file f ON f.id = o.file_id LEFT JOIN entity e ON e.id = o.entity_id
-           WHERE f.path = '$path' AND o.start_line = $line AND o.roles NOT IN ('DEFINITION', 'DECLARATION') ORDER BY o.id""")
+           WHERE f.path = '$path' AND o.start_line = $line AND o.roles NOT IN ('DEFINITION', 'DECLARATION')
+             AND coalesce(e.kind, '-') NOT IN ('LOCAL_VARIABLE', 'LOCAL_CONSTANT') ORDER BY o.id""")
 
     private fun body(line: Int) = line("hr/pack_scoped.pkb", line)
 

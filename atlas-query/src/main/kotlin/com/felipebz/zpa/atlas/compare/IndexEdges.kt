@@ -7,7 +7,7 @@ package com.felipebz.zpa.atlas.compare
 
 import java.sql.Connection
 import java.sql.ResultSet
-import java.util.Locale
+import java.util.*
 
 internal class IndexUnit(val id: Long, val kind: String, val name: String, val path: String, val encoding: String, val span: IntArray, val obj: DbObjectId?)
 
@@ -97,6 +97,8 @@ internal fun readIndexSide(connection: Connection, runSchema: String?, defaultOw
         // A definition or declaration names the unit's own entity (a parameter may be named like a table): it is
         // neither an edge (the body -> spec edge comes from IMPLEMENTS) nor evidence about another object.
         if (declaringOnly(roles)) return@forEach
+        // A routine's own variable, constant or type is inside the unit: it names no object, as Oracle records none.
+        if (entityId != null && projection.isRoutineOwn(entityId)) return@forEach
         var target: Target? = null
         var effectiveStatus = status
         if (edgeStatus && entityId != null) {
@@ -165,6 +167,18 @@ private fun mapUnits(connection: Connection, runSchema: String?, defaultOwner: S
 /** The object an entity projects to, cached per entity. */
 private class Projection(private val entities: Map<Long, EntityRow>) {
     private val projections = HashMap<Long, Target>()
+
+    /** Whether [id] is what a routine declares for itself: a local variable or constant, a type it declares, or such a type's field. */
+    fun isRoutineOwn(id: Long): Boolean {
+        val row = entities.getValue(id)
+        val parent = row.parent?.let(entities::getValue)
+        return when (row.kind) {
+            "LOCAL_VARIABLE", "LOCAL_CONSTANT" -> true
+            "TYPE" -> parent != null && parent.kind != "PACKAGE"
+            "RECORD_FIELD" -> row.parent != null && isRoutineOwn(row.parent)
+            else -> false
+        }
+    }
 
     fun project(id: Long): Target = projections.getOrPut(id) {
         var row = entities.getValue(id)
