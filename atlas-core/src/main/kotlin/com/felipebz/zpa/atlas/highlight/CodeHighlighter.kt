@@ -27,8 +27,11 @@ data class HighlightSpan(val startLine: Int, val startCol: Int, val endLine: Int
  * them.
  */
 object CodeHighlighter {
-    /** The two kinds of skipped conditional-compilation text: trivia for the highlighter, never a colored token. */
-    private val SKIPPED = setOf(PlSqlTokenType.CONDITIONAL_BRANCH_BOUNDARY, PlSqlTokenType.CONDITIONAL_DIRECTIVE)
+    /** The kinds of skipped conditional-compilation text, decided by the settings or not: trivia, never a colored token. */
+    private val SKIPPED = setOf(
+        PlSqlTokenType.CONDITIONAL_BRANCH_BOUNDARY, PlSqlTokenType.CONDITIONAL_DIRECTIVE,
+        PlSqlTokenType.CONDITIONAL_DECIDED_BOUNDARY, PlSqlTokenType.CONDITIONAL_DECIDED_DIRECTIVE
+    )
 
     /**
      * The spans of [text] in source order, with the flags and database version as the run stores them (`run.ccflags`,

@@ -28,8 +28,8 @@ internal class ConditionNameReads(
             if (!trivia.isSkippedText) continue
             val skipped = trivia.token
             val whole = when (skipped.type) {
-                PlSqlTokenType.CONDITIONAL_BRANCH_BOUNDARY -> false
-                PlSqlTokenType.CONDITIONAL_DIRECTIVE -> true
+                PlSqlTokenType.CONDITIONAL_BRANCH_BOUNDARY, PlSqlTokenType.CONDITIONAL_DECIDED_BOUNDARY -> false
+                PlSqlTokenType.CONDITIONAL_DIRECTIVE, PlSqlTokenType.CONDITIONAL_DECIDED_DIRECTIVE -> true
                 else -> continue
             }
             val text = skipped.originalValue
