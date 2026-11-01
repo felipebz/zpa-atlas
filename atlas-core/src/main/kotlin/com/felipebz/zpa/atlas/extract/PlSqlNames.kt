@@ -32,7 +32,9 @@ internal class PlSqlNames(
     private val jsonBuiltIn: Boolean,
     projectAnalysis: ProjectAnalysis,
     /** The body globals and parameters, whose uses zpa's name binding finds. */
-    private val bound: BoundNames
+    private val bound: BoundNames,
+    /** The record fields the chains read here name, asked when the file is left. */
+    private val fields: FieldUses
 ) {
     private val ownNames = OwnNames(typeMembers)
     private val segmentValues = SegmentValues(calls, values)
@@ -64,6 +66,7 @@ internal class PlSqlNames(
         if (isMethodCall && node.previousSiblingOrNull?.type == PlSqlPunctuator.DOT) return
         val callee = if (isMethodCall) node.firstChild else node
         if (context.hasHoles(callee)) return
+        fields.chain(callee, nameSegments(callee).orEmpty(), context, statementId)
         val kind = if (!isMethodCall || node.parent.type == PlSqlGrammar.CALL_STATEMENT) ProjectCallKind.PROCEDURE else ProjectCallKind.FUNCTION
         val actuals = if (isMethodCall) node.getFirstChildOrNull(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT).orEmpty() else emptyList()
         remoteName(callee)?.takeIf { it.segments.size in 1..3 }?.let {
@@ -176,6 +179,7 @@ internal class PlSqlNames(
         val segments = (if (attribute) attributeName(name, parts) else nameSegments(name)) ?: return
         val span = spanOf(parts.first(), parts.last())
         val text = parts.joinToString("") { writtenText(it) }
+        if (!attribute) fields.chain(name, segments, context, statementId)
         if (!attribute && name.type == PlSqlGrammar.MEMBER_EXPRESSION && segments.size in 2..3 && normalizeIdentifier(segments.last()) in PSEUDOCOLUMNS) {
             sequenceNames.sequenceReference(name, segments, context, statementId)
             return

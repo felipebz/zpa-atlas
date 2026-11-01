@@ -17,6 +17,10 @@ The parameters of package subprograms, standalone subprograms and package cursor
 found the same way. A use in a package body is the body parameter's (`…@BODY.P_ID`); the spec parameter's "who uses"
 follows it there. Parameters of nested subprograms and of object type methods are not entities.
 
+The fields of a package spec's record types are entities with uses: each name in a chain that zpa says is the field
+(`g_rec.code`, `g_rows(1).items`), with the roles of the value the chain starts from; after a function call, only read.
+Fields of record types declared in a body or a subprogram, and object type attributes, are not entities.
+
 ## Occurrence
 
 One place in the source where an entity is defined or used. It has roles and a status.

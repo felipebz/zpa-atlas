@@ -36,6 +36,9 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
 
     private val keysById = HashMap<ProjectDeclarationId, String>()
 
+    /** Record field entity by the start of its declaration (file id, line, column), where zpa places a field. */
+    private val fieldsByStart = HashMap<Triple<String, Int, Int>, String>()
+
     /** Parameter entity keys by owner key (subprogram or cursor) and normalized name: one shared instance per key. */
     private val parameterKeys = HashMap<String, HashMap<String, String>>()
 
@@ -66,6 +69,9 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
      * package and sequence has one, so a missing id is a bug (an id of another snapshot), not a coverage gap.
      */
     fun keyOf(id: ProjectDeclarationId): String = keysById[id] ?: error("No entity for declaration $id")
+
+    /** The record field entity declared at [line] and [column] (the start of its declaration) of [fileId], or null. */
+    fun fieldAt(fileId: String, line: Int, column: Int): String? = fieldsByStart[Triple(fileId, line, column)]
 
     fun isPrivate(id: ProjectDeclarationId): Boolean = id in privateBodies
 
@@ -163,7 +169,9 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
                         val fieldName = normalizeIdentifier(field.name.originalSpelling)
                         val fieldKey = "$key.$fieldName"
                         entity(fieldKey, EntityKind.RECORD_FIELD, schema, fieldName, key)
-                        occurrence(fileId, field.sourceRange.toSpan(), field.name.originalSpelling, fieldKey, role, null)
+                        val fieldSpan = field.sourceRange.toSpan()
+                        occurrence(fileId, fieldSpan, field.name.originalSpelling, fieldKey, role, null)
+                        fieldsByStart.putIfAbsent(Triple(fileId, fieldSpan.startLine, fieldSpan.startCol), fieldKey)
                     }
                 }
                 if (declaration is ProjectPackageCursorView) {

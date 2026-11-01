@@ -60,6 +60,7 @@ class FileExtractor(
     private lateinit var triggers: Triggers
     private lateinit var plsql: PlSqlNames
     private lateinit var bodyGlobals: BodyGlobals
+    private lateinit var fields: FieldUses
     private lateinit var typeReferences: TypeReferences
     private lateinit var sql: SqlStatements
     private lateinit var lineage: ViewLineage
@@ -85,7 +86,8 @@ class FileExtractor(
             bound.add(NameDeclarationKind.PARAMETER, declaration.span.startLine, declaration.span.startCol, declaration.entityKey)
         }
         bodyGlobals = BodyGlobals(bound)
-        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, projectAnalysis(), bound)
+        fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding)
+        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, projectAnalysis(), bound, fields)
         triggers = Triggers(state, resolver, plsql)
         typeReferences = TypeReferences(state, types, resolver, calls, plsql, jsonBuiltIn)
         val columnReads = ColumnReads(state, resolver, scopes, plsql, context::nameBinding)
@@ -120,6 +122,11 @@ class FileExtractor(
             }
         }
         variableTexts()
+    }
+
+    /** zpa resolves the members after an element, a call result or another file's package variable only now. */
+    override fun leaveFile(node: AstNode) {
+        fields.record()
         result = build(ParseStatus.OK.takeIf { state.recoveredRegions == 0 } ?: ParseStatus.RECOVERED)
     }
 

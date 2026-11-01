@@ -28,11 +28,18 @@ class MethodCallsTest {
 
     @Test
     fun `a method of an indexed element is not a call`() {
-        // `i_doc(1).items.exists(1)`, `.next(n)`: no call of a name ITEMS; the parameter I_DOC is read.
-        assertThat(line(8)).containsExactly("7-12 i_doc db:HR.PACK_METHODS.RUN(I_DOC IN T_DOC_TAB)@BODY.I_DOC READ")
-        assertThat(line(11)).containsExactly("9-14 i_doc db:HR.PACK_METHODS.RUN(I_DOC IN T_DOC_TAB)@BODY.I_DOC READ")
+        // `i_doc(1).items.exists(1)`, `.next(n)`: no call of a name ITEMS; the parameter I_DOC and its field ITEMS are read.
+        assertThat(line(8)).containsExactly(
+            "7-12 i_doc db:HR.PACK_METHODS.RUN(I_DOC IN T_DOC_TAB)@BODY.I_DOC READ", "16-21 items db:HR.PACK_METHODS.T_DOC.ITEMS READ"
+        )
+        assertThat(line(11)).containsExactly(
+            "9-14 i_doc db:HR.PACK_METHODS.RUN(I_DOC IN T_DOC_TAB)@BODY.I_DOC READ", "18-23 items db:HR.PACK_METHODS.T_DOC.ITEMS READ"
+        )
         // `i_doc(1).line_rec(1).line_no`: the field LINE_REC is not a constructor of the record type LINE_REC.
-        assertThat(line(9)).containsExactly("11-16 i_doc db:HR.PACK_METHODS.RUN(I_DOC IN T_DOC_TAB)@BODY.I_DOC READ")
+        assertThat(line(9)).containsExactly(
+            "11-16 i_doc db:HR.PACK_METHODS.RUN(I_DOC IN T_DOC_TAB)@BODY.I_DOC READ",
+            "20-28 line_rec db:HR.PACK_METHODS.T_DOC.LINE_REC READ", "32-39 line_no db:HR.PACK_METHODS.LINE_REC.LINE_NO READ"
+        )
     }
 
     @Test
