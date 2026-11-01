@@ -10,7 +10,7 @@ import com.felipebz.zpa.api.DmlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.project.ProjectParameterMode
-import com.felipebz.zpa.atlas.model.*
+import com.felipebz.zpa.atlas.model.Role
 
 /** The roles of a name from where it is written, and from the modes of the resolved calls it is an actual of. */
 internal class NameRoles(private val state: FileState) {
@@ -31,7 +31,8 @@ internal class NameRoles(private val state: FileState) {
 
     /**
      * The roles of a value: `WRITE` for an assignment target, an `INTO` target, an actual bound to an `OUT`
-     * formal of a resolved call or a modifying collection method; `READ` and `WRITE` for an `IN OUT` formal; else `READ`.
+     * formal of a resolved call or a modifying collection method ([endsInModifyingMethod]); `READ` and `WRITE` for an
+     * `IN OUT` formal; else `READ`.
      */
     fun valueRoles(name: AstNode, segments: List<String>): Set<Role> {
         var expression = name
@@ -55,8 +56,25 @@ internal class NameRoles(private val state: FileState) {
                 else -> Unit
             }
         }
-        if (segments.size >= 2 && normalizeIdentifier(segments.last()) in MODIFYING_METHODS) return setOf(Role.WRITE)
+        if (endsInModifyingMethod(expression, segments)) return setOf(Role.WRITE)
         return setOf(Role.READ)
+    }
+
+    /**
+     * Whether the chain [expression] (the value's whole written chain) ends in a method that changes a collection:
+     * `v.delete`, `pkg.v.extend(2)`, and through elements and fields, `v(1).items.delete`, `v(i).items.trim`. Whatever
+     * the chain passes through, the collection changed is part of the value it starts from. [segments] are the
+     * value's own dotted segments, the whole chain when it is a plain dotted name.
+     */
+    private fun endsInModifyingMethod(expression: AstNode, segments: List<String>): Boolean {
+        val method = if (expression.type == PlSqlGrammar.OBJECT_REFERENCE) {
+            // The member after the last dot: `items.delete` or `items.delete(1)` (a member chain, maybe called).
+            val last = expression.lastChild.let { if (it.type == PlSqlGrammar.METHOD_CALL) it.firstChild else it }
+            (if (last.type == PlSqlGrammar.MEMBER_EXPRESSION) last.lastChild else last).tokenOriginalValue
+        } else {
+            segments.takeIf { it.size >= 2 }?.last() ?: return false
+        }
+        return normalizeIdentifier(method) in MODIFYING_METHODS
     }
 }
 

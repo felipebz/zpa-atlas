@@ -1,4 +1,44 @@
 ## occurrence
+hr/collection_writes.sql	1:0-9:9	pk_r	db:HR.PK_R	DECLARATION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	2:2-2:33	t_nums	db:HR.PK_R.T_NUMS	DECLARATION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	3:2-3:38	t_row	db:HR.PK_R.T_ROW	DECLARATION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	3:24-3:36	items	db:HR.PK_R.T_ROW.ITEMS	DECLARATION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	3:30-3:36	t_nums	db:HR.PK_R.T_NUMS	TYPE_USE	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	4:2-4:53	t_rows	db:HR.PK_R.T_ROWS	DECLARATION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	4:26-4:31	t_row	db:HR.PK_R.T_ROW	TYPE_USE	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	5:2-5:16	s_rows	db:HR.PK_R.S_ROWS	DECLARATION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	5:9-5:15	t_rows	db:HR.PK_R.T_ROWS	TYPE_USE	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	6:2-6:14	s_rec	db:HR.PK_R.S_REC	DECLARATION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	6:8-6:13	t_row	db:HR.PK_R.T_ROW	TYPE_USE	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	7:2-7:16	run	db:HR.PK_R.RUN()	DECLARATION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	8:2-8:43	f_row	db:HR.PK_R.F_ROW(P IN NUMBER)	DECLARATION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	8:17-8:28	p	db:HR.PK_R.F_ROW(P IN NUMBER).P	DECLARATION	RESOLVED	-	db:HR.PK_R.F_ROW(P IN NUMBER)	-
+hr/collection_writes.sql	8:37-8:42	t_row	db:HR.PK_R.T_ROW	TYPE_USE	RESOLVED	-	db:HR.PK_R.F_ROW(P IN NUMBER)	-
+hr/collection_writes.sql	11:0-29:9	pk_r	db:HR.PK_R	DEFINITION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	12:2-12:16	g_rows	db:HR.PK_R.G_ROWS@BODY	DEFINITION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	12:9-12:15	t_rows	db:HR.PK_R.T_ROWS	TYPE_USE	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	13:2-13:14	g_rec	db:HR.PK_R.G_REC@BODY	DEFINITION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	13:8-13:13	t_row	db:HR.PK_R.T_ROW	TYPE_USE	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	14:2-14:70	f_row	db:HR.PK_R.F_ROW(P IN NUMBER)@BODY	DEFINITION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	14:17-14:28	p	db:HR.PK_R.F_ROW(P IN NUMBER)@BODY.P	DEFINITION	RESOLVED	-	db:HR.PK_R.F_ROW(P IN NUMBER)@BODY	-
+hr/collection_writes.sql	14:37-14:42	t_row	db:HR.PK_R.T_ROW	TYPE_USE	RESOLVED	-	db:HR.PK_R.F_ROW(P IN NUMBER)@BODY	-
+hr/collection_writes.sql	14:59-14:64	g_rec	db:HR.PK_R.G_REC@BODY	READ	RESOLVED	-	db:HR.PK_R.F_ROW(P IN NUMBER)@BODY	-
+hr/collection_writes.sql	15:2-28:6	run	db:HR.PK_R.RUN()@BODY	DEFINITION	RESOLVED	-	db:HR.PK_R	-
+hr/collection_writes.sql	17:4-17:10	g_rows	db:HR.PK_R.G_ROWS@BODY	WRITE	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	18:4-18:10	g_rows	db:HR.PK_R.G_ROWS@BODY	WRITE	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	19:4-19:10	g_rows	db:HR.PK_R.G_ROWS@BODY	WRITE	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	20:4-20:10	g_rows	db:HR.PK_R.G_ROWS@BODY	WRITE	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	21:4-21:22	g_rec.items.delete	db:HR.PK_R.G_REC@BODY	WRITE	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	22:4-22:22	g_rec.items.extend	db:HR.PK_R.G_REC@BODY	WRITE	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	23:4-23:15	pk_r.g_rows	db:HR.PK_R.G_ROWS@BODY	WRITE	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	24:4-24:17	g_rows.delete	db:HR.PK_R.G_ROWS@BODY	WRITE	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	25:4-25:10	g_rows	db:HR.PK_R.G_ROWS@BODY	WRITE	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	26:4-26:9	f_row	db:HR.PK_R.F_ROW(P IN NUMBER)	CALL	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	27:7-27:13	g_rows	db:HR.PK_R.G_ROWS@BODY	READ	RESOLVED	-	db:HR.PK_R.RUN()@BODY	-
+hr/collection_writes.sql	31:0-36:4	use_r	db:HR.USE_R()	DEFINITION	RESOLVED	-	db:HR.USE_R()	-
+hr/collection_writes.sql	33:2-33:13	pk_r.s_rows	db:HR.PK_R.S_ROWS	WRITE	RESOLVED	-	db:HR.USE_R()	-
+hr/collection_writes.sql	34:2-34:25	pk_r.s_rec.items.extend	db:HR.PK_R.S_REC	WRITE	RESOLVED	-	db:HR.USE_R()	-
+hr/collection_writes.sql	35:2-35:20	pk_r.s_rows.delete	db:HR.PK_R.S_ROWS	WRITE	RESOLVED	-	db:HR.USE_R()	-
 hr/conditional.sql	1:0-4:4	cc_flags	db:HR.CC_FLAGS	DECLARATION	RESOLVED	-	db:HR.CC_FLAGS	-
 hr/conditional.sql	2:2-2:34	debug	db:HR.CC_FLAGS.DEBUG	DECLARATION	RESOLVED	-	db:HR.CC_FLAGS	-
 hr/conditional.sql	3:2-3:21	trace_on	db:HR.CC_FLAGS.TRACE_ON()	DECLARATION	RESOLVED	-	db:HR.CC_FLAGS	-
@@ -1989,6 +2029,23 @@ scripts/load.sql	10:12-10:23	unknown_tab	db:HR.UNKNOWN_TAB	SQL_INSERT	UNRESOLVED
 scripts/load.sql	11:7-11:14	company	db:HR.COMPANY	SQL_UPDATE	RESOLVED	-	-	UPDATE
 scripts/load.sql	11:20-11:29	st_active	db:HR.COMPANY.ST_ACTIVE	SQL_UPDATE,WRITE	RESOLVED	-	-	UPDATE
 ## occurrence_name
+hr/collection_writes.sql	1:0-9:9	pk_r	1:26-1:30
+hr/collection_writes.sql	2:2-2:33	t_nums	2:7-2:13
+hr/collection_writes.sql	3:2-3:38	t_row	3:7-3:12
+hr/collection_writes.sql	3:24-3:36	items	3:24-3:29
+hr/collection_writes.sql	4:2-4:53	t_rows	4:7-4:13
+hr/collection_writes.sql	5:2-5:16	s_rows	5:2-5:8
+hr/collection_writes.sql	6:2-6:14	s_rec	6:2-6:7
+hr/collection_writes.sql	7:2-7:16	run	7:12-7:15
+hr/collection_writes.sql	8:2-8:43	f_row	8:11-8:16
+hr/collection_writes.sql	8:17-8:28	p	8:17-8:18
+hr/collection_writes.sql	11:0-29:9	pk_r	11:31-11:35
+hr/collection_writes.sql	12:2-12:16	g_rows	12:2-12:8
+hr/collection_writes.sql	13:2-13:14	g_rec	13:2-13:7
+hr/collection_writes.sql	14:2-14:70	f_row	14:11-14:16
+hr/collection_writes.sql	14:17-14:28	p	14:17-14:18
+hr/collection_writes.sql	15:2-28:6	run	15:12-15:15
+hr/collection_writes.sql	31:0-36:4	use_r	31:28-31:33
 hr/conditional.sql	1:0-4:4	cc_flags	1:26-1:34
 hr/conditional.sql	2:2-2:34	debug	2:2-2:7
 hr/conditional.sql	3:2-3:21	trace_on	3:12-3:20
@@ -3204,6 +3261,21 @@ db:HR.PACK_TYPES.S_COMPANY_NAME	TYPE	HR	S_COMPANY_NAME	db:HR.PACK_TYPES	HR.PACK_
 db:HR.PACK_TYPES.T_COMPANY_TAB	TYPE	HR	T_COMPANY_TAB	db:HR.PACK_TYPES	HR.PACK_TYPES.T_COMPANY_TAB	0
 db:HR.PARTIAL_T	TABLE	HR	PARTIAL_T	-	HR.PARTIAL_T	0
 db:HR.PARTIAL_T.ID	COLUMN	HR	ID	db:HR.PARTIAL_T	HR.PARTIAL_T.ID	0
+db:HR.PK_R	PACKAGE	HR	PK_R	-	HR.PK_R	0
+db:HR.PK_R.F_ROW(P IN NUMBER)	FUNCTION	HR	F_ROW	db:HR.PK_R	HR.PK_R.F_ROW(P IN NUMBER)	0
+db:HR.PK_R.F_ROW(P IN NUMBER).P	PARAMETER	HR	P	db:HR.PK_R.F_ROW(P IN NUMBER)	HR.PK_R.F_ROW(P IN NUMBER).P	0
+db:HR.PK_R.F_ROW(P IN NUMBER)@BODY	FUNCTION	HR	F_ROW	db:HR.PK_R	HR.PK_R.F_ROW(P IN NUMBER)@BODY	0
+db:HR.PK_R.F_ROW(P IN NUMBER)@BODY.P	PARAMETER	HR	P	db:HR.PK_R.F_ROW(P IN NUMBER)@BODY	HR.PK_R.F_ROW(P IN NUMBER)@BODY.P	0
+db:HR.PK_R.G_REC@BODY	PACKAGE_VARIABLE	HR	G_REC	db:HR.PK_R	HR.PK_R.G_REC@BODY	0
+db:HR.PK_R.G_ROWS@BODY	PACKAGE_VARIABLE	HR	G_ROWS	db:HR.PK_R	HR.PK_R.G_ROWS@BODY	0
+db:HR.PK_R.RUN()	PROCEDURE	HR	RUN	db:HR.PK_R	HR.PK_R.RUN()	0
+db:HR.PK_R.RUN()@BODY	PROCEDURE	HR	RUN	db:HR.PK_R	HR.PK_R.RUN()@BODY	0
+db:HR.PK_R.S_REC	PACKAGE_VARIABLE	HR	S_REC	db:HR.PK_R	HR.PK_R.S_REC	0
+db:HR.PK_R.S_ROWS	PACKAGE_VARIABLE	HR	S_ROWS	db:HR.PK_R	HR.PK_R.S_ROWS	0
+db:HR.PK_R.T_NUMS	TYPE	HR	T_NUMS	db:HR.PK_R	HR.PK_R.T_NUMS	0
+db:HR.PK_R.T_ROW	TYPE	HR	T_ROW	db:HR.PK_R	HR.PK_R.T_ROW	0
+db:HR.PK_R.T_ROW.ITEMS	RECORD_FIELD	HR	ITEMS	db:HR.PK_R.T_ROW	HR.PK_R.T_ROW.ITEMS	0
+db:HR.PK_R.T_ROWS	TYPE	HR	T_ROWS	db:HR.PK_R	HR.PK_R.T_ROWS	0
 db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	PROCEDURE	HR	PROC_COLUMNS	-	HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	0
 db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).ID	PARAMETER	HR	ID	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).ID	0
 db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).MSG	PARAMETER	HR	MSG	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).MSG	0
@@ -3292,6 +3364,7 @@ db:HR.T_COPY2	UNKNOWN_RELATION	HR	T_COPY2	-	HR.T_COPY2	1
 db:HR.UNKNOWN_B	UNKNOWN_RELATION	HR	UNKNOWN_B	-	HR.UNKNOWN_B	1
 db:HR.UNKNOWN_B.FLAG	COLUMN	HR	FLAG	db:HR.UNKNOWN_B	HR.UNKNOWN_B.FLAG	1
 db:HR.UNKNOWN_TAB	UNKNOWN_RELATION	HR	UNKNOWN_TAB	-	HR.UNKNOWN_TAB	1
+db:HR.USE_R()	PROCEDURE	HR	USE_R	-	HR.USE_R()	0
 db:HR.V_ACTIVE_COMPANY	VIEW	HR	V_ACTIVE_COMPANY	-	HR.V_ACTIVE_COMPANY	0
 db:HR.V_ACTIVE_COMPANY.COMPANY_NAME	COLUMN	HR	COMPANY_NAME	db:HR.V_ACTIVE_COMPANY	HR.V_ACTIVE_COMPANY.COMPANY_NAME	0
 db:HR.V_ACTIVE_COMPANY.ID	COLUMN	HR	ID	db:HR.V_ACTIVE_COMPANY	HR.V_ACTIVE_COMPANY.ID	0
@@ -4003,6 +4076,22 @@ db:HR.PACK_TYPES.NAME_OF(P_ID IN COMPANY.ID%TYPE)@BODY	IMPLEMENTS	db:HR.PACK_TYP
 db:HR.PACK_TYPES.R_PAIR	CONTAINS	db:HR.PACK_TYPES.R_PAIR.COUNTER
 db:HR.PACK_TYPES.R_PAIR	CONTAINS	db:HR.PACK_TYPES.R_PAIR.ID
 db:HR.PARTIAL_T	CONTAINS	db:HR.PARTIAL_T.ID
+db:HR.PK_R	CONTAINS	db:HR.PK_R.F_ROW(P IN NUMBER)
+db:HR.PK_R	CONTAINS	db:HR.PK_R.F_ROW(P IN NUMBER)@BODY
+db:HR.PK_R	CONTAINS	db:HR.PK_R.G_REC@BODY
+db:HR.PK_R	CONTAINS	db:HR.PK_R.G_ROWS@BODY
+db:HR.PK_R	CONTAINS	db:HR.PK_R.RUN()
+db:HR.PK_R	CONTAINS	db:HR.PK_R.RUN()@BODY
+db:HR.PK_R	CONTAINS	db:HR.PK_R.S_REC
+db:HR.PK_R	CONTAINS	db:HR.PK_R.S_ROWS
+db:HR.PK_R	CONTAINS	db:HR.PK_R.T_NUMS
+db:HR.PK_R	CONTAINS	db:HR.PK_R.T_ROW
+db:HR.PK_R	CONTAINS	db:HR.PK_R.T_ROWS
+db:HR.PK_R.F_ROW(P IN NUMBER)	CONTAINS	db:HR.PK_R.F_ROW(P IN NUMBER).P
+db:HR.PK_R.F_ROW(P IN NUMBER)@BODY	CONTAINS	db:HR.PK_R.F_ROW(P IN NUMBER)@BODY.P
+db:HR.PK_R.F_ROW(P IN NUMBER)@BODY	IMPLEMENTS	db:HR.PK_R.F_ROW(P IN NUMBER)
+db:HR.PK_R.RUN()@BODY	IMPLEMENTS	db:HR.PK_R.RUN()
+db:HR.PK_R.T_ROW	CONTAINS	db:HR.PK_R.T_ROW.ITEMS
 db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	CONTAINS	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).ID
 db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	CONTAINS	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).MSG
 db:HR.PROC_DOC_REPORT(P_DAY IN DATE)	CONTAINS	db:HR.PROC_DOC_REPORT(P_DAY IN DATE).P_DAY
@@ -4228,6 +4317,7 @@ db:~.PACK_REQ@FAR	CONTAINS	db:~.PACK_REQ@FAR.REOPEN
 db:~.PACK_REQ@FAR.EXAMPLE.COM	CONTAINS	db:~.PACK_REQ@FAR.EXAMPLE.COM.CLOSE_REQ
 db:~.PACK_REQ@FAR.EXAMPLE.COM	CONTAINS	db:~.PACK_REQ@FAR.EXAMPLE.COM.GET_MAX
 ## source_file
+hr/collection_writes.sql	DB_SOURCE	911	HR	OK	0
 hr/conditional.sql	DB_SOURCE	1562	HR	OK	0
 hr/fn_company_name.fun	DB_SOURCE	241	HR	OK	0
 hr/imp_amb.prc	DB_SOURCE	72	HR	OK	0
@@ -4341,6 +4431,9 @@ scripts/it_load.sql	DB_SOURCE	64	HR	OK	0
 scripts/load.sql	DB_SOURCE	626	HR	OK	0
 scripts/text_tags.sql	DB_SOURCE	30	HR	OK	0
 ## unit
+hr/collection_writes.sql	PACKAGE	PK_R	db:HR.PK_R	1:0-9:9
+hr/collection_writes.sql	PACKAGE_BODY	PK_R	db:HR.PK_R	11:0-29:9
+hr/collection_writes.sql	PROCEDURE	USE_R	db:HR.USE_R()	31:0-36:4
 hr/conditional.sql	PACKAGE	CC_FLAGS	db:HR.CC_FLAGS	1:0-4:4
 hr/conditional.sql	PACKAGE	CC_NESTED	db:HR.CC_NESTED	6:0-8:4
 hr/conditional.sql	PACKAGE	PACK_COND	db:HR.PACK_COND	10:0-17:4
@@ -4946,6 +5039,7 @@ hr/proc_columns.prc	12:76	id	db:HR.SEND_QUEUE.ID
 hr/proc_synonyms.prc	11:19	table_name	db:SYS.USER_TABLES.TABLE_NAME
 hr/proc_synonyms.prc	11:19	table_name	db:SYS.USER_TAB_COLUMNS.TABLE_NAME
 ## call_argument
+hr/collection_writes.sql	26:4	f_row	1	-	db:HR.PK_R.F_ROW(P IN NUMBER).P	26:10-26:11	NUMBER	1
 hr/conditional.sql	29:13	count	1	-	-	29:19-29:20	EXPRESSION	-
 hr/conditional.sql	37:13	count	1	-	-	37:19-37:20	EXPRESSION	-
 hr/conditional.sql	55:44	run_new	1	-	-	55:52-55:53	NUMBER	1
@@ -5376,6 +5470,13 @@ scripts/load.sql	6:26	st_active	db:COMPANY@REMOTE.ST_ACTIVE	1	STRING	S	6:38-6:41
 scripts/load.sql	11:20	st_active	db:HR.COMPANY.ST_ACTIVE	1	STRING	S	11:41-11:44
 ## coverage_note
 -	CALL_SCOPE_LEGACY	Calls named like a local value, type or nested subprogram are recognized through the legacy symbol table, a heuristic rather than proof of lexical scope
+hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 17 has a callee that is not a plain name
+hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 18 has a callee that is not a plain name
+hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 19 has a callee that is not a plain name
+hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 20 has a callee that is not a plain name
+hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 23 has a callee that is not a plain name
+hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 26 has a callee that is not a plain name
+hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 33 has a callee that is not a plain name
 hr/it_writers.sql	WRITE_VALUE_UNKNOWN	4 column write(s) without a value: SET ROW
 hr/pack_args.pkb	LOCAL_ANCHOR	1 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
 hr/pack_chains.pkb	LOCAL_ANCHOR	5 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
@@ -5697,6 +5798,15 @@ db:HR.PACK_TYPES.NAME_OF(P_ID IN COMPANY.ID%TYPE)@BODY	s_company_name	-	0
 db:HR.PACK_TYPES.NAME_OF(P_ID IN COMPANY.ID%TYPE)@BODY.P_ID	company.id%type	-	0
 db:HR.PACK_TYPES.R_PAIR.COUNTER	pack_process.g_counter%type	-	0
 db:HR.PACK_TYPES.R_PAIR.ID	company.id%type	-	0
+db:HR.PK_R.F_ROW(P IN NUMBER)	t_row	-	0
+db:HR.PK_R.F_ROW(P IN NUMBER).P	number	-	0
+db:HR.PK_R.F_ROW(P IN NUMBER)@BODY	t_row	-	0
+db:HR.PK_R.F_ROW(P IN NUMBER)@BODY.P	number	-	0
+db:HR.PK_R.G_REC@BODY	t_row	-	0
+db:HR.PK_R.G_ROWS@BODY	t_rows	-	0
+db:HR.PK_R.S_REC	t_row	-	0
+db:HR.PK_R.S_ROWS	t_rows	-	0
+db:HR.PK_R.T_ROW.ITEMS	t_nums	-	0
 db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).ID	number	-	0
 db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).MSG	varchar2	-	0
 db:HR.PROC_DOC_REPORT(P_DAY IN DATE).P_DAY	date	-	0
