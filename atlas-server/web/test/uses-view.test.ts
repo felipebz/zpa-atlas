@@ -1,13 +1,16 @@
 import {describe, expect, it} from "vitest";
 import type {CallArgument, EntitySummary, OccurrenceRow} from "../src/api";
+import {shownLine} from "../src/text-search";
 import {
     ARGUMENT_CUT,
     argumentChip,
     enclosingRoutine,
     groupOf,
+    nameLength,
     programWithin,
     rowNaming,
-    shownStatement
+    shownStatement,
+    useMark
 } from "../src/uses-view";
 
 const entity = (key: string, kind: string, display: string, name: string): EntitySummary => ({ key, kind, display, external: false, name });
@@ -138,5 +141,67 @@ describe("programWithin", () => {
     expect(programWithin(closeMonth, page)).toBe("APP");
     expect(programWithin(entity("db:APP.LEDGER_PKG_EXT.RUN()", "PROCEDURE", "APP.LEDGER_PKG_EXT.RUN()", "RUN"), page)).toBe("APP");
     expect(programWithin(post)).toBe("APP");
+  });
+});
+
+describe("useMark", () => {
+  // Invented code: a list with two uses on one line, the first at column 12, the second at column 46.
+  const line = "      if (l.list_data(i).mapname is null or l.list_data(i).mapname like 'row%') then";
+  const at = (startCol: number, endCol: number, endLine = 79) => ({ startLine: 79, startCol, endLine, endCol });
+  /** The marked text of [line] as a row shows it, its indentation left out. */
+  const marked = (marks: Array<[number, number]>) => {
+    const shown = shownLine(line, marks, null);
+    return shown.pieces.filter(p => p.mark).map(p => shown.text.slice(p.from, p.to));
+  };
+
+  it("marks each row's own span: two uses on one line mark two places", () => {
+    const first = useMark(at(12, 21), line);
+    const second = useMark(at(46, 55), line);
+    expect(first).toEqual([[12, 21]]);
+    expect(second).toEqual([[46, 55]]);
+    expect(marked(first)).toEqual(["list_data"]);
+    expect(marked(second)).toEqual(["list_data"]);
+    expect(shownLine(line, second, null).pieces.find(p => p.mark)!.from).toBe(46 - 6);
+  });
+
+  it("marks a span that goes past its line to the end of the line", () => {
+    const from = line.indexOf("'row%'");
+    expect(useMark(at(from, 3, 81), line)).toEqual([[from, line.length]]);
+    expect(marked(useMark(at(from, 3, 81), line))).toEqual(["'row%') then"]);
+  });
+
+  it("marks nothing past the end of a line that does not reach the span", () => {
+    expect(useMark(at(90, 99), line)).toEqual([]);
+  });
+
+  it("ends the mark of a chain's start at the entity's own name", () => {
+    // `l.list_data(i).mapname`: a use of the parameter L, its span and written the whole chain.
+    const written = "l.list_data(i).mapname";
+    const named = { written, length: nameLength(written, "L") };
+    expect(marked(useMark(at(10, 32), line, named))).toEqual(["l"]);
+    // The use of LIST_DATA itself: its span is the name already.
+    expect(marked(useMark(at(12, 21), line, { written: "list_data", length: nameLength("list_data", "LIST_DATA") }))).toEqual(["list_data"]);
+    // A line that no longer has the written name where the span starts: the whole span, never a guessed place.
+    expect(useMark(at(10, 32), line, { written: "x.list_data", length: 1 })).toEqual([[10, 32]]);
+  });
+});
+
+describe("nameLength", () => {
+  it("is the length up to the end of the entity's name, a qualifier before it included", () => {
+    expect(nameLength("p_img.color_tab", "P_IMG")).toBe(5);
+    expect(nameLength("m_ctx.h", "M_CTX")).toBe(5);
+    expect(nameLength("workbook.numFmtIndexes", "WORKBOOK")).toBe(8);
+    expect(nameLength("bindvar.get_keys", "BINDVAR")).toBe(7);
+    expect(nameLength("ledger_pkg.g_total.amount", "G_TOTAL")).toBe("ledger_pkg.g_total".length);
+    expect(nameLength("l_rows (l_count).data_type", "L_ROWS")).toBe(6);
+    expect(nameLength("\"MyRec\".f", "MyRec")).toBe(7);
+  });
+
+  it("is null when the written name is the entity's name alone, or does not hold it", () => {
+    expect(nameLength("p_img", "P_IMG")).toBeNull();
+    expect(nameLength("ledger_pkg.g_total", "G_TOTAL")).toBeNull();
+    expect(nameLength("other.thing", "P_IMG")).toBeNull();
+    expect(nameLength("\"MyRec\".f", "MYREC")).toBeNull();
+    expect(nameLength("p_img.color_tab", null)).toBeNull();
   });
 });

@@ -241,14 +241,25 @@ class AtlasIndex(
     }
 
     /**
-     * The lines around [line] of an indexed file, or null when sources are not available (no root, or no file).
+     * The lines around [line] of an indexed file, or null when sources are not available (no root, or no file). With
+     * [colors], each line's colored spans ([SourceSnippet.colors]); none when there is no colorer.
      *
      * @throws InvalidQueryException when [path] is not a file of the index or leaves the sources root
      */
-    fun source(path: String, line: Int, context: Int = 3): Answer<SourceSnippet?> {
+    fun source(path: String, line: Int, context: Int = 3, colors: Boolean = false): Answer<SourceSnippet?> {
         if (line < 1) throw InvalidQueryException("line must be at least 1")
         if (context !in 0..50) throw InvalidQueryException("context must be between 0 and 50")
-        return read { connection, _ -> SourceReader(connection, sourcesRoot).source(path, line, context) }
+        return read { connection, _ -> SourceReader(connection, sourcesRoot).source(path, line, context, colorer.takeIf { colors }) }
+    }
+
+    /**
+     * The line each occurrence of [ids] starts on, as indexed (served or not, changed since or not), in the order of
+     * [ids] (an id the index does not have is left out): what a page of uses shows of every row with one request. With
+     * [colors], each line's colored spans, as the text search colors its rows; none when there is no colorer.
+     */
+    fun occurrenceLines(ids: List<Long>, colors: Boolean = false): Answer<List<OccurrenceLine>> {
+        if (ids.size > 500) throw InvalidQueryException("At most 500 ids")
+        return read { connection, _ -> SourceReader(connection, sourcesRoot).occurrenceLines(ids.distinct(), colorer.takeIf { colors }) }
     }
 
     /**

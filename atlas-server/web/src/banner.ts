@@ -1,5 +1,8 @@
 import type {Answer, RunAnswer, RunStamp, RunSummary, SourceSnippet} from "./api";
 import {api, errorMessage} from "./api";
+import {appendPieces} from "./code-line";
+import {shownLine} from "./text-search";
+import type {UseMark} from "./uses-view";
 import {parseLabel} from "./entity-html";
 import {setupGoto} from "./goto";
 import {esc, langSuffix} from "./html";
@@ -159,13 +162,28 @@ export async function showUser(after: HTMLElement) {
   after.after(user);
 }
 
-export async function sourceLine(path: string, line: number, target: HTMLElement, context?: number) {
+/**
+ * The lines around [line] of [path] into [target], read from the file, colored as the file page colors them, [line]
+ * highlighted and, when given, [mark] marked on it. Laid out as the file page lays out a file: the numbers in a column
+ * of their own that stays while the code scrolls inside the box. A file changed since indexing shows no mark (the
+ * text read now may not be the indexed one) and says it changed.
+ */
+export async function sourceLine(path: string, line: number, target: HTMLElement, context?: number, mark?: (text: string) => UseMark) {
   try {
-    const answer = await api<Answer<SourceSnippet>>("api/source", { path, line, context: context ?? 0 });
+    const answer = await api<Answer<SourceSnippet>>("api/source", { path, line, context: context ?? 0, colors: true });
     const s = answer.result;
-    target.innerHTML = `<pre class="src">${s.lines.map(l =>
-      `<span class="${l.number === line ? "hl" : ""}">${String(l.number).padStart(5)}  ${esc(l.text)}</span>`).join("\n")}</pre>` +
-      (s.stale ? `<div class="muted">${esc(t("source.stale"))}</div>` : "");
+    const pre = document.createElement("pre");
+    pre.className = "src";
+    const lines = pre.appendChild(Object.assign(document.createElement("span"), { className: "src-lines" }));
+    s.lines.forEach((l, i) => {
+      const row = lines.appendChild(Object.assign(document.createElement("span"), { className: l.number === line ? "sl hl" : "sl" }));
+      row.appendChild(Object.assign(document.createElement("span"), { className: "n", textContent: String(l.number) }));
+      const code = row.appendChild(Object.assign(document.createElement("span"), { className: "c" }));
+      const marks = l.number === line && mark && !s.stale ? mark(l.text) : null;
+      appendPieces(code, shownLine(l.text, marks, s.colors?.[i], true));
+    });
+    target.replaceChildren(pre);
+    if (s.stale) target.insertAdjacentHTML("beforeend", `<div class="muted">${esc(t("source.stale"))}</div>`);
   } catch (e) {
     target.innerHTML = `<span class="muted">${esc(t("source.unavailable", { error: errorMessage(e) }))}</span>`;
   }

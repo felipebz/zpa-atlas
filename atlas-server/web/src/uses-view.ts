@@ -83,6 +83,74 @@ export function shownStatement(row: OccurrenceRow): string | null {
   return kind;
 }
 
+/** A use's span: lines from 1, columns from 0, the end exclusive. */
+export interface UseSpan {
+  startLine: number;
+  startCol: number;
+  endLine: number;
+  endCol: number;
+}
+
+/** The places a use marks on its line, `[startCol, endCol]`. */
+export type UseMark = Array<[number, number]>;
+
+/**
+ * The place a use marks on [line], the line its span starts on as indexed: from `span.startCol` to the end of the
+ * entity's own name when [named] says where that is (a chain's start, `p_img.color_tab`, marks `p_img`), else to
+ * `span.endCol`, or to the end of the line when the span goes past it. None when the span does not fall on the line.
+ */
+export function useMark(span: UseSpan, line: string, named?: { written: string; length: number | null }): UseMark {
+  let to = span.endLine > span.startLine ? line.length : Math.min(span.endCol, line.length);
+  // The name's end, when the line still has the written name where the span starts.
+  if (named && named.length !== null && line.startsWith(named.written.slice(0, named.length), span.startCol)) {
+    to = Math.min(to, span.startCol + named.length);
+  }
+  return span.startCol < to ? [[span.startCol, to]] : [];
+}
+
+/**
+ * How much of [written], a use as written, names the entity [name]: up to the end of the first dotted segment that is
+ * the name, a qualifier before it included (`pkg.g_x.f` is `pkg.g_x` for `G_X`); null when no segment is the name or
+ * the name is the last segment (then the span is the name already). A segment is compared as Oracle names it: a
+ * double-quoted one as written, any other in upper case.
+ */
+export function nameLength(written: string, name: string | null | undefined): number | null {
+  if (!name) return null;
+  let at = 0;
+  while (at < written.length) {
+    // The segment's identifier: a quoted name, or the run of identifier characters.
+    let end: number;
+    let segment: string;
+    if (written[at] === "\"") {
+      const close = written.indexOf("\"", at + 1);
+      if (close < 0) return null;
+      end = close + 1;
+      segment = written.slice(at + 1, close);
+    } else {
+      const match = /^[A-Za-z0-9_$#]*/.exec(written.slice(at))!;
+      end = at + match[0].length;
+      segment = match[0].toUpperCase();
+    }
+    if (segment === name) {
+      const rest = written.slice(end);
+      return /^\s*$/.test(rest) ? null : end;
+    }
+    // The next segment: after the next dot outside quotes and parentheses; none ends the name.
+    let depth = 0;
+    let next = -1;
+    for (let i = end; i < written.length; i++) {
+      const c = written[i];
+      if (c === "(") depth++;
+      else if (c === ")") depth--;
+      else if (c === "." && depth === 0) { next = i + 1; break; }
+    }
+    if (next < 0) return null;
+    at = next;
+    while (at < written.length && /\s/.test(written[at])) at++;
+  }
+  return null;
+}
+
 /** How many argument chips show before a `+N` chip; past [ARGUMENT_CUT] characters a value is cut. */
 export const ARGUMENTS_SHOWN = 4;
 export const ARGUMENT_CUT = 40;

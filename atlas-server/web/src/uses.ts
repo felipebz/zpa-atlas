@@ -1,17 +1,22 @@
-import type {CallArgument, Count, EntitySummary, OccurrenceRow} from "./api";
+import type {Answer, CallArgument, Count, EntitySummary, OccurrenceLine, OccurrenceRow} from "./api";
+import {api} from "./api";
 import {sourceLine} from "./banner";
+import {codeLineNode} from "./code-line";
 import {entityLink, kindBadge, nameHtml, roleLabel, statusBadge, unitKindLabel, valueKindLabel} from "./entity-html";
 import {entityHref, esc, langSuffix, lineLink, literalText} from "./html";
 import {formatNumber, t} from "./i18n";
+import {shownLine} from "./text-search";
 import type {UsesContext, UsesGroup} from "./uses-view";
 import {
     argumentChip,
     ARGUMENTS_SHOWN,
     enclosingRoutine,
     groupOf,
+    nameLength,
     programWithin,
     rowNaming,
-    shownStatement
+    shownStatement,
+    useMark
 } from "./uses-view";
 
 // ---- "who uses" rows, grouped by the program they are in ----------------------------------------------------------
@@ -61,6 +66,7 @@ export function usesBlock(context: UsesContext = {}): UsesBlock {
   return {
     element,
     append(rows) {
+      const placed = new Map<number, { row: OccurrenceRow; element: HTMLElement }>();
       for (const row of rows) {
         const group = groupOf(row, context.grouping);
         let state = groups.get(group.key);
@@ -73,6 +79,9 @@ export function usesBlock(context: UsesContext = {}): UsesBlock {
           groups.set(group.key, state);
         }
         state.element.insertAdjacentHTML("beforeend", useRowHtml(row, context));
+        const shownRow = state.element.lastElementChild as HTMLElement;
+        placed.set(row.id, { row, element: shownRow });
+        rowsShown.set(shownRow, row);
         state.count++;
         if (!state.paths.includes(row.path)) {
           state.paths.push(row.path);
@@ -89,8 +98,40 @@ export function usesBlock(context: UsesContext = {}): UsesBlock {
         count.title = t("usage.listed", { count: state.count });
       }
       if (rows.length) element.hidden = false;
+      void showLines(placed);
     }
   };
+}
+
+/** The row each "who uses" row element shows, for its marks. */
+const rowsShown = new WeakMap<HTMLElement, OccurrenceRow>();
+
+/** What [row] marks on [line]: its span, ended at the entity's own name when the row is a chain's start. */
+function rowMark(row: OccurrenceRow, line: string) {
+  return useMark(row.span, line, { written: row.written, length: nameLength(row.written, (row.matched ?? row.entity)?.name) });
+}
+
+/**
+ * The line of each row just placed, as indexed, fetched for the whole page at once: without its leading whitespace,
+ * colored, the row's use marked. A file changed since indexing keeps its line and mark and says it changed; a line the
+ * index holds no text for leaves the row as it was.
+ */
+async function showLines(placed: Map<number, { row: OccurrenceRow; element: HTMLElement }>) {
+  if (placed.size === 0) return;
+  let lines: OccurrenceLine[];
+  try {
+    lines = (await api<Answer<OccurrenceLine[]>>("api/occurrence-lines", { ids: [...placed.keys()].join(","), colors: true })).result;
+  } catch {
+    return;
+  }
+  for (const line of lines) {
+    const target = placed.get(line.id);
+    if (!target || line.text === null) continue;
+    const holder = target.element.querySelector<HTMLElement>(".uline")!;
+    holder.append(codeLineNode(shownLine(line.text, rowMark(target.row, line.text), line.colors)));
+    if (line.stale) holder.insertAdjacentHTML("beforeend", `<span class="badge warn-badge">${esc(t("text.stale"))}</span>`);
+    holder.hidden = false;
+  }
 }
 
 const fileLink = (path: string) =>
@@ -134,7 +175,7 @@ function useRowHtml(row: OccurrenceRow, context: UsesContext) {
   const status = row.status === "RESOLVED" ? "" : " " + statusBadge(row.status, row.reason);
   const at = lineLink(row.path, row.span.startLine, t("usage.at", { line: row.span.startLine, column: row.span.startCol }));
   return `<div class="use" data-path="${esc(row.path)}" data-line="${row.span.startLine}"><span class="at">${at}</span>
-    <div class="what">${head}${argumentsHtml(row.arguments)}${written}${via}${others}</div>
+    <div class="what"><div class="uline" hidden></div>${head}${argumentsHtml(row.arguments)}${written}${via}${others}</div>
     <span class="how" title="${esc(row.roles.join(", "))}">${esc(row.roles.map(roleLabel).join(", "))}${statementHtml}${status}</span>
     <button type="button" class="snip" title="${esc(t("source.show"))}">▸</button></div>`;
 }
@@ -162,7 +203,8 @@ export function setupUseRows() {
       return;
     }
     row.insertAdjacentHTML("afterend", `<div class="snippet"></div>`);
-    sourceLine(row.dataset.path!, Number(row.dataset.line), row.nextElementSibling as HTMLElement, 2);
+    const shown = rowsShown.get(row);
+    sourceLine(row.dataset.path!, Number(row.dataset.line), row.nextElementSibling as HTMLElement, 2, shown && (text => rowMark(shown, text)));
     button.textContent = "▾";
   });
 }

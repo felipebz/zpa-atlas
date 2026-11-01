@@ -328,6 +328,18 @@ export interface SourceSnippet {
   path: string;
   lines: SourceLine[];
   stale: boolean;
+  /** With `colors=true`: one list per line, each `[startCol, endCol, color]`; null when unreadable. */
+  colors?: number[][][] | null;
+}
+
+/** The line an occurrence starts on, as the server reads its file now (`api/occurrence-lines`). */
+export interface OccurrenceLine {
+  id: number;
+  /** Null when the file cannot be read or no longer has the line. */
+  text: string | null;
+  /** The file changed since indexing: the occurrence's span may no longer be at its place. Null when unreadable. */
+  stale: boolean | null;
+  colors: number[][] | null;
 }
 
 /** One occurrence of a [FileView]: the span of its name, and [entity] and [candidates] as indexes into [FileView.entities]. */

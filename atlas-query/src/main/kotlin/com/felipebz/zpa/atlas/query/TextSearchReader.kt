@@ -73,35 +73,12 @@ internal class TextSearchReader(private val connection: Connection, private val 
         )
     }
 
-    /**
-     * The colors of each row of [page], by row id, as `[startCol, endCol, color]` on its line: from its whole file, read
-     * once, when the file is served as indexed; from the line alone when the file changed since indexing or cannot be
-     * read (the whole text would not be the one the line came from). A row the colorer cannot read has none.
-     */
+    /** The colors of each row of [page], by row id, as [SourceReader.lineColors] reads them for its line as indexed. */
     private fun lineColors(reader: SourceReader, colorer: CodeColorer, page: List<TextHit>, served: Map<String, SourceReader.SourceText?>): Map<Long, List<List<Int>>> {
         val result = HashMap<Long, List<List<Int>>>()
         for ((path, hits) in page.groupBy { it.path }) {
-            val file = served.getValue(path)
-            if (file != null && !file.stale) {
-                val spans = reader.colorsOf(colorer, file.text) ?: continue
-                val wanted = hits.associateBy { it.line }
-                val byLine = HashMap<Int, MutableList<List<Int>>>()
-                for (span in spans) {
-                    val (startLine, startCol, endLine, endCol, color) = span
-                    for (line in startLine..endLine) {
-                        val hit = wanted[line] ?: continue
-                        val from = if (line == startLine) startCol else 0
-                        val to = if (line == endLine) endCol else hit.text.length
-                        if (to > from) byLine.getOrPut(line) { ArrayList() } += listOf(from, to, color)
-                    }
-                }
-                for (hit in hits) result[hit.id] = byLine[hit.line].orEmpty()
-            } else {
-                for (hit in hits) {
-                    val spans = reader.colorsOf(colorer, hit.text) ?: continue
-                    result[hit.id] = spans.filter { it[0] == 1 }.map { listOf(it[1], if (it[2] == 1) it[3] else hit.text.length, it[4]) }
-                }
-            }
+            val byLine = reader.lineColors(colorer, served.getValue(path), hits.associate { it.line to it.text })
+            for (hit in hits) byLine[hit.line]?.let { result[hit.id] = it }
         }
         return result
     }

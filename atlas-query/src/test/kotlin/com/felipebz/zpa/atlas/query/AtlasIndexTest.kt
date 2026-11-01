@@ -410,6 +410,43 @@ class AtlasIndexTest {
         assertThatThrownBy { index.source("hr/nao_indexado.sql", 1) }.isInstanceOf(InvalidQueryException::class.java)
     }
 
+    @Test
+    fun `occurrence lines give each use's line as indexed, served or not, and say when its file changed`() {
+        val rows = index.queryOccurrences(OccurrenceQuery(path = "hr/proc_standalone.prc"), summary = false).result.rows.filter { it.span.startLine == 3 }
+        assertThat(rows).hasSizeGreaterThanOrEqualTo(2)
+        val ids = rows.map { it.id }
+        val lines = index.occurrenceLines(ids + 999_999_999L).result
+        // In the order asked, an unknown id left out; each the line its span starts on.
+        assertThat(lines.map { it.id }).isEqualTo(ids)
+        assertThat(lines.map { it.text to it.stale }).containsOnly("  delete company where id = p_id;" to false)
+
+        // A changed file keeps the indexed line, so the span is still on it, and says it changed.
+        val copy = temp.resolve("lines-sources")
+        Fixture.sources.toFile().copyRecursively(copy.toFile())
+        Files.writeString(copy.resolve("hr/proc_standalone.prc"), "a\nb\nchanged line\n")
+        val edited = AtlasIndex(db, copy).occurrenceLines(ids).result
+        assertThat(edited.map { it.text to it.stale }).containsOnly("  delete company where id = p_id;" to true)
+        // Without sources: the same line, its file's state unknown.
+        assertThat(AtlasIndex(db, null).occurrenceLines(ids).result.map { it.text to it.stale }).containsOnly("  delete company where id = p_id;" to null)
+        assertThatThrownBy { index.occurrenceLines(List(501) { it.toLong() }) }.isInstanceOf(InvalidQueryException::class.java)
+    }
+
+    @Test
+    fun `occurrence lines find the indexed line of every file, early or late in the index`() {
+        // The last occurrence of each file of the whole index.
+        val all = generateSequence(index.queryOccurrences(OccurrenceQuery(), limit = 500, summary = false).result) { page ->
+            page.nextAfter?.let { index.queryOccurrences(OccurrenceQuery(), after = it, limit = 500, summary = false).result }
+        }.flatMap { it.rows }.toList()
+        val page = all.groupBy { it.path }.values.map { it.last() }.take(500)
+        assertThat(page.size).isGreaterThan(20)
+        val lines = index.occurrenceLines(page.map { it.id }).result.associateBy { it.id }
+        for (row in page) {
+            val expected = Fixture.sources.resolve(row.path).toFile().readText().lines()[row.span.startLine - 1]
+            if (expected.length < 3) continue
+            assertThat(lines.getValue(row.id).text).describedAs("${row.path}:${row.span.startLine}").isEqualTo(expected)
+        }
+    }
+
     private fun FileView.at(line: Int, col: Int) =
         occurrences.filter { it.at[0] == line && it.at[1] == col }.map { "${it.at.joinToString(",")} ${it.entity?.let { e -> entities[e].key }} ${it.roles}" }
 

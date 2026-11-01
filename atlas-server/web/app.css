@@ -186,8 +186,19 @@ tr:hover > td { background: var(--surface-2); }
 .chip { display: inline-block; border: 1px solid var(--border-strong); border-radius: 999px; padding: 2px 10px; margin: 2px; cursor: pointer; font-size: var(--fs-xs);
   background: var(--surface); color: var(--fg); }
 .chip.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
-pre.src { background: var(--surface-2); padding: 4px 8px; margin: 2px 0; overflow-x: auto; font-size: var(--fs-xs); }
-pre.src .hl { background: var(--hl); }
+/*
+ * A row's source, laid out as the file page lays out a file: each line a block as wide as its code, the number in a
+ * column of its own that stays at the left while the code scrolls inside the box, the code a block of its own so a tab
+ * stop counts from its first character.
+ */
+pre.src { background: var(--surface-2); padding: 4px 0; margin: 2px 0; overflow-x: auto; font-size: var(--fs-xs); tab-size: var(--tab-width); }
+pre.src .src-lines { display: block; width: max-content; min-width: 100%; }
+pre.src .sl { display: block; }
+pre.src .sl .n { position: sticky; left: 0; display: inline-block; width: 5ch; padding-right: 1ch; margin-right: 1ch; text-align: right;
+  color: var(--faint); background: var(--surface-2); user-select: none; }
+pre.src .sl .c { display: inline-block; padding-right: 8px; }
+pre.src .sl.hl, pre.src .sl.hl .n { background: var(--hl); }
+pre.src mark { background: var(--mark); color: inherit; border-radius: 2px; }
 .muted { color: var(--muted); }
 .warn.inline { border: 1px solid var(--warning-line); border-radius: var(--radius); margin: 8px 0; }
 
@@ -551,14 +562,16 @@ button.more-rows { margin-top: 6px; }
 .tline > a { text-align: right; color: var(--faint); text-decoration: none; font-variant-numeric: tabular-nums; }
 .tline > a:hover { color: var(--accent); }
 /*
- * A found line wraps with its continuation rows 2 characters in, while its tab stops count from its first character:
- * they count from the box's left edge, so the first row starts there (text-indent -2ch, then the 2ch padding of the
- * inline box around the text), and every later row gets the same padding again (box-decoration-break: clone). The
- * `hanging` keyword of text-indent would say this directly, but Chromium does not support it.
+ * A line of code shown in a row (a found line, a use's line) wraps with its continuation rows 2 characters in, while its
+ * tab stops count from its first character: they count from the box's left edge, so the first row starts there
+ * (text-indent -2ch, then the 2ch padding of the inline box around the text), and every later row gets the same padding
+ * again (box-decoration-break: clone). The `hanging` keyword of text-indent would say this directly, but Chromium does
+ * not support it.
  */
-.tline > code { display: block; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; text-indent: -2ch; tab-size: var(--tab-width); }
-.tline > code > .flow { padding-left: 2ch; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
-.tline mark { background: var(--mark); color: inherit; border-radius: 2px; }
+code.cl { display: block; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; text-indent: -2ch; tab-size: var(--tab-width); }
+code.cl > .flow { padding-left: 2ch; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+code.cl mark { background: var(--mark); color: inherit; border-radius: 2px; }
+.use .uline { font-size: var(--fs-xs); line-height: 18px; margin-bottom: 2px; }
 button.more-rows { margin-top: 8px; }
 
 /* A file's parse status in the parse note's list. */

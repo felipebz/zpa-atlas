@@ -223,8 +223,15 @@ internal fun Route.indexApi(index: AtlasIndex, tabWidth: Int) {
     }
     get("/source") {
         val answer = index.source(call.required("path"), call.int("line") ?: throw InvalidQueryException("Missing parameter: line"),
-            call.int("context") ?: 3)
+            call.int("context") ?: 3, colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false)
         if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
+    }
+    // The lines of a page of uses, with their colors: one request per page, not per row.
+    get("/occurrence-lines") {
+        val ids = (call.list("ids") ?: throw InvalidQueryException("Missing parameter: ids")).map {
+            it.toLongOrNull() ?: throw InvalidQueryException("Not an occurrence id: $it")
+        }
+        call.respondJson(index.occurrenceLines(ids, colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false))
     }
     get("/text") {
         call.respondJson(index.searchText(call.required("text"), call.optional("path"), call.optional("container"),

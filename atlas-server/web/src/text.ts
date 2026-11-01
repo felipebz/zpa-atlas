@@ -1,6 +1,7 @@
 import type {Answer, EntitySummary, TextHit, TextPage} from "./api";
-import {api, CODE_COLORS, errorMessage} from "./api";
+import {api, errorMessage} from "./api";
 import {showBanner} from "./banner";
+import {codeLineNode} from "./code-line";
 import {nameHtml} from "./entity-html";
 import {entityHref, esc, langSuffix, lineLink} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
@@ -53,24 +54,7 @@ function message(text: string) {
 
 /** [hit]'s line as shown: without its leading whitespace, colored, each place the text matches inside a `<mark>`. */
 function lineNodes(hit: TextHit, text: string): HTMLElement {
-  const code = document.createElement("code");
-  // One inline box around the text: its left padding, repeated on every row it wraps to, indents the continuation rows.
-  const flow = code.appendChild(Object.assign(document.createElement("span"), { className: "flow" }));
-  const shown = shownLine(hit.text, matchesIn(hit.text, text), hit.colors);
-  let mark: HTMLElement | null = null;
-  for (const piece of shown.pieces) {
-    const part = piece.color === null ? document.createTextNode(shown.text.slice(piece.from, piece.to))
-      : Object.assign(document.createElement("span"), { className: "tok-" + CODE_COLORS[piece.color], textContent: shown.text.slice(piece.from, piece.to) });
-    // Consecutive marked pieces share one mark, whatever their colors.
-    if (piece.mark) {
-      if (!mark) flow.append(mark = document.createElement("mark"));
-      mark.append(part);
-    } else {
-      mark = null;
-      flow.append(part);
-    }
-  }
-  return code;
+  return codeLineNode(shownLine(hit.text, matchesIn(hit.text, text), hit.colors));
 }
 
 /** A path as HTML that may break only after a slash or an underscore. */

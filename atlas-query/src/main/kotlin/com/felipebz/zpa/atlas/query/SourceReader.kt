@@ -15,13 +15,99 @@ import java.sql.Connection
 /** Source snippets and the file view, read from [sourcesRoot] over one open connection. */
 internal class SourceReader(private val connection: Connection, private val sourcesRoot: Path?) {
 
-    /** [AtlasIndex.source] after its checks. */
-    fun source(path: String, line: Int, context: Int): SourceSnippet? {
+    /** [AtlasIndex.source] after its checks; with [colorer], each line's colors. */
+    fun source(path: String, line: Int, context: Int, colorer: CodeColorer? = null): SourceSnippet? {
         val file = sourceFile(path)
         val text = readSource(file) ?: return null
         val first = (line - context).coerceAtLeast(1)
         val last = (line + context).coerceAtMost(text.lines.size)
-        return SourceSnippet(path, (first..last).map { SourceLine(it, text.lines[it - 1]) }, text.stale)
+        val numbers = first..last
+        val colors = colorer?.let { lineColors(it, text, numbers.associateWith { number -> text.lines[number - 1] }) }
+        return SourceSnippet(path, numbers.map { SourceLine(it, text.lines[it - 1]) }, text.stale, colors?.let { byLine -> numbers.map { byLine[it].orEmpty() } })
+    }
+
+    /**
+     * The line each occurrence of [ids] starts on, as indexed ([AtlasIndex.occurrenceLines]): the text of its
+     * `source_line` row, so the occurrence's span is on it whether or not the file is served or changed since. [stale]
+     * says whether the file changed (null when the server cannot read it), each file read once; with [colorer], the
+     * colors as the text search gives them. An id the index does not have is left out.
+     */
+    fun occurrenceLines(ids: List<Long>, colorer: CodeColorer?): List<OccurrenceLine> {
+        if (ids.isEmpty()) return emptyList()
+        val found = connection.query(
+            "SELECT o.id, o.file_id, f.path, o.start_line FROM occurrence o JOIN source_file f ON f.id = o.file_id WHERE o.id IN (${ids.joinToString(",") { "?" }})",
+            ids
+        ) { OccurrenceAt(it.getLong(1), it.getLong(2), it.getString(3), it.getInt(4)) }
+        val result = HashMap<Long, OccurrenceLine>()
+        for ((fileId, rows) in found.groupBy { it.fileId }) {
+            val file = served(rows.first().path)
+            val texts = indexedLines(fileId, rows.mapTo(HashSet()) { it.line })
+            val colors = if (colorer == null || texts.isEmpty()) null else lineColors(colorer, file, texts)
+            for (row in rows) {
+                val text = texts[row.line]
+                result[row.id] = OccurrenceLine(row.id, text, file?.stale, if (text == null) null else colors?.get(row.line))
+            }
+        }
+        return ids.mapNotNull { result[it] }
+    }
+
+    private class OccurrenceAt(val id: Long, val fileId: Long, val path: String, val line: Int)
+
+    /**
+     * The indexed text of [lines] of the file [fileId], from `source_line`: its rowids count every line of every file
+     * in file order (a line shorter than three characters has no row), so a line's rowid is the file's first rowid plus
+     * the line less one. The file's first rowid is found by a binary search on rowids, each step one rowid lookup.
+     */
+    private fun indexedLines(fileId: Long, lines: Set<Int>): Map<Int, String> {
+        fun firstFrom(rowid: Long) = connection.query(
+            "SELECT rowid, file_id, line FROM source_line WHERE rowid >= ? ORDER BY rowid LIMIT 1", listOf(rowid)
+        ) { Triple(it.getLong(1), it.getLong(2), it.getInt(3)) }.firstOrNull()
+        var low = 1L
+        var high = connection.query("SELECT coalesce(max(rowid), 0) FROM source_line") { it.getLong(1) }.single() + 1
+        // The first row whose file is [fileId] or later.
+        while (low < high) {
+            val middle = low + (high - low) / 2
+            val row = firstFrom(middle)
+            if (row == null || row.second >= fileId) high = middle else low = row.first + 1
+        }
+        val first = firstFrom(low)?.takeIf { it.second == fileId } ?: return emptyMap()
+        val base = first.first - (first.third - 1)
+        val result = HashMap<Int, String>()
+        for (line in lines) {
+            connection.query("SELECT file_id, line, text FROM source_line WHERE rowid = ?", listOf(base + line - 1)) {
+                if (it.getLong(1) == fileId && it.getInt(2) == line) it.getString(3) else null
+            }.firstOrNull()?.let { result[line] = it }
+        }
+        return result
+    }
+
+    /**
+     * The colors of [lines] (line number to its text) as `[startCol, endCol, color]` on each line: from the whole of
+     * [file], read once, when it is served as indexed; from each line alone when the file changed since indexing or
+     * cannot be read (the whole text would not be the one the line came from). A line the colorer cannot read has none.
+     */
+    fun lineColors(colorer: CodeColorer, file: SourceText?, lines: Map<Int, String>): Map<Int, List<List<Int>>> {
+        val result = HashMap<Int, List<List<Int>>>()
+        if (file != null && !file.stale) {
+            val spans = colorsOf(colorer, file.text) ?: return result
+            val byLine = HashMap<Int, MutableList<List<Int>>>()
+            for (span in spans) {
+                val (startLine, startCol, endLine, endCol, color) = span
+                for (line in startLine..endLine) {
+                    val text = lines[line] ?: continue
+                    val from = if (line == startLine) startCol else 0
+                    val to = if (line == endLine) endCol else text.length
+                    if (to > from) byLine.getOrPut(line) { ArrayList() } += listOf(from, to, color)
+                }
+            }
+            for (line in lines.keys) result[line] = byLine[line].orEmpty()
+        } else {
+            for ((line, text) in lines) {
+                val spans = colorsOf(colorer, text) ?: continue
+                result[line] = spans.filter { it[0] == 1 }.map { listOf(it[1], if (it[2] == 1) it[3] else text.length, it[4]) }
+            }
+        }
+        return result
     }
 
     fun file(path: String, colorer: CodeColorer?): FileView? {

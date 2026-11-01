@@ -46,7 +46,9 @@ The top bar opens **Go to object…** (`Ctrl+K`, `⌘K` on a Mac, or `/` outside
 
 The index date in the bar opens what the index holds; when files failed to parse or were recovered, a note beside it
 lists them. An entity page shows its definition, contents, relations, triggers, the views reading it, and "Used by",
-filterable by role and status, with the source line. A package's or type's "Used by" lists the uses from other programs
+filterable by role and status, each use with its line as indexed (shown without the sources too), colored, the entity's
+name marked on it, and a note when the file changed since indexing; ▸ opens the lines around it from the file, unmarked
+when the file changed. A package's or type's "Used by" lists the uses from other programs
 first, grouped by calling program, and switches to the uses inside its own spec and body. Its "Impact" link opens what
 a change to the entity reaches, up to the entry points (the code nothing in the index calls), grouped by package, with
 the path behind each one and a CSV export.

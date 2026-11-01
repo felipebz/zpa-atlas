@@ -531,8 +531,20 @@ data class Codes(
 @Serializable
 data class SourceLine(val number: Int, val text: String)
 
+/**
+ * Lines of a file around one line. [colors], when asked for, has one list per line of [lines], each span as
+ * `[startCol, endCol, color]` (the [CodeColor] ordinal), read as [TextHit.colors] is; null when not asked or unreadable.
+ */
 @Serializable
-data class SourceSnippet(val path: String, val lines: List<SourceLine>, val stale: Boolean)
+data class SourceSnippet(val path: String, val lines: List<SourceLine>, val stale: Boolean, val colors: List<List<List<Int>>>? = null)
+
+/**
+ * The line occurrence [id] starts on, as indexed, so its span is on [text]: null only when the index holds no text for
+ * it (a line shorter than three characters). [stale] is true when the file changed since indexing, null when the server
+ * cannot read it; [colors] as [TextHit.colors], when asked for.
+ */
+@Serializable
+data class OccurrenceLine(val id: Long, val text: String?, val stale: Boolean?, val colors: List<List<Int>>? = null)
 
 /**
  * One occurrence of a [FileView], compact: [at] is the span of its name as `[startLine, startCol, endLine, endCol]`

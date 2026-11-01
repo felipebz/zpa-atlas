@@ -80,12 +80,13 @@ export interface LinePiece {
 }
 
 /**
- * A found line as shown: without its leading whitespace, so every line starts at the same column, cut into pieces at
- * every edge of a color ([colors], `[startCol, endCol, color]` on the whole line) and of a match ([matches]). A match
- * or a color that starts in the left-out whitespace starts at the shown text's first character.
+ * A found line as shown: without its leading whitespace, so every line starts at the same column (kept with
+ * [keepIndent], for lines shown as they stand in their file), cut into pieces at every edge of a color ([colors],
+ * `[startCol, endCol, color]` on the whole line) and of a match ([matches]). A match or a color that starts in the
+ * left-out whitespace starts at the shown text's first character.
  */
-export function shownLine(line: string, matches: Array<[number, number]> | null, colors: number[][] | null | undefined) {
-  const indent = line.length - line.trimStart().length;
+export function shownLine(line: string, matches: Array<[number, number]> | null, colors: number[][] | null | undefined, keepIndent = false) {
+  const indent = keepIndent ? 0 : line.length - line.trimStart().length;
   const text = line.slice(indent);
   const shift = (at: number) => Math.min(Math.max(at - indent, 0), text.length);
   const marks = (matches ?? []).map(([from, to]) => [shift(from), shift(to)] as const).filter(([from, to]) => to > from);
