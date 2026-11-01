@@ -10,10 +10,9 @@ import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.semantics.NameBinding
 import com.felipebz.zpa.api.semantics.NameDeclarationKind
-import com.felipebz.zpa.atlas.model.EntityFact
-import com.felipebz.zpa.atlas.model.EntityKind
-import com.felipebz.zpa.atlas.model.RelationFact
-import com.felipebz.zpa.atlas.model.RelationKind
+import com.felipebz.zpa.api.semantics.UsageEvidence
+import com.felipebz.zpa.api.semantics.UsageUncertainty
+import com.felipebz.zpa.atlas.model.*
 
 /**
  * The variables and constants a package body declares in its own declare section, outside any subprogram: globals the
@@ -27,7 +26,7 @@ import com.felipebz.zpa.atlas.model.RelationKind
  */
 internal class BodyGlobals(private val nameBinding: (AstNode) -> NameBinding) {
     /** One global: its entity, its declaration node and name, and the unit (the package body) it is declared in. */
-    class Global(val key: String, val packageKey: String, val node: AstNode, val name: AstNode, val unitIndex: Int, val partial: Boolean)
+    class Global(val key: String, val packageKey: String, val body: AstNode, val node: AstNode, val name: AstNode, val unitIndex: Int, val partial: Boolean)
 
     val declared = ArrayList<Global>()
     private val byName = HashMap<Long, String>()
@@ -48,8 +47,28 @@ internal class BodyGlobals(private val nameBinding: (AstNode) -> NameBinding) {
             val kind = if (item.hasDirectChildren(PlSqlKeyword.CONSTANT)) EntityKind.PACKAGE_CONSTANT else EntityKind.PACKAGE_VARIABLE
             state.entities += EntityFact(key, kind, schema, normalized, packageKey, key.removePrefix("db:"), external = false, precedence = Precedence.DECLARED)
             state.relations += RelationFact(packageKey, RelationKind.CONTAINS, key)
-            declared += Global(key, packageKey, item, name, unitIndex, partial)
+            declared += Global(key, packageKey, body, item, name, unitIndex, partial)
             byName.putIfAbsent(position(name.token.line, name.token.column), key)
+        }
+    }
+
+    /**
+     * The globals whose recorded uses may be incomplete, with what may hold the others, from zpa alone: the reasons of
+     * the global's [UsageEvidence.Unknown] (no use zpa is sure of, and a name or region it could not decide), and what
+     * [regionUncertainty] says the analysis cannot see in the package body, the global's whole scope (a `$IF`, a
+     * substitution, recovered or discarded text: names there may be uses zpa left undecided).
+     *
+     * Left out: a name in SQL that may be a column (the index records it, `UNVERIFIED`), and visibility outside the file
+     * (a body global has none). A global zpa proves unused, or whose uses it decided in a complete body, has no gap.
+     */
+    fun gaps(usageEvidence: (AstNode) -> UsageEvidence, regionUncertainty: (AstNode) -> Set<UsageUncertainty>?): List<UsesGapFact> {
+        val bodies = HashMap<AstNode, Set<UsageUncertainty>>()
+        return declared.mapNotNull { global ->
+            val reasons = sortedSetOf<UsageUncertainty>()
+            (usageEvidence(global.node) as? UsageEvidence.Unknown)?.let { reasons += it.reasons }
+            reasons += bodies.getOrPut(global.body) { regionUncertainty(global.body).orEmpty() }
+            reasons -= NOT_GAPS
+            if (reasons.isEmpty()) null else UsesGapFact(global.key, reasons.map { it.name })
         }
     }
 
@@ -83,4 +102,9 @@ internal class BodyGlobals(private val nameBinding: (AstNode) -> NameBinding) {
     }
 
     private fun position(line: Int, column: Int) = (line.toLong() shl 32) or column.toLong()
+
+    private companion object {
+        /** What the index records anyway, or what cannot apply to a body global. */
+        val NOT_GAPS = setOf(UsageUncertainty.SQL_NAME_MAY_BE_COLUMN, UsageUncertainty.VISIBLE_OUTSIDE_FILE)
+    }
 }

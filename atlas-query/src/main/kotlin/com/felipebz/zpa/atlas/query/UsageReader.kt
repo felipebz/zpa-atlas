@@ -41,8 +41,17 @@ internal class UsageReader(private val connection: Connection) {
         val remaining = filtered.filter { after == null || it.id > after }
         val page = remaining.take(limit)
         val nextAfter = if (remaining.size > limit) page.last().id else null
-        return OccurrencePage(rows(connection, page, unitEntities = sides), nextAfter, filtered.size.toLong(), facets)
+        return OccurrencePage(rows(connection, page, unitEntities = sides), nextAfter, filtered.size.toLong(), facets, usesGaps(key, Scope.CHILDREN in scope))
     }
+
+    /** The entities whose recorded uses may be incomplete: [key] itself and, with [children], its `CONTAINS` descendants. */
+    private fun usesGaps(key: String, children: Boolean): List<UsesGap>? = connection.query(
+        """WITH RECURSIVE scope(id) AS (
+               SELECT id FROM entity WHERE key = ?
+               UNION SELECT r.to_id FROM relation r JOIN scope s ON r.from_id = s.id WHERE ? AND r.kind = 'CONTAINS')
+           SELECT e.key, g.reasons FROM uses_gap g JOIN scope s ON s.id = g.entity_id JOIN entity e ON e.id = g.entity_id ORDER BY e.key""",
+        listOf(key, children)
+    ) { UsesGap(it.getString(1), it.getString(2).split(',')) }.ifEmpty { null }
 
     /** [AtlasIndex.groupUsages] after its checks: the rows [occurrences] lists, grouped. */
     fun groupUsages(

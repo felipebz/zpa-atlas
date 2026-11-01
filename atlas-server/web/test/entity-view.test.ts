@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 import type {EntityDetail, EntitySummary, Location, Partner} from "../src/api";
-import {entityPath, entityTags, places, routineRows} from "../src/entity-view";
+import {entityPath, entityTags, places, routineRows, usesGapKey} from "../src/entity-view";
 
 // Invented names: a package PACK_ORDERS with a routine SHIP_ORDER in its spec and body, and a private one.
 const pack: EntitySummary = { key: "db:HR.PACK_ORDERS", kind: "PACKAGE", display: "HR.PACK_ORDERS", external: false, name: "PACK_ORDERS" };
@@ -15,7 +15,7 @@ function entity(over: Partial<EntityDetail> & Pick<EntityDetail, "key" | "kind">
   return {
     schema: "HR", name: "X", display: "HR.X", external: false, parent: null, ancestors: [], children: [], relations: [],
     definitions: [], overloads: [], partners: [], usage: { byRole: [], byStatus: [], asCandidate: 0 }, triggerEvents: [], reads: [],
-    views: [], baseColumns: [], viewColumns: [], declared: null, documentation: [], ...over
+    views: [], baseColumns: [], viewColumns: [], declared: null, documentation: [], usesIncomplete: null, ...over
   };
 }
 
@@ -88,5 +88,15 @@ describe("routineRows", () => {
   });
   it("orders by uses, most first, then by name", () => {
     expect(routineRows(rows, "", "uses").map(r => r.name)).toEqual(["SHIPMENT_COST", "cancel_order", "SHIP_ORDER", "BILL"]);
+  });
+});
+
+describe("usesGapKey", () => {
+  it("says nothing for complete uses, names conditional compilation first, and falls back for a reason it does not name", () => {
+    expect(usesGapKey(null)).toBeNull();
+    expect(usesGapKey([])).toBeNull();
+    expect(usesGapKey(["DECLARATION_OUTSIDE_FILE", "CONDITIONAL_COMPILATION"])).toBe("entity.usesIncomplete.CONDITIONAL_COMPILATION");
+    expect(usesGapKey(["DECLARATION_OUTSIDE_FILE"])).toBe("entity.usesIncomplete.DECLARATION_OUTSIDE_FILE");
+    expect(usesGapKey(["SOMETHING_NEW"])).toBe("entity.usesIncomplete");
   });
 });

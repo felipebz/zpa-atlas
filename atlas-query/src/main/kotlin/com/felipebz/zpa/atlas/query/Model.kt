@@ -93,11 +93,14 @@ data class RelationLink(val kind: String, val direction: String, val entity: Ent
 data class Overload(val entity: EntitySummary, val body: Boolean, val self: Boolean)
 
 /**
- * A `CONTAINS` child, its uses (occurrences that are not a definition or declaration), what its declaration says and
- * its documentation.
+ * A `CONTAINS` child, its uses (occurrences that are not a definition or declaration), what its declaration says, its
+ * documentation, and why its uses may be incomplete ([EntityDetail.usesIncomplete]).
  */
 @Serializable
-data class Member(val entity: EntitySummary, val usages: Long, val declared: Declared? = null, val documentation: List<Documentation> = emptyList())
+data class Member(
+    val entity: EntitySummary, val usages: Long, val declared: Declared? = null, val documentation: List<Documentation> = emptyList(),
+    val usesIncomplete: List<String>? = null
+)
 
 /**
  * What a declaration says, as written in the source: comments and line breaks left out, spaces collapsed, nothing
@@ -213,7 +216,13 @@ data class EntityDetail(
      * Its documentation ([Documentation.shown]): its own, then the other half's when it says something else, or the
      * other half's alone; empty when neither has one. Each child in [children] has its own.
      */
-    val documentation: List<Documentation> = emptyList()
+    val documentation: List<Documentation> = emptyList(),
+    /**
+     * Why its recorded uses may be incomplete: zpa could not decide some names where it is visible, so uses the index
+     * did not record cannot be ruled out. zpa's reasons (`CONDITIONAL_COMPILATION`, `DECLARATION_OUTSIDE_FILE`, ...);
+     * null when nothing says so. Only a package body's own variables and constants have it.
+     */
+    val usesIncomplete: List<String>? = null
 )
 
 /**
@@ -401,8 +410,18 @@ data class Facets(
     val bySide: List<Count>? = null
 )
 
+/**
+ * One page of "who uses". [usesIncomplete] lists, for the entity asked for and the children in scope, those whose
+ * recorded uses may be incomplete ([EntityDetail.usesIncomplete]); null when none.
+ */
 @Serializable
-data class OccurrencePage(val rows: List<OccurrenceRow>, val nextAfter: Long?, val total: Long, val facets: Facets)
+data class OccurrencePage(
+    val rows: List<OccurrenceRow>, val nextAfter: Long?, val total: Long, val facets: Facets, val usesIncomplete: List<UsesGap>? = null
+)
+
+/** An entity whose recorded uses may be incomplete, and zpa's [reasons]. */
+@Serializable
+data class UsesGap(val key: String, val reasons: List<String>)
 
 /** The size and facets of the occurrences a query matches. */
 @Serializable

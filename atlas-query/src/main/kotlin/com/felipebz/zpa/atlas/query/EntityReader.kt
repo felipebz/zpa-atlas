@@ -58,7 +58,8 @@ internal class EntityReader(private val connection: Connection) {
         ) { Triple(entitySummary(it), it.getLong(6), it.getLong(7)) }
         val declared = declared(childRows.map { it.third } + row.id)
         val documentation = documentation(childRows.associate { it.third to it.first.key } + (row.id to row.key))
-        val children = childRows.map { (entity, usages, id) -> Member(entity, usages, declared[id], documentation[id].orEmpty()) }
+        val gaps = usesGaps(childRows.map { it.third } + row.id)
+        val children = childRows.map { (entity, usages, id) -> Member(entity, usages, declared[id], documentation[id].orEmpty(), gaps[id]) }
         // VIEW_BASE edges have their own lists (baseColumns, viewColumns).
         val relations = connection.query(
             """SELECT r.kind, 'OUT', t.key, t.kind, t.display, t.external, t.name FROM relation r JOIN entity t ON t.id = r.to_id
@@ -91,7 +92,8 @@ internal class EntityReader(private val connection: Connection) {
             if (row.kind == "COLUMN") viewBase(row.id, outgoing = true) else emptyList(),
             if (row.kind == "COLUMN") viewBase(row.id, outgoing = false) else emptyList(),
             declared[row.id],
-            documentation[row.id].orEmpty()
+            documentation[row.id].orEmpty(),
+            gaps[row.id]
         )
     }
 
@@ -124,6 +126,11 @@ internal class EntityReader(private val connection: Connection) {
             Documentation.shown(docs.firstOrNull { !it.first }?.second, docs.firstOrNull { it.first }?.second, onBody(keys.getValue(id)))
         }
     }
+
+    /** Why the recorded uses of [ids] may be incomplete ([EntityDetail.usesIncomplete]), for those that have a reason. */
+    private fun usesGaps(ids: List<Long>): Map<Long, List<String>> = connection.query(
+        "SELECT entity_id, reasons FROM uses_gap WHERE entity_id IN (SELECT value FROM json_each(?))", listOf(ids.joinToString(",", "[", "]"))
+    ) { it.getLong(1) to it.getString(2).split(',') }.toMap()
 
     /**
      * What the declarations of [ids] say ([Declared.of]), with the spec's text for a body: the spec a routine body

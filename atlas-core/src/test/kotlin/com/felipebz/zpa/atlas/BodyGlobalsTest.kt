@@ -109,4 +109,18 @@ class BodyGlobalsTest {
         assertThat(Fixture.query(db, "SELECT e.key FROM occurrence o JOIN entity e ON e.id = o.entity_id JOIN source_file f ON f.id = o.file_id " +
             "WHERE f.path = 'hr/pack_chains.pkb' AND o.start_line = 35 AND o.written = 'g_rec.id'")).containsExactly("db:HR.COMPANY.ID")
     }
+
+    @Test
+    fun `a body with a $IF says every global's uses may be incomplete, a body without one says nothing`() {
+        val gaps = Fixture.query(db, "SELECT e.key || ' ' || g.reasons FROM uses_gap g JOIN entity e ON e.id = g.entity_id ORDER BY e.key")
+        // pack_switch: the $IF hides names anywhere in the body, so neither g_level (whose uses zpa left undecided) nor
+        // g_quiet (no name written) can be counted; pack_globals: only the name the body redeclares from its spec.
+        assertThat(gaps).containsExactly(
+            "$pack.G_SHARED@BODY DECLARATION_OUTSIDE_FILE",
+            "db:HR.PACK_SWITCH.G_LEVEL@BODY DECLARATION_OUTSIDE_FILE,CONDITIONAL_COMPILATION",
+            "db:HR.PACK_SWITCH.G_QUIET@BODY CONDITIONAL_COMPILATION"
+        )
+        // pack_chains has no $IF: its globals, used or not, have no row.
+        assertThat(gaps).noneMatch { it.startsWith("db:HR.PACK_CHAINS.") }
+    }
 }

@@ -233,6 +233,9 @@ main.entity { display: grid; gap: var(--gap); }
 .ent-facts { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: var(--fs-s); color: var(--muted); }
 .ent-facts > span { min-width: 0; overflow-wrap: anywhere; }
 .ent-facts a.half { font-weight: 600; }
+/* Uses the index may have missed: a warning beside the count, never mistaken for the whole answer. */
+.uses-gap { color: var(--warning); }
+.badge.gap { background: var(--warning-soft); color: var(--warning); }
 /* What the declaration says: the code as written, wrapping anywhere so a long value never widens the page. */
 .ent-decl { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: var(--fs-s); }
 .ent-decl > span { min-width: 0; overflow-wrap: anywhere; }

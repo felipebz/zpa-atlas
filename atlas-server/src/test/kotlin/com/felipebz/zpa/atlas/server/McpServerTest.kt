@@ -361,6 +361,24 @@ class McpServerTest {
     }
 
     @Test
+    fun `get_entity and find_usages say when a body global's uses may be incomplete, and say nothing when they are not`() = mcp { client ->
+        suspend fun result(tool: String, key: String) = client.call(tool, args { put("key", key) }).json().jsonObject.getValue("result").jsonObject
+        val hidden = "db:HR.PACK_SWITCH.G_LEVEL@BODY"
+        val reasons = strings("DECLARATION_OUTSIDE_FILE", "CONDITIONAL_COMPILATION")
+        assertThat(result("get_entity", hidden)["usesIncomplete"]).isEqualTo(reasons)
+        assertThat(result("find_usages", hidden)["usesIncomplete"])
+            .isEqualTo(JsonArray(listOf(JsonObject(mapOf("key" to JsonPrimitive(hidden), "reasons" to reasons)))))
+        // The package lists it on each of its globals, not on its routine.
+        val children = result("get_entity", "db:HR.PACK_SWITCH")["children"]!!.jsonArray.map { it.jsonObject }
+        assertThat(children.associate { it.getValue("entity").jsonObject.getValue("name").jsonPrimitive.content to (it["usesIncomplete"] != null) })
+            .isEqualTo(mapOf("G_LEVEL" to true, "G_QUIET" to true, "RUN" to false))
+        // A body without a $IF: nothing.
+        val complete = "db:HR.PACK_CHAINS.G_REC@BODY"
+        assertThat(result("get_entity", complete)).doesNotContainKey("usesIncomplete")
+        assertThat(result("find_usages", complete)).doesNotContainKey("usesIncomplete")
+    }
+
+    @Test
     fun `find_usages pages lose and repeat no row, under a small size cap too`() {
         val all = index.occurrences("db:HR.PACK_PROCESS", scope = setOf(Scope.SELF, Scope.CHILDREN), limit = 500).result!!.rows.map { it.id }
         assertThat(all.size).isGreaterThan(AtlasMcpTools.FIND_MAX)

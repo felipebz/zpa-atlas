@@ -168,10 +168,12 @@ class FileExtractor(
         if (state.undecidedSqlNames > 0) {
             state.coverage += CoverageFact("SQL_NAME_UNDECIDED", "${state.undecidedSqlNames} unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed")
         }
+        // A file the parser rejected was never walked: no body globals, no gaps.
+        val usesGaps = if (::bodyGlobals.isInitialized) bodyGlobals.gaps(context::usageEvidence, context::regionUncertainty) else emptyList()
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
         return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, defaultSchema, state.units, state.statements, state.occurrences,
             LinkedHashSet(state.entities).toList(), LinkedHashSet(state.relations).toList(), state.coverage, resolver.dictionaryRelations.toList(),
-            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts, docComments)
+            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts, docComments, usesGaps)
     }
 
     // ---- units --------------------------------------------------------------------------------------------------

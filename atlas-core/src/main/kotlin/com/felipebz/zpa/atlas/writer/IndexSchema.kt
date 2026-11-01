@@ -217,6 +217,14 @@ internal fun tableDdl(): List<String> = listOf(
         text_cut INTEGER NOT NULL CHECK (text_cut IN (0, 1))
     )
     """,
+    // The body globals whose recorded uses may be incomplete, one row per entity: reasons lists, comma-separated, what
+    // zpa says may hold the uses it could not decide (CONDITIONAL_COMPILATION, ...). An entity without a row has none.
+    """
+    CREATE TABLE uses_gap (
+        entity_id INTEGER PRIMARY KEY REFERENCES entity(id),
+        reasons TEXT NOT NULL
+    )
+    """,
     SOURCE_LINE_DDL
 ).map { it.trimIndent() }
 

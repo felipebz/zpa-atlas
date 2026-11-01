@@ -5,10 +5,7 @@
 
 package com.felipebz.zpa.atlas.writer
 
-import com.felipebz.zpa.atlas.model.DeclaredTextFact
-import com.felipebz.zpa.atlas.model.EntityFact
-import com.felipebz.zpa.atlas.model.RelationFact
-import com.felipebz.zpa.atlas.model.TriggerEventFact
+import com.felipebz.zpa.atlas.model.*
 import java.sql.Connection
 import java.sql.PreparedStatement
 
@@ -107,6 +104,20 @@ internal class GlobalRows(private val connection: Connection) {
                 insert.setNullableString(2, same.firstNotNullOfOrNull { it.datatype })
                 insert.setNullableString(3, valued?.value)
                 insert.setInt(4, if (valued?.valueCut == true) 1 else 0)
+                batches.add(insert)
+                batches.flushIfFull()
+            }
+            batches.flush()
+        }
+    }
+
+    /** The body globals whose uses may be incomplete: one row per entity, its reasons comma-separated in order. */
+    fun insertUsesGaps(facts: List<UsesGapFact>, ids: Map<String, Long>) {
+        prepare("INSERT INTO uses_gap(entity_id, reasons) VALUES (?,?)").use { insert ->
+            val batches = Batches(insert)
+            for ((id, fact) in facts.associateBy { ids.getValue(it.entityKey) }.toSortedMap()) {
+                insert.setLong(1, id)
+                insert.setString(2, fact.reasons.joinToString(","))
                 batches.add(insert)
                 batches.flushIfFull()
             }

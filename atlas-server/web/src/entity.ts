@@ -28,7 +28,7 @@ import {
     valueKindLabel
 } from "./entity-html";
 import type {Place, RoutineOrder, RoutineRow} from "./entity-view";
-import {entityPath, entityTags, isBodyValue, places, routineRows} from "./entity-view";
+import {entityPath, entityTags, isBodyValue, places, routineRows, usesGapKey} from "./entity-view";
 import {kindOrder} from "./kinds";
 import {
     codeBreaksHtml,
@@ -154,6 +154,9 @@ function headerHtml(entity: EntityDetail, direct: number) {
   const facts = [...places(entity).map(p => placeHtml(p, entity.kind, statusOf(p))), `<span id="ent-uses">${esc(t("search.usages", { count: direct }))}</span>`];
   // A body's own variable or constant is not part of the package's interface: said in words, first.
   if (isBodyValue(entity)) facts.unshift(`<span class="private-note">${esc(t("entity.privateBody"))}</span>`);
+  // Uses the index could not record cannot be ruled out: said beside the count, so it is not read as the whole answer.
+  const gap = usesGapKey(entity.usesIncomplete);
+  if (gap !== null) facts.push(`<span class="uses-gap">${esc(t(gap))}</span>`);
   return `<nav class="crumbs" aria-label="${esc(t("entity.path"))}">${crumbs.join(`<span class="sep" aria-hidden="true">›</span>`)}</nav>
     <div class="ent-title"><h1><span class="ename" title="${esc(entity.display)}"><span class="name">${nameBreaksHtml(parts.base)}</span></span></h1>${kindBadge(entity.kind)}${tags.join("")}</div>
     ${signature}
@@ -298,7 +301,9 @@ function contentsSections(members: Member[]): { html: string; entries: SectionEn
         const name = isBodyValue(m.entity)
           ? `${entityLink(m.entity, { ...options(m.entity), noBodyBadge: true })} <span class="badge">${esc(t("entity.tag.private"))}</span>`
           : entityLink(m.entity, options(m.entity));
-        return `<tr><td>${name}${type === null ? "" : ` <span class="mono mtype">${esc(type)}</span>`}</td>${uses(m.usages)}</tr>`;
+        const gap = usesGapKey(m.usesIncomplete);
+        const gapBadge = gap === null ? "" : ` <span class="badge gap" title="${esc(t(gap))}">${esc(t("entity.tag.usesIncomplete"))}</span>`;
+        return `<tr><td>${name}${gapBadge}${type === null ? "" : ` <span class="mono mtype">${esc(type)}</span>`}</td>${uses(m.usages)}</tr>`;
       }).join("")}</tbody></table></section>`;
   }
   return { html, entries };
@@ -342,6 +347,11 @@ function renderEntity(entity: EntityDetail) {
   set("baseColumns", linkList(t("entity.baseColumns"), t("entity.baseColumns.line"), entity.baseColumns.map(e => entityLink(e))));
   set("viewColumns", linkList(t("entity.viewColumns"), t("entity.viewColumns.line"), entity.viewColumns.map(e => entityLink(e))));
   document.getElementById("usage")!.hidden = false;
+  // Under the total too: the list below may not be every use.
+  const usesGap = document.getElementById("usesGap")!;
+  const gapKey = usesGapKey(entity.usesIncomplete);
+  usesGap.hidden = gapKey === null;
+  usesGap.textContent = gapKey === null ? "" : t(gapKey);
 
   state.own = u.asCandidate > 0
     ? t("usage.summary", { direct: t("usage.direct", { count: direct }), candidate: t("usage.candidate", { count: u.asCandidate }) })

@@ -114,6 +114,12 @@ data class DeclaredTextFact(val entityKey: String, val datatype: String?, val va
  */
 data class DocCommentFact(val entityKey: String, val inBody: Boolean, val shape: DocShape, val line: Int, val text: String, val textCut: Boolean)
 
+/**
+ * The recorded uses of [entityKey] may be incomplete ([com.felipebz.zpa.atlas.extract.BodyGlobals.gaps]): [reasons]
+ * names, as zpa's `UsageUncertainty`, what may hold the uses the index could not record.
+ */
+data class UsesGapFact(val entityKey: String, val reasons: List<String>)
+
 /** Everything one file contributes, produced off the writer thread. */
 class FileFacts(
     val path: String,
@@ -136,5 +142,6 @@ class FileFacts(
     val dictionarySynonyms: List<DictionarySynonym> = emptyList(),
     val triggerEvents: List<TriggerEventFact> = emptyList(),
     val declaredTexts: List<DeclaredTextFact> = emptyList(),
-    val docComments: List<DocCommentFact> = emptyList()
+    val docComments: List<DocCommentFact> = emptyList(),
+    val usesGaps: List<UsesGapFact> = emptyList()
 )

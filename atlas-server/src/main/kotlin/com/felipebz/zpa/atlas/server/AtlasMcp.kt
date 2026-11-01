@@ -353,7 +353,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         val result = answer.getValue("result").jsonObject
         val cut = LinkedHashMap<String, Int>()
         val lists = result.mapValues { (name, value) ->
-            if (value is JsonArray && value.size > limit && name != BODIES) {
+            if (value is JsonArray && value.size > limit && name != BODIES && name != USES_INCOMPLETE) {
                 cut[name] = value.size
                 JsonArray(value.take(limit))
             } else {
@@ -623,6 +623,9 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         /** The field of a spec's answer that lists its bodies. */
         private const val BODIES = "bodies"
 
+        /** The field that says why an entity's recorded uses may be incomplete; a cut would hide a reason. */
+        private const val USES_INCOMPLETE = "usesIncomplete"
+
         const val INSTRUCTIONS =
             "zpa-atlas is an index of the PL/SQL code of an Oracle database (packages, procedures, functions, " +
                 "triggers, tables, views, columns): ask it who calls, reads or writes something, for impact analysis, " +
@@ -697,7 +700,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "body that differs from its spec, what the spec says. documentation, on the entity and on each child, is " +
             "its doc comment (text without comment markers, line breaks kept, textCut when cut; shape ABOVE, AFTER_IS, " +
             "AFTER_BEGIN or END_OF_LINE; path and line), then the other half's, from SPEC or BODY, when it says " +
-            "something else, or the other half's alone. $PATHS $KEYS"
+            "something else, or the other half's alone. usesIncomplete (entity, child): reasons (CONDITIONAL_COMPILATION) " +
+            "unrecorded uses can't be ruled out; its uses are a lower bound. $PATHS $KEYS"
 
         const val FIND = "Where entities are defined, called, read or written across the code (occurrences), with " +
             "filters combined with AND (at least one; for the whole index, use group_occurrences), and total and " +
@@ -713,7 +717,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "reached through a view (a view column computed from the entity, or a view reading it), viaCandidate on an " +
             "AMBIGUOUS row where the entity is one of the candidates. One hop only: for the callers of the callers, up to " +
             "the entry points, use find_impact. A package body's own variable or constant is used only inside its " +
-            "body. Pages as in find_occurrences. $PATHS $STATUSES $NOT_ANSWERED"
+            "body. usesIncomplete: entities in scope with uses beyond the rows (key, reasons). Pages as in " +
+            "find_occurrences. $PATHS $STATUSES $NOT_ANSWERED"
 
         const val IMPACT = "Impact analysis: who calls the callers of an entity, transitively, up to the entry " +
             "points (code nothing in the index calls, run from Forms, jobs or other systems). The first hop is who uses " +

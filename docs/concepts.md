@@ -9,8 +9,9 @@ no schema is known.
 
 A package's variables and constants are entities, those of its spec and those its body declares for itself, outside
 any subprogram. A body's own are private to the body and end with `@BODY` (`db:HR.PKG.G_TOTAL@BODY`); their uses
-inside the body are the ones zpa's name resolution binds to them. Variables of a subprogram or a block are not
-entities.
+inside the body are the ones zpa's name resolution binds to them. Where zpa cannot decide some names of the body (a
+`$IF`, a name the spec declares too), the page and the MCP answers say that the uses may be incomplete
+(`usesIncomplete`): the count is then a lower bound. Variables of a subprogram or a block are not entities.
 
 ## Occurrence
 

@@ -115,6 +115,8 @@ export interface Member {
   usages: number;
   declared: Declared | null;
   documentation: Documentation[];
+  /** zpa's reasons why its uses may be incomplete; null when nothing says so. */
+  usesIncomplete: string[] | null;
 }
 
 /**
@@ -189,6 +191,11 @@ export interface EntityDetail {
   declared: Declared | null;
   /** Its own documentation first, then the other half's when it says something else; the other half's alone when it has none. */
   documentation: Documentation[];
+  /**
+   * zpa's reasons (CONDITIONAL_COMPILATION, …) why uses the index did not record cannot be ruled out; null when nothing
+   * says so. Only a package body's own variables and constants have it.
+   */
+  usesIncomplete: string[] | null;
 }
 
 /** The unit an occurrence is in; [entity] is its package, routine, view, trigger or type, null for a script. */
@@ -261,6 +268,8 @@ export interface OccurrencePage {
   nextAfter: number | null;
   total: number;
   facets: Facets;
+  /** The entities in scope whose uses may be incomplete, with zpa's reasons; null when none. */
+  usesIncomplete: { key: string; reasons: string[] }[] | null;
 }
 
 export interface QuerySummary {

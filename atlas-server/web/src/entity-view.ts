@@ -12,6 +12,19 @@ export function isBodyValue(member: Pick<EntitySummary, "key" | "kind">) {
   return VALUE_KINDS.includes(member.kind) && isBodyKey(member.key);
 }
 
+/** The reasons the page names, the first one found wins: what most often hides names comes first. */
+const GAP_REASONS = ["CONDITIONAL_COMPILATION", "SUBSTITUTION", "PARSE_RECOVERY", "INCOMPLETE_SOURCE", "DECLARATION_OUTSIDE_FILE", "UNSUPPORTED_REFERENCE"];
+
+/**
+ * The message key that says why an entity's uses may be incomplete (`entity.usesIncomplete.<REASON>`, or
+ * `entity.usesIncomplete` for a reason the page does not name), or null when its uses are complete.
+ */
+export function usesGapKey(reasons: string[] | null | undefined): string | null {
+  if (!reasons?.length) return null;
+  const named = GAP_REASONS.find(r => reasons.includes(r));
+  return named ? `entity.usesIncomplete.${named}` : "entity.usesIncomplete";
+}
+
 /** Whether [key] is a body's (`…@BODY`, before a collision's `#2`). */
 export function isBodyKey(key: string) {
   return /@BODY(#\d+)?$/.test(key);
