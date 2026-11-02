@@ -56,11 +56,19 @@ internal class ColumnPlaces(
         val reason: String? = null
     )
 
-    /** The places of [file], and the expression items of one column its `INTO`s read and the fetches it cannot follow, by shape. */
+    /**
+     * The places of [file], and what its `INTO`s and assignments read without being followed, by shape: the expression
+     * items of one column, the fetches from an unknown cursor, the assignments of a row record's field whose column is
+     * not known, and those of an expression of such a field.
+     */
     fun of(file: FileFacts): Pair<List<ColumnPlaceFact>, Map<String, Int>> {
         val places = ArrayList<ColumnPlaceFact>()
         val leftOut = HashMap<String, Int>()
         for (into in file.intos) {
+            if (into.source == PlaceSource.ASSIGNMENT) {
+                assignment(into, places, leftOut)
+                continue
+            }
             val branches = if (into.cursorKey != null) {
                 val row = shapes[into.cursorKey] as? TypeShape.CursorRow
                 if (row == null) {
@@ -84,6 +92,23 @@ internal class ColumnPlaces(
             }
         }
         return places to leftOut
+    }
+
+    /**
+     * `target := r.f`: a place of the column `f` stands for when `r` is a row record (a cursor `FOR` loop record, a
+     * variable of a `%ROWTYPE`, or of a cursor's row), decided as a `FETCH` from that cursor decides it. Any other record
+     * is not a row: nothing. A field whose column is not known (an expression of the cursor's query, a cursor or
+     * `%ROWTYPE` not known) is counted, and so is an expression of the field (`upper(r.code)`) by its shape.
+     */
+    private fun assignment(into: IntoFact, places: MutableList<ColumnPlaceFact>, leftOut: MutableMap<String, Int>) {
+        val row = structure(targetNode(into.row ?: return, false), 0)
+        if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) return
+        val column = field(row, null, into.rowField).first as? Node.Column
+        when {
+            column == null -> leftOut.merge("RECORD_ASSIGNMENT", 1, Int::plus)
+            into.expression != null -> leftOut.merge("RECORD_ASSIGNMENT_EXPRESSION_${into.expression}", 1, Int::plus)
+            else -> places += place(into, into.targets.single(), null, column.key)
+        }
     }
 
     /** Whether [target] is a record that takes its one item as a field (`select * into r` of a one-column table). */

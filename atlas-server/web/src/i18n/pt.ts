@@ -238,6 +238,7 @@ export default {
   "places.source.SELECT_INTO": "SELECT INTO",
   "places.source.FETCH": "FETCH INTO",
   "places.source.RETURNING": "RETURNING INTO",
+  "places.source.ASSIGNMENT": "atribuição (:=)",
   "places.bulk": "{source} · BULK COLLECT",
   "places.in": "em {container}",
   "places.declaredType": "declarado",

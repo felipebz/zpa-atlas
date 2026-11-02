@@ -153,6 +153,7 @@ describe("labels", () => {
     expect(sourceText(say, { source: "SELECT_INTO", bulk: false })).toBe("SELECT INTO");
     expect(sourceText(say, { source: "FETCH", bulk: true })).toBe("FETCH INTO · BULK COLLECT");
     expect(sourceText(say, { source: "RETURNING", bulk: false })).toBe("RETURNING INTO");
+    expect(sourceText(say, { source: "ASSIGNMENT", bulk: false })).toBe("assignment (:=)");
   });
 });
 

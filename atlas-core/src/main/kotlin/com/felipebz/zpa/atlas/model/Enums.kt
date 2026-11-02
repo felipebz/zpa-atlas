@@ -255,11 +255,15 @@ enum class PlaceClass : StoredEnum {
     ANCHORED_TO_COLUMN
 }
 
-/** What reads a column's value into a PL/SQL target: `SELECT … INTO`, `FETCH … INTO`, `RETURNING … INTO`. */
+/**
+ * What reads a column's value into a PL/SQL target: `SELECT … INTO`, `FETCH … INTO`, `RETURNING … INTO`, or an
+ * assignment `target := r.f` of a field of a row record (a cursor `FOR` loop record or a `%ROWTYPE` variable).
+ */
 enum class PlaceSource : StoredEnum {
     SELECT_INTO,
     FETCH,
-    RETURNING
+    RETURNING,
+    ASSIGNMENT
 }
 
 /** The `occurrence.roles` text: the sorted, comma-separated role names. */

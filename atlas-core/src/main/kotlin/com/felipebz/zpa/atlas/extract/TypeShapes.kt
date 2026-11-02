@@ -39,6 +39,16 @@ internal class TypeShapes(
         result
     }
 
+    /** The loop records (`for r in …`) of the file, by the position of their name. */
+    private val iterands: Map<Long, AstNode> by lazy {
+        root?.getDescendants(PlSqlGrammar.ITERAND_DECLARATION)?.associateBy { node ->
+            node.firstChild.token.let { position(it.line, it.column) }
+        }.orEmpty()
+    }
+
+    /** The loop record declared with its name at [line] and [column], or null. */
+    fun iterand(line: Int, column: Int): AstNode? = iterands[position(line, column)]
+
     /** The declarations being followed, to stop at a cycle (`a b%TYPE; b a%TYPE`, which Oracle rejects). */
     private val following: MutableSet<AstNode> = Collections.newSetFromMap(IdentityHashMap())
 

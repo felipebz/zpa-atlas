@@ -16,14 +16,16 @@ import com.felipebz.zpa.atlas.model.*
 
 /**
  * The `INTO`s that read select items into PL/SQL targets ([IntoFact]): `SELECT … INTO`, `FETCH … INTO` of an explicit
- * cursor, `RETURNING … INTO`, with or without `BULK COLLECT`. A select item is a column when it is the column itself,
- * written bare or qualified (the column read static SQL records at it), or a `*` over a relation whose columns the
- * dictionary lists; an expression of one column is counted by its shape. A target is the entity zpa binds its name
- * to (the value use the walk records), else the declaration without an entity zpa binds it to, with its own type.
+ * cursor, `RETURNING … INTO`, with or without `BULK COLLECT`, and the assignments `target := r.f` of a field of a
+ * record, which is a row record when it is a cursor `FOR` loop record or a `%ROWTYPE` variable (decided after the
+ * scan). A select item is a column when it is the column itself, written bare or qualified (the column read static SQL
+ * records at it), or a `*` over a relation whose columns the dictionary lists; an expression of one column is counted by
+ * its shape. A target is the entity zpa binds its name to (the value use the walk records), else the declaration
+ * without an entity zpa binds it to, with its own type.
  *
  * Other reads of a column into PL/SQL are counted, not recorded ([FileState.placesLeftOut]): dynamic `INTO`, a field
- * of a `%ROWTYPE` or cursor loop record assigned (`l_x := r.code`) or passed to a routine, a column passed to a routine
- * in static SQL, and a `FETCH` from a cursor whose query is not known.
+ * of a `%ROWTYPE` or cursor loop record passed to a routine, a column passed to a routine in static SQL, and a `FETCH`
+ * from a cursor whose query is not known.
  */
 internal class IntoClauses(
     private val state: FileState,
@@ -42,7 +44,7 @@ internal class IntoClauses(
     fun statement(statement: Statement) {
         val root = statement.root
         if (statement.context.dynamic != null) return
-        if (root.parentOrNull?.type == PlSqlGrammar.CURSOR_DECLARATION) {
+        if (root.parentOrNull?.type == PlSqlGrammar.CURSOR_DECLARATION || isLoopQuery(root)) {
             branches(root).firstOrNull()?.let { state.cursorItems[root] = selectItems(statement, it) }
         }
         when (root.type) {
@@ -74,10 +76,31 @@ internal class IntoClauses(
         for (into in node.getDescendants(DmlGrammar.INTO_CLAUSE)) state.leftOut(DYNAMIC_INTO, targetsOf(into).size)
     }
 
-    /** `l_x := r.code`, `r` a `%ROWTYPE` or cursor loop record: counted once the file is left ([rowFields]). */
-    fun assignment(node: AstNode) {
-        val value = node.children.dropWhile { it.type != PlSqlPunctuator.ASSIGNMENT }.drop(1).firstOrNull() ?: return
-        if (isFieldOfName(value)) rowFieldCandidates += RECORD_ASSIGNMENT to value
+    /**
+     * `target := r.f`, or an expression of one such field (`upper(r.f)`): kept to be decided once the file is left,
+     * when what `r` is is known ([intos]).
+     */
+    fun assignment(node: AstNode, context: Context) {
+        val at = node.children.indexOfFirst { it.type == PlSqlPunctuator.ASSIGNMENT }
+        if (at <= 0) return
+        val value = node.children.getOrNull(at + 1) ?: return
+        val field = if (isFieldOfName(value)) value else value.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).singleOrNull(::isFieldOfName) ?: return
+        assignments += Assignment(node.firstChild, spanOf(node.children[at]), field, if (field === value) null else expressionShape(value), context)
+    }
+
+    private class Assignment(val target: AstNode, val site: SourceSpan, val field: AstNode, val expression: String?, val context: Context)
+
+    private val assignments = ArrayList<Assignment>()
+
+    /** Whether [query] is the query of a cursor `FOR` loop (`for r in (select …)`). */
+    private fun isLoopQuery(query: AstNode): Boolean {
+        var node = query.parentOrNull
+        repeat(6) {
+            if (node == null) return false
+            if (node!!.type == PlSqlGrammar.ITERATOR) return true
+            node = node!!.parentOrNull
+        }
+        return false
     }
 
     /** A PL/SQL call resolved to a routine that is passed a field of a `%ROWTYPE` or cursor loop record: counted per argument. */
@@ -99,10 +122,7 @@ internal class IntoClauses(
     private fun isFieldOfName(value: AstNode) =
         value.type == PlSqlGrammar.MEMBER_EXPRESSION && value.numberOfChildren == 3 && value.firstChild.type == PlSqlGrammar.VARIABLE_NAME
 
-    /**
-     * Counts the [rowFieldCandidates] whose record zpa binds to the record of a cursor `FOR` loop, or to a variable or
-     * parameter of the file declared `%ROWTYPE`.
-     */
+    /** Counts the [rowFieldCandidates] whose record zpa binds to the record of a cursor `FOR` loop, or to a variable or parameter of the file declared `%ROWTYPE`. */
     private fun rowFields(shapes: TypeShapes) {
         for ((shape, value) in rowFieldCandidates) {
             val declaration = (nameBinding(value.firstChild) as? NameBinding.Local)?.declaration ?: continue
@@ -193,15 +213,15 @@ internal class IntoClauses(
     }
 
     /**
-     * The `INTO`s of the file, their targets decided, and the row record fields assigned or passed counted: call once
-     * the file is left, when the field uses are recorded. The expression items an `INTO` reads are counted after the
-     * scan, with the cursors of other files.
+     * The `INTO`s of the file and its assignments of a record's field, their targets and records decided, and the row
+     * record fields passed counted: call once the file is left, when the field uses are recorded. The expression items an
+     * `INTO` reads are counted after the scan, with the cursors of other files.
      */
     fun intos(shapes: TypeShapes): List<IntoFact> {
         rowFields(shapes)
-        if (pending.isEmpty()) return emptyList()
+        if (pending.isEmpty() && assignments.isEmpty()) return emptyList()
         val bySpan = state.occurrences.filter { it.entityKey != null }.groupBy { it.span }
-        return pending.mapNotNull { into ->
+        val intos = pending.mapNotNullTo(ArrayList()) { into ->
             val targets = into.targets.map { target(it, bySpan, shapes) }
             var cursorKey: String? = null
             var branches = into.branches
@@ -214,13 +234,69 @@ internal class IntoClauses(
                     val items = query?.let { state.cursorItems[it] }
                     if (items == null) {
                         state.leftOut(FETCH_CURSOR_NOT_KNOWN, targets.size)
-                        return@mapNotNull null
+                        return@mapNotNullTo null
                     }
                     branches = listOf(items)
                 }
             }
             IntoFact(into.source, into.bulk, into.context.unitIndex, into.context.container, into.statementId, branches, cursorKey, targets)
         }
+        for (assignment in assignments) {
+            val row = record(assignment.field, bySpan, shapes) ?: continue
+            val target = target(assignment.target, bySpan, shapes).copy(span = assignment.site)
+            intos += IntoFact(PlaceSource.ASSIGNMENT, false, assignment.context.unitIndex, assignment.context.container, null, emptyList(), null,
+                listOf(target), row, normalizeIdentifier(assignment.field.lastChild.tokenOriginalValue), assignment.expression)
+        }
+        return intos
+    }
+
+    /**
+     * The record of the field `r.f`: a cursor `FOR` loop record, its row the loop's query or cursor, or the variable or
+     * parameter zpa binds `r` to; null when `r` names no record (a package, or a record type's field entity).
+     */
+    private fun record(field: AstNode, bySpan: Map<SourceSpan, List<OccurrenceFact>>, shapes: TypeShapes): IntoTarget? {
+        val name = field.firstChild
+        val declaration = (nameBinding(name) as? NameBinding.Local)?.declaration
+        if (declaration?.kind == NameDeclarationKind.LOOP_INDEX) {
+            val iterator = declaration.takeIf { it.fileId == null }?.let { shapes.iterand(it.line, it.column) }?.parentOrNull ?: return null
+            return IntoTarget(spanOf(name), writtenText(name), null, emptyList(), false, loopRow(iterator, bySpan, shapes), null, null)
+        }
+        val whole = target(field, bySpan, shapes)
+        if (whole.entityKey == null && whole.local == null) return null
+        // The field itself has an entity (a field of a record type): not a row record.
+        if (whole.path.size != 1) return null
+        return whole.copy(span = spanOf(name), written = writtenText(name), path = emptyList())
+    }
+
+    /** The row of a cursor `FOR` loop's record: its query's items, or the cursor it opens (`for r in c`, `for r in c(1)`). */
+    private fun loopRow(iterator: AstNode, bySpan: Map<SourceSpan, List<OccurrenceFact>>, shapes: TypeShapes): TypeShape {
+        val unknown = TypeShape.Anchored(true, null, null, emptyList(), "CURSOR_QUERY_UNKNOWN")
+        iterator.getFirstDescendantOrNull(DmlGrammar.SELECT_EXPRESSION)?.let { query ->
+            return state.cursorItems[query]?.let { TypeShape.CursorRow(it) } ?: unknown
+        }
+        var cursor = iterator.children.dropWhile { it.type != PlSqlKeyword.IN }.drop(1).firstOrNull() ?: return unknown
+        while (cursor.type != PlSqlGrammar.VARIABLE_NAME && cursor.type != PlSqlGrammar.MEMBER_EXPRESSION) cursor = cursor.firstChild ?: return unknown
+        (local(cursor, shapes)?.takeIf { it.type == PlSqlGrammar.CURSOR_DECLARATION } ?: enclosingCursor(iterator, cursor))
+            ?.let { shapes.of(it, null) }?.let { return it }
+        return bySpan[spanOf(cursor)]?.firstOrNull()?.entityKey?.let { TypeShape.Anchored(true, it, null, emptyList(), null) } ?: unknown
+    }
+
+    /**
+     * The cursor a loop names (`for r in c`), which zpa does not bind: the declaration of that name in the nearest
+     * declarations around the loop (a block's, a routine's, the package body's), or null.
+     */
+    private fun enclosingCursor(from: AstNode, name: AstNode): AstNode? {
+        if (name.type != PlSqlGrammar.VARIABLE_NAME) return null
+        val wanted = normalizeIdentifier(name.tokenOriginalValue)
+        var scope = from.parentOrNull
+        while (scope != null) {
+            scope.children.asSequence()
+                .flatMap { if (it.type == PlSqlGrammar.DECLARE_SECTION) it.children.asSequence() else sequenceOf(it) }
+                .firstOrNull { it.type == PlSqlGrammar.CURSOR_DECLARATION && normalizeIdentifier(it.getFirstChild(PlSqlGrammar.IDENTIFIER_NAME).tokenOriginalValue) == wanted }
+                ?.let { return it }
+            scope = scope.parentOrNull
+        }
+        return null
     }
 
     /** The declaration of this file without an entity that zpa binds [name] (its first segment) to, or null. */

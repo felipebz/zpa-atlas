@@ -367,7 +367,7 @@ class FileExtractor(
                 places.dynamic(node)
             }
             PlSqlGrammar.FETCH_STATEMENT -> places.fetch(node, context)
-            PlSqlGrammar.ASSIGNMENT_STATEMENT -> if (context.dynamic == null) places.assignment(node)
+            PlSqlGrammar.ASSIGNMENT_STATEMENT -> if (context.dynamic == null) places.assignment(node, context)
             PlSqlGrammar.OPEN_FOR_STATEMENT -> if (!node.hasDirectChildren(DmlGrammar.SELECT_EXPRESSION)) {
                 dynamic(node, after(node, PlSqlKeyword.FOR), context)
             }

@@ -66,6 +66,8 @@ class ColumnPlacesTest {
             "35 ORDERS.CODE FETCH l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
             // A variable of a package the sources do not declare: zpa binds it to nothing of the project.
             "37 ORDERS.CODE SELECT_INTO ext_pkg.g_code UNKNOWN - - - TARGET_UNDECIDED",
+            // A field of a cursor loop record assigned to a variable.
+            "40 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
             // An anonymous block's variable has no entity: its own declaration says its type.
             "4 ORDERS.CODE SELECT_INTO l_short FIXED_SIZE varchar2(5) 5 NLS_LENGTH_SEMANTICS - -"
         )
@@ -168,10 +170,59 @@ class ColumnPlacesTest {
     }
 
     @Test
+    fun `a field of a row record assigned to a target is a place of its column`() {
+        val sources = temp.resolve("src")
+        PlacesFixture.write(sources)
+        Files.writeString(sources.resolve("assign.sql"), """
+            create or replace procedure assign_codes(p_out out varchar2) is
+              l_code  varchar2(12);
+              l_any   orders.code%type;
+              l_up    varchar2(12);
+              r_ord   orders%rowtype;
+              cursor c is select o.code from orders o;
+              cursor c_up is select upper(code) c from orders;
+            begin
+              for r in (select code from orders) loop
+                l_code := r.code;
+              end loop;
+              for r in c loop
+                l_any := r.code;
+              end loop;
+              select * into r_ord from orders where order_id = 1;
+              l_code := r_ord.code;
+              l_up := upper(r_ord.code);
+              for r in c_up loop
+                l_up := r.c;
+              end loop;
+              p_out := r_ord.code;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
+        val proc = "db:SHOP.ASSIGN_CODES(P_OUT OUT VARCHAR2)."
+        assertThat(places(db, "assign.sql").map { it.replace(proc, "") }).containsExactly(
+            // The record of a loop over a query, of a loop over a cursor, and a %ROWTYPE variable.
+            "10 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "13 ORDERS.CODE ASSIGNMENT l_any ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
+            "15 ORDERS.AMOUNT SELECT_INTO r_ord.AMOUNT ANCHORED_TO_COLUMN orders%rowtype - ORDERS.AMOUNT -",
+            "15 ORDERS.CODE SELECT_INTO r_ord.CODE ANCHORED_TO_COLUMN orders%rowtype - ORDERS.CODE -",
+            "15 ORDERS.NOTE SELECT_INTO r_ord.NOTE ANCHORED_TO_COLUMN orders%rowtype - ORDERS.NOTE -",
+            "15 ORDERS.ORDER_ID SELECT_INTO r_ord.ORDER_ID ANCHORED_TO_COLUMN orders%rowtype - ORDERS.ORDER_ID -",
+            "16 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            // Line 17 assigns an expression of the field, line 19 a cursor field that is an expression: not places.
+            "21 ORDERS.CODE ASSIGNMENT p_out CALLER_DECIDES varchar2 - - - OUT"
+        )
+        assertThat(Fixture.query(db, """SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id
+            WHERE c.kind = 'COLUMN_VALUE_NOT_FOLLOWED' AND f.path = 'assign.sql' ORDER BY 1""").map { it.substringBefore(" ") })
+            .containsExactly("RECORD_ASSIGNMENT:", "RECORD_ASSIGNMENT_EXPRESSION_UPPER:")
+    }
+
+    @Test
     fun `what is not followed is counted by shape`() {
         val db = PlacesFixture.index(temp)
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1"))
-            .containsExactly("ARGUMENT", "DYNAMIC_INTO", "EXPRESSION_UPPER", "RECORD_ASSIGNMENT")
+            .containsExactly("ARGUMENT", "DYNAMIC_INTO", "EXPRESSION_UPPER")
     }
 
     @Test

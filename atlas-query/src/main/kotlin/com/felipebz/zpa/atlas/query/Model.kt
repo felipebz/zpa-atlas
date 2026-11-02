@@ -321,7 +321,7 @@ data class ReferencingKeyPage(
 
 /**
  * A place a column's value is read into in PL/SQL: the column read ([read], the page's column or a view column computed
- * from it, then [viaView]), by [source] (`SELECT_INTO`, `FETCH`, `RETURNING`; [bulk] for `BULK COLLECT`), at [path]
+ * from it, then [viaView]), by [source] (`SELECT_INTO`, `FETCH`, `RETURNING`, `ASSIGNMENT` of a row record's field; [bulk] for `BULK COLLECT`), at [path]
  * and [line], [column] in [container]; the target as written ([targetWritten]), its entity ([target], absent for a
  * declaration without one) and the [field] of a record target. How the target is declared: [placeClass], [declaredType]
  * as written, [length] and [unit] (`CHAR`, `BYTE`, `DIGITS`, or `NLS_LENGTH_SEMANTICS` when no unit is written; for a

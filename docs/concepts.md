@@ -73,7 +73,10 @@ columns, without links. Check constraints, indexes and column defaults are not r
 
 A *place* is where a column's value is read straight into a PL/SQL target: `SELECT … INTO`, `FETCH … INTO` of an
 explicit cursor whose query the index knows (declared in the same unit, or in a package spec or body), and
-`RETURNING … INTO`, with or without `BULK COLLECT`. The select item at position *i* goes to the target at position *i*;
+`RETURNING … INTO`, with or without `BULK COLLECT`, and an assignment `target := r.f` (`ASSIGNMENT`, at the line of the
+`:=`) of a field of a row record: the record of a cursor `FOR` loop (over a query, or a cursor the index knows) or a
+variable of a `%ROWTYPE` of a table, view or cursor. The field stands for the column a `FETCH` from that cursor or
+query would read at its name, or the relation's column of that name. The select item at position *i* goes to the target at position *i*;
 a single target that takes several items, or a whole row (`select * into r`), is a record that takes them field by
 field; a `BULK COLLECT` target is a collection whose element takes the value. An item is the column when it is the
 column itself, written bare or qualified (`code`, `o.code`, `shop.orders.code`), or a `*` over a relation whose columns
@@ -110,9 +113,11 @@ order above), then by file and line, with those of the view columns computed fro
 the columns it receives. The MCP tool `find_column_places` pages through them all; `get_entity` of a column counts
 them by class (`placesByClass`). What is not followed is counted by shape in `COLUMN_VALUE_NOT_FOLLOWED` coverage notes:
 an item that is an expression of one column (`EXPRESSION_NVL`, `_UPPER`, `_TRIM`, `_SUBSTR`, `_MAX_MIN`, `_TO_CHAR`,
-`_CONCATENATION`, `_OTHER`), a dynamic `INTO` (`DYNAMIC_INTO`), a field of a `%ROWTYPE` or cursor loop record assigned
-(`RECORD_ASSIGNMENT`) or passed to a routine, as a column read in static SQL may be (`ARGUMENT`), and a `FETCH` from a
-cursor whose query is not known (`FETCH_CURSOR_NOT_KNOWN`).
+`_CONCATENATION`, `_OTHER`), a dynamic `INTO` (`DYNAMIC_INTO`), an assigned field of a row record whose column is not
+known (`RECORD_ASSIGNMENT`: the cursor's field is an expression, or the cursor or `%ROWTYPE` is not known), an assigned
+expression of such a field (`RECORD_ASSIGNMENT_EXPRESSION_UPPER`, …, by the same shapes), a field of a row record
+passed to a routine, as a column read in static SQL may be (`ARGUMENT`), and a `FETCH` from a cursor whose query is not
+known (`FETCH_CURSOR_NOT_KNOWN`).
 
 ## Occurrence
 

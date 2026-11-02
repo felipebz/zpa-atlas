@@ -180,7 +180,12 @@ internal class FileRows(private val connection: Connection) {
 
     /** A count of what reads a column's value into PL/SQL without being followed: `COLUMN_VALUE_NOT_FOLLOWED`, its shape first. */
     private fun leftOutNote(shape: String, count: Int): CoverageFact {
-        val what = LEFT_OUT[if (shape.startsWith("EXPRESSION_")) "EXPRESSION" else shape] ?: "read(s) of a column value into PL/SQL: not followed"
+        val kind = when {
+            shape.startsWith("EXPRESSION_") -> "EXPRESSION"
+            shape.startsWith("RECORD_ASSIGNMENT_EXPRESSION_") -> "RECORD_ASSIGNMENT_EXPRESSION"
+            else -> shape
+        }
+        val what = LEFT_OUT[kind] ?: "read(s) of a column value into PL/SQL: not followed"
         return CoverageFact(COLUMN_VALUE_NOT_FOLLOWED, "$shape: $count $what")
     }
 
@@ -191,6 +196,7 @@ internal class FileRows(private val connection: Connection) {
             "EXPRESSION" to "select item(s) that are an expression of one column, read into a PL/SQL target: not followed",
             "DYNAMIC_INTO" to "target(s) of a dynamic INTO: not followed",
             "RECORD_ASSIGNMENT" to "assignment(s) of a field of a %ROWTYPE or cursor loop record: not followed",
+            "RECORD_ASSIGNMENT_EXPRESSION" to "assigned value(s) that are an expression of a field of a %ROWTYPE or cursor loop record: not followed",
             "ARGUMENT" to "column value(s) passed to a routine: not followed",
             "FETCH_CURSOR_NOT_KNOWN" to "target(s) of a FETCH from a cursor whose query is not known: not followed"
         )

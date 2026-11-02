@@ -748,8 +748,9 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "receives: the columns read into this target. " +
             "$PATHS $KEYS"
 
-        const val PLACES = "Every PL/SQL variable, parameter or field a column's value is read into (SELECT INTO, " +
-            "FETCH INTO of an explicit cursor, RETURNING INTO, with BULK COLLECT), and how each is declared: one row " +
+        const val PLACES = "Every PL/SQL variable, parameter or field a column's value is read into (source SELECT_INTO, " +
+            "FETCH of an explicit cursor, RETURNING, with BULK COLLECT; ASSIGNMENT: target := r.f, r a cursor FOR loop " +
+            "record or a %ROWTYPE variable, line of the :=), and how each is declared: one row " +
             "per target, by class then file and line, a page at a time (pass nextOffset as offset; absent on the last " +
             "page). Also the places of the view columns computed from it (viaView, read is the view column). Each row: " +
             "the column read, source, path and line, container, the target as written (targetWritten), its entity " +
@@ -764,7 +765,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "or anchored to something so anchored: it follows the column). declaredType is the declaration as " +
             "written; typeSource the entity whose declaration decides the type (the variable, field or type that " +
             "writes the size, or the column an anchor ends at). total and byClass count them all. Not followed: an " +
-            "expression of the column (upper(code)), dynamic SQL, a record field assigned or passed. $PATHS"
+            "expression of the column (upper(code), upper(r.code)), dynamic SQL, a record field passed. $PATHS"
 
         const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column " +
             "is in (referencedBy of get_entity, which cuts it), by table then name, a page at a time: pass the answer's " +

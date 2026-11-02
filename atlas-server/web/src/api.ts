@@ -291,7 +291,7 @@ export interface ColumnPlace {
   /** The column read: the page's column, or a view column computed from it ([viaView]). */
   read: EntitySummary;
   viaView: boolean;
-  source: "SELECT_INTO" | "FETCH" | "RETURNING";
+  source: "SELECT_INTO" | "FETCH" | "RETURNING" | "ASSIGNMENT";
   /** `BULK COLLECT INTO`. */
   bulk: boolean;
   /** Where the target is written: the file relative to the sources, one-based line, zero-based column. */

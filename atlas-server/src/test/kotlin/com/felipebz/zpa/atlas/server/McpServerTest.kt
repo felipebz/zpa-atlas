@@ -609,10 +609,10 @@ class McpServerTest {
             assertThat(pages).anySatisfy { assertThat(it).containsKey("cutForSize") }
             val rows = pages.flatMap { it["result"]!!.jsonObject["rows"]!!.jsonArray.map { row -> row.jsonObject } }
             assertThat(rows.map { "${it["path"]!!.jsonPrimitive.content}:${it["line"]!!.jsonPrimitive.content}:${it["targetWritten"]!!.jsonPrimitive.content}" })
-                .hasSize(317).doesNotHaveDuplicates()
-            assertThat(pages.first()["result"]!!.jsonObject["total"]!!.jsonPrimitive.content).isEqualTo("317")
-            // By class: the 308 fixed sizes lead.
-            assertThat(rows.take(308).map { it["placeClass"]!!.jsonPrimitive.content }).containsOnly("FIXED_SIZE")
+                .hasSize(318).doesNotHaveDuplicates()
+            assertThat(pages.first()["result"]!!.jsonObject["total"]!!.jsonPrimitive.content).isEqualTo("318")
+            // By class: the 309 fixed sizes lead.
+            assertThat(rows.take(309).map { it["placeClass"]!!.jsonPrimitive.content }).containsOnly("FIXED_SIZE")
             val fixed = rows.first { it["targetWritten"]!!.jsonPrimitive.content == "l_x" }
             assertThat(listOf("length", "unit", "declaredType").map { fixed[it]!!.jsonPrimitive.content }).containsExactly("12", "NLS_LENGTH_SEMANTICS", "varchar2(12)")
             // An OUT parameter target: its callers' arguments decide the size, the row says which mode.
@@ -621,7 +621,7 @@ class McpServerTest {
             // get_entity of the column counts them by class.
             val entity = client.call("get_entity", args { put("key", "db:SHOP.ORDERS.CODE") }).json().jsonObject["result"]!!.jsonObject
             assertThat(entity["placesByClass"]!!.jsonArray.map { "${it.jsonObject["value"]!!.jsonPrimitive.content} ${it.jsonObject["count"]!!.jsonPrimitive.content}" })
-                .containsExactly("FIXED_SIZE 308", "UNKNOWN 1", "CALLER_DECIDES 1", "ANCHORED_ELSEWHERE 1", "ANCHORED_TO_COLUMN 6")
+                .containsExactly("FIXED_SIZE 309", "UNKNOWN 1", "CALLER_DECIDES 1", "ANCHORED_ELSEWHERE 1", "ANCHORED_TO_COLUMN 6")
         }
     }
 

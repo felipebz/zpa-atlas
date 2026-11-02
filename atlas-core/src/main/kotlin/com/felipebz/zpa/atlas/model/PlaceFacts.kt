@@ -82,6 +82,9 @@ data class IntoTarget(
 /**
  * One `INTO`: [source], [bulk] for `BULK COLLECT`, where it is, the select items of each branch of its query
  * ([branches]; a local cursor's for a `FETCH`), or the cursor entity it fetches from ([cursorKey]), and its [targets].
+ * An assignment `target := r.f` ([PlaceSource.ASSIGNMENT]) has one target, the record [row] (a cursor loop record or a
+ * variable; whether it is a row record is decided after the scan) and its field [rowField], and the [expression] shape
+ * when the right side is an expression of that field rather than the field itself.
  */
 data class IntoFact(
     val source: PlaceSource,
@@ -91,7 +94,10 @@ data class IntoFact(
     val statementLocalId: Int?,
     val branches: List<List<QueryItem>>,
     val cursorKey: String?,
-    val targets: List<IntoTarget>
+    val targets: List<IntoTarget>,
+    val row: IntoTarget? = null,
+    val rowField: String? = null,
+    val expression: String? = null
 )
 
 /**
