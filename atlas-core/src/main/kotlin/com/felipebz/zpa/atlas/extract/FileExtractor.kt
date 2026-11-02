@@ -349,7 +349,10 @@ class FileExtractor(
         if (ddl.isDdl(node)) ddl.statement(node, context)
         when (node.type) {
             PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION,
-            PlSqlGrammar.CREATE_PROCEDURE, PlSqlGrammar.CREATE_FUNCTION -> subprogramAt(node)?.let { current = context.inside(it) }
+            PlSqlGrammar.CREATE_PROCEDURE, PlSqlGrammar.CREATE_FUNCTION -> {
+                subprogramAt(node)?.let { current = context.inside(it) }
+                if (context.dynamic == null) places.routine(node, current)
+            }
             DmlGrammar.SELECT_EXPRESSION, DmlGrammar.INSERT_EXPRESSION, DmlGrammar.UPDATE_EXPRESSION,
             DmlGrammar.DELETE_EXPRESSION, DmlGrammar.MERGE_EXPRESSION, TclGrammar.LOCK_TABLE_EXPRESSION -> {
                 innerConditionNames(node, context)
@@ -368,6 +371,7 @@ class FileExtractor(
             }
             PlSqlGrammar.FETCH_STATEMENT -> places.fetch(node, context)
             PlSqlGrammar.ASSIGNMENT_STATEMENT -> if (context.dynamic == null) places.assignment(node, context)
+            PlSqlGrammar.RETURN_STATEMENT -> if (context.dynamic == null) places.returnStatement(node, context)
             PlSqlGrammar.OPEN_FOR_STATEMENT -> if (!node.hasDirectChildren(DmlGrammar.SELECT_EXPRESSION)) {
                 dynamic(node, after(node, PlSqlKeyword.FOR), context)
             }

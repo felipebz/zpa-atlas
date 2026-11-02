@@ -32,8 +32,8 @@ internal class FileRows(private val connection: Connection) {
         val docInsert = prepare("INSERT INTO doc_comment(entity_id, file_id, in_body, shape, start_line, text, text_cut) VALUES (?,?,?,?,?,?,?)")
         val placeInsert = prepare("""INSERT INTO column_place(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line,
             end_col, column_id, source, bulk, target_entity_id, target_written, field, class, declared_type, length, length_unit, type_source_id, reason,
-            scale, parameter_mode, functions, argument_parameter_id, argument_routine_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
+            scale, parameter_mode, functions, argument_parameter_id, argument_routine_id, call_count, call_path, call_line)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
         val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert,
             docInsert, placeInsert)
         var placeId = 0L
@@ -160,6 +160,9 @@ internal class FileRows(private val connection: Connection) {
                 placeInsert.setNullableString(24, place.functions.takeIf { it.isNotEmpty() }?.joinToString(","))
                 placeInsert.setNullableLong(25, place.argumentOf?.let { entityIds[it] })
                 placeInsert.setNullableLong(26, place.argumentOf?.let { entityIds[it.substringBeforeLast('.')] })
+                placeInsert.setNullableLong(27, place.callCount?.toLong())
+                placeInsert.setNullableString(28, place.callPath)
+                placeInsert.setNullableLong(29, place.callLine?.toLong())
                 batches.add(placeInsert)
             }
             // At a file boundary, so that the rows of one file go out together.
@@ -200,7 +203,17 @@ internal class FileRows(private val connection: Connection) {
             "DYNAMIC_INTO" to "target(s) of a dynamic INTO: not followed",
             "RECORD_ASSIGNMENT" to "assignment(s) of a field of a %ROWTYPE or cursor loop record: not followed",
             "RECORD_ASSIGNMENT_EXPRESSION" to "assigned value(s) that are an expression of a field of a %ROWTYPE or cursor loop record: not followed",
-            "ARGUMENT" to "column value(s) passed to a routine: not followed",
+            "ARGUMENT_ROUTINE_UNDECIDED" to "column value(s) passed to a routine the index does not decide: not followed",
+            "ARGUMENT_ROUTINE_OUTSIDE" to "column value(s) passed to a routine whose PL/SQL body is not in the index: not followed",
+            "ARGUMENT_NOT_TIED" to "column value(s) passed to a routine, the argument not tied to a parameter: not followed",
+            "ARGUMENT_CONSTRUCTOR" to "column value(s) passed to an object type's constructor: not followed",
+            "ARGUMENT_LOCAL_SUBPROGRAM" to "column value(s) passed to an overloaded subprogram nested in a routine: not followed",
+            "ARGUMENT_COLUMN_POSSIBLE" to "parameter(s) a column's value is passed to, named in SQL on a table whose columns are not known (a column may take the name): not followed",
+            "ARGUMENT_FETCHED" to "parameter(s) a column's value is passed to, selected by a cursor: not followed",
+            "ARGUMENT_INTO_NOT_FOLLOWED" to "parameter(s) a column's value is passed to, selected into targets that do not match the items: not followed",
+            "ARGUMENT_COLUMN_NOT_KNOWN" to "field(s) of a %ROWTYPE or cursor loop record whose column is not known, passed to a routine: not followed",
+            "ARGUMENT_RETURNED" to "parameter(s) a column's value is passed to, returned by the function: not followed",
+            "ARGUMENT_EXPRESSION" to "parameter(s) a column's value is passed to, written within an expression: not followed",
             "OUT_ARGUMENT_NOT_FOLLOWED" to "argument(s) for an OUT parameter a column's value is read into, not a name, field or element the index binds: not followed",
             "OUT_PARAMETER_NOT_FOLLOWED" to "OUT parameter(s) a column's value is read into whose callers the index cannot tell: not followed",
             "OUT_CALL_NOT_DECIDED" to "call(s) whose routine is not decided, among routines with an OUT parameter a column's value is read into: not followed",

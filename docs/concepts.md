@@ -124,9 +124,29 @@ them by class (`placesByClass`). What is not followed is counted by shape in `CO
 an item that is another expression of one column (`EXPRESSION_NVL`, `_NVL2`, `_UPPER`, `_TRIM`, `_SUBSTR`, `_MAX_MIN`, `_TO_CHAR`,
 `_CONCATENATION`, `_OTHER`), a dynamic `INTO` (`DYNAMIC_INTO`), an assigned field of a row record whose column is not
 known (`RECORD_ASSIGNMENT`: the cursor's field is an expression, or the cursor or `%ROWTYPE` is not known), an assigned
-expression of such a field (`RECORD_ASSIGNMENT_EXPRESSION_UPPER`, …, by the same shapes), a field of a row record
-passed to a routine, as a column read in static SQL may be (`ARGUMENT`), and a `FETCH` from a cursor whose query is not
-known (`FETCH_CURSOR_NOT_KNOWN`).
+expression of such a field (`RECORD_ASSIGNMENT_EXPRESSION_UPPER`, …, by the same shapes), a column passed to a routine
+whose value the index does not follow (below), and a `FETCH` from a cursor whose query is not known
+(`FETCH_CURSOR_NOT_KNOWN`).
+
+A column passed to a routine's `IN` parameter (in static SQL, anywhere in the statement, even a `WHERE`; or a field of
+a row record passed in PL/SQL), as is or through value functions, lands in the parameter, which never limits it, even
+declared `%TYPE`. Each target the routine writes the parameter into (an assignment of it, as is or through value
+functions, or a `SELECT … INTO` or `RETURNING … INTO` of it, a record taking
+it as its field as it would take a column) is a place of the column (`IN_ARGUMENT`), classed as any target, once per column and target however many
+calls pass it: `argument_parameter_id` and `argument_routine_id` name the parameter the column was passed to,
+`call_count` how many calls pass it, `call_path` and `call_line` one of them. A parameter passed on to another routine's
+`IN` parameter is followed there, once per parameter and column; a target that is an `OUT` parameter is followed to its
+callers. A parameter passed to a subprogram nested in the routine is followed there too, by where it is declared in
+the file. A parameter only read (compared, in a condition) gives nothing. What is not followed is counted: a routine
+among candidates (`ARGUMENT_ROUTINE_UNDECIDED`), one outside the index (`ARGUMENT_ROUTINE_OUTSIDE`: qualified by a
+package the sources do not have, resolved by the dictionary only, without a body in the sources, or with a body that is
+not PL/SQL: a Java or C call spec, `AGGREGATE USING`, `PIPELINED … USING`), an argument the call
+does not tie to a parameter (`ARGUMENT_NOT_TIED`), an object type's constructor (`ARGUMENT_CONSTRUCTOR`), an overloaded nested subprogram (`ARGUMENT_LOCAL_SUBPROGRAM`), the parameter named in SQL on a table whose columns are not known, so a column may take the name
+(`ARGUMENT_COLUMN_POSSIBLE`), the parameter selected by a cursor (`ARGUMENT_FETCHED`) or
+into targets that do not match the items (`ARGUMENT_INTO_NOT_FOLLOWED`), a
+record field whose column is not known (`ARGUMENT_COLUMN_NOT_KNOWN`), and the parameter returned (`ARGUMENT_RETURNED`)
+or written within an expression (`ARGUMENT_EXPRESSION`), each once per column. An unqualified name the index does not
+resolve is taken for a built-in function (`upper`, `count`) and not counted.
 
 ## Occurrence
 

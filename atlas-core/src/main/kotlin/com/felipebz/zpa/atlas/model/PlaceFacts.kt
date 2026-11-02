@@ -117,8 +117,20 @@ data class IntoFact(
     val expression: String? = null,
     /** The value functions an assignment reads its record's field through, outer first (`l := nvl(r.code, '-')`). */
     val functions: List<String> = emptyList(),
-    /** For [PlaceSource.OUT_ARGUMENT]: the `OUT` or `IN OUT` parameter the argument ([targets]) is passed for. */
-    val parameterKey: String? = null
+    /**
+     * For [PlaceSource.OUT_ARGUMENT]: the `OUT` or `IN OUT` parameter the argument ([targets]) is passed for. For a
+     * [PlaceSource.IN_ARGUMENT] call: the `IN` parameter the column ([branches], or the record's field [row].[rowField])
+     * is passed to (null when the call does not tie it to one), [targets] the argument, its reason when not followed.
+     * For a [PlaceSource.IN_ARGUMENT] flow ([fromParameter]): the parameter the value is passed on to.
+     */
+    val parameterKey: String? = null,
+    /**
+     * A flow inside a routine: its `IN` parameter whose value, through [functions], is written into [targets], passed on
+     * to [parameterKey], or written in a way not followed (the shape in [expression]). Read by an `INTO` with a single
+     * target, [branches] are its items, the parameter's the one whose column key is [fromParameter]: the target takes it
+     * as it would take a column in that position.
+     */
+    val fromParameter: String? = null
 )
 
 /**
@@ -153,5 +165,11 @@ data class ColumnPlaceFact(
     /** For an argument of a call ([PlaceSource.OUT_ARGUMENT]): the `OUT` or `IN OUT` parameter it is passed for. */
     val argumentOf: String? = null,
     /** The target's [IntoTarget.localKey]: a nested subprogram's parameter, whose callers are followed in its file. */
-    val localParameter: String? = null
+    val localParameter: String? = null,
+    /**
+     * For [PlaceSource.IN_ARGUMENT]: how many calls pass the column to [argumentOf], and one of them ([callPath], [callLine]).
+     */
+    val callCount: Int? = null,
+    val callPath: String? = null,
+    val callLine: Int? = null
 )

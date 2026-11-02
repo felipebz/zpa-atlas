@@ -5,6 +5,7 @@
 
 package com.felipebz.zpa.atlas.index
 
+import com.felipebz.zpa.atlas.extract.IntoClauses
 import com.felipebz.zpa.atlas.model.*
 
 /**
@@ -70,8 +71,9 @@ internal class ColumnPlaces(
                 assignment(into, places, leftOut)
                 continue
             }
-            // The arguments of OUT parameters are followed from the places of their parameters ([arguments]).
-            if (into.source == PlaceSource.OUT_ARGUMENT) continue
+            // The arguments of OUT parameters are followed from the places of their parameters ([arguments]), the values
+            // passed to IN parameters from their calls ([passed]).
+            if (into.source == PlaceSource.OUT_ARGUMENT || into.source == PlaceSource.IN_ARGUMENT) continue
             val branches = if (into.cursorKey != null) {
                 val row = shapes[into.cursorKey] as? TypeShape.CursorRow
                 if (row == null) {
@@ -112,6 +114,113 @@ internal class ColumnPlaces(
             into.expression != null -> leftOut.merge("RECORD_ASSIGNMENT_EXPRESSION_${into.expression}", 1, Int::plus)
             else -> places += place(into, into.targets.single(), null, column.key, into.functions + column.functions)
         }
+    }
+
+    /**
+     * The places inside routines of the columns their calls pass to `IN` parameters: each target a routine writes its
+     * parameter's value into (as is or through value functions) is a place of the column, once per column and target
+     * however many calls pass it, naming the parameter the column was passed to, how many calls pass it and one of
+     * them. A parameter passed on to another routine's `IN` parameter is followed there, once per parameter and column.
+     * A parameter only read (compared, in a condition) gives nothing. What is not followed is counted by shape, in the
+     * file of the call or of the routine's statement: the routine not decided (`ARGUMENT_ROUTINE_UNDECIDED`), outside
+     * the index (`ARGUMENT_ROUTINE_OUTSIDE`: a call the dictionary resolves, a routine whose body the sources do not have,
+     * or one whose body is not PL/SQL), the argument not tied to a parameter (`ARGUMENT_NOT_TIED`), an overloaded nested
+     * subprogram (`ARGUMENT_LOCAL_SUBPROGRAM`), a parameter named in SQL on a table whose columns are not known
+     * (`ARGUMENT_COLUMN_POSSIBLE`), a parameter a cursor selects (`ARGUMENT_FETCHED`) or selected into a record
+     * whose `INTO` targets do not match its items (`ARGUMENT_INTO_NOT_FOLLOWED`), a record field whose column is not known (`ARGUMENT_COLUMN_NOT_KNOWN`), and the
+     * parameter returned (`ARGUMENT_RETURNED`) or written within an expression (`ARGUMENT_EXPRESSION`).
+     */
+    fun passed(facts: List<FileFacts>): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
+        val places = HashMap<String, MutableList<ColumnPlaceFact>>()
+        val leftOut = HashMap<String, MutableMap<String, Int>>()
+        fun count(path: String, shape: String) {
+            leftOut.getOrPut(path) { HashMap() }.merge(shape, 1, Int::plus)
+        }
+        // The routines whose body the sources have, as calls name them.
+        val defined = HashSet<String>()
+        for (file in facts) for (occurrence in file.occurrences) {
+            if (Role.DEFINITION in occurrence.roles && occurrence.entityKey != null) defined += occurrence.entityKey.removeSuffix("@BODY")
+        }
+        // The parameters of routines whose body is not PL/SQL: what calls give them is counted at each call.
+        val outside = HashSet<String>()
+        for (file in facts) for (into in file.intos) {
+            if (into.fromParameter != null && into.expression == IntoClauses.BODY_NOT_PLSQL) outside += parameterKey(file.path, into.fromParameter)
+        }
+        // A nested subprogram's parameter (its file's) has its body where it is declared.
+        fun isDefined(parameter: String) = parameter !in outside && ('|' in parameter || parameter.substringBeforeLast('.') in defined)
+        val flows = HashMap<String, MutableList<Pair<String, IntoFact>>>()
+        val seeds = LinkedHashMap<Triple<String, String, List<String>>, MutableList<Pair<String, IntoFact>>>()
+        for (file in facts) for (into in file.intos) {
+            if (into.source != PlaceSource.IN_ARGUMENT) continue
+            if (into.fromParameter != null) {
+                if (into.expression == IntoClauses.BODY_NOT_PLSQL) continue
+                flows.getOrPut(parameterKey(file.path, into.fromParameter)) { ArrayList() } += file.path to into
+                continue
+            }
+            val (column, functions) = if (into.row != null) {
+                val row = structure(targetNode(into.row, false), 0)
+                if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) continue
+                val found = field(row, null, into.rowField).first as? Node.Column
+                if (found == null) {
+                    count(file.path, "ARGUMENT_COLUMN_NOT_KNOWN")
+                    continue
+                }
+                found.key to (into.functions + found.functions)
+            } else {
+                val item = into.branches.single().single()
+                (item.columnKey ?: continue) to item.functions
+            }
+            val reason = into.targets.single().reason
+            if (reason != null) {
+                count(file.path, reason)
+                continue
+            }
+            val parameter = parameterKey(file.path, into.parameterKey ?: continue)
+            if (!isDefined(parameter)) {
+                count(file.path, "ARGUMENT_ROUTINE_OUTSIDE")
+                continue
+            }
+            seeds.getOrPut(Triple(parameter, column, functions)) { ArrayList() } += file.path to into
+        }
+        class Reached(val parameter: String, val column: String, val functions: List<String>, val calls: List<Pair<String, IntoFact>>)
+        val queue = ArrayDeque<Reached>()
+        val seen = HashSet<Triple<String, String, List<String>>>()
+        for ((key, calls) in seeds) {
+            seen += key
+            queue += Reached(key.first, key.second, key.third, calls.sortedWith(compareBy({ it.first }, { it.second.targets.single().span })))
+        }
+        val placed = HashSet<List<Any>>()
+        val counted = HashSet<List<Any>>()
+        while (queue.isNotEmpty()) {
+            val reached = queue.removeFirst()
+            for ((path, flow) in flows[reached.parameter].orEmpty()) {
+                val functions = flow.functions + reached.functions
+                val site = flow.targets.single().span
+                when {
+                    flow.expression != null -> if (counted.add(listOf(path, site, reached.column))) count(path, flow.expression)
+                    flow.parameterKey != null -> {
+                        val next = parameterKey(path, flow.parameterKey)
+                        if (!isDefined(next)) {
+                            if (counted.add(listOf(path, site, reached.column))) count(path, "ARGUMENT_ROUTINE_OUTSIDE")
+                        } else if (seen.add(Triple(next, reached.column, functions))) {
+                            queue += Reached(next, reached.column, functions, reached.calls)
+                        }
+                    }
+                    placed.add(listOf(path, site, reached.column, functions)) -> {
+                        val (callPath, call) = reached.calls.first()
+                        // Read by an INTO with a single target: a record takes the item as its field, as for a column.
+                        val target = flow.targets.single()
+                        val items = flow.branches.singleOrNull()
+                        val field = items?.takeIf { it.size > 1 || isRow(target, flow.bulk) }?.indexOfFirst { it.columnKey == flow.fromParameter }
+                        places.getOrPut(path) { ArrayList() } += place(flow, target, field, reached.column, functions).copy(
+                            argumentOf = call.parameterKey, callCount = reached.calls.size, callPath = callPath,
+                            callLine = call.targets.single().span.startLine
+                        )
+                    }
+                }
+            }
+        }
+        return places to leftOut
     }
 
     /**

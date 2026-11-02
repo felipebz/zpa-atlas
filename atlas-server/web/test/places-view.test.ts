@@ -4,6 +4,7 @@ import en from "../src/i18n/en";
 import pt from "../src/i18n/pt";
 import {sayIn} from "../src/i18n-format";
 import {
+    callsText,
     classCounts,
     classLabel,
     classSummary,
@@ -38,7 +39,7 @@ function place(over: Partial<ColumnPlace>): ColumnPlace {
     read: CODE, viaView: false, source: "SELECT_INTO", bulk: false, path: "pk_ord.pkb", line: 12, column: 4,
     container: summary("SHOP.PK_ORD.LOAD", "PROCEDURE"), targetWritten: "l_code", target: L_CODE, field: null,
     placeClass: "FIXED_SIZE", declaredType: "varchar2(12)", length: 12, unit: "CHAR", scale: null, typeSource: L_CODE,
-    parameterMode: null, reason: null, functions: [], argumentOf: null, routine: null, ...over
+    parameterMode: null, reason: null, functions: [], argumentOf: null, routine: null, callCount: null, callPath: null, callLine: null, ...over
   };
 }
 
@@ -173,6 +174,13 @@ describe("labels", () => {
     expect(sourceText(say, { source: "RETURNING", bulk: false })).toBe("RETURNING INTO");
     expect(sourceText(say, { source: "ASSIGNMENT", bulk: false })).toBe("assignment (:=)");
     expect(sourceText(say, { source: "OUT_ARGUMENT", bulk: false })).toBe("argument of an OUT parameter");
+    expect(sourceText(say, { source: "IN_ARGUMENT", bulk: false })).toBe("value passed to a parameter");
+  });
+
+  it("counts the calls that pass a column to a parameter", () => {
+    expect(callsText(say, { callCount: 3 })).toBe("by 3 calls, one at");
+    expect(callsText(sayPt, { callCount: 1 })).toBe("por 1 chamada:");
+    expect(callsText(say, { callCount: null })).toBeNull();
   });
 });
 

@@ -64,6 +64,11 @@ export function functionsText(say: Say, place: Pick<ColumnPlace, "functions">): 
   return say(other ? "places.functionsOther" : "places.functions", { functions });
 }
 
+/** How many calls pass a column to a parameter, before the one shown (`by 3 calls, one at`); null for other sources. */
+export function callsText(say: Say, place: Pick<ColumnPlace, "callCount">): string | null {
+  return place.callCount === null ? null : say("places.calls", { count: place.callCount });
+}
+
 /** What a size leaves unsaid: with no unit written, the compile-time `NLS_LENGTH_SEMANTICS` decides it; else null. */
 export function sizeNote(say: Say, place: Pick<ColumnPlace, "length" | "unit">): string | null {
   return place.length !== null && place.unit === "NLS_LENGTH_SEMANTICS" ? say("places.size.nlsNote") : null;

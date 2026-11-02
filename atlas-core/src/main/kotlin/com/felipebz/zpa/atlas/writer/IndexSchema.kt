@@ -298,7 +298,11 @@ internal fun tableDdl(): List<String> = listOf(
         functions TEXT NULL,
         -- For an argument of a call (source OUT_ARGUMENT): the OUT or IN OUT parameter it is passed for, and its routine.
         argument_parameter_id INTEGER NULL REFERENCES entity(id),
-        argument_routine_id INTEGER NULL REFERENCES entity(id)
+        argument_routine_id INTEGER NULL REFERENCES entity(id),
+        -- For source IN_ARGUMENT: how many calls pass the column to argument_parameter_id, and one of them (file, line).
+        call_count INTEGER NULL,
+        call_path TEXT NULL,
+        call_line INTEGER NULL
     )
     """,
     SOURCE_LINE_DDL

@@ -49,6 +49,10 @@ internal class IntoClauses(
             DmlGrammar.SELECT_EXPRESSION -> root.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK)?.getFirstChildOrNull(DmlGrammar.INTO_CLAUSE)?.let { into ->
                 pending += Pending(PlaceSource.SELECT_INTO, isBulk(into), statement.context, statement.id,
                     branches(root).map { selectItems(statement, it) }, null, targetsOf(into))
+                for (block in branches(root)) {
+                    selectedParameters(statement, block.getChildren(DmlGrammar.SELECT_COLUMN)
+                        .map { it.firstChild }, into)
+                }
             }
             DmlGrammar.INSERT_EXPRESSION, DmlGrammar.UPDATE_EXPRESSION, DmlGrammar.DELETE_EXPRESSION ->
                 root.getFirstDescendantOrNull(DmlGrammar.RETURNING_INTO_CLAUSE)?.let { returning ->
@@ -56,9 +60,60 @@ internal class IntoClauses(
                     val items = returning.children.filter { it.type != PlSqlKeyword.RETURNING && it.type != PlSqlKeyword.RETURN && it.type != PlSqlPunctuator.COMMA && it !== into }
                         .map { item(statement, it, null) }
                     pending += Pending(PlaceSource.RETURNING, isBulk(into), statement.context, statement.id, listOf(items), null, targetsOf(into))
+                    selectedParameters(statement, returning.children.filter { it.type != PlSqlKeyword.RETURNING && it.type != PlSqlKeyword.RETURN &&
+                        it.type != PlSqlPunctuator.COMMA && it !== into }, into)
                 }
         }
+        if (root.parentOrNull?.type == PlSqlGrammar.CURSOR_DECLARATION) {
+            // A cursor that selects a parameter: what a FETCH reads of it is not followed.
+            for (block in branches(root)) for (column in block.getChildren(DmlGrammar.SELECT_COLUMN)) {
+                for (name in parameterNames(column.firstChild)) {
+                    if (columnOf(statement, name) == null) flows += Flow(name, spanOf(column), statement.context, shape = ARGUMENT_FETCHED)
+                }
+            }
+        }
         passedColumns(statement)
+    }
+
+    /**
+     * The routine's `IN` parameters a `SELECT … INTO` or `RETURNING … INTO` reads ([values], the items in order), as is or
+     * through value functions: each is written as a column in the same position would be, into its own target, or into
+     * the single target's field or element ([intos] keeps the position). A parameter in an item that is another
+     * expression, or in an `INTO` whose targets do not match the items, is written in a way not followed.
+     */
+    private fun selectedParameters(statement: Statement, values: List<AstNode>, into: AstNode) {
+        val targets = targetsOf(into)
+        val single = targets.size == 1
+        for ((index, value) in values.withIndex()) {
+            for (name in parameterNames(value)) {
+                if (columnOf(statement, name) != null) continue
+                val functions = valueChain(value) { it === name }
+                flows += when {
+                    functions == null -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_EXPRESSION)
+                    !single && targets.size != values.size -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_INTO_NOT_FOLLOWED)
+                    else -> Flow(name, spanOf(value), statement.context, target = targets[if (single) 0 else index], functions = functions,
+                        bulk = isBulk(into), item = if (single) index to values.size else null)
+                }
+            }
+        }
+    }
+
+    /**
+     * A routine whose body is not PL/SQL the index reads: a call spec (`LANGUAGE JAVA`, `LANGUAGE C`, `EXTERNAL`), an
+     * aggregate (`AGGREGATE USING`) or a polymorphic table function (`PIPELINED … USING`). Its parameters are marked so;
+     * what its callers give them is counted at each call, as for a routine outside the index.
+     */
+    fun routine(node: AstNode, context: Context) {
+        val outside = node.hasDirectChildren(PlSqlGrammar.CALL_SPECIFICATION) || node.hasDirectChildren(PlSqlKeyword.AGGREGATE) ||
+            node.children.any { it.hasDirectChildren(PlSqlKeyword.PIPELINED) && it.hasDirectChildren(PlSqlKeyword.USING) } ||
+            node.hasDirectChildren(PlSqlKeyword.PIPELINED) && node.hasDirectChildren(PlSqlKeyword.USING)
+        if (!outside) return
+        // The routine's parameters, by the routine's key (the context is the routine's).
+        val routine = context.container ?: return
+        for (parameter in node.getFirstChildOrNull(PlSqlGrammar.PARAMETER_DECLARATIONS)?.getChildren(PlSqlGrammar.PARAMETER_DECLARATION).orEmpty()) {
+            val name = parameter.firstChild
+            flows += Flow(name, spanOf(name), context, shape = BODY_NOT_PLSQL, fromKey = "$routine.${normalizeIdentifier(name.tokenOriginalValue)}")
+        }
     }
 
     /** `FETCH c INTO …`: the cursor's query decides the items (its own file's, for a cursor with an entity). */
@@ -82,6 +137,7 @@ internal class IntoClauses(
         val at = node.children.indexOfFirst { it.type == PlSqlPunctuator.ASSIGNMENT }
         if (at <= 0) return
         val value = node.children.getOrNull(at + 1) ?: return
+        valueWrites += ValueWrite(value, spanOf(node.children[at]), node.firstChild, context)
         val field = if (isFieldOfName(value)) value else value.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).singleOrNull(::isFieldOfName) ?: return
         val functions = valueChain(value) { it === field }
         assignments += Assignment(node.firstChild, spanOf(node.children[at]), field, if (functions == null) expressionShape(value) else null,
@@ -93,6 +149,63 @@ internal class IntoClauses(
     )
 
     private val assignments = ArrayList<Assignment>()
+
+    /** `RETURN expr`: its value leaves the routine, which the index does not follow ([intos]). */
+    fun returnStatement(node: AstNode, context: Context) {
+        val value = node.children.firstOrNull { it.type != PlSqlGrammar.LABELS && it.type != PlSqlKeyword.RETURN && it.type != PlSqlPunctuator.SEMICOLON }
+            ?: return
+        valueWrites += ValueWrite(value, spanOf(node), null, context)
+    }
+
+    /**
+     * A value written in PL/SQL: assigned to [target] (`target := value`, at the `:=`), or returned (null [target]). The
+     * routine's `IN` parameters it writes are told once the file is left, when its calls are known ([parameterFlows]).
+     */
+    private class ValueWrite(val value: AstNode, val site: SourceSpan, val target: AstNode?, val context: Context)
+
+    private val valueWrites = ArrayList<ValueWrite>()
+
+    /**
+     * A column, or a record's field, passed to a routine's `IN` parameter ([parameterKey], null when the call does not
+     * tie the argument to one), through [functions]; [reason] when the call is not followed.
+     */
+    private class Pass(
+        val argument: AstNode, val column: String?, val field: AstNode?, val functions: List<String>, val parameterKey: String?,
+        val reason: String?, val context: Context, val statementId: Int?
+    )
+
+    private val passes = ArrayList<Pass>()
+
+    /**
+     * A routine's `IN` parameter ([parameter], its name in the code) written somewhere: into [target], passed on to
+     * [passedTo], or written in a way the index does not follow ([shape]), through [functions].
+     */
+    private class Flow(
+        val parameter: AstNode, val site: SourceSpan, val context: Context, val target: AstNode? = null, val passedTo: String? = null,
+        val shape: String? = null, val functions: List<String> = emptyList(), val fromKey: String? = null, val bulk: Boolean = false,
+        /** For the single target of an `INTO`: the parameter's item and the number of items. */
+        val item: Pair<Int, Int>? = null
+    )
+
+    private val flows = ArrayList<Flow>()
+
+    /**
+     * Whether [name] is a whole name zpa binds to a parameter (not the record of `p.f`, not a called routine). In SQL
+     * the name may still be a column of the statement's tables ([NameBinding.ColumnOrLocal]): [intos] decides by them.
+     */
+    private fun isParameterName(name: AstNode) =
+        name.type == PlSqlGrammar.VARIABLE_NAME && name.parentOrNull?.type != PlSqlGrammar.MEMBER_EXPRESSION &&
+            parameterDeclaration(name)?.kind == NameDeclarationKind.PARAMETER
+
+    /** The declaration zpa binds [name] to, in PL/SQL or in SQL where a column may take the name instead. */
+    private fun parameterDeclaration(name: AstNode) = when (val binding = nameBinding(name)) {
+        is NameBinding.Local -> binding.declaration
+        is NameBinding.ColumnOrLocal -> binding.declaration
+        else -> null
+    }
+
+    /** The names of parameters in [value], [value] itself included. */
+    private fun parameterNames(value: AstNode) = (sequenceOf(value) + value.getDescendants(PlSqlGrammar.VARIABLE_NAME).asSequence()).filter(::isParameterName).toList()
 
     /** Whether [query] is the query of a cursor `FOR` loop (`for r in (select …)`). */
     private fun isLoopQuery(query: AstNode): Boolean {
@@ -117,17 +230,42 @@ internal class IntoClauses(
             localCall(node, context)
             return
         }
-        if (!calledRoutine(before)) return
-        arguments(node).filter(::isFieldOfName).forEach { rowFieldCandidates += ARGUMENT to it }
-        val call = state.occurrences.subList(before, state.occurrences.size).lastOrNull { Role.CALL in it.roles && it.entityKey != null } ?: return
+        val resolved = calls.lastOrNull { it.entityKey != null && it.status in CALLED_STATUSES }
+        if (resolved == null) {
+            // A call the index does not decide: what it is passed is not followed (a built-in function is no routine).
+            val reason = calls.firstNotNullOfOrNull(::unresolvedCall)
+            if (reason != null) for (argument in arguments(node)) passedValue(argument, null, reason, context)
+            return
+        }
         for (argument in arguments(node)) {
             // The walk keeps the mode at the argument's expression node, which may wrap or be wrapped by this one.
             val span = spanOf(argument)
             val mode = (generateSequence(argument) { it.parentOrNull }.take(3) + generateSequence(argument) { it.children.firstOrNull() }.take(4))
-                .filter { it.hasToken() && spanOf(it) == span }.firstNotNullOfOrNull { state.argumentModes[it] } ?: continue
-            if (mode != ProjectParameterMode.OUT && mode != ProjectParameterMode.IN_OUT) continue
-            val parameter = call.arguments.firstOrNull { it.span == span }?.parameterKey ?: continue
-            outArguments += OutArgument(argument, parameter, context)
+                .filter { it.hasToken() && spanOf(it) == span }.firstNotNullOfOrNull { state.argumentModes[it] }
+            val parameter = resolved.arguments.firstOrNull { it.span == span }?.parameterKey
+            if (mode == ProjectParameterMode.OUT || mode == ProjectParameterMode.IN_OUT) {
+                if (parameter != null) outArguments += OutArgument(argument, parameter, context)
+                continue
+            }
+            passedValue(argument, parameter, if (parameter == null) notTied(resolved) else null, context)
+        }
+    }
+
+    /**
+     * An argument of a PL/SQL call for an `IN` parameter ([parameter]): a record's field, read as is or through value
+     * functions, is a column's value passed to the routine (decided after the scan); one of the routine's own `IN`
+     * parameters is passed on.
+     */
+    private fun passedValue(argument: AstNode, parameter: String?, reason: String?, context: Context) {
+        val field = if (isFieldOfName(argument)) argument else argument.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).singleOrNull(::isFieldOfName)
+        if (field != null) {
+            valueChain(argument) { it === field }?.let { passes += Pass(argument, null, field, it, parameter, reason, context, null) }
+            return
+        }
+        for (name in parameterNames(argument)) {
+            val functions = valueChain(argument) { it === name } ?: continue
+            flows += if (reason == null && parameter != null) Flow(name, spanOf(argument), context, passedTo = parameter, functions = functions)
+                else Flow(name, spanOf(argument), context, shape = reason ?: ARGUMENT_NOT_TIED)
         }
     }
 
@@ -156,6 +294,7 @@ internal class IntoClauses(
         val subprogram = subprograms.singleOrNull()
         if (subprogram == null) {
             for (parameter in subprograms.flatMap(::parametersOf).filter(::isOut)) undecidedCalls += spanOf(node) to localKey(parameter)
+            if (subprograms.isNotEmpty()) for (argument in arguments(node)) passedValue(argument, null, ARGUMENT_LOCAL_SUBPROGRAM, context)
             return
         }
         val parameters = parametersOf(subprogram)
@@ -164,9 +303,16 @@ internal class IntoClauses(
             val label = argument.takeIf { it.hasDirectChildren(PlSqlPunctuator.ASSOCIATION) }?.firstChild?.let { normalizeIdentifier(it.tokenOriginalValue) }
             val parameter = if (label == null) parameters.getOrNull(index)
                 else parameters.firstOrNull { normalizeIdentifier(it.firstChild.tokenOriginalValue) == label }
-            if (parameter == null || !isOut(parameter)) continue
-            outArguments += OutArgument(argument.lastChild, localKey(parameter), context)
+            if (parameter != null && isOut(parameter)) outArguments += OutArgument(argument.lastChild, localKey(parameter), context)
+            // A nested subprogram's IN parameter: followed by where it is declared in the file.
+            else passedValue(argument.lastChild, parameter?.let(::localKey), if (parameter == null) ARGUMENT_NOT_TIED else null, context)
         }
+    }
+
+    /** The key of the nested subprogram's parameter zpa binds [name] to, which has no entity ([localKey]); null for any other. */
+    private fun localParameterKey(name: AstNode, shapes: TypeShapes): String? {
+        val declaration = parameterDeclaration(name)?.takeIf { it.fileId == null } ?: return null
+        return shapes.localDeclaration(declaration.line, declaration.column)?.takeIf { it.type == PlSqlGrammar.PARAMETER_DECLARATION }?.let(::localKey)
     }
 
     /** Where a nested subprogram's parameter is named in the file: `local:line:column`. */
@@ -179,12 +325,6 @@ internal class IntoClauses(
 
     private val outArguments = ArrayList<OutArgument>()
 
-    /** The `r.f` values assigned or passed, with what they are counted as when `r` is a row record. */
-    private val rowFieldCandidates = ArrayList<Pair<String, AstNode>>()
-
-    /** Whether the walk recorded a call of a routine (an entity) since occurrence [before]. */
-    private fun calledRoutine(before: Int): Boolean =
-        state.occurrences.subList(before, state.occurrences.size).any { Role.CALL in it.roles && it.entityKey != null }
 
     private fun arguments(call: AstNode): List<AstNode> =
         call.getFirstChildOrNull(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT).orEmpty().map { it.lastChild }
@@ -192,24 +332,51 @@ internal class IntoClauses(
     private fun isFieldOfName(value: AstNode) =
         value.type == PlSqlGrammar.MEMBER_EXPRESSION && value.numberOfChildren == 3 && value.firstChild.type == PlSqlGrammar.VARIABLE_NAME
 
-    /** Counts the [rowFieldCandidates] whose record zpa binds to the record of a cursor `FOR` loop, or to a variable or parameter of the file declared `%ROWTYPE`. */
-    private fun rowFields(shapes: TypeShapes) {
-        for ((shape, value) in rowFieldCandidates) {
-            val declaration = (nameBinding(value.firstChild) as? NameBinding.Local)?.declaration ?: continue
-            val row = declaration.kind == NameDeclarationKind.LOOP_INDEX || declaration.fileId == null &&
-                shapes.localDeclaration(declaration.line, declaration.column)?.getFirstChildOrNull(PlSqlGrammar.DATATYPE)?.firstChild
-                    ?.let { it.type == PlSqlGrammar.ANCHORED_DATATYPE && it.lastChild.type == PlSqlKeyword.ROWTYPE } == true
-            if (row) state.leftOut(shape)
-        }
+    /**
+     * Why a call the index has no routine for is not followed: among candidates (`ARGUMENT_ROUTINE_UNDECIDED`), or
+     * qualified by a package or schema the sources do not have (`ARGUMENT_ROUTINE_OUTSIDE`); null for an unqualified
+     * name, which is a built-in function (`upper`, `count`) as often as a routine outside the index.
+     */
+    private fun unresolvedCall(call: OccurrenceFact): String? = when {
+        call.status == Status.AMBIGUOUS -> ARGUMENT_ROUTINE_UNDECIDED
+        call.status == Status.EXTERNAL -> ARGUMENT_ROUTINE_OUTSIDE
+        '.' in call.written -> ARGUMENT_ROUTINE_OUTSIDE
+        else -> null
     }
 
-    /** In static SQL, a column read passed as is to a routine (not a built-in SQL function): counted per argument. */
+    /**
+     * Why a resolved call does not tie an argument to a parameter: an object type's constructor (its key names the type,
+     * with no parameter list), whose arguments go to attributes (`ARGUMENT_CONSTRUCTOR`); else `ARGUMENT_NOT_TIED`.
+     */
+    private fun notTied(call: OccurrenceFact) =
+        if (call.entityKey?.let(ROUTINE_KEY::containsMatchIn) == true) ARGUMENT_NOT_TIED else ARGUMENT_CONSTRUCTOR
+
+    /** The column [node] reads in [statement], when it is a column read that names one. */
+    private fun columnOf(statement: Statement, node: AstNode) =
+        statement.columnReads[node].orEmpty().singleOrNull()?.takeIf { it.entityKey != null && it.status in COLUMN_STATUSES }?.entityKey
+
+    /**
+     * In static SQL, a column read passed to a routine (not a built-in SQL function), as is or through value functions:
+     * kept with the `IN` parameter the call ties it to, or with why it is not followed (the routine is not decided, it
+     * is outside the index, or the call does not tie the argument to a parameter).
+     */
     private fun passedColumns(statement: Statement) {
-        val calls = state.occurrences.filter { it.statementLocalId == statement.id && Role.CALL in it.roles && it.entityKey != null }.mapTo(HashSet()) { it.span }
+        val calls = state.occurrences.filter { it.statementLocalId == statement.id && Role.CALL in it.roles }.associateBy { it.span }
         if (calls.isEmpty()) return
         for (call in statement.root.getDescendants(PlSqlGrammar.METHOD_CALL)) {
-            if (spanOf(call.firstChild) !in calls) continue
-            state.leftOut(ARGUMENT, arguments(call).count { argument -> statement.columnReads[argument].orEmpty().any { it.entityKey != null } })
+            val occurrence = calls[spanOf(call.firstChild)] ?: continue
+            for (argument in arguments(call)) {
+                var column: String? = null
+                val functions = valueChain(argument) { node -> plsql.nameSegments(node) != null && columnOf(statement, node)?.also { column = it } != null }
+                if (functions == null || column == null) continue
+                val parameter = occurrence.arguments.firstOrNull { it.span == spanOf(argument) }?.parameterKey
+                val reason = when {
+                    occurrence.entityKey == null || occurrence.status !in CALLED_STATUSES -> unresolvedCall(occurrence) ?: continue
+                    parameter == null -> notTied(occurrence)
+                    else -> null
+                }
+                passes += Pass(argument, column, null, functions, parameter, reason, statement.context, statement.id)
+            }
         }
     }
 
@@ -255,8 +422,7 @@ internal class IntoClauses(
     private fun item(statement: Statement, expression: AstNode, alias: AstNode?): QueryItem {
         val segments = plsql.nameSegments(expression)
         val name = alias?.let { normalizeIdentifier(it.tokenOriginalValue) } ?: segments?.last()?.let { normalizeIdentifier(it) }
-        fun column(node: AstNode) =
-            statement.columnReads[node].orEmpty().singleOrNull()?.takeIf { it.entityKey != null && it.status in COLUMN_STATUSES }?.entityKey
+        fun column(node: AstNode) = columnOf(statement, node)
         if (segments != null) return QueryItem(name, column(expression), null)
         val columns = HashSet<String>()
         fun visit(node: AstNode) {
@@ -342,8 +508,8 @@ internal class IntoClauses(
      * `INTO` reads are counted after the scan, with the cursors of other files.
      */
     fun intos(shapes: TypeShapes): List<IntoFact> {
-        rowFields(shapes)
-        if (pending.isEmpty() && assignments.isEmpty() && outArguments.isEmpty() && undecidedCalls.isEmpty()) return emptyList()
+        if (pending.isEmpty() && assignments.isEmpty() && outArguments.isEmpty() && undecidedCalls.isEmpty() && passes.isEmpty() &&
+            valueWrites.isEmpty() && flows.isEmpty()) return emptyList()
         val bySpan = state.occurrences.filter { it.entityKey != null }.groupBy { it.span }
         val intos = pending.mapNotNullTo(ArrayList()) { into ->
             val targets = into.targets.map { target(it, bySpan, shapes) }
@@ -375,6 +541,55 @@ internal class IntoClauses(
         for (argument in outArguments) {
             intos += IntoFact(PlaceSource.OUT_ARGUMENT, false, argument.context.unitIndex, argument.context.container, null, emptyList(), null,
                 listOf(target(argument.value, bySpan, shapes)), parameterKey = argument.parameterKey)
+        }
+        // A column, or a record's field, passed to a routine's IN parameter.
+        for (pass in passes) {
+            val argument = IntoTarget(spanOf(pass.argument), writtenText(pass.argument), null, emptyList(), false, null, null, pass.reason)
+            if (pass.field != null) {
+                val row = record(pass.field, bySpan, shapes) ?: continue
+                intos += IntoFact(PlaceSource.IN_ARGUMENT, false, pass.context.unitIndex, pass.context.container, pass.statementId, emptyList(), null,
+                    listOf(argument), row, normalizeIdentifier(pass.field.lastChild.tokenOriginalValue), null, pass.functions, pass.parameterKey)
+            } else {
+                intos += IntoFact(PlaceSource.IN_ARGUMENT, false, pass.context.unitIndex, pass.context.container, pass.statementId,
+                    listOf(listOf(QueryItem(null, pass.column, null, functions = pass.functions))), null, listOf(argument),
+                    functions = pass.functions, parameterKey = pass.parameterKey)
+            }
+        }
+        // What a routine writes its IN parameters into, passes them on to, or writes them in a way not followed.
+        val routineCalls = state.occurrences.filter { Role.CALL in it.roles && it.entityKey != null }.mapTo(HashSet()) { it.span }
+        for (write in valueWrites) {
+            for (name in parameterNames(write.value)) {
+                // A parameter passed to a routine inside the value is that call's argument ([call]).
+                if (generateSequence(name.parentOrNull) { it.parentOrNull }.takeWhile { it !== write.value.parentOrNull }
+                        .any { it.type == PlSqlGrammar.METHOD_CALL && spanOf(it.firstChild) in routineCalls }) continue
+                val functions = valueChain(write.value) { it === name }
+                flows += when {
+                    write.target == null -> Flow(name, write.site, write.context, shape = ARGUMENT_RETURNED)
+                    functions == null -> Flow(name, write.site, write.context, shape = ARGUMENT_EXPRESSION)
+                    else -> Flow(name, write.site, write.context, target = write.target, functions = functions)
+                }
+            }
+        }
+        // A name in SQL a column may take instead of the parameter: the parameter only when the index resolves the name,
+        // the statement's tables' columns known and none of them so named.
+        val statusBySpan = state.occurrences.groupBy { it.span }
+        for (flow in flows) {
+            val from = flow.fromKey ?: bySpan[spanOf(flow.parameter)]?.firstOrNull()?.entityKey ?: localParameterKey(flow.parameter, shapes) ?: continue
+            val columnPossible = flow.fromKey == null && flow.shape == null && nameBinding(flow.parameter) is NameBinding.ColumnOrLocal &&
+                statusBySpan[spanOf(flow.parameter)].orEmpty().none { it.status == Status.RESOLVED }
+            if (columnPossible) {
+                intos += IntoFact(PlaceSource.IN_ARGUMENT, false, flow.context.unitIndex, flow.context.container, null, emptyList(), null,
+                    listOf(IntoTarget(flow.site, "", null, emptyList(), false, null, null, null)), expression = ARGUMENT_COLUMN_POSSIBLE,
+                    fromParameter = from)
+                continue
+            }
+            val targets = flow.target?.let { listOf(target(it, bySpan, shapes).copy(span = flow.site)) }
+                ?: listOf(IntoTarget(flow.site, "", null, emptyList(), false, null, null, null))
+            val branches = flow.item?.let { (index, size) ->
+                listOf(List(size) { if (it == index) QueryItem(null, from, null, functions = flow.functions) else QueryItem(null, null, null) })
+            }.orEmpty()
+            intos += IntoFact(PlaceSource.IN_ARGUMENT, flow.bulk, flow.context.unitIndex, flow.context.container, null, branches, null, targets,
+                expression = flow.shape, functions = flow.functions, parameterKey = flow.passedTo, fromParameter = from)
         }
         // A call of an overloaded nested subprogram: no target, only the parameters it may be for.
         for ((span, parameter) in undecidedCalls) {
@@ -537,7 +752,18 @@ internal class IntoClauses(
     companion object {
         const val DYNAMIC_INTO = "DYNAMIC_INTO"
         const val RECORD_ASSIGNMENT = "RECORD_ASSIGNMENT"
-        const val ARGUMENT = "ARGUMENT"
+        const val ARGUMENT_ROUTINE_UNDECIDED = "ARGUMENT_ROUTINE_UNDECIDED"
+        const val ARGUMENT_ROUTINE_OUTSIDE = "ARGUMENT_ROUTINE_OUTSIDE"
+        const val ARGUMENT_NOT_TIED = "ARGUMENT_NOT_TIED"
+        const val ARGUMENT_RETURNED = "ARGUMENT_RETURNED"
+        const val ARGUMENT_EXPRESSION = "ARGUMENT_EXPRESSION"
+        const val ARGUMENT_LOCAL_SUBPROGRAM = "ARGUMENT_LOCAL_SUBPROGRAM"
+        const val ARGUMENT_CONSTRUCTOR = "ARGUMENT_CONSTRUCTOR"
+        const val ARGUMENT_FETCHED = "ARGUMENT_FETCHED"
+        const val ARGUMENT_COLUMN_POSSIBLE = "ARGUMENT_COLUMN_POSSIBLE"
+        /** Marks a parameter of a routine whose body is not PL/SQL ([routine]); never counted itself. */
+        const val BODY_NOT_PLSQL = "BODY_NOT_PLSQL"
+        const val ARGUMENT_INTO_NOT_FOLLOWED = "ARGUMENT_INTO_NOT_FOLLOWED"
         const val FETCH_CURSOR_NOT_KNOWN = "FETCH_CURSOR_NOT_KNOWN"
         const val OUT_CALL_NOT_DECIDED = "OUT_CALL_NOT_DECIDED"
 
@@ -551,6 +777,12 @@ internal class IntoClauses(
         private const val TARGET_SHAPE_NOT_FOLLOWED = "TARGET_SHAPE_NOT_FOLLOWED"
 
         /** The statuses of a column read that names the column: an unresolved or ambiguous one names none. */
+        /** A routine's key ends with its parameter list. */
+        private val ROUTINE_KEY = Regex("""\)(@BODY)?(#\d+)?$""")
+
+        /** The statuses of a call that ties its arguments to the routine's parameters. */
+        private val CALLED_STATUSES = setOf(Status.RESOLVED, Status.PARTIAL_SOURCE)
+
         private val COLUMN_STATUSES = setOf(Status.RESOLVED, Status.UNVERIFIED, Status.EXTERNAL, Status.PARTIAL_SOURCE)
     }
 }

@@ -356,9 +356,16 @@ data class ColumnPlace(
      * Through them the value that lands may be other than the column's (the other argument of `NVL`).
      */
     val functions: List<String>,
-    /** For source `OUT_ARGUMENT`: the `OUT` or `IN OUT` parameter the argument is passed for, and the routine called. */
+    /**
+     * For source `OUT_ARGUMENT`: the `OUT` or `IN OUT` parameter the argument is passed for, and the routine called. For
+     * source `IN_ARGUMENT`: the `IN` parameter the column is passed to, and its routine.
+     */
     val argumentOf: EntitySummary?,
-    val routine: EntitySummary?
+    val routine: EntitySummary?,
+    /** For source `IN_ARGUMENT`: how many calls pass the column to [argumentOf], and one of them ([callPath], [callLine]). */
+    val callCount: Int?,
+    val callPath: String?,
+    val callLine: Int?
 )
 
 /**

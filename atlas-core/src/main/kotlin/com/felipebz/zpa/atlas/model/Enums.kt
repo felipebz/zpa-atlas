@@ -265,7 +265,9 @@ enum class PlaceSource : StoredEnum {
     RETURNING,
     ASSIGNMENT,
     /** The argument a call passes for an `OUT` or `IN OUT` parameter whose place leaves its size to the callers. */
-    OUT_ARGUMENT
+    OUT_ARGUMENT,
+    /** A target inside a routine that a column's value, passed to the routine's `IN` parameter, is written into. */
+    IN_ARGUMENT
 }
 
 /** The `occurrence.roles` text: the sorted, comma-separated role names. */
