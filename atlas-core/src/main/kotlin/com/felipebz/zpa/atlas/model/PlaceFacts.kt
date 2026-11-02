@@ -64,7 +64,12 @@ data class QueryItem(
     val expression: String?,
     val opaque: Boolean = false,
     /** The value functions the item reads [columnKey] through, outer first (`NVL`; `UPPER`, `TRIM`); empty when read directly. */
-    val functions: List<String> = emptyList()
+    val functions: List<String> = emptyList(),
+    /**
+     * An expression of several columns (`code || note`, `nvl(note, code)`): its shape, as [expression] says it for one
+     * column. Only told when a routine is passed the item's field; such an item is not counted as an `EXPRESSION_*`.
+     */
+    val combined: String? = null
 )
 
 /** What the declaration of [entityKey] says its type is. */

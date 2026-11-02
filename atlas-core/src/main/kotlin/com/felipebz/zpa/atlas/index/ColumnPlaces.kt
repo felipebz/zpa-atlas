@@ -127,8 +127,8 @@ internal class ColumnPlaces(
      * or one whose body is not PL/SQL), the argument not tied to a parameter (`ARGUMENT_NOT_TIED`), an overloaded nested
      * subprogram (`ARGUMENT_LOCAL_SUBPROGRAM`), a parameter named in SQL on a table whose columns are not known
      * (`ARGUMENT_COLUMN_POSSIBLE`), a parameter a cursor selects (`ARGUMENT_FETCHED`) or selected into a record
-     * whose `INTO` targets do not match its items (`ARGUMENT_INTO_NOT_FOLLOWED`), a record field whose column is not known (`ARGUMENT_COLUMN_NOT_KNOWN`), and the
-     * parameter returned (`ARGUMENT_RETURNED`) or written within an expression (`ARGUMENT_EXPRESSION`).
+     * whose `INTO` targets do not match its items (`ARGUMENT_INTO_NOT_FOLLOWED`), a record field whose column is not known (`ARGUMENT_COLUMN_NOT_KNOWN_*`, by why: [notKnown]), and the
+     * parameter returned (`ARGUMENT_RETURNED`) or written within an expression (`ARGUMENT_EXPRESSION_*`, by its shape).
      */
     fun passed(facts: List<FileFacts>): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
         val places = HashMap<String, MutableList<ColumnPlaceFact>>()
@@ -162,7 +162,7 @@ internal class ColumnPlaces(
                 if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) continue
                 val found = field(row, null, into.rowField).first as? Node.Column
                 if (found == null) {
-                    count(file.path, "ARGUMENT_COLUMN_NOT_KNOWN")
+                    count(file.path, notKnown(row, into.rowField))
                     continue
                 }
                 found.key to (into.functions + found.functions)
@@ -420,6 +420,39 @@ internal class ColumnPlaces(
             item.columnKey != null -> Node.Column(item.columnKey, item.functions) to item.name
             item.expression != null -> Node.Failed("CURSOR_FIELD_EXPRESSION") to item.name
             else -> Node.Failed("CURSOR_FIELD_NOT_A_COLUMN") to item.name
+        }
+    }
+
+    /**
+     * Why the field [name] of the row record [row] has no column known, the shape it is counted under:
+     * - `ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_*`: the cursor's item is an expression the index does not follow, by its
+     *   shape as for `EXPRESSION_*` (`code || note` is `_CONCATENATION`, `nvl(note, code)` is `_NVL`);
+     * - `_ROWTYPE`: a `%ROWTYPE` whose relation or cursor the index does not know (`r missing_tab%rowtype`);
+     * - `_CURSOR`: a `%ROWTYPE` of a cursor whose query is not known (a cursor of another package with no query);
+     * - `_STAR`: the cursor's `*` over a relation whose columns are not known (`select * from missing_tab`);
+     * - `_OTHER`: anything else: an item that reads no column the index knows (a literal, a function of the routine's
+     *   parameters or of a table function's rows), or a name that is not a known column.
+     */
+    private fun notKnown(row: Node.Shape, name: String?): String {
+        val prefix = "ARGUMENT_COLUMN_NOT_KNOWN_"
+        val items = when (val shape = row.shape) {
+            is TypeShape.CursorRow -> shape.items
+            is TypeShape.Anchored -> {
+                val key = shape.anchorKey
+                ((if (key != null) shapes[key] else shape.local) as? TypeShape.CursorRow)?.items ?: return prefix + when {
+                    key == null || kinds[key] in RELATIONS -> "ROWTYPE"
+                    kinds[key] == EntityKind.CURSOR -> "CURSOR"
+                    else -> "OTHER"
+                }
+            }
+            else -> return prefix + "OTHER"
+        }
+        val item = items.firstOrNull { it.name == name }
+        return prefix + when {
+            item == null -> if (items.any { it.opaque }) "STAR" else "OTHER"
+            item.expression != null -> "EXPRESSION_${item.expression}"
+            item.combined != null -> "EXPRESSION_${item.combined}"
+            else -> "OTHER"
         }
     }
 

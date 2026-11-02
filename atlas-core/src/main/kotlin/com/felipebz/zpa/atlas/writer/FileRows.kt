@@ -188,6 +188,8 @@ internal class FileRows(private val connection: Connection) {
     private fun leftOutNote(shape: String, count: Int): CoverageFact {
         val kind = when {
             shape.startsWith("EXPRESSION_") -> "EXPRESSION"
+            shape.startsWith("ARGUMENT_EXPRESSION_") -> "ARGUMENT_EXPRESSION"
+            shape.startsWith("ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_") -> "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION"
             shape.startsWith("RECORD_ASSIGNMENT_EXPRESSION_") -> "RECORD_ASSIGNMENT_EXPRESSION"
             else -> shape
         }
@@ -211,7 +213,11 @@ internal class FileRows(private val connection: Connection) {
             "ARGUMENT_COLUMN_POSSIBLE" to "parameter(s) a column's value is passed to, named in SQL on a table whose columns are not known (a column may take the name): not followed",
             "ARGUMENT_FETCHED" to "parameter(s) a column's value is passed to, selected by a cursor: not followed",
             "ARGUMENT_INTO_NOT_FOLLOWED" to "parameter(s) a column's value is passed to, selected into targets that do not match the items: not followed",
-            "ARGUMENT_COLUMN_NOT_KNOWN" to "field(s) of a %ROWTYPE or cursor loop record whose column is not known, passed to a routine: not followed",
+            "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION" to "field(s) of a cursor record whose item is an expression, passed to a routine: not followed",
+            "ARGUMENT_COLUMN_NOT_KNOWN_ROWTYPE" to "field(s) of a %ROWTYPE whose relation or cursor is not known, passed to a routine: not followed",
+            "ARGUMENT_COLUMN_NOT_KNOWN_CURSOR" to "field(s) of a %ROWTYPE of a cursor whose query is not known, passed to a routine: not followed",
+            "ARGUMENT_COLUMN_NOT_KNOWN_STAR" to "field(s) of a cursor record whose * is over a relation whose columns are not known, passed to a routine: not followed",
+            "ARGUMENT_COLUMN_NOT_KNOWN_OTHER" to "field(s) of a %ROWTYPE or cursor loop record whose item reads no column the index knows, passed to a routine: not followed",
             "ARGUMENT_RETURNED" to "parameter(s) a column's value is passed to, returned by the function: not followed",
             "ARGUMENT_EXPRESSION" to "parameter(s) a column's value is passed to, written within an expression: not followed",
             "OUT_ARGUMENT_NOT_FOLLOWED" to "argument(s) for an OUT parameter a column's value is read into, not a name, field or element the index binds: not followed",

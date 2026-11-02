@@ -144,8 +144,12 @@ not PL/SQL: a Java or C call spec, `AGGREGATE USING`, `PIPELINED … USING`), an
 does not tie to a parameter (`ARGUMENT_NOT_TIED`), an object type's constructor (`ARGUMENT_CONSTRUCTOR`), an overloaded nested subprogram (`ARGUMENT_LOCAL_SUBPROGRAM`), the parameter named in SQL on a table whose columns are not known, so a column may take the name
 (`ARGUMENT_COLUMN_POSSIBLE`), the parameter selected by a cursor (`ARGUMENT_FETCHED`) or
 into targets that do not match the items (`ARGUMENT_INTO_NOT_FOLLOWED`), a
-record field whose column is not known (`ARGUMENT_COLUMN_NOT_KNOWN`), and the parameter returned (`ARGUMENT_RETURNED`)
-or written within an expression (`ARGUMENT_EXPRESSION`), each once per column. An unqualified name the index does not
+record field whose column is not known (`ARGUMENT_COLUMN_NOT_KNOWN_*`, by why: `_EXPRESSION_CONCATENATION`, … for a
+cursor item that is an expression, by the same shapes as `EXPRESSION_*`; `_ROWTYPE` for a `%ROWTYPE` whose relation or
+cursor is not known; `_CURSOR` for a `%ROWTYPE` of a cursor whose query is not known; `_STAR` for a cursor's `*` over a
+relation whose columns are not known; `_OTHER` for anything else), and the parameter returned (`ARGUMENT_RETURNED`)
+or written within an expression (`ARGUMENT_EXPRESSION_*`, by its shape as for `EXPRESSION_*`, with `_CASE` for a `CASE`
+and `_LENGTH` for `LENGTH` and its kin), each once per column. An unqualified name the index does not
 resolve is taken for a built-in function (`upper`, `count`) and not counted.
 
 ## Occurrence

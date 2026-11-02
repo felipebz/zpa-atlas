@@ -89,7 +89,7 @@ internal class IntoClauses(
                 if (columnOf(statement, name) != null) continue
                 val functions = valueChain(value) { it === name }
                 flows += when {
-                    functions == null -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_EXPRESSION)
+                    functions == null -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_EXPRESSION + argumentShape(value))
                     !single && targets.size != values.size -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_INTO_NOT_FOLLOWED)
                     else -> Flow(name, spanOf(value), statement.context, target = targets[if (single) 0 else index], functions = functions,
                         bulk = isBulk(into), item = if (single) index to values.size else null)
@@ -430,7 +430,8 @@ internal class IntoClauses(
             node.children.forEach(::visit)
         }
         visit(expression)
-        if (columns.size != 1) return QueryItem(name, null, null)
+        if (columns.size > 1) return QueryItem(name, null, null, combined = expressionShape(expression))
+        if (columns.isEmpty()) return QueryItem(name, null, null)
         var leaf: String? = null
         val functions = valueChain(expression) { node -> plsql.nameSegments(node) != null && column(node)?.also { leaf = it } != null }
         return if (functions != null && leaf != null) QueryItem(name, leaf, null, functions = functions)
@@ -479,6 +480,18 @@ internal class IntoClauses(
             }
             else -> null
         }
+    }
+
+    /**
+     * The shape of an expression a parameter is written within: as [expressionShape] says it, apart from a `CASE`
+     * (which may give the value back as is) and `LENGTH` and its kin (which give a number, not the value).
+     */
+    private fun argumentShape(expression: AstNode): String {
+        var node = expression
+        while (node.type == PlSqlGrammar.BRACKED_EXPRESSION && node.numberOfChildren == 3) node = node.children[1]
+        if (node.type == PlSqlGrammar.CASE_EXPRESSION) return "CASE"
+        if (node.type == PlSqlGrammar.METHOD_CALL && plsql.nameSegments(node.firstChild)?.singleOrNull()?.uppercase() in LENGTH_FUNCTIONS) return "LENGTH"
+        return expressionShape(expression)
     }
 
     /**
@@ -565,7 +578,7 @@ internal class IntoClauses(
                 val functions = valueChain(write.value) { it === name }
                 flows += when {
                     write.target == null -> Flow(name, write.site, write.context, shape = ARGUMENT_RETURNED)
-                    functions == null -> Flow(name, write.site, write.context, shape = ARGUMENT_EXPRESSION)
+                    functions == null -> Flow(name, write.site, write.context, shape = ARGUMENT_EXPRESSION + argumentShape(write.value))
                     else -> Flow(name, write.site, write.context, target = write.target, functions = functions)
                 }
             }
@@ -756,7 +769,9 @@ internal class IntoClauses(
         const val ARGUMENT_ROUTINE_OUTSIDE = "ARGUMENT_ROUTINE_OUTSIDE"
         const val ARGUMENT_NOT_TIED = "ARGUMENT_NOT_TIED"
         const val ARGUMENT_RETURNED = "ARGUMENT_RETURNED"
-        const val ARGUMENT_EXPRESSION = "ARGUMENT_EXPRESSION"
+        /** The prefix of the shape of an expression a parameter is written within ([argumentShape]). */
+        const val ARGUMENT_EXPRESSION = "ARGUMENT_EXPRESSION_"
+        private val LENGTH_FUNCTIONS = setOf("LENGTH", "LENGTHB", "LENGTHC", "LENGTH2", "LENGTH4")
         const val ARGUMENT_LOCAL_SUBPROGRAM = "ARGUMENT_LOCAL_SUBPROGRAM"
         const val ARGUMENT_CONSTRUCTOR = "ARGUMENT_CONSTRUCTOR"
         const val ARGUMENT_FETCHED = "ARGUMENT_FETCHED"

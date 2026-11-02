@@ -711,6 +711,96 @@ class ColumnPlacesTest {
     }
 
     @Test
+    fun `the expressions a parameter is written within, and the fields whose column is not known, are counted by what they are`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("split.sql"), """
+            create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
+
+            create or replace package pk_split as
+              procedure p_concat(p_code varchar2);
+              procedure p_substr(p_code varchar2);
+              procedure p_to_char(p_code varchar2);
+              procedure p_length(p_code varchar2);
+              procedure p_case(p_code varchar2);
+              procedure p_other(p_code varchar2);
+              procedure p_rec(p_code varchar2);
+            end;
+            /
+            create or replace package body pk_split as
+              procedure p_concat(p_code varchar2) is l varchar2(30); begin l := p_code || '-'; end;
+              procedure p_substr(p_code varchar2) is l varchar2(30); begin l := substr(p_code, 1, 3); end;
+              procedure p_to_char(p_code varchar2) is l varchar2(30); begin l := to_char(p_code); end;
+              procedure p_length(p_code varchar2) is n number; begin n := length(p_code); end;
+              procedure p_case(p_code varchar2) is l varchar2(30); begin l := case when p_code is null then 'x' else p_code end; end;
+              procedure p_other(p_code varchar2) is l varchar2(30); begin l := replace(p_code, 'a', 'b'); end;
+              procedure p_rec(p_code varchar2) is begin null; end;
+            end;
+            /
+            create or replace procedure show_split is
+              cursor c_expr is select code || note as joined, upper(code) as up from orders;
+              r_unknown unknown_tab%rowtype;
+            begin
+              for r in (select code from orders) loop
+                pk_split.p_concat(r.code);
+                pk_split.p_substr(r.code);
+                pk_split.p_to_char(r.code);
+                pk_split.p_length(r.code);
+                pk_split.p_case(r.code);
+                pk_split.p_other(r.code);
+              end loop;
+              for x in c_expr loop
+                pk_split.p_rec(x.joined);
+                pk_split.p_rec(x.up);
+              end loop;
+              for y in (select nvl(note, code) as n from orders) loop
+                pk_split.p_rec(y.n);
+              end loop;
+              select * into r_unknown from unknown_tab where rownum = 1;
+              pk_split.p_rec(r_unknown.code);
+            end;
+            /
+            create or replace package pk_cur as
+              cursor c_spec return orders%rowtype;
+            end;
+            /
+            create or replace procedure show_more is
+              r_anchor nowhere.missing_tab%rowtype;
+              r_spec pk_cur.c_spec%rowtype;
+            begin
+              pk_split.p_rec(r_anchor.code);
+              pk_split.p_rec(r_spec.code);
+              for s in (select * from missing_tab) loop
+                pk_split.p_rec(s.code);
+              end loop;
+              for z in (select 'a' as lit from dual) loop
+                pk_split.p_rec(z.lit);
+              end loop;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("split.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
+        // x.up is read through UPPER, which the index follows; r_unknown's relation is not known but its field is named:
+        // the column is told by name, and p_rec writes it nowhere. Neither is counted; nor is r_anchor, whose type the
+        // index does not resolve at all.
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
+            .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
+            "ARGUMENT_COLUMN_NOT_KNOWN_CURSOR: 1",                      // r_spec, a cursor declared with no query
+            "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_CONCATENATION: 1",    // x.joined, code || note
+            "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_NVL: 1",              // y.n, nvl(note, code)
+            "ARGUMENT_COLUMN_NOT_KNOWN_OTHER: 1",                       // z.lit, a literal
+            "ARGUMENT_COLUMN_NOT_KNOWN_STAR: 1",                        // s.code, select * from a table not known
+            "ARGUMENT_EXPRESSION_CASE: 1",
+            "ARGUMENT_EXPRESSION_CONCATENATION: 1",
+            "ARGUMENT_EXPRESSION_LENGTH: 1",
+            "ARGUMENT_EXPRESSION_OTHER: 1",                             // replace(p_code, …)
+            "ARGUMENT_EXPRESSION_SUBSTR: 1",
+            "ARGUMENT_EXPRESSION_TO_CHAR: 1"
+        )
+    }
+
+    @Test
     fun `what is not followed is counted by shape`() {
         val db = PlacesFixture.index(temp)
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1"))
