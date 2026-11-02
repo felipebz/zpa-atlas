@@ -39,6 +39,36 @@ The attributes a standalone object type's `CREATE TYPE` writes are `ATTRIBUTE` e
 (`db:HR.TY_POINT.X`), found and used the same way; an attribute a subtype inherits is its supertype's. An attribute an
 `ALTER TYPE` adds has no entity: the type's page says its attributes may not be all.
 
+### Dictionary columns and keys
+
+With the Oracle dictionary, a column's declaration says its datatype as a `CREATE TABLE` writes it, then `NOT NULL`
+when the dictionary says so (`ALL_TAB_COLS.NULLABLE`): `VARCHAR2(30 CHAR)` or `CHAR(1 BYTE)` (always with the unit:
+the default depends on the session), `NVARCHAR2(30)` (always characters), `RAW(16)`, `NUMBER`, `NUMBER(10)`,
+`NUMBER(10,2)`, `NUMBER(*,0)`, `FLOAT(126)`, `DATE`, `TIMESTAMP(6)`, an object type as `OWNER.NAME`. A view's columns
+get theirs the same way, from what the dictionary derives from the query: a column taken as is keeps its table
+column's type and `NOT NULL`; an expression gets the type Oracle computes for it (`sum(amount)` and `count(*)` a bare
+`NUMBER`, `'C-' || country` a `CHAR(4 BYTE)`), without `NOT NULL`.
+
+The primary, unique and foreign keys (`ALL_CONSTRAINTS`, `ALL_CONS_COLUMNS`) are read for the relations the dictionary
+reads, with the keys their foreign keys reference and the foreign keys of any table the session sees that reference
+theirs. They are rows of their own, not entities: a key's name, kind, columns in order, whether it is enabled, and for
+a foreign key its delete rule and the key it references. A table's page lists its keys and the foreign keys that
+reference them; a column's page, the keys it is in, the column it references and the columns that reference it.
+
+`ALL_CONSTRAINTS` shows a table's constraints only to its owner, to a user granted a privilege on it, and to a user with
+`SELECT ANY TABLE` (or `READ ANY TABLE`, `INSERT ANY TABLE`, `UPDATE ANY TABLE`, `DELETE ANY TABLE`, `LOCK ANY TABLE`,
+directly or through a role). The loader checks `SESSION_PRIVS` for one of them. Without one, the foreign keys of the
+tables the user cannot see are not read, and the run records a `REFERENCED_BY_INCOMPLETE` coverage note
+(`TABLES_NOT_VISIBLE`): the page of a table or column with a primary or unique key, and `get_entity`
+(`referencedByIncomplete`), say that "Referenced by" may be incomplete, even when it is empty. Index as a user with
+`SELECT ANY TABLE` for complete lists. The MCP tool `find_referencing_keys` pages through all of them; `get_entity`
+cuts the list like its other lists.
+
+A relation the code names is an entity; so is the relation at the other end of one of its keys when the dictionary
+read it, so that both ends of the key can be followed. A key end the index has no entity for (a schema the dictionary
+was not asked for, or a relation more than one key away from the code) is kept by name: the key, its table and its
+columns, without links. Check constraints, indexes and column defaults are not read.
+
 ## Occurrence
 
 One place in the source where an entity is defined or used. It has roles and a status.

@@ -6,9 +6,12 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.Fixture
+import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.dictionary.DictionaryKey
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.model.EntityKind
+import com.felipebz.zpa.atlas.model.KeyKind
 import com.felipebz.zpa.atlas.model.Origin
 import com.felipebz.zpa.atlas.model.UnitKind
 import com.felipebz.zpa.atlas.query.*
@@ -97,10 +100,10 @@ class McpServerTest {
         assertThat(client.serverVersion!!.name).isEqualTo("zpa-atlas")
         assertThat(client.serverVersion!!.version).matches("\\d+\\.\\d+\\.\\d+.*")
         val tools = client.listTools().tools.associateBy { it.name }
-        assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_occurrences", "find_usages", "group_occurrences", "group_usages", "get_source",
-            "get_values", "find_value_sites", "find_impact", "search_text")
+        assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_referencing_keys", "find_occurrences", "find_usages",
+            "group_occurrences", "group_usages", "get_source", "get_values", "find_value_sites", "find_impact", "search_text")
         assertThat(tools.mapValues { it.value.inputSchema.required.orEmpty() }).isEqualTo(mapOf(
-            "search_entities" to listOf("name"), "get_entity" to listOf("key"), "find_occurrences" to emptyList(),
+            "search_entities" to listOf("name"), "get_entity" to listOf("key"), "find_referencing_keys" to listOf("key"), "find_occurrences" to emptyList(),
             "find_usages" to listOf("key"), "group_occurrences" to listOf("group_by"), "group_usages" to listOf("key", "group_by"), "get_source" to listOf("path", "line"),
             "get_values" to listOf("key"), "find_value_sites" to listOf("key", "value_kind"), "find_impact" to listOf("key"), "search_text" to listOf("text")
         ))
@@ -584,6 +587,53 @@ class McpServerTest {
     }
 
     @Test
+    fun `find_referencing_keys reaches every foreign key to a key, past what one answer holds, and says they may be more`() {
+        // 600 foreign keys of tables the dictionary did not read reference the fixture's KY_ORDERS primary key, and the
+        // loading user did not see every table.
+        val fixture = Fixture.dictionary
+        val far = (1..600).map { DictionaryKey("FAR", "FK_FAR_$it", KeyKind.FOREIGN_KEY, "FAR", "T$it", listOf("ORDER_ID", "LINE_NO"), true, "NO ACTION", "HR", "PK_KY_ORDERS") }
+        val dictionary = AtlasDictionary.of("fixture", listOf("HR"), fixture.relations, fixture.synonyms, fixture.objects, fixture.keys + far, fixture.notNull,
+            seesEveryTable = false)
+        val many = AtlasIndex(Fixture.index(temp.resolve("many.db"), dictionary), Fixture.sources)
+        mcp(many, McpSettings(maxAnswerChars = 20_000)) { client ->
+            suspend fun pages(key: String): List<JsonObject> {
+                val result = ArrayList<JsonObject>()
+                var offset: Int? = 0
+                while (offset != null) {
+                    val page = client.call("find_referencing_keys", args { put("key", key); put("offset", offset!!) }).json().jsonObject
+                    result += page
+                    offset = page["result"]!!.jsonObject["nextOffset"]?.jsonPrimitive?.content?.toInt()
+                }
+                return result
+            }
+            fun rows(pages: List<JsonObject>) = pages.flatMap { it["result"]!!.jsonObject["rows"]!!.jsonArray.map { row -> row.jsonObject } }
+            val table = pages("db:HR.KY_ORDERS")
+            // Each page fits the cap: some are cut for size, and paging on from nextOffset reads each key once.
+            assertThat(table).allSatisfy { assertThat(it.toString().length).isLessThanOrEqualTo(20_000) }
+            assertThat(table).anySatisfy { assertThat(it).containsKey("cutForSize") }
+            val names = rows(table).map { "${it["owner"]!!.jsonPrimitive.content}.${it["name"]!!.jsonPrimitive.content}" }
+            assertThat(names).doesNotHaveDuplicates().hasSize(603)
+                .contains("FIN.FK_PAYMENTS_ORDER", "HR.FK_KY_LINES_CODE", "HR.FK_KY_LINES_ORDER", "FAR.FK_FAR_1", "FAR.FK_FAR_600")
+            assertThat(table.first()["result"]!!.jsonObject["total"]!!.jsonPrimitive.content).isEqualTo("603")
+            assertThat(table.first()["result"]!!.jsonObject["incomplete"]).isEqualTo(strings("TABLES_NOT_VISIBLE"))
+            // A column: the foreign keys to the keys it is in, each with its column that references it.
+            val column = rows(pages("db:HR.KY_ORDERS.LINE_NO"))
+            assertThat(column).hasSize(602).allSatisfy { row ->
+                assertThat(row["columns"]!!.jsonArray.map { it.jsonObject["references"]!!.jsonPrimitive.content }).contains("LINE_NO")
+            }
+            // get_entity cuts referencedBy, names the referenced key instead of repeating it, and says there may be more.
+            val entity = client.call("get_entity", args { put("key", "db:HR.KY_ORDERS") }).json().jsonObject
+            assertThat(entity["truncated"]!!.jsonObject["referencedBy"]!!.jsonPrimitive.content).isEqualTo("603")
+            val result = entity["result"]!!.jsonObject
+            assertThat(result["referencedBy"]!!.jsonArray.first().jsonObject["references"]).isEqualTo(JsonPrimitive("HR.PK_KY_ORDERS"))
+            assertThat(result["referencedByIncomplete"]).isEqualTo(strings("TABLES_NOT_VISIBLE"))
+            // A table with no primary or unique key cannot be referenced: nothing to say.
+            assertThat(client.call("get_entity", args { put("key", "db:HR.KY_LINES") }).json().jsonObject["result"]!!.jsonObject)
+                .doesNotContainKey("referencedByIncomplete")
+        }
+    }
+
+    @Test
     fun `find_occurrences without a filter is refused and names the filters, group_occurrences says it counts the whole index`() = mcp { client ->
         for (arguments in listOf(args {}, args { put("limit", 5) }, args { put("after", 10) }, args { put("candidates", false); put("inside", true) })) {
             val refused = client.call("find_occurrences", arguments)
@@ -665,6 +715,7 @@ class McpServerTest {
             "find_usages" to args { put("key", "db:HR.COMPANY") },
             "group_usages" to args { put("key", "db:HR.COMPANY"); put("group_by", strings("ROLE")) },
             "find_impact" to args { put("key", "db:HR.PACK_IMP_A.LEAF(P_N IN NUMBER)") },
+            "find_referencing_keys" to args { put("key", "db:HR.KY_ORDERS") },
             "get_source" to args { put("path", "hr/pack_process.pkb"); put("line", 10) },
             "get_values" to args { put("key", stActive) },
             "find_value_sites" to args { put("key", stActive); put("value_kind", "STRING"); put("value", "S") },
@@ -842,7 +893,7 @@ class McpServerTest {
             assertThat(listing.headers().firstValue("Content-Encoding")).hasValue("gzip")
             val listed = Json.parseToJsonElement(GZIPInputStream(listing.body()).readAllBytes().decodeToString())
                 .jsonObject["result"]!!.jsonObject["tools"]!!.jsonArray
-            assertThat(listed).hasSize(11)
+            assertThat(listed).hasSize(12)
             assertThat(listed.map { it.jsonObject["inputSchema"]!!.jsonObject["additionalProperties"] }).containsOnly(JsonPrimitive(false))
             val stream = http.sendAsync(
                 HttpRequest.newBuilder(url).header("Accept", "text/event-stream").header("Accept-Encoding", "gzip, deflate")

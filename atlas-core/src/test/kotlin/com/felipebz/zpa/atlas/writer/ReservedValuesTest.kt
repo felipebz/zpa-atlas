@@ -60,6 +60,9 @@ class ReservedValuesTest {
                     )
                 }
                 statement.execute("INSERT INTO occurrence_candidate VALUES (1, 2)")
+                KeyKind.entries.forEachIndexed { i, kind ->
+                    statement.execute("INSERT INTO dictionary_key VALUES ($i + 1, 'HR', 'K$i', '${kind.name}', 'HR', 'T', NULL, 1, NULL, NULL, NULL, NULL)")
+                }
             }
             assertThat(count(connection, "occurrence")).isEqualTo(Role.entries.size + 1L)
         }

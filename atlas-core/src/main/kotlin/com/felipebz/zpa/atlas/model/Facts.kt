@@ -103,9 +103,29 @@ data class TriggerEventFact(val triggerKey: String, val timing: TriggerTiming, v
 /**
  * What the declaration of [entityKey] says, as written ([com.felipebz.zpa.atlas.extract.DeclaredTexts]): [datatype] is
  * a function's or cursor's return type, else the declared type; [value] a parameter's default or a variable's,
- * constant's or field's initial value, cut when [valueCut].
+ * constant's or field's initial value, cut when [valueCut]. For a dictionary column, [datatype] is its type as a
+ * `CREATE TABLE` writes it, then ` NOT NULL` when the dictionary says so ([com.felipebz.zpa.atlas.dictionary.ColumnDatatypes]).
  */
 data class DeclaredTextFact(val entityKey: String, val datatype: String?, val value: String?, val valueCut: Boolean)
+
+/**
+ * A primary, unique or foreign key the dictionary gives ([com.felipebz.zpa.atlas.dictionary.DictionaryKey]), with the
+ * entities of its ends: [relationKey] is the entity of its relation `tableOwner.tableName`, null when the index has
+ * none; [columns] its columns in key order, each with its entity, null when the index has none.
+ */
+data class KeyFact(
+    val owner: String,
+    val name: String,
+    val kind: KeyKind,
+    val tableOwner: String,
+    val tableName: String,
+    val relationKey: String?,
+    val columns: List<Pair<String, String?>>,
+    val enabled: Boolean,
+    val deleteRule: String?,
+    val referencedOwner: String?,
+    val referencedName: String?
+)
 
 /**
  * The documentation comment of one declaration of [entityKey] ([com.felipebz.zpa.atlas.extract.DocComments]): where it

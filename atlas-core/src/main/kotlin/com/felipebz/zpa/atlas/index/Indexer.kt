@@ -5,7 +5,6 @@
 
 package com.felipebz.zpa.atlas.index
 
-import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.api.PlSqlFile
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalContext
@@ -13,24 +12,14 @@ import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectIdentifier
 import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
-import com.felipebz.zpa.atlas.extract.DeclarationCatalog
-import com.felipebz.zpa.atlas.extract.FileExtractor
-import com.felipebz.zpa.atlas.extract.ObjectTypeMembers
-import com.felipebz.zpa.atlas.extract.RelationResolver
-import com.felipebz.zpa.atlas.extract.sha256
-import com.felipebz.zpa.atlas.model.CoverageFact
-import com.felipebz.zpa.atlas.model.EntityFact
-import com.felipebz.zpa.atlas.model.FileFacts
-import com.felipebz.zpa.atlas.model.RelationFact
+import com.felipebz.zpa.atlas.dictionary.DictionaryKeys
+import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
+import com.felipebz.zpa.atlas.extract.*
+import com.felipebz.zpa.atlas.model.*
 import com.felipebz.zpa.atlas.writer.AtlasWriter
 import com.felipebz.zpa.atlas.writer.RunInfo
 import com.felipebz.zpa.atlas.writer.SourceTextIndex
-import com.felipebz.zpa.project.FileId
-import com.felipebz.zpa.project.ProjectAnalysisContext
-import com.felipebz.zpa.project.ProjectDeclarationExtractor
-import com.felipebz.zpa.project.ProjectIndexPreparation
-import com.felipebz.zpa.project.ProjectSource
-import com.felipebz.zpa.project.ProjectSourceReader
+import com.felipebz.zpa.project.*
 import com.felipebz.zpa.squid.AstScanner
 import com.felipebz.zpa.squid.ConditionalCompilationSettings
 import com.felipebz.zpa.squid.PlSqlConfiguration
@@ -38,9 +27,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
-import java.util.Locale
-import java.util.Properties
-import java.util.TreeMap
+import java.util.*
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import java.util.concurrent.Executors
@@ -260,19 +247,24 @@ class Indexer internal constructor(
         // The dictionary relations the files resolved, once each, in key order (an enumerable dictionary has them all).
         val resolved = TreeMap<String, ProjectExternalRelation>()
         for (file in facts) for (relation in file.dictionaryRelations) resolved.putIfAbsent(RelationResolver.dictionaryKey(relation), relation)
-        if (dictionary.enumerable) {
-            dictionary.relations.forEach {
-                resolved.remove(RelationResolver.dictionaryKey(it.relation))
-                RelationResolver.addDictionaryRelation(dictionary, it.relation, globalEntities, globalRelations)
-            }
-        }
-        resolved.values.forEach { RelationResolver.addDictionaryRelation(dictionary, it, globalEntities, globalRelations) }
+        if (dictionary.enumerable) dictionary.relations.forEach { resolved[RelationResolver.dictionaryKey(it.relation)] = it.relation }
+        // The relations at the other end of their keys, so that both ends of a key are entities.
+        resolved += DictionaryKeys.linked(dictionary, resolved)
+        val globalDeclaredTexts = ArrayList<DeclaredTextFact>()
+        resolved.values.forEach { RelationResolver.addDictionaryRelation(dictionary, it, globalEntities, globalRelations, globalDeclaredTexts) }
+        val keys = DictionaryKeys.facts(dictionary, resolved)
         // The synonyms the files followed, once each, in key order.
         facts.flatMapTo(java.util.TreeSet(compareBy<DictionarySynonym>({ it.owner }, { it.name }))) { it.dictionarySynonyms }
             .forEach { RelationResolver.addDictionarySynonym(it, globalEntities, globalRelations) }
         if (!dictionary.enumerable && dictionary.isAvailable) {
             globalCoverage += CoverageFact("DICTIONARY_NOT_ENUMERABLE",
                 "The acquired metadata cannot list its relations: only relations named by code are entities, and views are recorded as TABLE")
+        }
+        if (dictionary.isAvailable && !dictionary.seesEveryTable) {
+            globalCoverage += CoverageFact(DictionaryKeys.REFERENCED_BY_INCOMPLETE,
+                "${DictionaryKeys.TABLES_NOT_VISIBLE}: the loading user has none of ${AtlasDictionary.EVERY_TABLE_PRIVILEGES.joinToString()}, " +
+                    "and ALL_CONSTRAINTS lists only the constraints of the tables it owns or was granted a privilege on: " +
+                    "the foreign keys referencing a key may be more than those recorded")
         }
 
         val texts = sources.associate { it.relativePath to it.text }
@@ -295,7 +287,8 @@ class Indexer internal constructor(
                         startedAt = startedAt.toString(),
                         finishedAt = clock().toString()
                     ),
-                    facts, globalEntities, globalRelations, globalCoverage, texts::get, phase
+                    facts, globalEntities, globalRelations, globalCoverage, texts::get, phase,
+                    dictionaryDeclaredTexts = globalDeclaredTexts, keys = keys
                 )
             }
         } catch (e: Throwable) {

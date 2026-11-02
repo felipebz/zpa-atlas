@@ -37,7 +37,9 @@ class FixtureGoldenTest {
             "coverage_note" to "SELECT coalesce(f.path, '-'), c.kind, c.message FROM coverage_note c LEFT JOIN source_file f ON f.id = c.file_id ORDER BY c.id",
             "trigger_event" to "SELECT t.key, e.timing, coalesce(e.level, '-'), e.event, coalesce(c.key, '-') FROM trigger_event e JOIN entity t ON t.id = e.trigger_id LEFT JOIN entity c ON c.id = e.column_id ORDER BY t.key, e.event, e.timing, c.key",
             "declared_text" to "SELECT e.key, coalesce(d.datatype, '-'), coalesce(d.value, '-'), d.value_cut FROM declared_text d JOIN entity e ON e.id = d.entity_id ORDER BY e.key",
-            "doc_comment" to "SELECT e.key, f.path, d.in_body, d.shape, d.start_line, replace(d.text, char(10), '\\n'), d.text_cut FROM doc_comment d JOIN entity e ON e.id = d.entity_id JOIN source_file f ON f.id = d.file_id ORDER BY e.key, f.path, d.start_line"
+            "doc_comment" to "SELECT e.key, f.path, d.in_body, d.shape, d.start_line, replace(d.text, char(10), '\\n'), d.text_cut FROM doc_comment d JOIN entity e ON e.id = d.entity_id JOIN source_file f ON f.id = d.file_id ORDER BY e.key, f.path, d.start_line",
+            "dictionary_key" to "SELECT k.owner || '.' || k.name, k.kind, k.table_owner || '.' || k.table_name, coalesce(e.key, '-'), k.enabled, coalesce(k.delete_rule, '-'), coalesce(k.referenced_owner || '.' || k.referenced_name, '-'), coalesce(r.owner || '.' || r.name, '-') FROM dictionary_key k LEFT JOIN entity e ON e.id = k.relation_id LEFT JOIN dictionary_key r ON r.id = k.referenced_id ORDER BY k.id",
+            "dictionary_key_column" to "SELECT k.owner || '.' || k.name, c.position, c.column_name, coalesce(e.key, '-') FROM dictionary_key_column c JOIN dictionary_key k ON k.id = c.key_id LEFT JOIN entity e ON e.id = c.column_id ORDER BY c.key_id, c.position"
         )) {
             append("## ").append(title).append('\n')
             Fixture.query(database, sql).forEach { append(it).append('\n') }

@@ -33,7 +33,8 @@ zpa-atlas stats <file.db>
 
 Without a database, uses that the sources alone cannot confirm stay `UNVERIFIED`. With the dictionary they become
 `RESOLVED` or `UNRESOLVED`; table and view columns are known, so `select *` expands and view columns get definitions;
-synonyms are followed, and views are told apart from tables.
+synonyms are followed, and views are told apart from tables. Each column also gets its datatype and `NOT NULL`, and
+each table its primary, unique and foreign keys (see [concepts.md](concepts.md#dictionary-columns-and-keys)).
 
 - **Driver:** download the Oracle JDBC driver JAR (e.g. `ojdbc17.jar`, for JDK 17 and later) from
   [Oracle's JDBC downloads page](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it
@@ -41,6 +42,9 @@ synonyms are followed, and views are told apart from tables.
   if it does not exist.
 - **Password:** read from the environment variable `ZPA_ORACLE_PASSWORD`; choose another with `--oracle-password-env`.
 - **Schemas:** `--oracle-schemas` reads whole schemas; `--oracle-relations S.T` reads single relations.
+- **Privileges:** the foreign keys that reference a table are read from `ALL_CONSTRAINTS`, which shows only the tables
+  the user can see. With `SELECT ANY TABLE` (or another `… ANY TABLE` privilege) the lists are complete; without, the
+  index says they may not be (see [concepts.md](concepts.md#dictionary-columns-and-keys)).
 
 ```sh
 export ZPA_ORACLE_PASSWORD=...

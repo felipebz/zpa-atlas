@@ -11,37 +11,18 @@ import com.felipebz.zpa.atlas.Fixture
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.query.AtlasIndex
-import io.ktor.client.plugins.defaultRequest
-import io.ktor.client.plugins.sse.SSE
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.server.application.Application
-import io.ktor.server.auth.oidc.OpenIdProviderMetadata
-import io.ktor.server.auth.oidc.OpenIdTestKeys
-import io.ktor.server.testing.ApplicationTestBuilder
-import io.ktor.server.testing.testApplication
-import io.ktor.utils.io.ExperimentalKtorApi
+import io.ktor.client.plugins.*
+import io.ktor.client.plugins.sse.*
+import io.ktor.client.request.*
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.auth.oidc.*
+import io.ktor.server.testing.*
+import io.ktor.utils.io.*
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.Implementation
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
+import io.modelcontextprotocol.kotlin.sdk.types.*
+import kotlinx.serialization.json.*
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
@@ -149,7 +130,7 @@ class McpProjectsTest {
         projects(hr, billing) { client ->
             val tools = client.listTools().tools
             assertThat(tools.map { it.name }).containsExactly(
-                "search_entities", "get_entity", "find_occurrences", "find_usages", "group_usages", "group_occurrences", "get_source",
+                "search_entities", "get_entity", "find_referencing_keys", "find_occurrences", "find_usages", "group_usages", "group_occurrences", "get_source",
                 "search_text", "get_values", "find_value_sites", "find_impact", "list_projects"
             )
             for (tool in tools.filter { it.name != "list_projects" }) {

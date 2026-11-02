@@ -9,6 +9,7 @@ import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectIdentifier
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.dictionary.ColumnDatatypes
 import com.felipebz.zpa.atlas.dictionary.DictionaryRelationKind
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.model.*
@@ -188,8 +189,14 @@ class RelationResolver(
                 external = false, precedence = Precedence.DICTIONARY)
         }
 
-        /** The relation entity of the dictionary with all its columns (`CONTAINS`). */
-        fun addDictionaryRelation(dictionary: AtlasDictionary, relation: ProjectExternalRelation, entities: MutableList<EntityFact>, relations: MutableList<RelationFact>) {
+        /**
+         * The relation entity of the dictionary with all its columns (`CONTAINS`), and each column's datatype
+         * ([ColumnDatatypes]) with ` NOT NULL` when the dictionary says so, as its declared text.
+         */
+        fun addDictionaryRelation(
+            dictionary: AtlasDictionary, relation: ProjectExternalRelation, entities: MutableList<EntityFact>, relations: MutableList<RelationFact>,
+            declaredTexts: MutableList<DeclaredTextFact>
+        ) {
             val schema = relation.schema.exact()
             val name = relation.name.exact()
             val key = dictionaryKey(relation)
@@ -199,6 +206,10 @@ class RelationResolver(
                 val columnKey = "$key.$columnName"
                 entities += EntityFact(columnKey, EntityKind.COLUMN, schema, columnName, key, "$schema.$name.$columnName", external = false, precedence = Precedence.DICTIONARY)
                 relations += RelationFact(key, RelationKind.CONTAINS, columnKey)
+                column.datatype.ifPresent { datatype ->
+                    val notNull = if (dictionary.isNotNull(schema, name, columnName)) " NOT NULL" else ""
+                    declaredTexts += DeclaredTextFact(columnKey, ColumnDatatypes.text(datatype) + notNull, null, false)
+                }
             }
         }
     }

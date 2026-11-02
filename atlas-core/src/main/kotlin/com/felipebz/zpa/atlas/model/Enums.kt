@@ -227,5 +227,16 @@ enum class StatementKind : StoredEnum {
     DDL
 }
 
+/** The kind of a key the dictionary gives (`ALL_CONSTRAINTS.CONSTRAINT_TYPE` `P`, `U`, `R`). */
+enum class KeyKind(val constraintType: String) : StoredEnum {
+    PRIMARY_KEY("P"),
+    UNIQUE("U"),
+    FOREIGN_KEY("R");
+
+    companion object {
+        fun of(constraintType: String): KeyKind = entries.first { it.constraintType == constraintType }
+    }
+}
+
 /** The `occurrence.roles` text: the sorted, comma-separated role names. */
 fun Collection<Role>.encode(): String = map { it.name }.toSortedSet().joinToString(",")

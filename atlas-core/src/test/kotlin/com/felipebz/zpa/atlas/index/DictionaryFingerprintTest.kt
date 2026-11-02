@@ -8,10 +8,8 @@ package com.felipebz.zpa.atlas.index
 import com.felipebz.zpa.api.project.ProjectExternalColumn
 import com.felipebz.zpa.api.project.ProjectExternalDatatype
 import com.felipebz.zpa.api.project.ProjectExternalRelation
-import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
-import com.felipebz.zpa.atlas.dictionary.DictionaryRelation
-import com.felipebz.zpa.atlas.dictionary.DictionaryRelationKind
-import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
+import com.felipebz.zpa.atlas.dictionary.*
+import com.felipebz.zpa.atlas.model.KeyKind
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -26,9 +24,13 @@ class DictionaryFingerprintTest {
         kind: DictionaryRelationKind = DictionaryRelationKind.TABLE,
         completeSchemas: List<String> = listOf("APP"),
         synonyms: List<DictionarySynonym> = listOf(DictionarySynonym("PUBLIC", "ORDERS", "APP", "ORDERS", "TABLE")),
-        objects: Map<String, Map<String, String>> = mapOf("APP" to mapOf("ORDERS" to "TABLE", "PKG_ORDERS" to "PACKAGE"))
+        objects: Map<String, Map<String, String>> = mapOf("APP" to mapOf("ORDERS" to "TABLE", "PKG_ORDERS" to "PACKAGE")),
+        keys: List<DictionaryKey> = listOf(DictionaryKey("APP", "PK_ORDERS", KeyKind.PRIMARY_KEY, "APP", "ORDERS", listOf("ID"), enabled = true)),
+        notNull: Map<Pair<String, String>, Set<String>> = mapOf(("APP" to "ORDERS") to setOf("ID")),
+        seesEveryTable: Boolean = true
     ) = AtlasDictionary.of(
-        origin, completeSchemas, listOf(DictionaryRelation(ProjectExternalRelation.of("APP", "ORDERS", complete, columns), kind)), synonyms, objects
+        origin, completeSchemas, listOf(DictionaryRelation(ProjectExternalRelation.of("APP", "ORDERS", complete, columns), kind)), synonyms, objects,
+        keys, notNull, seesEveryTable
     )
 
     @Test
@@ -49,6 +51,10 @@ class DictionaryFingerprintTest {
             "complete schemas" to dictionary(completeSchemas = listOf("APP", "OTHER")),
             "synonym target" to dictionary(synonyms = listOf(DictionarySynonym("PUBLIC", "ORDERS", "APP", "ORDERS_V", "VIEW"))),
             "objects" to dictionary(objects = mapOf("APP" to mapOf("ORDERS" to "TABLE"))),
+            "key disabled" to dictionary(keys = listOf(DictionaryKey("APP", "PK_ORDERS", KeyKind.PRIMARY_KEY, "APP", "ORDERS", listOf("ID"), enabled = false))),
+            "key columns" to dictionary(keys = listOf(DictionaryKey("APP", "PK_ORDERS", KeyKind.PRIMARY_KEY, "APP", "ORDERS", listOf("ID", "NOTE"), enabled = true))),
+            "not null" to dictionary(notNull = mapOf(("APP" to "ORDERS") to setOf("ID", "NOTE"))),
+            "tables seen" to dictionary(seesEveryTable = false),
             "origin" to dictionary(origin = "oracle OTHER as APP at 2026-01-01T10:00:00.123Z")
         )
         for ((what, other) in others) assertThat(IncrementalRun.fingerprint(other)).describedAs(what).isNotEqualTo(base)

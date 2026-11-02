@@ -5,9 +5,11 @@ The index is a plain SQLite file with the tables `run`, `source_file`, `source_l
 `trigger_event`, `declared_text` (a declaration's type and value as written: `datatype`, `value`, `value_cut`),
 `doc_comment` (a declaration's documentation comment, one row per declaration: `entity_id`, `file_id`, `in_body`,
 `shape`, `start_line`, `text`, `text_cut`; see [serving.md](serving.md#a-declarations-documentation)), `uses_gap`
-(a body global whose recorded uses may be incomplete: `entity_id`, `reasons`) and `members_gap` (an object type
-whose listed attributes may not be all: `entity_id`, `reasons`). The words they use are in
-[concepts.md](concepts.md). Who writes a column:
+(a body global whose recorded uses may be incomplete: `entity_id`, `reasons`), `members_gap` (an object type
+whose listed attributes may not be all: `entity_id`, `reasons`), `dictionary_key` (a primary, unique or foreign key
+the dictionary gives: `owner`, `name`, `kind`, `table_owner`, `table_name`, `relation_id`, `enabled`, `delete_rule`,
+`referenced_owner`, `referenced_name`, `referenced_id`) and `dictionary_key_column` (its columns in order: `key_id`,
+`position`, `column_name`, `column_id`). The words they use are in [concepts.md](concepts.md). Who writes a column:
 
 ```sql
 SELECT f.path, o.start_line, o.written, c.key AS container

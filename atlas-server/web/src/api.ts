@@ -167,6 +167,52 @@ export interface TriggerEvent {
   column: EntitySummary | null;
 }
 
+/** A column of a key, in key order; [column] is null when the index has no entity for it. */
+export interface KeyColumn {
+  name: string;
+  column: EntitySummary | null;
+}
+
+/**
+ * A primary, unique or foreign key the dictionary gave, on the relation [table] (`OWNER.TABLE`, always set; [relation]
+ * is its entity, null when the index has none). A foreign key's [deleteRule] (`NO ACTION`, `CASCADE`, `SET NULL`) and
+ * [referencedName] (`OWNER.NAME` of the key it references) are set; [references] is that key (whose own [references]
+ * is null), null when the dictionary did not give it. A column at position i of a foreign key references the column
+ * at position i of [references]. Other kinds of key have the three null.
+ */
+export interface TableKey {
+  owner: string;
+  name: string;
+  kind: "PRIMARY_KEY" | "UNIQUE" | "FOREIGN_KEY";
+  table: string;
+  relation: EntitySummary | null;
+  columns: KeyColumn[];
+  /** The constraint's status is `ENABLED`. */
+  enabled: boolean;
+  deleteRule: string | null;
+  referencedName: string | null;
+  references: TableKey | null;
+}
+
+/** A column of a referencing foreign key: its entity, null when the index has none, and the column it [references] at the same position. */
+export interface ReferencingColumn {
+  name: string;
+  column: EntitySummary | null;
+  references: string | null;
+}
+
+/** A foreign key that references a key of the page's relation or column; [references] names that key (`OWNER.NAME`), one of the page's keys. */
+export interface ReferencingKey {
+  owner: string;
+  name: string;
+  table: string;
+  relation: EntitySummary | null;
+  columns: ReferencingColumn[];
+  enabled: boolean;
+  deleteRule: string | null;
+  references: string;
+}
+
 export interface EntityDetail {
   key: string;
   kind: string;
@@ -188,6 +234,12 @@ export interface EntityDetail {
   views: EntitySummary[];
   baseColumns: EntitySummary[];
   viewColumns: EntitySummary[];
+  /** A relation's own keys (primary, then unique, then foreign, by name); a column's, the keys it is a column of. */
+  keys: TableKey[];
+  /** The foreign keys whose referenced key is one of a relation's keys (its own included), or, for a column, contains it. */
+  referencedBy: ReferencingKey[];
+  /** Why [referencedBy] may not be all of them (`TABLES_NOT_VISIBLE`); null when nothing says so. */
+  referencedByIncomplete: string[] | null;
   declared: Declared | null;
   /** Its own documentation first, then the other half's when it says something else; the other half's alone when it has none. */
   documentation: Documentation[];

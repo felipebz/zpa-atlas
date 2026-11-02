@@ -9,25 +9,33 @@ import com.felipebz.zpa.api.project.ProjectExternalMetadata
 import com.felipebz.zpa.atlas.cli.CliExecutionException
 import com.felipebz.zpa.atlas.cli.CliValidationException
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.dictionary.DictionaryKey
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.extract.SynonymResolver
+import com.felipebz.zpa.atlas.model.KeyKind
 import com.felipebz.zpa.oracle.metadata.OracleMetadataAcquisition
 import com.felipebz.zpa.oracle.metadata.OracleMetadataException
 import com.felipebz.zpa.oracle.metadata.OracleMetadataResult
 import java.nio.file.Path
+import java.sql.Connection
 import java.sql.SQLException
 import java.util.logging.Logger
 import javax.sql.DataSource
 
 /**
  * The acquired metadata, the synonyms read with it, the object names of the compilation and requested schemas, by
- * schema, with their `OBJECT_TYPE`, and the version of the database.
+ * schema, with their `OBJECT_TYPE`, the keys and `NOT NULL` columns of the relations read ([AtlasDictionary.keys],
+ * [AtlasDictionary.notNull]), whether the user sees every table's constraints ([AtlasDictionary.seesEveryTable]), and
+ * the version of the database.
  */
 class LoadedMetadata(
     val result: OracleMetadataResult,
     val synonyms: List<DictionarySynonym>,
     val objects: Map<String, Map<String, String>>,
-    val databaseVersion: DetectedDatabaseVersion
+    val databaseVersion: DetectedDatabaseVersion,
+    val keys: List<DictionaryKey> = emptyList(),
+    val notNull: Map<Pair<String, String>, Set<String>> = emptyMap(),
+    val seesEveryTable: Boolean = true
 )
 
 /**
@@ -70,6 +78,26 @@ object OracleMetadataLoader {
  WHERE owner IN (%s)
    AND object_type IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW', 'SYNONYM', 'SEQUENCE', 'PACKAGE', 'TYPE', 'FUNCTION', 'PROCEDURE', 'OPERATOR')
  GROUP BY owner, object_name"""
+
+    /**
+     * The primary, unique and foreign keys matching `%s`, with their columns in key order. Only the columns of
+     * `ALL_CONSTRAINTS` and `ALL_CONS_COLUMNS` on 10g are read. The constraints of a table in the recycle bin are left
+     * out.
+     */
+    private const val KEYS_SQL = """SELECT c.owner, c.constraint_name, c.constraint_type, c.table_name, c.status, c.delete_rule,
+       c.r_owner, c.r_constraint_name, cc.column_name
+  FROM all_constraints c
+  JOIN all_cons_columns cc ON cc.owner = c.owner AND cc.constraint_name = c.constraint_name AND cc.table_name = c.table_name
+ WHERE c.constraint_type IN ('P', 'U', 'R')
+   AND c.table_name NOT LIKE 'BIN${'$'}%%'
+   AND (%s)
+ ORDER BY c.owner, c.constraint_name, cc.position"""
+
+    /** The `NOT NULL` columns matching `%s` (`NULLABLE` is on 10g). */
+    private const val NOT_NULL_SQL = "SELECT owner, table_name, column_name FROM all_tab_cols WHERE nullable = 'N' AND (%s)"
+
+    /** Pairs in one `IN` list: Oracle takes at most 1000 expressions in a list. */
+    private const val PAIRS_PER_QUERY = 500
 
     /**
      * @param compilationSchema checked for existence with the requested schemas; null when not configured
@@ -141,7 +169,127 @@ object OracleMetadataLoader {
             "complete schemas ${result.completeSchemas}" +
             (if (notVisible.isEmpty()) "" else "; not visible $notVisible") +
             (if (synonymTargetsNotVisible.isEmpty()) "" else "; ${synonymTargetsNotVisible.size} synonym target(s) not returned"))
-        return LoadedMetadata(result, synonyms, objects, databaseVersion)
+        val pairs = (settings.relations + targets).distinct()
+        val (keys, notNull, seesEveryTable) = try {
+            dataSource.connection.use { connection ->
+                Triple(keys(connection, settings.schemas, pairs), notNull(connection, settings.schemas, pairs), seesEveryTable(connection))
+            }
+        } catch (e: SQLException) {
+            throw CliExecutionException("Reading the keys and NOT NULL columns failed${errorCode(e)}: ${redact(e.message, settings)}")
+        }
+        LOG.info("Keys: ${keys.groupingBy { it.kind }.eachCount()}, ${notNull.values.sumOf { it.size }} NOT NULL column(s)" +
+            (if (seesEveryTable) "" else "; ${settings.user} has none of ${AtlasDictionary.EVERY_TABLE_PRIVILEGES}: foreign keys of tables it cannot see are not read"))
+        return LoadedMetadata(result, synonyms, objects, databaseVersion, keys, notNull, seesEveryTable)
+    }
+
+    /** Runs [read] and logs how long it took and how many [rows] it read, as [what]. */
+    private inline fun <T> timed(what: String, rows: (T) -> Int, read: () -> T): T {
+        val started = System.nanoTime()
+        val result = read()
+        LOG.info("$what: ${rows(result)} row(s) in ${(System.nanoTime() - started) / 1_000_000} ms")
+        return result
+    }
+
+    /**
+     * Whether the session has a system privilege with which `ALL_CONSTRAINTS` lists every table's constraints
+     * ([AtlasDictionary.EVERY_TABLE_PRIVILEGES], from `SESSION_PRIVS`, its roles' included). Without one, it lists only
+     * those of the tables the user owns or was granted a privilege on.
+     */
+    private fun seesEveryTable(connection: Connection): Boolean = timed("Privileges that see every table", { it.size }) {
+        val privileges = AtlasDictionary.EVERY_TABLE_PRIVILEGES
+        connection.prepareStatement("SELECT privilege FROM session_privs WHERE privilege IN (${privileges.joinToString(",") { "?" }})").use { statement ->
+            privileges.forEachIndexed { index, privilege -> statement.setString(index + 1, privilege) }
+            statement.executeQuery().use { rows -> generateSequence { if (rows.next()) rows.getString(1) else null }.toList() }
+        }
+    }.isNotEmpty()
+
+    /**
+     * The keys of the relations the dictionary reads (those of [schemas], and the [pairs] `owner to table`), the keys
+     * their foreign keys reference, whatever their relation, and the foreign keys of any relation the session sees that
+     * reference one of their primary or unique keys; in owner and name order.
+     *
+     * Parsing a statement over `ALL_CONSTRAINTS` takes about a second on 26ai (running it again takes nothing): one
+     * statement reads the own keys and the foreign keys of other owners that may reference them, and a second one, only
+     * when a foreign key references a key not read yet, reads those keys.
+     */
+    private fun keys(connection: Connection, schemas: List<String>, pairs: List<Pair<String, String>>): List<DictionaryKey> {
+        val read = ArrayList<DictionaryKey>()
+        fun query(what: String, filter: String, parameters: List<String>) = timed(what, { it }) {
+            var count = 0
+            connection.prepareStatement(KEYS_SQL.format(filter)).use { statement ->
+                parameters.forEachIndexed { index, value -> statement.setString(index + 1, value) }
+                statement.executeQuery().use { rows ->
+                    var current: DictionaryKey? = null
+                    while (rows.next()) {
+                        count++
+                        val (owner, name, column) = Triple(rows.getString(1), rows.getString(2), rows.getString(9))
+                        val key = current
+                        if (key != null && key.owner == owner && key.name == name) {
+                            current = key.copy(columns = key.columns + column)
+                            continue
+                        }
+                        key?.let { read += it }
+                        val kind = KeyKind.of(rows.getString(3))
+                        current = DictionaryKey(owner, name, kind, owner, rows.getString(4), listOf(column), rows.getString(5) == "ENABLED",
+                            rows.getString(6).takeIf { kind == KeyKind.FOREIGN_KEY }, rows.getString(7), rows.getString(8))
+                    }
+                    current?.let { read += it }
+                }
+            }
+            count
+        }
+        fun placeholders(count: Int) = List(count) { "?" }.joinToString(",")
+        fun pairList(chunk: List<Pair<String, String>>) = chunk.joinToString(", ") { "(?, ?)" }
+        val owners = (schemas + pairs.map { it.first }).distinct()
+        if (owners.isEmpty()) return emptyList()
+        val chunks = pairs.chunked(PAIRS_PER_QUERY)
+        val first = listOfNotNull(
+            "c.owner IN (${placeholders(schemas.size)})".takeIf { schemas.isNotEmpty() },
+            chunks.firstOrNull()?.let { "(c.owner, c.table_name) IN (${pairList(it)})" },
+            "(c.constraint_type = 'R' AND c.r_owner IN (${placeholders(owners.size)}))"
+        )
+        query("Keys of the relations read, and foreign keys of other owners", first.joinToString(" OR "),
+            schemas + chunks.firstOrNull().orEmpty().flatMap { listOf(it.first, it.second) } + owners)
+        chunks.drop(1).forEach { chunk -> query("Keys of more relations read", "(c.owner, c.table_name) IN (${pairList(chunk)})", chunk.flatMap { listOf(it.first, it.second) }) }
+        // The keys of the relations read; then the foreign keys of other relations that reference one of them.
+        val schemaSet = schemas.toSet()
+        val pairSet = pairs.toSet()
+        val result = LinkedHashMap<Pair<String, String>, DictionaryKey>()
+        read.filter { it.owner in schemaSet || (it.tableOwner to it.tableName) in pairSet }.forEach { result.putIfAbsent(it.owner to it.name, it) }
+        val referenced = result.values.filter { it.kind != KeyKind.FOREIGN_KEY }.mapTo(HashSet()) { it.owner to it.name }
+        read.filter { it.kind == KeyKind.FOREIGN_KEY && (it.referencedOwner to it.referencedName) in referenced }.forEach { result.putIfAbsent(it.owner to it.name, it) }
+        // The keys their foreign keys reference that are not read yet: those of relations the dictionary does not read.
+        val missing = result.values.mapNotNull { key -> key.referencedName?.let { key.referencedOwner!! to it } }.filter { it !in result }.distinct()
+        read.clear()
+        missing.chunked(PAIRS_PER_QUERY).forEach { chunk ->
+            query("Keys referenced outside the relations read", "(c.owner, c.constraint_name) IN (${pairList(chunk)})", chunk.flatMap { listOf(it.first, it.second) })
+        }
+        read.forEach { result.putIfAbsent(it.owner to it.name, it) }
+        return result.values.sortedWith(compareBy({ it.owner }, { it.name }))
+    }
+
+    /** The `NOT NULL` columns of the relations of [schemas] and of the [pairs], by `owner to table`, in one statement as a rule. */
+    private fun notNull(connection: Connection, schemas: List<String>, pairs: List<Pair<String, String>>): Map<Pair<String, String>, Set<String>> {
+        val result = HashMap<Pair<String, String>, MutableSet<String>>()
+        fun read(filter: String, parameters: List<String>) = timed("NOT NULL columns", { it }) {
+            var count = 0
+            connection.prepareStatement(NOT_NULL_SQL.format(filter)).use { statement ->
+                parameters.forEachIndexed { index, value -> statement.setString(index + 1, value) }
+                statement.executeQuery().use { rows ->
+                    while (rows.next()) {
+                        count++
+                        result.getOrPut(rows.getString(1) to rows.getString(2)) { HashSet() } += rows.getString(3)
+                    }
+                }
+            }
+            count
+        }
+        fun pairs(chunk: List<Pair<String, String>>) = "(owner, table_name) IN (${chunk.joinToString(", ") { "(?, ?)" }})"
+        val chunks = pairs.chunked(PAIRS_PER_QUERY)
+        val first = listOfNotNull("owner IN (${schemas.joinToString(",") { "?" }})".takeIf { schemas.isNotEmpty() }, chunks.firstOrNull()?.let(::pairs))
+        if (first.isNotEmpty()) read(first.joinToString(" OR "), schemas + chunks.firstOrNull().orEmpty().flatMap { listOf(it.first, it.second) })
+        chunks.drop(1).forEach { chunk -> read(pairs(chunk), chunk.flatMap { listOf(it.first, it.second) }) }
+        return result
     }
 
     private fun synonyms(dataSource: DataSource, owners: List<String>): List<DictionarySynonym> {

@@ -17,8 +17,7 @@ import com.felipebz.zpa.squid.AstScanner
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
-import java.util.HexFormat
-import java.util.Locale
+import java.util.*
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 
@@ -193,7 +192,7 @@ internal class IncrementalRun private constructor(
 
         /**
          * A checksum of everything [dictionary] holds, its acquisition time aside: what it was built from (the metadata,
-         * its relations, synonyms, schemas and object names), not the maps it derives from them. Each part is rendered on
+         * its relations, synonyms, schemas, object names, keys and `NOT NULL` columns), not the maps it derives from them. Each part is rendered on
          * its own and fed to the checksum, so no text of the whole dictionary is ever built.
          */
         internal fun fingerprint(dictionary: AtlasDictionary): String {
@@ -224,6 +223,11 @@ internal class IncrementalRun private constructor(
                 add("objects of $schema ${objects.size}")
                 objects.entries.map { "${it.key} ${it.value}" }.sorted().forEach(::add)
             }
+            add("keys ${dictionary.keys.size}")
+            dictionary.keys.map { it.toString() }.sorted().forEach(::add)
+            add("not null ${dictionary.notNull.size}")
+            dictionary.notNull.entries.map { "${it.key.first}.${it.key.second} ${it.value.sorted()}" }.sorted().forEach(::add)
+            add("sees every table ${dictionary.seesEveryTable}")
             return HexFormat.of().formatHex(digest.digest())
         }
 

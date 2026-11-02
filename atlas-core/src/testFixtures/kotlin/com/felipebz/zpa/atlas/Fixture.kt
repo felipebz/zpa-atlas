@@ -5,24 +5,24 @@
 
 package com.felipebz.zpa.atlas
 
+import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalColumn
 import com.felipebz.zpa.api.project.ProjectExternalDatatype
+import com.felipebz.zpa.api.project.ProjectExternalDatatype.LengthSemantics
 import com.felipebz.zpa.api.project.ProjectExternalRelation
-import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
-import com.felipebz.zpa.atlas.dictionary.DictionaryRelation
-import com.felipebz.zpa.atlas.dictionary.DictionaryRelationKind
-import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
+import com.felipebz.zpa.atlas.dictionary.*
+import com.felipebz.zpa.atlas.extract.FileExtractor
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
-import com.felipebz.zpa.atlas.extract.FileExtractor
-import com.felipebz.zpa.api.checks.PlSqlCheck
+import com.felipebz.zpa.atlas.model.KeyKind
 import java.nio.file.Path
 import java.sql.DriverManager
 import java.time.Instant
 
 /**
  * The fixture corpus and a hand-built dictionary: schema HR complete, a few `SYS` dictionary views (`SYS` is not
- * complete), and synonyms: public ones for the views, private ones of HR, a chain and a cycle.
+ * complete), synonyms (public ones for the views, private ones of HR, a chain and a cycle), and the keys, datatypes
+ * and `NOT NULL` columns of two tables.
  */
 object Fixture {
     /** A folder on disk (the indexer walks it), set by the build for every test task. */
@@ -43,6 +43,15 @@ object Fixture {
         }
         return DictionaryRelation(relation, kind)
     }
+
+    private fun type(name: String, length: Int? = null, unit: LengthSemantics? = null, precision: Int? = null, scale: Int? = null, owner: String? = null) =
+        ProjectExternalDatatype.of(name, owner, length, unit, precision, scale)
+
+    /** A table of HR whose columns have datatypes. */
+    private fun typed(name: String, vararg columns: Pair<String, ProjectExternalDatatype>) = DictionaryRelation(
+        ProjectExternalRelation.of("HR", name, true, columns.mapIndexed { i, (column, type) -> ProjectExternalColumn.of(column, i + 1, type) }),
+        DictionaryRelationKind.TABLE
+    )
 
     val dictionary: AtlasDictionary = AtlasDictionary.of(
         "fixture", listOf("HR"),
@@ -109,7 +118,17 @@ object Fixture {
             relation("IT_V_ORDERS_CALC", "ID", "MIXED", kind = DictionaryRelationKind.VIEW),
             relation("USER_TABLES", "TABLE_NAME", "NUM_ROWS", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
             relation("USER_TAB_COLUMNS", "TABLE_NAME", "COLUMN_NAME", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
-            relation("V_\$SESSION", "SID", "USERNAME", kind = DictionaryRelationKind.VIEW, schema = "SYS")
+            relation("V_\$SESSION", "SID", "USERNAME", kind = DictionaryRelationKind.VIEW, schema = "SYS"),
+            // The tables of the keys: a two-column primary key and a unique key, referenced by foreign keys of KY_LINES
+            // (one disabled), which also references a key of a table the dictionary did not read.
+            typed("KY_ORDERS",
+                "ORDER_ID" to type("NUMBER", precision = 10, scale = 0), "LINE_NO" to type("NUMBER", precision = 4, scale = 0),
+                "CODE" to type("VARCHAR2", 30, LengthSemantics.CHAR), "FLAG" to type("CHAR", 1, LengthSemantics.BYTE),
+                "AMOUNT" to type("NUMBER", precision = 10, scale = 2), "QTY" to type("NUMBER"), "CREATED" to type("DATE"),
+                "STAMPED" to type("TIMESTAMP(6)", scale = 6), "SHAPE" to type("TY_SHAPE", owner = "HR")),
+            typed("KY_LINES",
+                "ORDER_ID" to type("NUMBER", precision = 10, scale = 0), "LINE_NO" to type("NUMBER", precision = 4, scale = 0),
+                "ORDER_CODE" to type("VARCHAR2", 30, LengthSemantics.CHAR), "CURRENCY" to type("CHAR", 3, LengthSemantics.BYTE)),
         ),
         listOf(
             DictionarySynonym("PUBLIC", "USER_TABLES", "SYS", "USER_TABLES", "VIEW"),
@@ -157,9 +176,23 @@ object Fixture {
                 "SYN_LOOP_B" to "SYNONYM", "SYN_EXT_PKG" to "SYNONYM", "SYN_CALLS" to "SYNONYM",
                 "IT_ORDERS" to "TABLE", "IT_UNWRITTEN" to "TABLE", "IT_STAGE" to "TABLE", "IT_PING" to "TABLE", "IT_PONG" to "TABLE",
                 "IT_V_ORDERS" to "VIEW", "IT_V_ORDERS_IO" to "VIEW", "IT_V_ORDERS_IO2" to "VIEW", "IT_V_ORDERS_IU" to "VIEW", "IT_V_ORDERS_IU2" to "VIEW", "IT_V_ORDERS_CALC" to "VIEW", "IT_ORDERS_SYN" to "SYNONYM",
-                "DBMS_RANDOM" to "PACKAGE", "TY_MISSING" to "TYPE", "SEQ_MISSING" to "SEQUENCE"
+                "DBMS_RANDOM" to "PACKAGE", "TY_MISSING" to "TYPE", "SEQ_MISSING" to "SEQUENCE", "KY_ORDERS" to "TABLE", "KY_LINES" to "TABLE"
             )
-        )
+        ),
+        keys = listOf(
+            DictionaryKey("HR", "PK_KY_ORDERS", KeyKind.PRIMARY_KEY, "HR", "KY_ORDERS", listOf("ORDER_ID", "LINE_NO"), enabled = true),
+            DictionaryKey("HR", "UK_KY_ORDERS_CODE", KeyKind.UNIQUE, "HR", "KY_ORDERS", listOf("CODE"), enabled = true),
+            DictionaryKey("HR", "FK_KY_LINES_ORDER", KeyKind.FOREIGN_KEY, "HR", "KY_LINES", listOf("ORDER_ID", "LINE_NO"), enabled = true,
+                "CASCADE", "HR", "PK_KY_ORDERS"),
+            DictionaryKey("HR", "FK_KY_LINES_CODE", KeyKind.FOREIGN_KEY, "HR", "KY_LINES", listOf("ORDER_CODE"), enabled = false,
+                "NO ACTION", "HR", "UK_KY_ORDERS_CODE"),
+            DictionaryKey("HR", "FK_KY_LINES_CURRENCY", KeyKind.FOREIGN_KEY, "HR", "KY_LINES", listOf("CURRENCY"), enabled = true,
+                "NO ACTION", "FIN", "PK_CURRENCIES"),
+            DictionaryKey("FIN", "PK_CURRENCIES", KeyKind.PRIMARY_KEY, "FIN", "CURRENCIES", listOf("CODE"), enabled = true),
+            DictionaryKey("FIN", "FK_PAYMENTS_ORDER", KeyKind.FOREIGN_KEY, "FIN", "PAYMENTS", listOf("ORDER_ID", "LINE_NO"), enabled = true,
+                "SET NULL", "HR", "PK_KY_ORDERS")
+        ),
+        notNull = mapOf(("HR" to "KY_ORDERS") to setOf("ORDER_ID", "LINE_NO", "CODE"), ("HR" to "KY_LINES") to setOf("ORDER_ID", "LINE_NO"))
     )
 
     fun index(

@@ -75,7 +75,7 @@ private fun index(
     }
     val dictionary = oracle?.let { (oracleSettings, loaded) ->
         val schemas = oracleSettings.schemas.toSet() + oracleSettings.relations.map { relation -> relation.first }
-        AtlasDictionary.lookupOnly(loaded.result.metadata, schemas, loaded.synonyms, loaded.objects)
+        AtlasDictionary.lookupOnly(loaded.result.metadata, schemas, loaded.synonyms, loaded.objects, loaded.keys, loaded.notNull, loaded.seesEveryTable)
     }
         ?: AtlasDictionary.NONE
     phases?.stop()

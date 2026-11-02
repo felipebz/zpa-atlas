@@ -3,9 +3,11 @@ import type {
     Documentation,
     EntityDetail,
     EntitySummary,
+    KeyColumn,
     Member,
     OccurrencePage,
     Overload,
+    TableKey,
     ValueGroup
 } from "./api";
 import {api, ApiFailure, errorMessage} from "./api";
@@ -38,6 +40,7 @@ import {
     routineRows,
     usesGapKey
 } from "./entity-view";
+import {columnPlace, referencedColumn, referencingColumn, shownDeleteRule} from "./keys-view";
 import {kindOrder} from "./kinds";
 import {
     codeBreaksHtml,
@@ -310,7 +313,7 @@ function contentsSections(members: Member[]): { html: string; entries: SectionEn
     entries.push({ id: "sec-" + kind, label: title, count: list.length });
     html += `<section id="sec-${esc(kind)}" class="sec">${sectionHead(title, t("entity.group.line"))}
       <table class="members">${head(false)}<tbody>${list.map(m => {
-        // A package variable's or constant's type follows its name, wrapping under it on a phone.
+        // A package variable's or constant's type, or a column's datatype, follows its name, wrapping under it on a phone.
         const type = memberType(m);
         // A body's own variable, constant or type: marked private, never the "body" badge of a spec member's other half.
         const name = isBodyOwn(m.entity)
@@ -330,6 +333,92 @@ function triggersHtml(entity: EntityDetail, own: boolean) {
   return sectionHead(t(title), t(title + ".line")) + scrollTable(entity.triggerEvents.map(e =>
     `<tr>${own ? "" : `<td>${entityLink(e.trigger)}</td>`}<td>${esc(t("trigger.timing." + e.timing))}</td><td>${esc(e.level ? t("trigger.level." + e.level) : "")}</td>
      <td class="grow">${esc(e.event)}${e.column ? " " + esc(t("trigger.of")) + " " + entityLink(e.column) : ""}</td></tr>`).join(""), "compact stack");
+}
+
+/** What the rows of both key sections show of a key: a relation's own, or a foreign key referencing one. */
+type KeyLike = Pick<TableKey, "name" | "enabled" | "table" | "relation" | "deleteRule"> & { columns: KeyColumn[] };
+
+/** A key's name, with a badge when the constraint is disabled. */
+function keyNameHtml(key: KeyLike) {
+  const disabled = key.enabled ? "" : ` <span class="badge warn-badge" title="${esc(t("keys.disabledTitle"))}">${esc(t("keys.disabled"))}</span>`;
+  return `<span class="mono">${nameBreaksHtml(key.name)}</span>${disabled}`;
+}
+
+/** The relation a key is on: a link to its entity, else its name, said not to be in the index. */
+function keyTableHtml(key: KeyLike) {
+  return key.relation ? entityLink(key.relation)
+    : `<span class="mono">${codeBreaksHtml(key.table)}</span> <span class="muted">(${esc(t("keys.outside"))})</span>`;
+}
+
+/** A column of [key]: a link to its entity, else its name; [whole] names its table too (`HR.ORDERS.ORDER_ID`). */
+function keyColumnHtml(key: KeyLike, column: KeyColumn, whole: boolean) {
+  if (column.column) return entityLink(column.column, { relative: !whole });
+  return `<span class="mono">${codeBreaksHtml(whole ? key.table + "." + column.name : column.name)}</span>`;
+}
+
+/** A key's columns in order, by name under the table the row names; [own], the page's column, marked. */
+function keyColumnsHtml(key: KeyLike, own: string | null) {
+  return key.columns.map(c => {
+    const name = keyColumnHtml(key, c, false);
+    return c.column !== null && c.column.key === own ? `<mark>${name}</mark>` : name;
+  }).join(", ");
+}
+
+/** Where the page's column sits in a key of several columns (`column 2 of 2`); nothing for a key of one column. */
+function columnPlaceHtml(place: { position: number; count: number } | null) {
+  return place === null || place.count < 2 ? "" : ` <span class="muted">${esc(t("keys.position", place))}</span>`;
+}
+
+/** A foreign key's delete rule as SQL writes it, when other than `NO ACTION`. */
+function deleteRuleHtml(key: KeyLike & { kind?: string }) {
+  const rule = shownDeleteRule(key);
+  return rule === null ? "" : ` <span class="mono">ON DELETE ${esc(rule)}</span>`;
+}
+
+/**
+ * Where a foreign key points. On a relation's page: the referenced key's table and columns, and its name; on a
+ * column's page ([own]), the column this one references, at its position in the referenced key. When the dictionary
+ * did not give the referenced key, its name and a note saying so.
+ */
+function referenceHtml(fk: TableKey, own: string | null) {
+  const target = fk.references;
+  if (!target) return `→ <span class="mono">${codeBreaksHtml(fk.referencedName ?? "")}</span> <span class="muted">(${esc(t("keys.notGiven"))})</span>${deleteRuleHtml(fk)}`;
+  const targetName = ` <span class="mono muted">${nameBreaksHtml(target.name)}</span>`;
+  const column = own === null ? null : referencedColumn(fk, own);
+  if (column) return `→ ${fillHtml("keys.references", { column: keyColumnHtml(target, column, true) })}${targetName}${deleteRuleHtml(fk)}`;
+  return `→ ${keyTableHtml(target)} (${keyColumnsHtml(target, null)})${targetName}${deleteRuleHtml(fk)}`;
+}
+
+/**
+ * A relation's keys, or the keys a column is a column of: per key its name, its kind, its columns in order (the page's
+ * column marked, with its position) and, for a foreign key, what it references. A row wraps on a phone (`table.stack`).
+ */
+function keysHtml(entity: EntityDetail, own: string | null) {
+  if (entity.keys.length === 0) return "";
+  return sectionHead(t("entity.keys"), t(own === null ? "entity.keys.line" : "entity.keys.lineColumn")) + scrollTable(entity.keys.map(k =>
+    `<tr><td>${keyNameHtml(k)}</td><td>${esc(t("keys.kind." + k.kind))}</td>` +
+    `<td class="grow">(${keyColumnsHtml(k, own)})${own === null ? "" : columnPlaceHtml(columnPlace(k, own))}</td>` +
+    `<td class="grow">${k.kind === "FOREIGN_KEY" ? referenceHtml(k, own) : ""}</td></tr>`).join(""), "compact stack keys");
+}
+
+/**
+ * The foreign keys that reference a relation's keys, or a column ([own]): per key its table and
+ * columns (on a column's page, the column that references this one, with its position), its name, the key it
+ * references and its delete rule. When the loading user may not have seen every table, a note says there may be more,
+ * even over an empty list; a relation or column without a key it could be referenced by shows nothing.
+ */
+function referencedByHtml(entity: EntityDetail, own: string | null) {
+  const gap = entity.referencedByIncomplete?.[0] ?? null;
+  if (entity.referencedBy.length === 0 && gap === null) return "";
+  const note = gap === null ? "" : `<p class="uses-gap">${esc(t("keys.incomplete." + gap))}</p>`;
+  const head = sectionHead(t("entity.referencedBy"), t(own === null ? "entity.referencedBy.line" : "entity.referencedBy.lineColumn")) + note;
+  if (entity.referencedBy.length === 0) return head + `<p class="muted">${esc(t("keys.noneSeen"))}</p>`;
+  return head + scrollTable(entity.referencedBy.map(fk => {
+    const column = own === null ? null : referencingColumn(fk, entity.name);
+    const columns = column ? keyColumnHtml(fk, column.column, false) + columnPlaceHtml(column) : `(${keyColumnsHtml(fk, null)})`;
+    return `<tr><td>${keyTableHtml(fk)}</td><td class="grow">${columns}</td><td>${keyNameHtml(fk)}</td>` +
+      `<td>→ <span class="mono">${codeBreaksHtml(fk.references)}</span>${deleteRuleHtml(fk)}</td></tr>`;
+  }).join(""), "compact stack keys");
 }
 
 function renderEntity(entity: EntityDetail) {
@@ -361,6 +450,10 @@ function renderEntity(entity: EntityDetail) {
   // A view column's sources, and the view columns computed from a column: one hop of the stored lineage.
   set("baseColumns", linkList(t("entity.baseColumns"), t("entity.baseColumns.line"), entity.baseColumns.map(e => entityLink(e))));
   set("viewColumns", linkList(t("entity.viewColumns"), t("entity.viewColumns.line"), entity.viewColumns.map(e => entityLink(e))));
+  // The dictionary's keys: a relation's own and those referencing it; a column's, those it is in and those referencing it.
+  const column = entity.kind === "COLUMN" ? entity.key : null;
+  set("keys", keysHtml(entity, column));
+  set("referencedBy", referencedByHtml(entity, column));
   document.getElementById("usage")!.hidden = false;
   // Under the total too: the list below may not be every use.
   const usesGap = document.getElementById("usesGap")!;
@@ -402,7 +495,9 @@ function renderEntity(entity: EntityDetail) {
     { id: "viewReads", label: t("entity.reads"), count: entity.reads.length || -1 },
     { id: "views", label: t("entity.views"), count: entity.views.length || -1 },
     { id: "baseColumns", label: t("entity.baseColumns"), count: entity.baseColumns.length || -1 },
-    { id: "viewColumns", label: t("entity.viewColumns"), count: entity.viewColumns.length || -1 }
+    { id: "viewColumns", label: t("entity.viewColumns"), count: entity.viewColumns.length || -1 },
+    { id: "keys", label: t("entity.keys"), count: entity.keys.length || -1 },
+    { id: "referencedBy", label: t("entity.referencedBy"), count: entity.referencedBy.length || (entity.referencedByIncomplete ? 0 : -1) }
   ].filter(s => s.count === null || s.count >= 0);
   set("sections", sections.map(s =>
     `<a href="#${s.id}" data-section="${s.id}"><span>${esc(s.label)}</span>${s.count === null ? "" : `<span class="count">${esc(formatNumber(s.count))}</span>`}</a>`).join(""));

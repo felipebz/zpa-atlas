@@ -73,6 +73,17 @@ class AtlasIndex(
     fun entity(key: String): Answer<EntityDetail?> = read { connection, _ -> EntityReader(connection).entity(key) }
 
     /**
+     * A page of the foreign keys that reference the dictionary keys of [key] (a relation's keys, or those a column is a
+     * column of), by table then name: [limit] of them from [offset], each column with the column it references. Null
+     * when there is no such entity.
+     */
+    fun referencingKeys(key: String, offset: Int = 0, limit: Int = 100): Answer<ReferencingKeyPage?> {
+        if (offset < 0) throw InvalidQueryException("offset must not be negative")
+        if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
+        return read { connection, _ -> EntityReader(connection).referencingKeys(key, offset, limit) }
+    }
+
+    /**
      * "Who uses" [key]: occurrences of the entities in [scope] (the entity itself, plus `IMPLEMENTS` partners in
      * either direction, plus transitive `CONTAINS` descendants, plus with [Scope.VIEWS] transitively the view columns
      * whose `VIEW_BASE` edges reach one of them and the views whose query reads a table, view or object table among
@@ -342,7 +353,7 @@ class AtlasIndex(
         val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 17
+        const val SCHEMA_VERSION = 18
 
         /** The fewest characters a text search takes: one trigram. */
         const val MIN_TEXT = 3

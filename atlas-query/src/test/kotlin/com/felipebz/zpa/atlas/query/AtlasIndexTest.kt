@@ -300,6 +300,50 @@ class AtlasIndexTest {
     }
 
     @Test
+    fun `a table lists its keys and the foreign keys to them, a column its own keys, its type and NOT NULL`() {
+        fun text(key: TableKey): String = "${key.owner}.${key.name} ${key.kind} ${key.table} ${key.relation?.key ?: "-"} " +
+            key.columns.joinToString(",") { it.column?.key ?: it.name } + (if (key.enabled) "" else " DISABLED") +
+            (key.deleteRule?.let { " $it" } ?: "") + (key.referencedName?.let { " -> $it ${key.references?.columns?.joinToString(",") { c -> c.column?.key ?: c.name } ?: "?"}" } ?: "")
+        val orders = index.entity("db:HR.KY_ORDERS").result!!
+        assertThat(orders.keys.map(::text)).containsExactly(
+            "HR.PK_KY_ORDERS PRIMARY_KEY HR.KY_ORDERS db:HR.KY_ORDERS db:HR.KY_ORDERS.ORDER_ID,db:HR.KY_ORDERS.LINE_NO",
+            "HR.UK_KY_ORDERS_CODE UNIQUE HR.KY_ORDERS db:HR.KY_ORDERS db:HR.KY_ORDERS.CODE"
+        )
+        // A referencing table the dictionary did not read gives names only; each foreign key names the key it references,
+        // and each of its columns the column it references.
+        fun referencing(key: ReferencingKey): String = "${key.owner}.${key.name} ${key.table} ${key.relation?.key ?: "-"} " +
+            key.columns.joinToString(",") { "${it.column?.key ?: it.name}->${it.references}" } + (if (key.enabled) "" else " DISABLED") +
+            (key.deleteRule?.let { " $it" } ?: "") + " -> ${key.references}"
+        assertThat(orders.referencedBy.map(::referencing)).containsExactly(
+            "FIN.FK_PAYMENTS_ORDER FIN.PAYMENTS - ORDER_ID->ORDER_ID,LINE_NO->LINE_NO SET NULL -> HR.PK_KY_ORDERS",
+            "HR.FK_KY_LINES_CODE HR.KY_LINES db:HR.KY_LINES db:HR.KY_LINES.ORDER_CODE->CODE DISABLED NO ACTION -> HR.UK_KY_ORDERS_CODE",
+            "HR.FK_KY_LINES_ORDER HR.KY_LINES db:HR.KY_LINES db:HR.KY_LINES.ORDER_ID->ORDER_ID,db:HR.KY_LINES.LINE_NO->LINE_NO CASCADE -> HR.PK_KY_ORDERS"
+        )
+        // The dictionary sees every table: nothing says the lists may be incomplete.
+        assertThat(orders.referencedByIncomplete).isNull()
+        // A column: the keys it is in, and only the foreign keys to those.
+        val lineNo = index.entity("db:HR.KY_ORDERS.LINE_NO").result!!
+        assertThat(lineNo.declared?.type).isEqualTo("NUMBER(4) NOT NULL")
+        assertThat(lineNo.keys.map { it.name }).containsExactly("PK_KY_ORDERS")
+        assertThat(lineNo.referencedBy.map { it.name }).containsExactly("FK_PAYMENTS_ORDER", "FK_KY_LINES_ORDER")
+        // The same, a page at a time.
+        val first = index.referencingKeys("db:HR.KY_ORDERS", 0, 2).result!!
+        assertThat(first.rows.map { it.name } to first.nextOffset).isEqualTo(listOf("FK_PAYMENTS_ORDER", "FK_KY_LINES_CODE") to 2)
+        val last = index.referencingKeys("db:HR.KY_ORDERS", 2, 2).result!!
+        assertThat(listOf(last.total, last.rows.size, last.nextOffset)).containsExactly(3, 1, null)
+        // A referenced table the dictionary did not read: the key and its columns by name.
+        val currency = index.entity("db:HR.KY_LINES.CURRENCY").result!!
+        assertThat(currency.keys.map(::text)).containsExactly(
+            "HR.FK_KY_LINES_CURRENCY FOREIGN_KEY HR.KY_LINES db:HR.KY_LINES db:HR.KY_LINES.CURRENCY NO ACTION -> FIN.PK_CURRENCIES CODE"
+        )
+        assertThat(currency.declared?.type).isEqualTo("CHAR(3 BYTE)")
+        assertThat(currency.referencedBy).isEmpty()
+        // The table's column list carries each column's type.
+        assertThat(orders.children.map { "${it.entity.name} ${it.declared?.type}" }).contains("CODE VARCHAR2(30 CHAR) NOT NULL", "SHAPE HR.TY_SHAPE")
+        assertThat(index.entity("db:HR.COMPANY").result!!.keys).isEmpty()
+    }
+
+    @Test
     fun `VIEWS scope on a column reaches the uses of the view columns computed from it, through every level`() {
         val key = "db:HR.COMPANY.COMPANY_NAME"
         val self = index.occurrences(key, limit = 500).result!!

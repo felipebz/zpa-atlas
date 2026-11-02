@@ -25,11 +25,14 @@ class AtlasWriter private constructor(private val connection: Connection, privat
     /**
      * Writes every row; the caller ([writeAtomically]) owns the transaction, the indexes and the commit. [texts] gives
      * the decoded text of each file by path, for the `source_line` table. [phase] is told each step as it starts.
+     * [dictionaryDeclaredTexts] are the datatypes of the dictionary columns, [keys] the dictionary keys.
      */
     fun write(
         run: RunInfo, files: List<FileFacts>, globalEntities: List<EntityFact>, globalRelations: List<RelationFact>, globalCoverage: List<CoverageFact>,
         texts: (String) -> String?,
-        phase: (String) -> Unit = {}
+        phase: (String) -> Unit = {},
+        dictionaryDeclaredTexts: List<DeclaredTextFact> = emptyList(),
+        keys: List<KeyFact> = emptyList()
     ) {
         phase(PhaseTimes.WRITING_ENTITIES)
         val globalRows = GlobalRows(connection)
@@ -38,9 +41,10 @@ class AtlasWriter private constructor(private val connection: Connection, privat
         val entityIds = globalRows.insertEntities(globalEntities + sortedFiles.flatMap { it.entities })
         globalRows.insertRelations((globalRelations + sortedFiles.flatMap { it.relations }), entityIds)
         globalRows.insertTriggerEvents(sortedFiles.flatMap { it.triggerEvents }, entityIds)
-        globalRows.insertDeclaredTexts(sortedFiles.flatMap { it.declaredTexts }, entityIds)
+        globalRows.insertDeclaredTexts(dictionaryDeclaredTexts + sortedFiles.flatMap { it.declaredTexts }, entityIds)
         globalRows.insertUsesGaps(sortedFiles.flatMap { it.usesGaps }, entityIds)
         globalRows.insertMembersGaps(sortedFiles.flatMap { it.membersGaps }, entityIds)
+        globalRows.insertKeys(keys, entityIds)
         phase(PhaseTimes.WRITING_FILES)
         FileRows(connection).write(sortedFiles, entityIds, globalCoverage)
         phase(PhaseTimes.WRITING_LINES)
@@ -53,7 +57,7 @@ class AtlasWriter private constructor(private val connection: Connection, privat
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 17
+        const val SCHEMA_VERSION = 18
 
         /**
          * Writes the index to a temporary file beside [target] and moves it over [target] when everything succeeded.

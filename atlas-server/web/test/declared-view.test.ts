@@ -64,8 +64,9 @@ describe("parameterDefaults", () => {
 });
 
 describe("memberType", () => {
-  it("is shown for a package variable or constant only", () => {
+  it("is shown for a package variable or constant, an attribute and a column only", () => {
     expect(memberType(member("G_TOTAL", "PACKAGE_VARIABLE", declared({ type: "number" })))).toBe("number");
+    expect(memberType(member("ORDER_ID", "COLUMN", declared({ type: "NUMBER(10) NOT NULL" })))).toBe("NUMBER(10) NOT NULL");
     expect(memberType(member("C_LINES", "CURSOR", declared({ type: "r_line" })))).toBeNull();
   });
 });

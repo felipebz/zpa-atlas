@@ -23,9 +23,11 @@ class DictionaryFieldsTest {
 
     @Test
     fun `the checksum covers every field of the dictionary classes`() {
-        // Covered: metadata, relations, enumerable, schemas, synonyms, objects. Derived from them: the three maps.
+        // Covered: metadata, relations, enumerable, schemas, synonyms, objects, keys, notNull, seesEveryTable. Derived
+        // from them: the other maps.
         assertThat(fields(AtlasDictionary::class.java)).containsExactlyInAnyOrder(
-            "metadata", "relations", "enumerable", "schemas", "synonyms", "objects", "kinds", "synonymsByName", "synonymTargetTypes"
+            "metadata", "relations", "enumerable", "schemas", "synonyms", "objects", "keys", "notNull", "seesEveryTable", "kinds",
+            "synonymsByName", "synonymTargetTypes", "keysByName", "keysByTable", "referencingKeys"
         )
         // Covered: origin (its acquisition time aside), completeSchemas, relations.
         assertThat(fields(ProjectExternalMetadata::class.java)).containsExactlyInAnyOrder("origin", "completeSchemas", "relations")

@@ -9,6 +9,7 @@ import com.felipebz.zpa.api.project.ProjectExternalMetadata
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.atlas.extract.exact
 import com.felipebz.zpa.atlas.model.EntityKind
+import com.felipebz.zpa.atlas.model.KeyKind
 
 /** The dictionary kind of a relation. */
 enum class DictionaryRelationKind(val entityKind: EntityKind) {
@@ -25,6 +26,25 @@ data class DictionaryRelation(val relation: ProjectExternalRelation, val kind: D
  * whose `ALL_OBJECTS.OBJECT_TYPE` is [targetType] (`SYNONYM` for a hop of a chain).
  */
 data class DictionarySynonym(val owner: String, val name: String, val targetOwner: String, val targetName: String, val targetType: String)
+
+/**
+ * A primary, unique or foreign key of the relation `tableOwner.tableName`, from `ALL_CONSTRAINTS` and
+ * `ALL_CONS_COLUMNS`, exact dictionary names: its [columns] in key order, whether its `STATUS` is `ENABLED`, and for a
+ * foreign key its `DELETE_RULE` (`NO ACTION`, `CASCADE`, `SET NULL`) and the key it references (`R_OWNER`,
+ * `R_CONSTRAINT_NAME`).
+ */
+data class DictionaryKey(
+    val owner: String,
+    val name: String,
+    val kind: KeyKind,
+    val tableOwner: String,
+    val tableName: String,
+    val columns: List<String>,
+    val enabled: Boolean,
+    val deleteRule: String? = null,
+    val referencedOwner: String? = null,
+    val referencedName: String? = null
+)
 
 /**
  * The Oracle dictionary as the indexer sees it: the [metadata] used for every lookup, the relations it can enumerate,
@@ -45,12 +65,40 @@ class AtlasDictionary(
      * The names of the objects of the schemas whose namespace was read (tables, views, synonyms, sequences, packages,
      * types, subprograms), by schema, with their `OBJECT_TYPE`. A schema absent here has an unknown namespace.
      */
-    val objects: Map<String, Map<String, String>> = emptyMap()
+    val objects: Map<String, Map<String, String>> = emptyMap(),
+    /**
+     * The keys of the relations the dictionary read, the keys their foreign keys reference, and the foreign keys of
+     * any relation the session sees that reference one of them.
+     */
+    val keys: List<DictionaryKey> = emptyList(),
+    /** The `NOT NULL` columns (`ALL_TAB_COLS.NULLABLE = 'N'`) of the relations the dictionary read, by `owner to table`. */
+    val notNull: Map<Pair<String, String>, Set<String>> = emptyMap(),
+    /**
+     * Whether the loading user sees the constraints of every table: `ALL_CONSTRAINTS` lists a table's only to its owner,
+     * to a user granted a privilege on it, and to a user with one of [EVERY_TABLE_PRIVILEGES]. When false, the foreign
+     * keys of the tables it cannot see are not in [keys]: a key's referencing foreign keys may be more.
+     */
+    val seesEveryTable: Boolean = true
 ) {
     private val kinds = relations.associate { (it.relation.schema to it.relation.name) to it.kind }
     private val synonymsByName = synonyms.associateBy { it.owner to it.name }
     /** The `OBJECT_TYPE` of the synonym targets, which may lie in schemas whose namespace was not read. */
     private val synonymTargetTypes = synonyms.associate { (it.targetOwner to it.targetName) to it.targetType }
+    private val keysByName = keys.associateBy { it.owner to it.name }
+    private val keysByTable = keys.groupBy { it.tableOwner to it.tableName }
+    private val referencingKeys = keys.filter { it.referencedName != null }.groupBy { it.referencedOwner to it.referencedName }
+
+    /** The key `owner.name`, or null when the dictionary did not give it. */
+    fun key(owner: String, name: String): DictionaryKey? = keysByName[owner to name]
+
+    /** The keys of the relation `owner.table`. */
+    fun keysOf(owner: String, table: String): List<DictionaryKey> = keysByTable[owner to table].orEmpty()
+
+    /** The foreign keys that reference [key]. */
+    fun referencing(key: DictionaryKey): List<DictionaryKey> = referencingKeys[key.owner to key.name].orEmpty()
+
+    /** Whether the dictionary says the column `owner.table.column` is `NOT NULL`. */
+    fun isNotNull(owner: String, table: String, column: String): Boolean = notNull[owner to table]?.contains(column) == true
 
     /** The synonym `owner.name` itself (owner `PUBLIC` for a public one), or null. */
     fun synonym(owner: String, name: String): DictionarySynonym? = synonymsByName[owner to name]
@@ -103,19 +151,26 @@ class AtlasDictionary(
 
         val NONE = AtlasDictionary(ProjectExternalMetadata.none(), emptyList(), enumerable = true)
 
+        /** The system privileges with which `ALL_CONSTRAINTS` lists the constraints of every table (`READ ANY TABLE` from 12c). */
+        val EVERY_TABLE_PRIVILEGES = listOf("SELECT ANY TABLE", "READ ANY TABLE", "INSERT ANY TABLE", "UPDATE ANY TABLE", "DELETE ANY TABLE", "LOCK ANY TABLE")
+
         /** A dictionary whose relations are all known (for example built by hand); [metadata] is built from them. */
         fun of(
             origin: String,
             completeSchemas: Collection<String>,
             relations: List<DictionaryRelation>,
             synonyms: List<DictionarySynonym> = emptyList(),
-            objects: Map<String, Map<String, String>> = emptyMap()
+            objects: Map<String, Map<String, String>> = emptyMap(),
+            keys: List<DictionaryKey> = emptyList(),
+            notNull: Map<Pair<String, String>, Set<String>> = emptyMap(),
+            seesEveryTable: Boolean = true
         ): AtlasDictionary {
             val builder = ProjectExternalMetadata.builder(origin)
             completeSchemas.forEach { builder.completeSchema(it) }
             relations.forEach { builder.relation(it.relation) }
             val schemas = completeSchemas.toSet() + relations.map { it.relation.schema.originalSpelling.removeSurrounding("\"") }
-            return AtlasDictionary(builder.build(), relations, enumerable = true, schemas = schemas, synonyms = synonyms, objects = objects)
+            return AtlasDictionary(builder.build(), relations, enumerable = true, schemas = schemas, synonyms = synonyms, objects = objects,
+                keys = keys, notNull = notNull, seesEveryTable = seesEveryTable)
         }
 
         /** An acquired dictionary for the requested [schemas]: lookups only, no enumeration. */
@@ -123,7 +178,11 @@ class AtlasDictionary(
             metadata: ProjectExternalMetadata,
             schemas: Set<String>,
             synonyms: List<DictionarySynonym> = emptyList(),
-            objects: Map<String, Map<String, String>> = emptyMap()
-        ): AtlasDictionary = AtlasDictionary(metadata, emptyList(), enumerable = false, schemas = schemas, synonyms = synonyms, objects = objects)
+            objects: Map<String, Map<String, String>> = emptyMap(),
+            keys: List<DictionaryKey> = emptyList(),
+            notNull: Map<Pair<String, String>, Set<String>> = emptyMap(),
+            seesEveryTable: Boolean = true
+        ): AtlasDictionary = AtlasDictionary(metadata, emptyList(), enumerable = false, schemas = schemas, synonyms = synonyms, objects = objects,
+            keys = keys, notNull = notNull, seesEveryTable = seesEveryTable)
     }
 }

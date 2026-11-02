@@ -139,5 +139,49 @@ internal class GlobalRows(private val connection: Connection) {
         }
     }
 
+    /**
+     * The dictionary keys, numbered in their order (owner, then name), and their columns: a foreign key's referenced
+     * key by its id when it is among them, its name always.
+     */
+    fun insertKeys(facts: List<KeyFact>, ids: Map<String, Long>) {
+        val keyIds = HashMap<Pair<String, String>, Long>()
+        facts.forEachIndexed { index, key -> keyIds[key.owner to key.name] = index + 1L }
+        prepare("""INSERT INTO dictionary_key(id, owner, name, kind, table_owner, table_name, relation_id, enabled, delete_rule,
+                   referenced_owner, referenced_name, referenced_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""").use { insert ->
+            val batches = Batches(insert)
+            facts.forEachIndexed { index, key ->
+                insert.setLong(1, index + 1L)
+                insert.setString(2, key.owner)
+                insert.setString(3, key.name)
+                insert.setString(4, key.kind.name)
+                insert.setString(5, key.tableOwner)
+                insert.setString(6, key.tableName)
+                insert.setNullableLong(7, key.relationKey?.let(ids::getValue))
+                insert.setInt(8, if (key.enabled) 1 else 0)
+                insert.setNullableString(9, key.deleteRule)
+                insert.setNullableString(10, key.referencedOwner)
+                insert.setNullableString(11, key.referencedName)
+                insert.setNullableLong(12, key.referencedName?.let { keyIds[key.referencedOwner to it] })
+                batches.add(insert)
+                batches.flushIfFull()
+            }
+            batches.flush()
+        }
+        prepare("INSERT INTO dictionary_key_column(key_id, position, column_name, column_id) VALUES (?,?,?,?)").use { insert ->
+            val batches = Batches(insert)
+            facts.forEachIndexed { index, key ->
+                key.columns.forEachIndexed { position, (name, columnKey) ->
+                    insert.setLong(1, index + 1L)
+                    insert.setInt(2, position + 1)
+                    insert.setString(3, name)
+                    insert.setNullableLong(4, columnKey?.let(ids::getValue))
+                    batches.add(insert)
+                    batches.flushIfFull()
+                }
+            }
+            batches.flush()
+        }
+    }
+
     private fun prepare(sql: String): PreparedStatement = connection.prepareStatement(sql)
 }

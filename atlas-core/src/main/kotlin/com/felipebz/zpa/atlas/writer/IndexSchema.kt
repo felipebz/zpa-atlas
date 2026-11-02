@@ -233,6 +233,37 @@ internal fun tableDdl(): List<String> = listOf(
         reasons TEXT NOT NULL
     )
     """,
+    // The primary, unique and foreign keys the dictionary gives (ALL_CONSTRAINTS), one row per key: the keys of the
+    // relations that are entities, the keys their foreign keys reference and the foreign keys referencing theirs. A key
+    // whose relation is not an entity (the dictionary did not read it) has no relation_id; a foreign key names the key it
+    // references (referenced_owner, referenced_name), and links it (referenced_id) when that key has a row.
+    """
+    CREATE TABLE dictionary_key (
+        id INTEGER PRIMARY KEY,
+        owner TEXT NOT NULL,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL ${check<KeyKind>("kind")},
+        table_owner TEXT NOT NULL,
+        table_name TEXT NOT NULL,
+        relation_id INTEGER NULL REFERENCES entity(id),
+        enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        delete_rule TEXT NULL,
+        referenced_owner TEXT NULL,
+        referenced_name TEXT NULL,
+        referenced_id INTEGER NULL REFERENCES dictionary_key(id),
+        UNIQUE (owner, name)
+    )
+    """,
+    // The columns of a key in key order (position from 1); column_id is null when the column is not an entity.
+    """
+    CREATE TABLE dictionary_key_column (
+        key_id INTEGER NOT NULL REFERENCES dictionary_key(id),
+        position INTEGER NOT NULL,
+        column_name TEXT NOT NULL,
+        column_id INTEGER NULL REFERENCES entity(id),
+        PRIMARY KEY (key_id, position)
+    )
+    """,
     SOURCE_LINE_DDL
 ).map { it.trimIndent() }
 
@@ -271,5 +302,8 @@ internal fun indexDdl(): List<String> = listOf(
     "CREATE INDEX relation_to ON relation(to_id)",
     "CREATE INDEX trigger_event_trigger ON trigger_event(trigger_id)",
     "CREATE INDEX trigger_event_column ON trigger_event(column_id)",
-    "CREATE INDEX doc_comment_entity ON doc_comment(entity_id)"
+    "CREATE INDEX doc_comment_entity ON doc_comment(entity_id)",
+    "CREATE INDEX dictionary_key_relation ON dictionary_key(relation_id)",
+    "CREATE INDEX dictionary_key_referenced ON dictionary_key(referenced_id)",
+    "CREATE INDEX dictionary_key_column_column ON dictionary_key_column(column_id)"
 )

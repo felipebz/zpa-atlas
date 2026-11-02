@@ -114,6 +114,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     val tools: List<Tool> = listOf(
         Tool("search_entities", SEARCH, searchSchema(), ::searchEntities),
         Tool("get_entity", ENTITY, entitySchema(), ::getEntity),
+        Tool("find_referencing_keys", REFERENCING, referencingSchema(), ::findReferencingKeys),
         Tool("find_occurrences", FIND, findSchema(), ::findOccurrences),
         Tool("find_usages", USAGES, usagesSchema(), ::findUsages),
         Tool("group_usages", GROUP_USAGES, groupUsagesSchema(), ::groupUsages),
@@ -162,6 +163,17 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             fitted = truncateLists(full, limit)
         }
         return if (limit == listLimit) fitted else JsonObject(fitted + ("cutForSize" to JsonObject(mapOf("listLimit" to JsonPrimitive(limit)))))
+    }
+
+    private fun findReferencingKeys(args: Arguments): JsonElement {
+        val key = args.requiredString("key")
+        val offset = args.int("offset", 0..Int.MAX_VALUE) ?: 0
+        val answer = index.referencingKeys(key, offset, args.int("limit", 1..REFERENCING_MAX) ?: REFERENCING_DEFAULT)
+        if (answer.result == null) throw unknownEntity(key)
+        // The offset counts rows, so a cut page goes on right after its last row kept.
+        return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
+            a.withResult("nextOffset", JsonPrimitive(offset + rows.size))
+        }
     }
 
     private fun findOccurrences(args: Arguments): JsonElement {
@@ -397,6 +409,12 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         integer("list_limit", 1..LIST_MAX, LIST_DEFAULT, "Items kept in each list of the answer; `truncated` gives the size of a cut list.")
     }
 
+    private fun referencingSchema() = schema(listOf("key")) {
+        string("key", "A TABLE, VIEW or COLUMN key, as search_entities or another answer gives it.")
+        integer("offset", 0..Int.MAX_VALUE, 0, "The nextOffset of the previous page.")
+        integer("limit", 1..REFERENCING_MAX, REFERENCING_DEFAULT)
+    }
+
     private fun findSchema() = schema(emptyList()) {
         queryFilters()
         integer("after", null, null, AFTER_DESCRIPTION)
@@ -598,6 +616,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         const val GROUP_MAX = 100
         const val VALUES_DEFAULT = 50
         const val VALUES_MAX = 200
+        const val REFERENCING_DEFAULT = 100
+        const val REFERENCING_MAX = 500
         const val SOURCE_CONTEXT_DEFAULT = 3
         const val SOURCE_CONTEXT_MAX = 50
         const val TEXT_DEFAULT = 50
@@ -632,9 +652,9 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "triggers, tables, views, columns): ask it who calls, reads or writes something, for impact analysis, " +
                 "and for the values passed to a parameter or written to a column.\n" +
                 "Which tool answers which question:\n" +
-                "- search_entities: the key of an entity from its name; dotted names work (pack.proc, table.column).\n" +
-                "- get_entity: what an entity is: kind, definitions, members or columns, declaration and docs, views " +
-                "over it; for a routine, where its spec and bodies are.\n" +
+                "- search_entities: an entity's key from its name; dotted names work (pack.proc, tab.col).\n" +
+                "- get_entity: kind, definitions, members or columns, declaration, docs, views over it; a routine's " +
+                "spec and bodies; a column's datatype, NOT NULL, keys. find_referencing_keys: all foreign keys to them.\n" +
                 "- find_usages: who uses one entity, following its spec and body, its members and the views built on " +
                 "it; group_usages counts them by routine, file or view. via keeps only the direct uses or only those " +
                 "through views. For a table, CHILDREN with VIEWS also follows the view columns computed from its columns.\n" +
@@ -642,10 +662,9 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "name pattern, a CRUD matrix, rows by status or by value.\n" +
                 "- get_values: the values a parameter is passed or a column is written with; then find_value_sites: " +
                 "where one of them comes from.\n" +
-                "- get_source: the text around a line. Sources are only on the server, paths relative to its folder: " +
-                "not on the local disk.\n" +
+                "- get_source: the text around a line. Sources are only on the server, not on the local disk.\n" +
                 "- find_impact: impact analysis, who calls the callers up to the entry points; nodes are numbered (n), " +
-                "keys=true gives their full keys.\n" +
+                "keys=true gives full keys.\n" +
                 "- search_text: other text (XML tags, messages, comments, SQL in strings). In one call, pass the " +
                 "package or routine the question names as container_name, or a file or folder as path; whole index " +
                 "only if it names none.\n" +
@@ -693,16 +712,29 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
 
         const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
             "(members or columns, each with its number of uses), relations, triggers and the views that read it. For a " +
-            "package routine, bodies lists the key and definitions of every body (two when the body is in two files), " +
+            "package routine, bodies lists the key and definitions of every body, " +
             "never cut; for a body, spec gives those of its spec: one call answers where both are. declared, on the " +
             "entity and on each child, is what the declaration says, as written (not resolved, not evaluated): type is " +
             "a function's or cursor's return type, else the declared type; value is a parameter's default or a " +
-            "variable's, constant's or record field's initial value, valueCut true when cut (the whole text is at the " +
-            "definition); valueFrom SPEC when a body's parameter takes the default its spec writes; specText, on a " +
-            "body that differs from its spec, what the spec says. documentation (entity, child): its doc comment (text, " +
-            "textCut; shape ABOVE, AFTER_IS, AFTER_BEGIN or END_OF_LINE; path, line), then the other half's, from SPEC or " +
+            "variable's, constant's or record field's initial value, valueCut true when cut; valueFrom SPEC when a " +
+            "body's parameter takes the default its spec writes; specText, on a " +
+            "body that differs from its spec, what the spec says. documentation (entity, child): its doc comment, " +
+            "then the other half's, from SPEC or " +
             "BODY, when it differs. usesIncomplete (entity, child): reasons unrecorded uses can't be ruled out; uses are " +
-            "a lower bound. membersIncomplete (object type): its attributes may not be all. $PATHS $KEYS"
+            "a lower bound. membersIncomplete (object type): its attributes may not be all. keys (dictionary): a " +
+            "table's keys, or a column's; referencedBy: the foreign keys to them, each naming the key it references, " +
+            "cut (find_referencing_keys gives all); referencedByIncomplete: there may be more, " +
+            "the loader could not see every table. " +
+            "$PATHS $KEYS"
+
+        const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column " +
+            "is in (referencedBy of get_entity, which cuts it), by table then name, a page at a time: pass the answer's " +
+            "nextOffset as offset; nextOffset is absent on the last page. Each row: owner, name, table, relation (its " +
+            "entity, absent when the index has none), enabled, deleteRule, references (the referenced key, OWNER.NAME) " +
+            "and columns in key order, each with the referenced column (references) at the same position: for a " +
+            "column, the row's column whose references is that column is the one that must follow its type and size. " +
+            "total counts them all; incomplete (TABLES_NOT_VISIBLE): there may be more, the loading user could not see " +
+            "every table's constraints. $KEYS"
 
         const val FIND = "Where entities are defined, called, read or written across the code (occurrences), with " +
             "filters combined with AND (at least one; for the whole index, use group_occurrences), and total and " +

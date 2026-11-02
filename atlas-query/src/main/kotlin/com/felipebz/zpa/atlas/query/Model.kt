@@ -109,7 +109,11 @@ data class Member(
  */
 @Serializable
 data class Declared(
-    /** A function's or cursor's return type, else the declared type (with `NOT NULL` when written); null when not written. */
+    /**
+     * A function's or cursor's return type, else the declared type (with `NOT NULL` when written); null when not
+     * written. For a dictionary column, the dictionary's datatype as a `CREATE TABLE` writes it (`VARCHAR2(30 CHAR)`,
+     * `NUMBER(10,2)`, `OWNER.TYPE_NAME`), with ` NOT NULL` when the column is.
+     */
     val type: String?,
     /** A parameter's default, or a variable's, constant's or record field's initial value; null when there is none. */
     val value: String?,
@@ -229,7 +233,83 @@ data class EntityDetail(
      * zpa could not read, or conditional compilation it cannot decide), `ALTER_TYPE` (an `ALTER TYPE` of the project
      * changes them; what it adds is not listed). Null when the list is complete.
      */
-    val membersIncomplete: List<String>? = null
+    val membersIncomplete: List<String>? = null,
+    /**
+     * From the dictionary: for a relation, its primary, unique and foreign keys (primary first, then unique, then
+     * foreign, by name); for a column, the keys it is a column of.
+     */
+    val keys: List<TableKey> = emptyList(),
+    /**
+     * From the dictionary: for a relation, the foreign keys (of any relation, itself included) that reference one of its
+     * keys; for a column, those that reference a key it is a column of. Each names the key it references, one of [keys].
+     */
+    val referencedBy: List<ReferencingKey> = emptyList(),
+    /**
+     * Why [referencedBy] may not be every foreign key referencing [keys] (`TABLES_NOT_VISIBLE`: the loading user may not
+     * see every table's constraints); null when nothing says so, or when the entity has no primary or unique key.
+     */
+    val referencedByIncomplete: List<String>? = null
+)
+
+/**
+ * A primary, unique or foreign key the dictionary gives: its [owner] and [name], [kind] (`PRIMARY_KEY`, `UNIQUE`,
+ * `FOREIGN_KEY`), the relation it is on ([table] `OWNER.TABLE`, [relation] its entity, null when the index has none:
+ * the dictionary did not read it), its [columns] in key order, whether it is [enabled]. A foreign key also has its
+ * [deleteRule] (`NO ACTION`, `CASCADE`, `SET NULL`), [referencedName] (`OWNER.NAME`) and the key it [references], null
+ * when the dictionary did not give that key; a referenced key's own [references] is null. A column at position i of a
+ * foreign key references the column at position i of the referenced key.
+ */
+@Serializable
+data class TableKey(
+    val owner: String,
+    val name: String,
+    val kind: String,
+    val table: String,
+    val relation: EntitySummary?,
+    val columns: List<KeyColumn>,
+    val enabled: Boolean,
+    val deleteRule: String?,
+    val referencedName: String?,
+    val references: TableKey?
+)
+
+/** A column of a key: its dictionary [name], and its entity, null when the index has none. */
+@Serializable
+data class KeyColumn(val name: String, val column: EntitySummary?)
+
+/**
+ * A foreign key that references a key of the entity asked about: its [owner] and [name], the relation it is on ([table]
+ * `OWNER.TABLE`, [relation] its entity, null when the index has none), its [columns] in key order, whether it is
+ * [enabled], its [deleteRule], and the key it [references] (`OWNER.NAME`).
+ */
+@Serializable
+data class ReferencingKey(
+    val owner: String,
+    val name: String,
+    val table: String,
+    val relation: EntitySummary?,
+    val columns: List<ReferencingColumn>,
+    val enabled: Boolean,
+    val deleteRule: String?,
+    val references: String
+)
+
+/** A column of a referencing foreign key: its [name], its entity, and the column it [references] (by name), at the same position of the referenced key. */
+@Serializable
+data class ReferencingColumn(val name: String, val column: EntitySummary?, val references: String?)
+
+/**
+ * A page of the foreign keys referencing the keys of a relation or a column ([EntityDetail.referencedBy]), by table
+ * then name: [total] of them, [rows] from [offset], [nextOffset] the offset of the next page (null on the last), and
+ * [incomplete] as [EntityDetail.referencedByIncomplete].
+ */
+@Serializable
+data class ReferencingKeyPage(
+    val total: Int,
+    val offset: Int,
+    val rows: List<ReferencingKey>,
+    val nextOffset: Int?,
+    val incomplete: List<String>?
 )
 
 /**

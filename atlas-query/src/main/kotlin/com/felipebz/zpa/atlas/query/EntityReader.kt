@@ -88,6 +88,7 @@ internal class EntityReader(private val connection: Connection) {
             "SELECT roles, status FROM occurrence WHERE entity_id = ? AND roles NOT IN ('DEFINITION', 'DECLARATION')", listOf(row.id)
         ) { it.getString(1) to it.getString(2) }
         val asCandidate = connection.query("SELECT count(*) FROM occurrence_candidate WHERE entity_id = ?", listOf(row.id)) { it.getLong(1) }.single()
+        val ownKeys = ownKeys(row.id, row.kind)
         return EntityDetail(
             row.key, row.kind, row.schema, row.name, row.display, row.external, parent, ancestors, children, relations, definitions, overloads, partners,
             UsageSummary(tally(usages.flatMap { roles(it.first) }), tally(usages.map { it.second }), asCandidate),
@@ -99,7 +100,10 @@ internal class EntityReader(private val connection: Connection) {
             declared[row.id],
             documentation[row.id].orEmpty(),
             ownAndPartnerGaps(row, gaps[row.id]),
-            connection.query("SELECT reasons FROM members_gap WHERE entity_id = ?", listOf(row.id)) { it.getString(1).split(',') }.singleOrNull()
+            connection.query("SELECT reasons FROM members_gap WHERE entity_id = ?", listOf(row.id)) { it.getString(1).split(',') }.singleOrNull(),
+            keys(ownKeys),
+            referencing(ownKeys, 0, null).second,
+            referencedByIncomplete(ownKeys)
         )
     }
 
@@ -225,6 +229,103 @@ internal class EntityReader(private val connection: Connection) {
             else -> emptyList()
         }
     }
+
+    /** The ids of the dictionary keys of the entity [id]: a column's are the keys it is a column of, any other entity's those on it. */
+    private fun ownKeys(id: Long, kind: String): List<Long> = connection.query(
+        if (kind == "COLUMN") "SELECT DISTINCT key_id FROM dictionary_key_column WHERE column_id = ?" else "SELECT id FROM dictionary_key WHERE relation_id = ?",
+        listOf(id)
+    ) { it.getLong(1) }
+
+    /** The dictionary keys [ids] ([EntityDetail.keys]), primary first, then unique, then foreign, by name; a foreign key with the key it references. */
+    private fun keys(ids: List<Long>): List<TableKey> {
+        if (ids.isEmpty()) return emptyList()
+        val json = ids.joinToString(",", "[", "]")
+        val rows = connection.query(
+            """SELECT k.id, k.owner, k.name, k.kind, k.table_owner, k.table_name, k.enabled, k.delete_rule, k.referenced_owner, k.referenced_name,
+                      k.referenced_id, e.key, e.kind, e.display, e.external, e.name
+               FROM dictionary_key k LEFT JOIN entity e ON e.id = k.relation_id
+               WHERE k.id IN (SELECT value FROM json_each(?)) OR k.id IN (SELECT referenced_id FROM dictionary_key WHERE id IN (SELECT value FROM json_each(?)))""",
+            listOf(json, json)
+        ) { rs ->
+            KeyRow(rs.getLong(1), rs.getObject(11) as Number?, TableKey(
+                rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5) + "." + rs.getString(6),
+                rs.getString(12)?.let { EntitySummary(it, rs.getString(13), rs.getString(14), rs.getInt(15) == 1, rs.getString(16)) },
+                emptyList(), rs.getInt(7) == 1, rs.getString(8), rs.getString(10)?.let { rs.getString(9) + "." + it }, null
+            ))
+        }
+        val columns = keyColumns(rows.map { it.id })
+        val plain = rows.associate { it.id to it.key.copy(columns = columns[it.id].orEmpty()) }
+        val kindOrder = listOf("PRIMARY_KEY", "UNIQUE", "FOREIGN_KEY")
+        return rows.filter { it.id in ids }.map { row -> plain.getValue(row.id).copy(references = row.referencedId?.toLong()?.let(plain::get)) }
+            .sortedWith(compareBy({ kindOrder.indexOf(it.kind) }, { it.name }, { it.owner }))
+    }
+
+    /** The columns of the keys [ids] in key order, by key id. */
+    private fun keyColumns(ids: Collection<Long>): Map<Long, List<KeyColumn>> = connection.query(
+        """SELECT c.key_id, c.column_name, e.key, e.kind, e.display, e.external, e.name
+           FROM dictionary_key_column c LEFT JOIN entity e ON e.id = c.column_id
+           WHERE c.key_id IN (SELECT value FROM json_each(?)) ORDER BY c.key_id, c.position""",
+        listOf(ids.joinToString(",", "[", "]"))
+    ) { rs -> rs.getLong(1) to KeyColumn(rs.getString(2), rs.getString(3)?.let { EntitySummary(it, rs.getString(4), rs.getString(5), rs.getInt(6) == 1, rs.getString(7)) }) }
+        .groupBy({ it.first }, { it.second })
+
+    /**
+     * The foreign keys referencing the keys [own], by table then name: [limit] of them from [offset] (all with a null
+     * [limit]), each column with the column it references; and how many there are.
+     */
+    private fun referencing(own: List<Long>, offset: Int, limit: Int?): Pair<Int, List<ReferencingKey>> {
+        if (own.isEmpty()) return 0 to emptyList()
+        val json = own.joinToString(",", "[", "]")
+        val total = connection.query("SELECT count(*) FROM dictionary_key WHERE referenced_id IN (SELECT value FROM json_each(?))", listOf(json)) { it.getInt(1) }.single()
+        val rows = connection.query(
+            """SELECT k.id, k.referenced_id, k.owner, k.name, k.table_owner || '.' || k.table_name, k.enabled, k.delete_rule,
+                      k.referenced_owner || '.' || k.referenced_name, e.key, e.kind, e.display, e.external, e.name
+               FROM dictionary_key k LEFT JOIN entity e ON e.id = k.relation_id
+               WHERE k.referenced_id IN (SELECT value FROM json_each(?))
+               ORDER BY k.table_owner, k.table_name, k.name, k.owner LIMIT ? OFFSET ?""",
+            listOf(json, limit ?: -1, offset)
+        ) { rs ->
+            Triple(rs.getLong(1), rs.getLong(2), ReferencingKey(
+                rs.getString(3), rs.getString(4), rs.getString(5),
+                rs.getString(9)?.let { EntitySummary(it, rs.getString(10), rs.getString(11), rs.getInt(12) == 1, rs.getString(13)) },
+                emptyList(), rs.getInt(6) == 1, rs.getString(7), rs.getString(8)
+            ))
+        }
+        val columns = keyColumns(rows.flatMap { listOf(it.first, it.second) }.toSet())
+        return total to rows.map { (id, referenced, key) ->
+            val targets = columns[referenced].orEmpty()
+            key.copy(columns = columns[id].orEmpty().mapIndexed { i, c -> ReferencingColumn(c.name, c.column, targets.getOrNull(i)?.name) })
+        }
+    }
+
+    /**
+     * Why the foreign keys referencing the keys [own] may be more than those recorded: the run's
+     * `REFERENCED_BY_INCOMPLETE` coverage note, whose message starts with the reason. Null when there is none, or when
+     * none of [own] is a primary or unique key (only those are referenced).
+     */
+    private fun referencedByIncomplete(own: List<Long>): List<String>? {
+        if (own.isEmpty()) return null
+        val referenceable = connection.query(
+            "SELECT count(*) FROM dictionary_key WHERE kind <> 'FOREIGN_KEY' AND id IN (SELECT value FROM json_each(?))", listOf(own.joinToString(",", "[", "]"))
+        ) { it.getInt(1) }.single()
+        if (referenceable == 0) return null
+        return connection.query("SELECT message FROM coverage_note WHERE kind = 'REFERENCED_BY_INCOMPLETE' ORDER BY id", emptyList()) {
+            it.getString(1).substringBefore(':')
+        }.distinct().ifEmpty { null }
+    }
+
+    /**
+     * A page of the foreign keys that reference the keys of the entity [key] ([EntityDetail.referencedBy]): [limit] from
+     * [offset]. Null when there is no such entity.
+     */
+    fun referencingKeys(key: String, offset: Int, limit: Int): ReferencingKeyPage? {
+        val row = connection.query("SELECT id, kind FROM entity WHERE key = ?", listOf(key)) { it.getLong(1) to it.getString(2) }.singleOrNull() ?: return null
+        val own = ownKeys(row.first, row.second)
+        val (total, rows) = referencing(own, offset, limit)
+        return ReferencingKeyPage(total, offset, rows, (offset + rows.size).takeIf { it < total }, referencedByIncomplete(own))
+    }
+
+    private class KeyRow(val id: Long, val referencedId: Number?, val key: TableKey)
 
     private fun escapeLike(text: String) = OccurrenceQuerySql.escapeLike(text)
 }
