@@ -35,9 +35,10 @@ class ParameterUsesTest {
             "18:4 p_out db:HR.PK_P.FILL(P_OUT OUT NUMBER)@BODY.P_OUT WRITE RESOLVED",        // p_out := 1
             "23:4 p_rec.items.delete $run.P_REC WRITE RESOLVED",                             // a method that changes it
             "24:11 p_rows $run.P_ROWS READ RESOLVED",                                        // p_rows(1).items.count
+            "25:53 p_rows $run.P_ROWS READ RESOLVED",                                        // p_rows(1).items(1) in SQL
             "26:9 p_rec.items $run.P_REC WRITE RESOLVED",                                    // an OUT actual
             "34:9 p_v db:HR.F_X(P_V IN NUMBER).P_V READ RESOLVED"                            // return p_v + 1
-            // 25: `p_rows(1).items(1)` in SQL, a call zpa does not bind there; 28: `h_a =>` names the formal, not a use.
+            // 28: `h_a =>` names the formal, not a use.
         )
     }
 
