@@ -11,8 +11,15 @@ import java.sql.PreparedStatement
 
 /** The rows of the files, in path order, then the coverage notes; the ids count across files. */
 internal class FileRows(private val connection: Connection) {
-    /** Writes [sortedFiles] (sorted by path) with the ids of [entityIds], then the run's and the files' coverage notes. */
-    fun write(sortedFiles: List<FileFacts>, entityIds: Map<String, Long>, globalCoverage: List<CoverageFact>) {
+    /**
+     * Writes [sortedFiles] (sorted by path) with the ids of [entityIds], then the run's and the files' coverage notes,
+     * then the counts of [placesLeftOut] as notes after them all (so that the other notes keep their ids). [places] are
+     * the places column values are read into, by file path.
+     */
+    fun write(
+        sortedFiles: List<FileFacts>, entityIds: Map<String, Long>, globalCoverage: List<CoverageFact>,
+        places: Map<String, List<ColumnPlaceFact>> = emptyMap(), placesLeftOut: Map<String, Map<String, Int>> = emptyMap()
+    ) {
         val fileIds = HashMap<String, Long>()
         val fileInsert = prepare("INSERT INTO source_file(id, path, kind, sha256, size_bytes, compilation_schema, parse_status, recovered_regions, encoding) VALUES (?,?,?,?,?,?,?,?,?)")
         val unitInsert = prepare("INSERT INTO unit(id, file_id, entity_id, kind, name, start_line, start_col, end_line, end_col, origin_path, origin_line_offset) VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL)")
@@ -23,7 +30,13 @@ internal class FileRows(private val connection: Connection) {
         val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col, value_kind, value) VALUES (?,?,?,?,?,?,?,?,?,?)")
         val coverageInsert = prepare("INSERT INTO coverage_note(id, file_id, kind, message) VALUES (?,?,?,?)")
         val docInsert = prepare("INSERT INTO doc_comment(entity_id, file_id, in_body, shape, start_line, text, text_cut) VALUES (?,?,?,?,?,?,?)")
-        val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert, docInsert)
+        val placeInsert = prepare("""INSERT INTO column_place(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line,
+            end_col, column_id, source, bulk, target_entity_id, target_written, field, class, declared_type, length, length_unit, type_source_id, reason,
+            scale, parameter_mode)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
+        val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert,
+            docInsert, placeInsert)
+        var placeId = 0L
 
         var unitId = 0L
         var statementId = 0L
@@ -121,11 +134,37 @@ internal class FileRows(private val connection: Connection) {
                 docInsert.setInt(7, if (doc.textCut) 1 else 0)
                 batches.add(docInsert)
             }
+            // A key the run has no entity for (a column the index never mentioned) is left out of the place.
+            for (place in places[file.path].orEmpty().sortedWith(PLACE_ORDER)) {
+                val column = entityIds[place.columnKey] ?: continue
+                placeInsert.setLong(1, ++placeId)
+                placeInsert.setLong(2, fileId)
+                placeInsert.setLong(3, unitIds[place.unitIndex])
+                placeInsert.setNullableLong(4, place.containerKey?.let { entityIds[it] })
+                placeInsert.setNullableLong(5, place.statementLocalId?.let { statementIds[it] })
+                placeInsert.setSpan(6, place.span)
+                placeInsert.setLong(10, column)
+                placeInsert.setString(11, place.source.name)
+                placeInsert.setInt(12, if (place.bulk) 1 else 0)
+                placeInsert.setNullableLong(13, place.targetKey?.let { entityIds[it] })
+                placeInsert.setString(14, place.targetWritten)
+                placeInsert.setNullableString(15, place.field)
+                placeInsert.setString(16, place.placeClass.name)
+                placeInsert.setNullableString(17, place.declaredType)
+                placeInsert.setNullableLong(18, place.length?.toLong())
+                placeInsert.setNullableString(19, place.unit)
+                placeInsert.setNullableLong(20, place.typeSourceKey?.let { entityIds[it] })
+                placeInsert.setNullableString(21, place.reason)
+                placeInsert.setNullableLong(22, place.scale?.toLong())
+                placeInsert.setNullableString(23, place.parameterMode)
+                batches.add(placeInsert)
+            }
             // At a file boundary, so that the rows of one file go out together.
             batches.flushIfFull()
         }
         val notes = globalCoverage.distinct().sortedWith(compareBy({ it.kind }, { it.message })).map { null to it } +
-            sortedFiles.flatMap { file -> file.coverage.distinct().sortedWith(compareBy({ it.kind }, { it.message })).map { file.path to it } }
+            sortedFiles.flatMap { file -> file.coverage.distinct().sortedWith(compareBy({ it.kind }, { it.message })).map { file.path to it } } +
+            sortedFiles.flatMap { file -> placesLeftOut[file.path].orEmpty().map { (shape, count) -> file.path to leftOutNote(shape, count) } }
         for ((path, note) in notes) {
             coverageInsert.setLong(1, ++coverageId)
             coverageInsert.setNullableLong(2, path?.let { fileIds.getValue(it) })
@@ -138,8 +177,28 @@ internal class FileRows(private val connection: Connection) {
     }
 
     private fun prepare(sql: String): PreparedStatement = connection.prepareStatement(sql)
+
+    /** A count of what reads a column's value into PL/SQL without being followed: `COLUMN_VALUE_NOT_FOLLOWED`, its shape first. */
+    private fun leftOutNote(shape: String, count: Int): CoverageFact {
+        val what = LEFT_OUT[if (shape.startsWith("EXPRESSION_")) "EXPRESSION" else shape] ?: "read(s) of a column value into PL/SQL: not followed"
+        return CoverageFact(COLUMN_VALUE_NOT_FOLLOWED, "$shape: $count $what")
+    }
+
+    companion object {
+        const val COLUMN_VALUE_NOT_FOLLOWED = "COLUMN_VALUE_NOT_FOLLOWED"
+
+        private val LEFT_OUT = mapOf(
+            "EXPRESSION" to "select item(s) that are an expression of one column, read into a PL/SQL target: not followed",
+            "DYNAMIC_INTO" to "target(s) of a dynamic INTO: not followed",
+            "RECORD_ASSIGNMENT" to "assignment(s) of a field of a %ROWTYPE or cursor loop record: not followed",
+            "ARGUMENT" to "column value(s) passed to a routine: not followed",
+            "FETCH_CURSOR_NOT_KNOWN" to "target(s) of a FETCH from a cursor whose query is not known: not followed"
+        )
+    }
 }
 
 private val OCCURRENCE_ORDER = compareBy<OccurrenceFact>(
     { it.span }, { it.entityKey ?: "" }, { it.roles.encode() }, { it.status }, { it.reason ?: "" }, { it.written }
 )
+
+private val PLACE_ORDER = compareBy<ColumnPlaceFact>({ it.span }, { it.columnKey }, { it.field ?: "" }, { it.source })

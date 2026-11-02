@@ -238,5 +238,29 @@ enum class KeyKind(val constraintType: String) : StoredEnum {
     }
 }
 
+/**
+ * How the PL/SQL target a column's value is read into is declared ([com.felipebz.zpa.atlas.index.ColumnPlaces]), in
+ * the order a page lists them: [FIXED_SIZE] a length or precision of its own (or a
+ * predefined bounded type, `PLS_INTEGER`), [UNKNOWN] not decided, [CALLER_DECIDES] an `OUT` or `IN OUT` parameter, whose
+ * callers' arguments hold the value, [ANCHORED_ELSEWHERE] anchored to another column, [NO_SIZE] a type without a size
+ * (`NUMBER`, `CLOB`, `DATE`), [ANCHORED_TO_COLUMN] anchored to the column itself (`%TYPE`, a `%ROWTYPE` of its table, a
+ * cursor record over it, or an anchor to something so anchored).
+ */
+enum class PlaceClass : StoredEnum {
+    FIXED_SIZE,
+    UNKNOWN,
+    CALLER_DECIDES,
+    ANCHORED_ELSEWHERE,
+    NO_SIZE,
+    ANCHORED_TO_COLUMN
+}
+
+/** What reads a column's value into a PL/SQL target: `SELECT … INTO`, `FETCH … INTO`, `RETURNING … INTO`. */
+enum class PlaceSource : StoredEnum {
+    SELECT_INTO,
+    FETCH,
+    RETURNING
+}
+
 /** The `occurrence.roles` text: the sorted, comma-separated role names. */
 fun Collection<Role>.encode(): String = map { it.name }.toSortedSet().joinToString(",")

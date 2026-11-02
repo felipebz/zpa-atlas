@@ -78,7 +78,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 6
+    private const val FORMAT = 7
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -142,7 +142,7 @@ internal object FactsCache {
         return FileFacts(
             facts.path, facts.sha256, facts.sizeBytes, facts.encoding, facts.parseStatus, facts.recoveredRegions, facts.compilationSchema, facts.units,
             facts.statements, facts.occurrences, facts.entities, facts.relations, facts.coverage, relations, facts.dictionarySynonyms, facts.triggerEvents,
-            facts.declaredTexts, facts.docComments, facts.usesGaps, facts.membersGaps
+            facts.declaredTexts, facts.docComments, facts.usesGaps, facts.membersGaps, facts.declaredShapes, facts.intos, facts.placesLeftOut
         )
     }
 
@@ -251,6 +251,57 @@ internal object FactsCache {
             }
             list(facts.usesGaps) { string(it.entityKey); list(it.reasons) { reason -> string(reason) } }
             list(facts.membersGaps) { string(it.entityKey); list(it.reasons) { reason -> string(reason) } }
+            list(facts.declaredShapes) { string(it.entityKey); shape(it.shape) }
+            list(facts.intos) { into ->
+                string(into.source.name); data.writeBoolean(into.bulk); data.writeInt(into.unitIndex); nullable(into.containerKey)
+                nullableInt(into.statementLocalId); list(into.branches) { items -> list(items) { item(it) } }; nullable(into.cursorKey)
+                list(into.targets) { target ->
+                    span(target.span); string(target.written); nullable(target.entityKey); strings(target.path); data.writeBoolean(target.element)
+                    data.writeBoolean(target.local != null); target.local?.let { shape(it) }; nullable(target.declaredType); nullable(target.reason)
+                }
+            }
+            list(facts.placesLeftOut.entries.toList()) { string(it.key); data.writeInt(it.value) }
+        }
+
+        fun item(item: QueryItem) {
+            nullable(item.name); nullable(item.columnKey); nullable(item.expression); data.writeBoolean(item.opaque)
+        }
+
+        /** A [TypeShape], its variant first, then its fields, nested shapes written the same way. */
+        fun shape(shape: TypeShape) {
+            fun optional(nested: TypeShape?) {
+                data.writeBoolean(nested != null)
+                nested?.let { shape(it) }
+            }
+            when (shape) {
+                is TypeShape.Anchored -> {
+                    data.writeByte(0); data.writeBoolean(shape.rowType); nullable(shape.anchorKey); optional(shape.local); strings(shape.path); nullable(shape.reason)
+                }
+                is TypeShape.Sized -> {
+                    data.writeByte(1); string(shape.type); nullableInt(shape.length); nullable(shape.unit); nullableInt(shape.scale)
+                }
+                is TypeShape.Unsized -> {
+                    data.writeByte(2); string(shape.type)
+                }
+                is TypeShape.Named -> {
+                    data.writeByte(3); nullable(shape.typeKey); optional(shape.local); nullable(shape.reason)
+                }
+                is TypeShape.Record -> {
+                    data.writeByte(4); list(shape.fields) { string(it.name); nullable(it.key); optional(it.local) }
+                }
+                is TypeShape.Collection -> {
+                    data.writeByte(5); shape(shape.element)
+                }
+                is TypeShape.CursorRow -> {
+                    data.writeByte(6); list(shape.items) { item(it) }
+                }
+                is TypeShape.Unknown -> {
+                    data.writeByte(7); string(shape.reason)
+                }
+                is TypeShape.OutParameter -> {
+                    data.writeByte(8); string(shape.mode); shape(shape.type)
+                }
+            }
         }
 
         fun occurrence(it: OccurrenceFact) {
@@ -346,10 +397,34 @@ internal object FactsCache {
             val docComments = list { DocCommentFact(string(), data.readBoolean(), enumValueOf(string()), data.readInt(), string(), data.readBoolean()) }
             val usesGaps = list { UsesGapFact(string(), list { string() }) }
             val membersGaps = list { MembersGapFact(string(), list { string() }) }
+            val declaredShapes = list { DeclaredShapeFact(string(), shape()) }
+            val intos = list {
+                IntoFact(enumValueOf(string()), data.readBoolean(), data.readInt(), nullable(), nullableInt(), list { list { item() } }, nullable(),
+                    list { IntoTarget(span(), string(), nullable(), strings(), data.readBoolean(), if (data.readBoolean()) shape() else null, nullable(), nullable()) })
+            }
+            val placesLeftOut = list { string() to data.readInt() }.toMap()
             return FileFacts(
                 path, sha256, sizeBytes, encoding, parseStatus, recoveredRegions, compilationSchema, units, statements, occurrences, entities,
-                relations, coverage, emptyList(), synonyms, triggerEvents, declaredTexts, docComments, usesGaps, membersGaps
+                relations, coverage, emptyList(), synonyms, triggerEvents, declaredTexts, docComments, usesGaps, membersGaps, declaredShapes, intos, placesLeftOut
             ) to dictionaryRelations
+        }
+
+        fun item() = QueryItem(nullable(), nullable(), nullable(), data.readBoolean())
+
+        fun shape(): TypeShape {
+            fun optional(): TypeShape? = if (data.readBoolean()) shape() else null
+            return when (val variant = data.readByte().toInt()) {
+                0 -> TypeShape.Anchored(data.readBoolean(), nullable(), optional(), strings(), nullable())
+                1 -> TypeShape.Sized(string(), nullableInt(), nullable(), nullableInt())
+                2 -> TypeShape.Unsized(string())
+                3 -> TypeShape.Named(nullable(), optional(), nullable())
+                4 -> TypeShape.Record(list { ShapeField(string(), nullable(), optional()) })
+                5 -> TypeShape.Collection(shape())
+                6 -> TypeShape.CursorRow(list { item() })
+                7 -> TypeShape.Unknown(string())
+                8 -> TypeShape.OutParameter(string(), shape())
+                else -> throw DamagedCacheException("a type shape of variant $variant")
+            }
         }
 
         fun occurrence() = OccurrenceFact(

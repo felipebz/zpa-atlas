@@ -84,6 +84,17 @@ class AtlasIndex(
     }
 
     /**
+     * A page of the places the value of the column [key] is read into in PL/SQL ([ColumnPlace]), its own and those of
+     * the view columns computed from it: by class, then by file and line, [limit] from
+     * [offset]. Null when there is no such entity.
+     */
+    fun columnPlaces(key: String, offset: Int = 0, limit: Int = 100): Answer<ColumnPlacePage?> {
+        if (offset < 0) throw InvalidQueryException("offset must not be negative")
+        if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
+        return read { connection, _ -> PlaceReader(connection).page(key, offset, limit) }
+    }
+
+    /**
      * "Who uses" [key]: occurrences of the entities in [scope] (the entity itself, plus `IMPLEMENTS` partners in
      * either direction, plus transitive `CONTAINS` descendants, plus with [Scope.VIEWS] transitively the view columns
      * whose `VIEW_BASE` edges reach one of them and the views whose query reads a table, view or object table among
@@ -353,7 +364,7 @@ class AtlasIndex(
         val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 18
+        const val SCHEMA_VERSION = 19
 
         /** The fewest characters a text search takes: one trigram. */
         const val MIN_TEXT = 3

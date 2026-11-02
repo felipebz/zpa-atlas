@@ -23,7 +23,8 @@ internal class SqlStatements(
     private val plsql: PlSqlNames,
     private val typeReferences: TypeReferences,
     private val triggers: Triggers,
-    private val columnReads: ColumnReads
+    private val columnReads: ColumnReads,
+    private val places: IntoClauses
 ) {
     fun statement(root: AstNode, context: Context): Statement {
         val kind = when (root.type) {
@@ -136,6 +137,7 @@ internal class SqlStatements(
             .filterNot { triggers.correlationColumn(it, context, id) }
             .forEach { if (it.getFirstAncestorOrNull(DmlGrammar.INTO_CLAUSE) != null) plsql.valueReference(it, context, id, sql = false) else columnReads.sqlName(statement, it) }
         root.getDescendants(DmlGrammar.SELECT_COLUMN).forEach { columnReads.selectStar(statement, it) }
+        places.statement(statement)
         return statement
     }
 

@@ -65,6 +65,9 @@ class FileExtractor(
     private lateinit var sql: SqlStatements
     private lateinit var lineage: ViewLineage
     private lateinit var ddl: DdlTargets
+    private lateinit var places: IntoClauses
+    private lateinit var shapes: TypeShapes
+    private lateinit var bound: BoundNames
 
     override fun init() {
         val snapshot = projectAnalysis().snapshot
@@ -78,7 +81,7 @@ class FileExtractor(
     override fun visitFile(node: AstNode) {
         root = node
         val scopes = SqlScopes()
-        val bound = BoundNames(context::nameBinding, context::typeBinding)
+        bound = BoundNames(context::nameBinding, context::typeBinding)
         // The parameters of the file's subprograms and cursors that have an entity: their uses are the names zpa binds
         // to them. A parameter's declaration starts with its name, where zpa places it.
         for (declaration in catalog.occurrencesFor(path)) {
@@ -91,7 +94,8 @@ class FileExtractor(
         triggers = Triggers(state, resolver, plsql)
         typeReferences = TypeReferences(state, types, resolver, calls, plsql, bound, jsonBuiltIn)
         val columnReads = ColumnReads(state, resolver, scopes, plsql, context::nameBinding)
-        sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads)
+        places = IntoClauses(state, plsql, columnReads, context::nameBinding)
+        sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads, places)
         lineage = ViewLineage(state, scopes, columnReads, plsql)
         ddl = DdlTargets(path, state, dictionary, resolver, values, catalog, plsql)
         var inRecovered = false
@@ -127,6 +131,8 @@ class FileExtractor(
     /** zpa resolves the members after an element, a call result or another file's package variable only now. */
     override fun leaveFile(node: AstNode) {
         fields.record()
+        shapes = TypeShapes(state, bound, context::typeBinding, node)
+        intos = places.intos(shapes)
         result = build(ParseStatus.OK.takeIf { state.recoveredRegions == 0 } ?: ParseStatus.RECOVERED)
     }
 
@@ -190,7 +196,18 @@ class FileExtractor(
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
         return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, defaultSchema, state.units, state.statements, state.occurrences,
             LinkedHashSet(state.entities).toList(), LinkedHashSet(state.relations).toList(), state.coverage, resolver.dictionaryRelations.toList(),
-            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts, docComments, usesGaps, membersGaps)
+            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts, docComments, usesGaps, membersGaps,
+            declaredShapes, intos, state.placesLeftOut.toMap())
+    }
+
+    /** The types the file's declarations with an entity write ([TypeShapes]); none for a file that was not walked. */
+    private val declaredShapes = ArrayList<DeclaredShapeFact>()
+
+    /** The `INTO`s of the file ([IntoClauses]), decided when the file is left. */
+    private var intos: List<IntoFact> = emptyList()
+
+    private fun declaredShape(key: String, node: AstNode) {
+        if (::shapes.isInitialized) shapes.of(node, key)?.let { declaredShapes += DeclaredShapeFact(key, it) }
     }
 
     // ---- units --------------------------------------------------------------------------------------------------
@@ -345,13 +362,20 @@ class FileExtractor(
                 return
             }
             // Calls that build the SQL text are PL/SQL calls, found below.
-            PlSqlGrammar.EXECUTE_IMMEDIATE_STATEMENT -> dynamic(node, after(node, PlSqlKeyword.IMMEDIATE), context)
+            PlSqlGrammar.EXECUTE_IMMEDIATE_STATEMENT -> {
+                dynamic(node, after(node, PlSqlKeyword.IMMEDIATE), context)
+                places.dynamic(node)
+            }
+            PlSqlGrammar.FETCH_STATEMENT -> places.fetch(node, context)
+            PlSqlGrammar.ASSIGNMENT_STATEMENT -> if (context.dynamic == null) places.assignment(node)
             PlSqlGrammar.OPEN_FOR_STATEMENT -> if (!node.hasDirectChildren(DmlGrammar.SELECT_EXPRESSION)) {
                 dynamic(node, after(node, PlSqlKeyword.FOR), context)
             }
             PlSqlGrammar.METHOD_CALL -> {
                 dbmsSqlParse(node)?.let { dynamic(node, it, context) }
+                val before = state.occurrences.size
                 plsql.callSite(node, context, null)
+                if (context.dynamic == null) places.call(node, before)
             }
             PlSqlGrammar.CALL_STATEMENT -> node.children.firstOrNull { it.type != PlSqlGrammar.LABELS && it.type != PlSqlPunctuator.SEMICOLON }
                 ?.takeIf { it.type != PlSqlGrammar.METHOD_CALL }
@@ -457,6 +481,8 @@ class FileExtractor(
         for (definition in unitDefinitions) {
             val node = definition.node.takeIf { it.type in DocComments.NODE_TYPES }
             docs?.of(definition.entityKey, definition.span, definition.inBody, node)?.let { docComments += it }
+            // A standalone type's definition: a collection of a type, or an object type.
+            if (definition.node.type == PlSqlGrammar.CREATE_TYPE) declaredShape(definition.entityKey, definition.node)
         }
         // A body's own globals: their definition, what their declaration says and their documentation, as the spec's.
         // A file the parser rejected was never walked: it has none.
@@ -465,6 +491,7 @@ class FileExtractor(
             state.occurrences += OccurrenceFact(global.unitIndex, global.packageKey, null, span, global.name.tokenOriginalValue, global.key,
                 setOf(Role.DEFINITION), status(Status.RESOLVED, global.partial), Origin.STATIC, null, nameSpan = spanOf(global.name))
             DeclaredTexts.of(global.key, global.node)?.let { declaredTexts += it }
+            declaredShape(global.key, global.node)
             docs?.of(global.key, span, true, null)?.let { docComments += it }
         }
         // A body's own types and their fields: their definition and what their declaration says.
@@ -473,6 +500,7 @@ class FileExtractor(
             state.occurrences += OccurrenceFact(member.unitIndex, member.packageKey, null, span, member.name.tokenOriginalValue, member.key,
                 setOf(Role.DEFINITION), status(Status.RESOLVED, member.partial), Origin.STATIC, null, nameSpan = spanOf(member.name))
             DeclaredTexts.of(member.key, member.node)?.let { declaredTexts += it }
+            declaredShape(member.key, member.node)
             docs?.of(member.key, span, true, null)?.let { docComments += it }
         }
         for (declaration in declarations) {
@@ -488,6 +516,7 @@ class FileExtractor(
             // A declaration of a region the parser recovered has no node of its span: nothing is read of it.
             val node = found?.declaring?.get(declaration.span)
             node?.let { DeclaredTexts.of(declaration.entityKey, it)?.let { text -> declaredTexts += text } }
+            (found?.outermost?.get(declaration.span) ?: node)?.let { declaredShape(declaration.entityKey, it) }
             // A parameter's uses are zpa's bindings: say when its subprogram hides some (a file that was walked only).
             if (declaration.containerKey != null && node != null && ::bodyGlobals.isInitialized) {
                 ParameterGaps.of(declaration.entityKey, node, context::usageEvidence, context::regionUncertainty)?.let { parameterGaps += it }

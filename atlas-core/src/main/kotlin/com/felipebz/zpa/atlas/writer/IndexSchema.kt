@@ -264,6 +264,38 @@ internal fun tableDdl(): List<String> = listOf(
         PRIMARY KEY (key_id, position)
     )
     """,
+    // A place a column's value is read into in PL/SQL (SELECT INTO, FETCH INTO, RETURNING INTO): the column read (a
+    // view's column for a read through a view), the target as written (its span) and its entity, the field of a record
+    // target, how the target is declared (class, the declared type as written, a length and its unit; for a number the
+    // digits before the point and the scale), the entity whose declaration decides the type (type_source_id), why it is
+    // UNKNOWN, and the mode of an OUT or IN OUT parameter target, whose callers' arguments hold the value.
+    """
+    CREATE TABLE column_place (
+        id INTEGER PRIMARY KEY,
+        file_id INTEGER NOT NULL REFERENCES source_file(id),
+        unit_id INTEGER NOT NULL REFERENCES unit(id),
+        container_entity_id INTEGER NULL REFERENCES entity(id),
+        statement_id INTEGER NULL REFERENCES sql_statement(id),
+        start_line INTEGER NOT NULL,
+        start_col INTEGER NOT NULL,
+        end_line INTEGER NOT NULL,
+        end_col INTEGER NOT NULL,
+        column_id INTEGER NOT NULL REFERENCES entity(id),
+        source TEXT NOT NULL ${check<PlaceSource>("source")},
+        bulk INTEGER NOT NULL CHECK (bulk IN (0, 1)),
+        target_entity_id INTEGER NULL REFERENCES entity(id),
+        target_written TEXT NOT NULL,
+        field TEXT NULL,
+        class TEXT NOT NULL ${check<PlaceClass>("class")},
+        declared_type TEXT NULL,
+        length INTEGER NULL,
+        length_unit TEXT NULL,
+        type_source_id INTEGER NULL REFERENCES entity(id),
+        reason TEXT NULL,
+        scale INTEGER NULL,
+        parameter_mode TEXT NULL CHECK (parameter_mode IN ('OUT', 'IN OUT'))
+    )
+    """,
     SOURCE_LINE_DDL
 ).map { it.trimIndent() }
 
@@ -305,5 +337,7 @@ internal fun indexDdl(): List<String> = listOf(
     "CREATE INDEX doc_comment_entity ON doc_comment(entity_id)",
     "CREATE INDEX dictionary_key_relation ON dictionary_key(relation_id)",
     "CREATE INDEX dictionary_key_referenced ON dictionary_key(referenced_id)",
-    "CREATE INDEX dictionary_key_column_column ON dictionary_key_column(column_id)"
+    "CREATE INDEX dictionary_key_column_column ON dictionary_key_column(column_id)",
+    "CREATE INDEX column_place_column ON column_place(column_id)",
+    "CREATE INDEX column_place_target ON column_place(target_entity_id)"
 )

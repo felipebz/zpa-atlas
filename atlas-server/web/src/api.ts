@@ -250,6 +250,13 @@ export interface EntityDetail {
   usesIncomplete: string[] | null;
   /** A standalone object type's: why its listed attributes may not be all (NOT_EXTRACTED, ALTER_TYPE); null when complete. */
   membersIncomplete: string[] | null;
+  /**
+   * A column's places (where PL/SQL reads its value into a target) counted by class, in the order FIXED_SIZE, UNKNOWN,
+   * ANCHORED_ELSEWHERE, NO_SIZE, ANCHORED_TO_COLUMN when present; empty for any other entity.
+   */
+  placesByClass: Count[];
+  /** For a variable, parameter, field or other PL/SQL target: the columns whose value is read into it, by key. */
+  receives: EntitySummary[];
 }
 
 /** The unit an occurrence is in; [entity] is its package, routine, view, trigger or type, null for a script. */
@@ -274,6 +281,55 @@ export interface ValueGroup {
   valueKind: string;
   value: string | null;
   count: number;
+}
+
+/** How a place's target is declared, in the order the backend sorts places in. */
+export type PlaceClass = "FIXED_SIZE" | "UNKNOWN" | "CALLER_DECIDES" | "ANCHORED_ELSEWHERE" | "NO_SIZE" | "ANCHORED_TO_COLUMN";
+
+/** A place a column's value is read into in PL/SQL (`SELECT … INTO`, `FETCH … INTO`, `RETURNING … INTO`) and how its target is declared. */
+export interface ColumnPlace {
+  /** The column read: the page's column, or a view column computed from it ([viaView]). */
+  read: EntitySummary;
+  viaView: boolean;
+  source: "SELECT_INTO" | "FETCH" | "RETURNING";
+  /** `BULK COLLECT INTO`. */
+  bulk: boolean;
+  /** Where the target is written: the file relative to the sources, one-based line, zero-based column. */
+  path: string;
+  line: number;
+  column: number;
+  /** The routine around it. */
+  container: EntitySummary | null;
+  /** The target as written: `l_code`, `l_pair.code`, `r_ord`. */
+  targetWritten: string;
+  /** The target's entity; null for a variable of an anonymous block. */
+  target: EntitySummary | null;
+  /** The field of a record target that takes the column (`CODE` of `r_ord`). */
+  field: string | null;
+  placeClass: PlaceClass;
+  /** The target's (or field's) declaration as written: `varchar2(12)`, `orders.code%type`, `t_code`. */
+  declaredType: string | null;
+  /** For FIXED_SIZE, when known; for a number, the digits it holds before the point. */
+  length: number | null;
+  /** `CHAR`, `BYTE`, `DIGITS`, or `NLS_LENGTH_SEMANTICS` when no unit is written (the compile-time setting decides). */
+  unit: string | null;
+  /** A number's scale: with [length], what to compare with the column's `NUMBER(p,s)`. */
+  scale: number | null;
+  /** The entity whose declaration decides the type: the column an anchor ends at, or the variable, field or type that writes the size. */
+  typeSource: EntitySummary | null;
+  /** `OUT` or `IN OUT` for a parameter target (CALLER_DECIDES): each caller's argument decides its type and size. */
+  parameterMode: string | null;
+  /** For UNKNOWN, why: TARGET_UNDECIDED, DECLARATION_UNKNOWN, ANCHOR_UNRESOLVED, … */
+  reason: string | null;
+}
+
+/** A page of a column's places (`api/places`): [byClass] counts all of them, [nextOffset] is null on the last page. */
+export interface ColumnPlacePage {
+  total: number;
+  byClass: Count[];
+  offset: number;
+  rows: ColumnPlace[];
+  nextOffset: number | null;
 }
 
 export interface OccurrenceRow {
@@ -477,4 +533,9 @@ export class ApiFailure extends Error {
 /** The text of an error caught from a request or a parse. */
 export function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** One page of the places the column [key]'s value is read into, from [offset]. */
+export async function columnPlaces(key: string, offset: number, limit = 100): Promise<ColumnPlacePage> {
+  return (await api<Answer<ColumnPlacePage>>("api/places", { key, offset, limit })).result;
 }

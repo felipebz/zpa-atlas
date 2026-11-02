@@ -69,6 +69,51 @@ read it, so that both ends of the key can be followed. A key end the index has n
 was not asked for, or a relation more than one key away from the code) is kept by name: the key, its table and its
 columns, without links. Check constraints, indexes and column defaults are not read.
 
+### Where a column's value is read into
+
+A *place* is where a column's value is read straight into a PL/SQL target: `SELECT … INTO`, `FETCH … INTO` of an
+explicit cursor whose query the index knows (declared in the same unit, or in a package spec or body), and
+`RETURNING … INTO`, with or without `BULK COLLECT`. The select item at position *i* goes to the target at position *i*;
+a single target that takes several items, or a whole row (`select * into r`), is a record that takes them field by
+field; a `BULK COLLECT` target is a collection whose element takes the value. An item is the column when it is the
+column itself, written bare or qualified (`code`, `o.code`, `shop.orders.code`), or a `*` over a relation whose columns
+the dictionary lists. The target is the one zpa binds the name to, as for its uses; a field reached through a
+collection element (`a(i).f`, `a(i).r.f`, `a(i).f(j)`) is the field zpa binds its last name to. A variable of an
+anonymous block has no entity, and its own declaration says its type. A bind or host variable (`:new.code`, `:b1`) is
+not a name the index follows (`TARGET_NOT_A_NAME`), nor an element of an element (`a(i)(j)`,
+`TARGET_SHAPE_NOT_FOLLOWED`). Places are rows of their own (`column_place`): each holds the
+column, the target and the field it lands in, and how the target is declared, which no relation or role could carry.
+
+The target's declared type is followed to where it ends: a `%TYPE` anchor to a variable, parameter or field, a subtype
+and a type name (a record, a collection, a standalone `CREATE TYPE`) are followed to their declaration, in this file or
+another. zpa's name binding does not answer the name of an anchor, so its first segment is followed with the
+declaration zpa's parser attaches to it, as the index already does to tell a local anchor. The class of a place:
+
+| Class | When |
+|---|---|
+| `FIXED_SIZE` | The type ends at a written length (`VARCHAR2(12)`, `CHAR(1)`, with its unit), a number's precision, or a bounded type (`PLS_INTEGER`). A character length written without `CHAR` or `BYTE` has the unit `NLS_LENGTH_SEMANTICS`: the compile-time setting decides it, and the index does not know it. |
+| `UNKNOWN` | The target or its type could not be followed; `reason` says why (`TARGET_UNDECIDED`, `TYPE_NOT_DECLARED`, `ROWTYPE_COLUMNS_UNKNOWN`, …). |
+| `CALLER_DECIDES` | The target is an `OUT` or `IN OUT` parameter (`parameter_mode`): the value lands in each caller's argument, which does not take the size of the parameter's type, so the caller's declaration decides. The callers are not followed. A field or element of such a parameter keeps the class its own type gives. |
+| `ANCHORED_ELSEWHERE` | The type ends at another column (`orders.note%type`, a field of another `%ROWTYPE`). |
+| `NO_SIZE` | The type has no size of its own: `NUMBER` without precision, a floating number (`FLOAT(n)`, `BINARY_DOUBLE`), which rounds rather than fails, `CLOB`, `DATE`, an object type. |
+| `ANCHORED_TO_COLUMN` | The type ends at this column: `%TYPE` of it, a `%ROWTYPE` of its table, a cursor record whose field is it, or an anchor to something so anchored. Its type follows the column. |
+
+A number's size is given as a column's `NUMBER(p,s)` is compared with it: `length` is the digits it holds before the
+point, `p - s` (none below zero), in `DIGITS`, and `scale` is `s`. `NUMBER(10,2)` holds 8 digits before the point, scale
+2; `NUMBER(p)` has scale 0; `NUMBER(*,s)` has precision 38; `INTEGER`, `INT`, `SMALLINT`, `DECIMAL` and `NUMERIC`
+without a precision are `NUMBER(38,0)`; a negative scale rounds to the left of the point and holds that many more
+digits (`NUMBER(5,-2)`: 7, scale -2).
+
+`type_source_id` is the entity whose declaration decides the type, when it is not the target itself: the column an
+anchor ends at, or the variable, field or type that writes the size. A column's page lists its places by class (in the
+order above), then by file and line, with those of the view columns computed from it, marked as read through the view; a target's page lists
+the columns it receives. The MCP tool `find_column_places` pages through them all; `get_entity` of a column counts
+them by class (`placesByClass`). What is not followed is counted by shape in `COLUMN_VALUE_NOT_FOLLOWED` coverage notes:
+an item that is an expression of one column (`EXPRESSION_NVL`, `_UPPER`, `_TRIM`, `_SUBSTR`, `_MAX_MIN`, `_TO_CHAR`,
+`_CONCATENATION`, `_OTHER`), a dynamic `INTO` (`DYNAMIC_INTO`), a field of a `%ROWTYPE` or cursor loop record assigned
+(`RECORD_ASSIGNMENT`) or passed to a routine, as a column read in static SQL may be (`ARGUMENT`), and a `FETCH` from a
+cursor whose query is not known (`FETCH_CURSOR_NOT_KNOWN`).
+
 ## Occurrence
 
 One place in the source where an entity is defined or used. It has roles and a status.

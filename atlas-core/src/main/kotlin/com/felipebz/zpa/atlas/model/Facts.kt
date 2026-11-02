@@ -171,5 +171,11 @@ class FileFacts(
     val declaredTexts: List<DeclaredTextFact> = emptyList(),
     val docComments: List<DocCommentFact> = emptyList(),
     val usesGaps: List<UsesGapFact> = emptyList(),
-    val membersGaps: List<MembersGapFact> = emptyList()
+    val membersGaps: List<MembersGapFact> = emptyList(),
+    /** The types the file's declarations write, for the places column values are read into. */
+    val declaredShapes: List<DeclaredShapeFact> = emptyList(),
+    /** The `INTO`s of the file whose values may be columns. */
+    val intos: List<IntoFact> = emptyList(),
+    /** What reads a column's value into PL/SQL without being followed, by shape: counted ([ColumnPlaceFact]). */
+    val placesLeftOut: Map<String, Int> = emptyMap()
 )

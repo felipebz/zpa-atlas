@@ -13,7 +13,7 @@ import com.felipebz.zpa.api.SingleRowSqlFunctionsGrammar
 import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
 import com.felipebz.zpa.api.project.ProjectParameterMode
 import com.felipebz.zpa.atlas.model.*
-import java.util.IdentityHashMap
+import java.util.*
 
 /**
  * The facts of one file in the order they are found (the writer numbers them by position), and the counters of what is
@@ -41,6 +41,19 @@ internal class FileState {
 
     /** Modes of the formals that resolved calls bind their actual expressions to, for the roles of the values passed. */
     val argumentModes = IdentityHashMap<AstNode, ProjectParameterMode>()
+
+    /** The entity each datatype node names (its `TYPE_USE`), null when the use has none: read by [TypeShapes]. */
+    val typeTargets = IdentityHashMap<AstNode, String?>()
+
+    /** The select items of each explicit cursor's query, by the query node ([IntoClauses]). */
+    val cursorItems = IdentityHashMap<AstNode, List<QueryItem>>()
+
+    /** What reads a column's value into PL/SQL without being followed, by shape ([IntoClauses]): counted. */
+    val placesLeftOut = sortedMapOf<String, Int>()
+
+    fun leftOut(shape: String, count: Int = 1) {
+        if (count > 0) placesLeftOut.merge(shape, count, Int::plus)
+    }
 
     fun addUnit(unit: UnitFact, partial: Boolean): Int {
         units += unit

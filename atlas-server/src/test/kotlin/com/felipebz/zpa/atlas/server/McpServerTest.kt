@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.Fixture
+import com.felipebz.zpa.atlas.PlacesFixture
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionaryKey
 import com.felipebz.zpa.atlas.index.IndexOptions
@@ -100,10 +101,11 @@ class McpServerTest {
         assertThat(client.serverVersion!!.name).isEqualTo("zpa-atlas")
         assertThat(client.serverVersion!!.version).matches("\\d+\\.\\d+\\.\\d+.*")
         val tools = client.listTools().tools.associateBy { it.name }
-        assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_referencing_keys", "find_occurrences", "find_usages",
+        assertThat(tools.keys).containsExactlyInAnyOrder("search_entities", "get_entity", "find_referencing_keys", "find_column_places", "find_occurrences", "find_usages",
             "group_occurrences", "group_usages", "get_source", "get_values", "find_value_sites", "find_impact", "search_text")
         assertThat(tools.mapValues { it.value.inputSchema.required.orEmpty() }).isEqualTo(mapOf(
-            "search_entities" to listOf("name"), "get_entity" to listOf("key"), "find_referencing_keys" to listOf("key"), "find_occurrences" to emptyList(),
+            "search_entities" to listOf("name"), "get_entity" to listOf("key"), "find_referencing_keys" to listOf("key"), "find_column_places" to listOf("key"),
+            "find_occurrences" to emptyList(),
             "find_usages" to listOf("key"), "group_occurrences" to listOf("group_by"), "group_usages" to listOf("key", "group_by"), "get_source" to listOf("path", "line"),
             "get_values" to listOf("key"), "find_value_sites" to listOf("key", "value_kind"), "find_impact" to listOf("key"), "search_text" to listOf("text")
         ))
@@ -587,6 +589,43 @@ class McpServerTest {
     }
 
     @Test
+    fun `find_column_places reaches every place of a column, past what one answer holds, by class`() {
+        // The places project, and a procedure that reads the column into 300 fixed-size variables.
+        val folder = temp.resolve("places")
+        PlacesFixture.write(folder.resolve("src"))
+        Files.writeString(folder.resolve("src/many_reads.prc"), "create or replace procedure many_reads is\n  l_x varchar2(12);\nbegin\n" +
+            (1..300).joinToString("") { "  select code into l_x from orders where order_id = $it;\n" } + "end;\n/\n")
+        val output = folder.resolve("places.db")
+        Indexer().index(IndexOptions(folder.resolve("src"), output, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
+        mcp(AtlasIndex(output, folder.resolve("src")), McpSettings(maxAnswerChars = 20_000)) { client ->
+            val pages = ArrayList<JsonObject>()
+            var offset: Int? = 0
+            while (offset != null) {
+                val page = client.call("find_column_places", args { put("key", "db:SHOP.ORDERS.CODE"); put("offset", offset!!) }).json().jsonObject
+                pages += page
+                offset = page["result"]!!.jsonObject["nextOffset"]?.jsonPrimitive?.content?.toInt()
+            }
+            assertThat(pages).allSatisfy { assertThat(it.toString().length).isLessThanOrEqualTo(20_000) }
+            assertThat(pages).anySatisfy { assertThat(it).containsKey("cutForSize") }
+            val rows = pages.flatMap { it["result"]!!.jsonObject["rows"]!!.jsonArray.map { row -> row.jsonObject } }
+            assertThat(rows.map { "${it["path"]!!.jsonPrimitive.content}:${it["line"]!!.jsonPrimitive.content}:${it["targetWritten"]!!.jsonPrimitive.content}" })
+                .hasSize(317).doesNotHaveDuplicates()
+            assertThat(pages.first()["result"]!!.jsonObject["total"]!!.jsonPrimitive.content).isEqualTo("317")
+            // By class: the 308 fixed sizes lead.
+            assertThat(rows.take(308).map { it["placeClass"]!!.jsonPrimitive.content }).containsOnly("FIXED_SIZE")
+            val fixed = rows.first { it["targetWritten"]!!.jsonPrimitive.content == "l_x" }
+            assertThat(listOf("length", "unit", "declaredType").map { fixed[it]!!.jsonPrimitive.content }).containsExactly("12", "NLS_LENGTH_SEMANTICS", "varchar2(12)")
+            // An OUT parameter target: its callers' arguments decide the size, the row says which mode.
+            val caller = rows.single { it["targetWritten"]!!.jsonPrimitive.content == "p_code" }
+            assertThat(listOf("placeClass", "parameterMode").map { caller[it]!!.jsonPrimitive.content }).containsExactly("CALLER_DECIDES", "OUT")
+            // get_entity of the column counts them by class.
+            val entity = client.call("get_entity", args { put("key", "db:SHOP.ORDERS.CODE") }).json().jsonObject["result"]!!.jsonObject
+            assertThat(entity["placesByClass"]!!.jsonArray.map { "${it.jsonObject["value"]!!.jsonPrimitive.content} ${it.jsonObject["count"]!!.jsonPrimitive.content}" })
+                .containsExactly("FIXED_SIZE 308", "UNKNOWN 1", "CALLER_DECIDES 1", "ANCHORED_ELSEWHERE 1", "ANCHORED_TO_COLUMN 6")
+        }
+    }
+
+    @Test
     fun `find_referencing_keys reaches every foreign key to a key, past what one answer holds, and says they may be more`() {
         // 600 foreign keys of tables the dictionary did not read reference the fixture's KY_ORDERS primary key, and the
         // loading user did not see every table.
@@ -716,6 +755,7 @@ class McpServerTest {
             "group_usages" to args { put("key", "db:HR.COMPANY"); put("group_by", strings("ROLE")) },
             "find_impact" to args { put("key", "db:HR.PACK_IMP_A.LEAF(P_N IN NUMBER)") },
             "find_referencing_keys" to args { put("key", "db:HR.KY_ORDERS") },
+            "find_column_places" to args { put("key", "db:HR.COMPANY.COMPANY_NAME") },
             "get_source" to args { put("path", "hr/pack_process.pkb"); put("line", 10) },
             "get_values" to args { put("key", stActive) },
             "find_value_sites" to args { put("key", stActive); put("value_kind", "STRING"); put("value", "S") },
@@ -893,7 +933,7 @@ class McpServerTest {
             assertThat(listing.headers().firstValue("Content-Encoding")).hasValue("gzip")
             val listed = Json.parseToJsonElement(GZIPInputStream(listing.body()).readAllBytes().decodeToString())
                 .jsonObject["result"]!!.jsonObject["tools"]!!.jsonArray
-            assertThat(listed).hasSize(12)
+            assertThat(listed).hasSize(13)
             assertThat(listed.map { it.jsonObject["inputSchema"]!!.jsonObject["additionalProperties"] }).containsOnly(JsonPrimitive(false))
             val stream = http.sendAsync(
                 HttpRequest.newBuilder(url).header("Accept", "text/event-stream").header("Accept-Encoding", "gzip, deflate")

@@ -47,6 +47,7 @@ internal class TypeReferences(
             return
         }
         if (node.type == PlSqlGrammar.CUSTOM_DATATYPE) bound.typeOf(name, context)?.let { key ->
+            state.typeTargets[node] = key
             state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), key,
                 setOf(Role.TYPE_USE), status(Status.RESOLVED, context.partial), context.origin, null)
             return
@@ -64,6 +65,7 @@ internal class TypeReferences(
         } else {
             types.named(segments, context.schema, context.enclosingPackage) ?: return
         }
+        state.typeTargets[node] = outcome.entityKey
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
             setOf(Role.TYPE_USE), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys)
     }
@@ -86,6 +88,7 @@ internal class TypeReferences(
         } else {
             resolver.resolveColumn(relation, segments.last()).let { Triple(it.entityKey, it.status, it.reason) }
         }
+        state.typeTargets[node] = key
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), key,
             setOf(Role.TYPE_USE), status(status, context.partial), context.origin, reason)
         return true

@@ -1,5 +1,7 @@
 import type {
     Answer,
+    ColumnPlace,
+    ColumnPlacePage,
     Documentation,
     EntityDetail,
     EntitySummary,
@@ -10,7 +12,7 @@ import type {
     TableKey,
     ValueGroup
 } from "./api";
-import {api, ApiFailure, errorMessage} from "./api";
+import {api, ApiFailure, columnPlaces, errorMessage} from "./api";
 import type {DeclaredFact} from "./declared-view";
 import {declaredFacts, memberType, parameterDefaults, returnType} from "./declared-view";
 import {docFromKey, docPlaceKey, docSummary} from "./doc-view";
@@ -51,11 +53,26 @@ import {
     langSuffix,
     literalText,
     nameBreaksHtml,
+    qualifierHtml,
     queryHref,
     scrollTable,
     stackCell
 } from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
+import {
+    classCounts,
+    classLabel,
+    classTitle,
+    needsAttention,
+    parameterText,
+    placesTotal,
+    reasonText,
+    sizeNote,
+    sizeText,
+    sourceText,
+    typeSourcePhrase,
+    viewOf
+} from "./places-view";
 import {displayParts, parentKeyOf} from "./names";
 import {currentProject, setPageTitle} from "./project";
 import {browserStorage, recordOpened} from "./recent";
@@ -450,6 +467,8 @@ function renderEntity(entity: EntityDetail) {
   // A view column's sources, and the view columns computed from a column: one hop of the stored lineage.
   set("baseColumns", linkList(t("entity.baseColumns"), t("entity.baseColumns.line"), entity.baseColumns.map(e => entityLink(e))));
   set("viewColumns", linkList(t("entity.viewColumns"), t("entity.viewColumns.line"), entity.viewColumns.map(e => entityLink(e))));
+  // A PL/SQL target: the columns whose value is read into it.
+  set("receives", linkList(t("receives.title"), t("receives.line"), entity.receives.map(e => entityLink(e))));
   // The dictionary's keys: a relation's own and those referencing it; a column's, those it is in and those referencing it.
   const column = entity.kind === "COLUMN" ? entity.key : null;
   set("keys", keysHtml(entity, column));
@@ -481,6 +500,9 @@ function renderEntity(entity: EntityDetail) {
   // What a parameter is passed and what a column is written: the same groups, from different rows.
   const valuesTitle = entity.kind === "PARAMETER" ? "values.title.passed" : entity.kind === "COLUMN" ? "values.title.written" : null;
   if (valuesTitle) loadValues(valuesTitle);
+  // Where a column's value is read into in PL/SQL, and how each target is declared.
+  const placeCount = entity.kind === "COLUMN" ? placesTotal(entity.placesByClass) : 0;
+  if (placeCount > 0) loadPlaces();
 
   // The list leads to every section of the content column; the usage count becomes the scope's total once it loads,
   // and values have no count until they load.
@@ -489,6 +511,8 @@ function renderEntity(entity: EntityDetail) {
     { id: "parameters", label: t("entity.parameters"), count: params?.length ?? -1 },
     { id: "overloads", label: t("entity.overloads"), count: overloads.length >= 2 ? overloads.length : -1 },
     { id: "values", label: valuesTitle ? t(valuesTitle) : "", count: valuesTitle ? null : -1 },
+    { id: "places", label: t("places.title"), count: placeCount || -1 },
+    { id: "receives", label: t("receives.title"), count: entity.receives.length || -1 },
     { id: "usage", label: t("usage.title"), count: direct },
     { id: "relations", label: t("entity.relations"), count: entity.relations.length || -1 },
     { id: "triggers", label: t(own ? "trigger.events" : "trigger.firing"), count: entity.triggerEvents.length || -1 },
@@ -618,6 +642,94 @@ async function loadValueSites(group: ValueGroup, block: UsesBlock, row: Element,
   const more = row.querySelector<HTMLButtonElement>("button.more")!;
   more.hidden = page.nextAfter === null;
   if (page.nextAfter !== null) more.dataset.after = String(page.nextAfter);
+}
+
+// ---- the places a column's value is read into ------------------------------------------------------------------------
+
+const PLACES_PAGE = 100;
+
+/** A class as a badge, its meaning as the tooltip; FIXED_SIZE and UNKNOWN stand out. */
+function placeClassBadge(placeClass: string, text = classLabel(t, placeClass)) {
+  const attention = needsAttention(placeClass) ? " attention" : "";
+  return `<span class="badge pc-${esc(placeClass)}${attention}" title="${esc(classTitle(t, placeClass))}">${esc(text)}</span>`;
+}
+
+/** A view column read in place of the page's column: the view (a link when its key is known) and the column, linked. */
+function throughViewHtml(read: EntitySummary) {
+  const { view, viewKey, column } = viewOf(read);
+  const viewName = `<span class="mono">${qualifierHtml(view)}</span>`;
+  return fillHtml("places.through", {
+    view: viewKey === null ? viewName : `<a href="${entityHref(viewKey)}">${viewName}</a>`,
+    column: `<a class="mono" href="${entityHref(read.key)}">${nameBreaksHtml(column)}</a>`
+  });
+}
+
+/**
+ * One place: its class; the target as written in the code (a link when it has an entity) with the field that takes the
+ * column, the routine it is in and, when read through a view, which; its declared type and, for a fixed size, the size
+ * (a number's digits before the point and scale); the declaration that decides the type when another, what an OUT
+ * parameter leaves to its callers, or why the index could not tell; how the value is read; and its line in the file.
+ * Each cell has its class (`pclass` … `pline`), so that on a phone each part starts its own line (app.css).
+ */
+function placeRowHtml(p: ColumnPlace) {
+  const written = `<span class="mono">${codeBreaksHtml(p.targetWritten)}</span>`;
+  const target = (p.target ? `<a href="${entityHref(p.target.key)}" title="${esc(p.target.display)}">${written}</a>` : written) +
+    (p.field ? `<span class="mono">.${nameBreaksHtml(p.field)}</span>` : "");
+  const container = p.container ? `<div class="muted">${fillHtml("places.in", { container: entityLink(p.container) })}</div>` : "";
+  const through = p.viaView ? `<div class="muted">${throughViewHtml(p.read)}</div>` : "";
+  const size = sizeText(t, p);
+  const note = sizeNote(t, p);
+  const declared = (p.declaredType ? `<span class="mono">${codeBreaksHtml(p.declaredType)}</span>` : "") +
+    (size === null ? "" : ` <strong${p.scale === null ? ` class="nobr"` : ""}>${esc(size)}</strong>`) +
+    (note === null ? "" : ` <span class="muted">(${esc(note)})</span>`);
+  const source = typeSourcePhrase(p);
+  const parameter = parameterText(t, p);
+  const why = (source === null ? "" : `<div>${fillHtml(source.key, { source: entityLink(source.entity) })}</div>`) +
+    (parameter === null ? "" : `<div class="uses-gap">${esc(parameter)}</div>`) +
+    (p.reason === null ? "" : `<div class="uses-gap" title="${esc(p.reason)}">${esc(reasonText(t, p.reason))}</div>`);
+  const line = placeHtml({ half: null, path: p.path, line: p.line, col: p.column, partner: null, file: true }, p.target ?? p.read, null);
+  return `<tr><td class="pclass">${placeClassBadge(p.placeClass)}</td><td class="grow ptarget">${target}${container}${through}</td>` +
+    stackCell(declared, p.declaredType ? t("places.declaredType") : null, "pdecl") + `<td class="grow pwhy">${why}</td>` +
+    `<td class="mono nobr psource">${esc(sourceText(t, p))}</td><td class="pline">${line}</td></tr>`;
+}
+
+/**
+ * The places the page's column is read into, a page at a time: the counts by class over all of them, then a row per
+ * place in the backend's order (by class, then file and line), and "more" while there are more.
+ */
+async function loadPlaces() {
+  const target = document.getElementById("places")!;
+  const head = sectionHead(t("places.title"), t("places.line"));
+  let page: ColumnPlacePage;
+  try {
+    page = await columnPlaces(key, 0, PLACES_PAGE);
+  } catch (e) {
+    target.innerHTML = head + `<p class="muted">${esc(t("error.message", { error: errorMessage(e) }))}</p>`;
+    return;
+  }
+  if (page.rows.length === 0) {
+    target.innerHTML = head + `<p class="muted">${esc(t("places.none"))}</p>`;
+    return;
+  }
+  const counts = classCounts(t, page.byClass).map(c => placeClassBadge(c.value, c.text)).join("");
+  target.innerHTML = head + `<p class="place-classes"><span class="muted">${esc(t("places.total", { count: page.total }))}</span> ${counts}</p>` +
+    scrollTable(`<tbody>${page.rows.map(placeRowHtml).join("")}</tbody>`, "compact stack places") +
+    `<button type="button" class="more-rows"${page.nextOffset === null ? " hidden" : ""}>${esc(t("usage.more"))}</button>`;
+  const rows = target.querySelector("tbody")!;
+  const more = target.querySelector<HTMLButtonElement>("button.more-rows")!;
+  let next = page.nextOffset;
+  more.addEventListener("click", async () => {
+    if (next === null) return;
+    more.disabled = true;
+    try {
+      const following = await columnPlaces(key, next, PLACES_PAGE);
+      rows.insertAdjacentHTML("beforeend", following.rows.map(placeRowHtml).join(""));
+      next = following.nextOffset;
+    } finally {
+      more.disabled = false;
+      more.hidden = next === null;
+    }
+  });
 }
 
 // ---- "who uses" filters and pages ---------------------------------------------------------------------------------

@@ -266,6 +266,21 @@ class Indexer internal constructor(
                     "and ALL_CONSTRAINTS lists only the constraints of the tables it owns or was granted a privilege on: " +
                     "the foreign keys referencing a key may be more than those recorded")
         }
+        // Where column values are read into PL/SQL, now that every target, type and cursor of every file is known.
+        val kinds = HashMap<String, EntityKind>()
+        for (entity in globalEntities) kinds.putIfAbsent(entity.key, entity.kind)
+        for (file in facts) for (entity in file.entities) kinds.putIfAbsent(entity.key, entity.kind)
+        val relationColumns = resolved.mapValues { (key, relation) -> relation.rowFields.sortedBy { it.position.asInt }.map { "$key.${it.name.exact()}" } }
+        val columnPlaces = ColumnPlaces(facts, kinds, relationColumns)
+        val places = HashMap<String, List<ColumnPlaceFact>>()
+        val placesLeftOut = HashMap<String, Map<String, Int>>()
+        for (file in facts) {
+            val (found, expressions) = columnPlaces.of(file)
+            if (found.isNotEmpty()) places[file.path] = found
+            val counts = TreeMap(file.placesLeftOut)
+            expressions.forEach { (shape, count) -> counts.merge(shape, count, Int::plus) }
+            if (counts.isNotEmpty()) placesLeftOut[file.path] = counts
+        }
 
         val texts = sources.associate { it.relativePath to it.text }
         val phase: (String) -> Unit = { phases?.start(it) }
@@ -288,7 +303,7 @@ class Indexer internal constructor(
                         finishedAt = clock().toString()
                     ),
                     facts, globalEntities, globalRelations, globalCoverage, texts::get, phase,
-                    dictionaryDeclaredTexts = globalDeclaredTexts, keys = keys
+                    dictionaryDeclaredTexts = globalDeclaredTexts, keys = keys, places = places, placesLeftOut = placesLeftOut
                 )
             }
         } catch (e: Throwable) {

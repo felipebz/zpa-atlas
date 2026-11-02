@@ -248,7 +248,14 @@ data class EntityDetail(
      * Why [referencedBy] may not be every foreign key referencing [keys] (`TABLES_NOT_VISIBLE`: the loading user may not
      * see every table's constraints); null when nothing says so, or when the entity has no primary or unique key.
      */
-    val referencedByIncomplete: List<String>? = null
+    val referencedByIncomplete: List<String>? = null,
+    /**
+     * For a column, its places ([ColumnPlace]) counted by class (`FIXED_SIZE`, `UNKNOWN`, `ANCHORED_ELSEWHERE`,
+     * `NO_SIZE`, `ANCHORED_TO_COLUMN`, in that order), those read through a view computed from it included.
+     */
+    val placesByClass: List<Count> = emptyList(),
+    /** For a variable, parameter, field or other PL/SQL target, the columns whose value it is read into, by key. */
+    val receives: List<EntitySummary> = emptyList()
 )
 
 /**
@@ -311,6 +318,48 @@ data class ReferencingKeyPage(
     val nextOffset: Int?,
     val incomplete: List<String>?
 )
+
+/**
+ * A place a column's value is read into in PL/SQL: the column read ([read], the page's column or a view column computed
+ * from it, then [viaView]), by [source] (`SELECT_INTO`, `FETCH`, `RETURNING`; [bulk] for `BULK COLLECT`), at [path]
+ * and [line], [column] in [container]; the target as written ([targetWritten]), its entity ([target], absent for a
+ * declaration without one) and the [field] of a record target. How the target is declared: [placeClass], [declaredType]
+ * as written, [length] and [unit] (`CHAR`, `BYTE`, `DIGITS`, or `NLS_LENGTH_SEMANTICS` when no unit is written; for a
+ * number, [length] is the digits it holds before the point and [scale] its scale), [typeSource] the entity whose
+ * declaration decides it (the column an anchor ends at, the variable, field or type that writes the size),
+ * [parameterMode] (`OUT`, `IN OUT`) for a parameter target, whose callers' arguments decide the size, and [reason] for
+ * `UNKNOWN`.
+ */
+@Serializable
+data class ColumnPlace(
+    val read: EntitySummary,
+    val viaView: Boolean,
+    val source: String,
+    val bulk: Boolean,
+    val path: String,
+    val line: Int,
+    val column: Int,
+    val container: EntitySummary?,
+    val targetWritten: String,
+    val target: EntitySummary?,
+    val field: String?,
+    val placeClass: String,
+    val declaredType: String?,
+    val length: Int?,
+    val unit: String?,
+    val typeSource: EntitySummary?,
+    val reason: String?,
+    val scale: Int?,
+    val parameterMode: String?
+)
+
+/**
+ * A page of the places of a column ([EntityDetail.placesByClass]), by class (fixed size,
+ * unknown, caller decides, anchored elsewhere, no size, anchored to the column), then by file and line: [total] of them, [byClass] the
+ * counts, [rows] from [offset], [nextOffset] the offset of the next page (null on the last).
+ */
+@Serializable
+data class ColumnPlacePage(val total: Int, val byClass: List<Count>, val offset: Int, val rows: List<ColumnPlace>, val nextOffset: Int?)
 
 /**
  * What "who uses" covers besides the entity itself: [IMPLEMENTATIONS] its `IMPLEMENTS` partners (for a parameter, the

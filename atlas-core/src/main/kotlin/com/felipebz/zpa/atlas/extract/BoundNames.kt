@@ -25,6 +25,9 @@ internal class BoundNames(private val nameBinding: (AstNode) -> NameBinding, pri
         if (keys.putIfAbsent(at, key) == null) kinds[at] = kind
     }
 
+    /** The entity registered for the declaration whose name is at [line] (1-based) and [column] (0-based), or null. */
+    fun keyAt(line: Int, column: Int): String? = keys[position(line, column)]
+
     /**
      * The entity [name] (a `VARIABLE_NAME`, or a `MEMBER_EXPRESSION` such as `pkg.g_x` or `g_rec.f`) is a use of, from
      * zpa's binding of the whole name, else of the segment of a chain that names the entity (`g_rec` of `g_rec.f`);

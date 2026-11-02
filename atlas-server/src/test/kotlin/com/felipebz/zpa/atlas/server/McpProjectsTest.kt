@@ -130,7 +130,8 @@ class McpProjectsTest {
         projects(hr, billing) { client ->
             val tools = client.listTools().tools
             assertThat(tools.map { it.name }).containsExactly(
-                "search_entities", "get_entity", "find_referencing_keys", "find_occurrences", "find_usages", "group_usages", "group_occurrences", "get_source",
+                "search_entities", "get_entity", "find_referencing_keys", "find_column_places", "find_occurrences", "find_usages", "group_usages",
+                "group_occurrences", "get_source",
                 "search_text", "get_values", "find_value_sites", "find_impact", "list_projects"
             )
             for (tool in tools.filter { it.name != "list_projects" }) {

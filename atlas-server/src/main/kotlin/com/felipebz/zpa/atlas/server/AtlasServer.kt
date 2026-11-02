@@ -221,6 +221,10 @@ internal fun Route.indexApi(index: AtlasIndex, tabWidth: Int) {
             call.long("after"), call.int("limit") ?: 100)
         call.respondEntityAnswer(answer)
     }
+    get("/places") {
+        val answer = index.columnPlaces(call.required("key"), call.int("offset") ?: 0, call.int("limit") ?: 100)
+        call.respondEntityAnswer(answer)
+    }
     get("/source") {
         val answer = index.source(call.required("path"), call.int("line") ?: throw InvalidQueryException("Missing parameter: line"),
             call.int("context") ?: 3, colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false)

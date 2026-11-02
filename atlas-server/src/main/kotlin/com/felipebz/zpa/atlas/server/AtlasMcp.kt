@@ -115,6 +115,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         Tool("search_entities", SEARCH, searchSchema(), ::searchEntities),
         Tool("get_entity", ENTITY, entitySchema(), ::getEntity),
         Tool("find_referencing_keys", REFERENCING, referencingSchema(), ::findReferencingKeys),
+        Tool("find_column_places", PLACES, placesSchema(), ::findColumnPlaces),
         Tool("find_occurrences", FIND, findSchema(), ::findOccurrences),
         Tool("find_usages", USAGES, usagesSchema(), ::findUsages),
         Tool("group_usages", GROUP_USAGES, groupUsagesSchema(), ::groupUsages),
@@ -169,6 +170,17 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         val key = args.requiredString("key")
         val offset = args.int("offset", 0..Int.MAX_VALUE) ?: 0
         val answer = index.referencingKeys(key, offset, args.int("limit", 1..REFERENCING_MAX) ?: REFERENCING_DEFAULT)
+        if (answer.result == null) throw unknownEntity(key)
+        // The offset counts rows, so a cut page goes on right after its last row kept.
+        return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
+            a.withResult("nextOffset", JsonPrimitive(offset + rows.size))
+        }
+    }
+
+    private fun findColumnPlaces(args: Arguments): JsonElement {
+        val key = args.requiredString("key")
+        val offset = args.int("offset", 0..Int.MAX_VALUE) ?: 0
+        val answer = index.columnPlaces(key, offset, args.int("limit", 1..PLACES_MAX) ?: PLACES_DEFAULT)
         if (answer.result == null) throw unknownEntity(key)
         // The offset counts rows, so a cut page goes on right after its last row kept.
         return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
@@ -415,6 +427,12 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         integer("limit", 1..REFERENCING_MAX, REFERENCING_DEFAULT)
     }
 
+    private fun placesSchema() = schema(listOf("key")) {
+        string("key", "A COLUMN key (a table's or a view's), as search_entities or another answer gives it.")
+        integer("offset", 0..Int.MAX_VALUE, 0, "The nextOffset of the previous page.")
+        integer("limit", 1..PLACES_MAX, PLACES_DEFAULT)
+    }
+
     private fun findSchema() = schema(emptyList()) {
         queryFilters()
         integer("after", null, null, AFTER_DESCRIPTION)
@@ -618,6 +636,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         const val VALUES_MAX = 200
         const val REFERENCING_DEFAULT = 100
         const val REFERENCING_MAX = 500
+        const val PLACES_DEFAULT = 100
+        const val PLACES_MAX = 500
         const val SOURCE_CONTEXT_DEFAULT = 3
         const val SOURCE_CONTEXT_MAX = 50
         const val TEXT_DEFAULT = 50
@@ -653,11 +673,13 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "and for the values passed to a parameter or written to a column.\n" +
                 "Which tool answers which question:\n" +
                 "- search_entities: an entity's key from its name; dotted names work (pack.proc, tab.col).\n" +
-                "- get_entity: kind, definitions, members or columns, declaration, docs, views over it; a routine's " +
+                "- get_entity: kind, definitions, members or columns, declaration, docs, views; a routine's " +
                 "spec and bodies; a column's datatype, NOT NULL, keys. find_referencing_keys: all foreign keys to them.\n" +
+                "- find_column_places: every variable, parameter or field a column's value is read into, and how " +
+                "each is declared.\n" +
                 "- find_usages: who uses one entity, following its spec and body, its members and the views built on " +
                 "it; group_usages counts them by routine, file or view. via keeps only the direct uses or only those " +
-                "through views. For a table, CHILDREN with VIEWS also follows the view columns computed from its columns.\n" +
+                "through views.\n" +
                 "- find_occurrences, group_occurrences: questions across the code: every write in a package, calls by " +
                 "name pattern, a CRUD matrix, rows by status or by value.\n" +
                 "- get_values: the values a parameter is passed or a column is written with; then find_value_sites: " +
@@ -665,14 +687,13 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "- get_source: the text around a line. Sources are only on the server, not on the local disk.\n" +
                 "- find_impact: impact analysis, who calls the callers up to the entry points; nodes are numbered (n), " +
                 "keys=true gives full keys.\n" +
-                "- search_text: other text (XML tags, messages, comments, SQL in strings). In one call, pass the " +
-                "package or routine the question names as container_name, or a file or folder as path; whole index " +
-                "only if it names none.\n" +
-                "Usual order: a group_ tool for the summary, then a find_ tool for the lines, then get_source for the text.\n" +
-                "Null fields are left out of an answer, and so is an entity's " +
-                "display when it is its key without db:. An answer over ${McpAnswers.MAX_CHARS} " +
-                "characters is cut, and cutForSize says how: the rows kept (page on from nextAfter), the lower list " +
-                "limit of an entity, or the source lines shortened. A usage tool's included lists what it followed."
+                "- search_text: other text (XML tags, messages, comments, SQL in strings); pass the package or routine " +
+                "the question names as container_name, or a file or folder as path, else it searches the whole index.\n" +
+                "Usual order: a group_ tool for the summary, a find_ tool for the lines, get_source for the text.\n" +
+                "Null fields are left out, and a display equal to the key. An answer over " +
+                "${McpAnswers.MAX_CHARS} characters is cut, and cutForSize says how: the rows kept (page on from " +
+                "nextAfter or nextOffset), the lower list limit of an entity, or the source lines shortened. A usage " +
+                "tool's included lists what it followed."
 
         /** How an unscoped text search is narrowed. */
         private const val NARROW = "The whole index was searched: pass the package or routine name as container_name, or a " +
@@ -711,21 +732,39 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "synonyms, triggers. Exact name matches first. $KEYS"
 
         const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
-            "(members or columns, each with its number of uses), relations, triggers and the views that read it. For a " +
-            "package routine, bodies lists the key and definitions of every body, " +
-            "never cut; for a body, spec gives those of its spec: one call answers where both are. declared, on the " +
-            "entity and on each child, is what the declaration says, as written (not resolved, not evaluated): type is " +
+            "(members or columns, with their uses), relations, triggers and the views that read it. A routine spec's " +
+            "bodies (key and definitions, never cut), a body's spec: one call answers where both are. declared (entity, " +
+            "child): the declaration as written (not resolved): type is " +
             "a function's or cursor's return type, else the declared type; value is a parameter's default or a " +
             "variable's, constant's or record field's initial value, valueCut true when cut; valueFrom SPEC when a " +
             "body's parameter takes the default its spec writes; specText, on a " +
             "body that differs from its spec, what the spec says. documentation (entity, child): its doc comment, " +
-            "then the other half's, from SPEC or " +
-            "BODY, when it differs. usesIncomplete (entity, child): reasons unrecorded uses can't be ruled out; uses are " +
+            "then the other half's (from SPEC or BODY) when it differs. " +
+            "usesIncomplete (entity, child): reasons unrecorded uses can't be ruled out; uses are " +
             "a lower bound. membersIncomplete (object type): its attributes may not be all. keys (dictionary): a " +
             "table's keys, or a column's; referencedBy: the foreign keys to them, each naming the key it references, " +
             "cut (find_referencing_keys gives all); referencedByIncomplete: there may be more, " +
-            "the loader could not see every table. " +
+            "not every table was seen. placesByClass (column): its places by class (find_column_places lists them); " +
+            "receives: the columns read into this target. " +
             "$PATHS $KEYS"
+
+        const val PLACES = "Every PL/SQL variable, parameter or field a column's value is read into (SELECT INTO, " +
+            "FETCH INTO of an explicit cursor, RETURNING INTO, with BULK COLLECT), and how each is declared: one row " +
+            "per target, by class then file and line, a page at a time (pass nextOffset as offset; absent on the last " +
+            "page). Also the places of the view columns computed from it (viaView, read is the view column). Each row: " +
+            "the column read, source, path and line, container, the target as written (targetWritten), its entity " +
+            "(target, absent for an anonymous block's variable) and the field of a record target, then how the " +
+            "target is declared: placeClass FIXED_SIZE (its own length or precision: length and unit CHAR, BYTE, " +
+            "DIGITS, or NLS_LENGTH_SEMANTICS when the declaration writes no unit and the compile-time setting decides; " +
+            "for a number, length is the digits before the point, p-s, and scale is s: compare both with the " +
+            "column's NUMBER(p,s)), UNKNOWN (reason), CALLER_DECIDES (an OUT or IN OUT parameter, parameterMode: the " +
+            "value lands in each caller's argument, whose declaration decides its type and size; callers are not listed), " +
+            "ANCHORED_ELSEWHERE (anchored to another column, typeSource), NO_SIZE (NUMBER, FLOAT, CLOB, DATE), " +
+            "ANCHORED_TO_COLUMN (%TYPE, %ROWTYPE or a cursor record over the column, " +
+            "or anchored to something so anchored: it follows the column). declaredType is the declaration as " +
+            "written; typeSource the entity whose declaration decides the type (the variable, field or type that " +
+            "writes the size, or the column an anchor ends at). total and byClass count them all. Not followed: an " +
+            "expression of the column (upper(code)), dynamic SQL, a record field assigned or passed. $PATHS"
 
         const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column " +
             "is in (referencedBy of get_entity, which cuts it), by table then name, a page at a time: pass the answer's " +

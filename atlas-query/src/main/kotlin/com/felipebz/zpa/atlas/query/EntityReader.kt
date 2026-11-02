@@ -103,7 +103,9 @@ internal class EntityReader(private val connection: Connection) {
             connection.query("SELECT reasons FROM members_gap WHERE entity_id = ?", listOf(row.id)) { it.getString(1).split(',') }.singleOrNull(),
             keys(ownKeys),
             referencing(ownKeys, 0, null).second,
-            referencedByIncomplete(ownKeys)
+            referencedByIncomplete(ownKeys),
+            if (row.kind == "COLUMN") PlaceReader(connection).counts(row.id) else emptyList(),
+            PlaceReader(connection).receives(row.id)
         )
     }
 

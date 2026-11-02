@@ -8,8 +8,12 @@ The index is a plain SQLite file with the tables `run`, `source_file`, `source_l
 (a body global whose recorded uses may be incomplete: `entity_id`, `reasons`), `members_gap` (an object type
 whose listed attributes may not be all: `entity_id`, `reasons`), `dictionary_key` (a primary, unique or foreign key
 the dictionary gives: `owner`, `name`, `kind`, `table_owner`, `table_name`, `relation_id`, `enabled`, `delete_rule`,
-`referenced_owner`, `referenced_name`, `referenced_id`) and `dictionary_key_column` (its columns in order: `key_id`,
-`position`, `column_name`, `column_id`). The words they use are in [concepts.md](concepts.md). Who writes a column:
+`referenced_owner`, `referenced_name`, `referenced_id`), `dictionary_key_column` (its columns in order: `key_id`,
+`position`, `column_name`, `column_id`) and `column_place` (a place a column's value is read into in PL/SQL: `column_id`,
+`source`, `bulk`, `target_entity_id`, `target_written`, `field`, `class`, `declared_type`, `length`, `length_unit`,
+`scale`, `type_source_id`, `parameter_mode`, `reason`, and where: `file_id`, `unit_id`, `statement_id`, the span; see
+[concepts.md](concepts.md#where-a-columns-value-is-read-into)). The words they use are in [concepts.md](concepts.md).
+Who writes a column:
 
 ```sql
 SELECT f.path, o.start_line, o.written, c.key AS container
