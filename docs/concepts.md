@@ -80,7 +80,13 @@ query would read at its name, or the relation's column of that name. The select 
 a single target that takes several items, or a whole row (`select * into r`), is a record that takes them field by
 field; a `BULK COLLECT` target is a collection whose element takes the value. An item is the column when it is the
 column itself, written bare or qualified (`code`, `o.code`, `shop.orders.code`), or a `*` over a relation whose columns
-the dictionary lists. The target is the one zpa binds the name to, as for its uses; a field reached through a
+the dictionary lists. An item, cursor field or assigned value that reads one column through value functions only is a
+place of that column too, with its `functions` outer first (`NVL`; `UPPER,TRIM`): `NVL(a, b)` and `COALESCE(a, b, …)`
+(any argument), `NVL2(e1, e2, e3)` (`e2` or `e3`, not `e1`), `MAX(x)` and `MIN(x)` (with `DISTINCT`, `ALL`, `KEEP`,
+`OVER`), `TRIM`, `LTRIM`, `RTRIM`, `UPPER`, `LOWER` (`x`), nested (`nvl(max(qty), 0)`). Through them the value that lands
+may be other than the column's (`NVL`'s other argument); the class still tells only how the target is declared. A
+record field typed by such a cursor field (`c%rowtype` with `nvl(code, '-') code`) stays `UNKNOWN`
+(`CURSOR_FIELD_EXPRESSION`). The target is the one zpa binds the name to, as for its uses; a field reached through a
 collection element (`a(i).f`, `a(i).r.f`, `a(i).f(j)`) is the field zpa binds its last name to; when that field has
 no entity, as in an element that is a `%ROWTYPE` of a table, view or cursor, the collection's element type is followed to
 the field, as for a `%ROWTYPE` variable. A collection the index does not know leaves the field undecided
@@ -115,7 +121,7 @@ anchor ends at, or the variable, field or type that writes the size. A column's 
 order above), then by file and line, with those of the view columns computed from it, marked as read through the view; a target's page lists
 the columns it receives. The MCP tool `find_column_places` pages through them all; `get_entity` of a column counts
 them by class (`placesByClass`). What is not followed is counted by shape in `COLUMN_VALUE_NOT_FOLLOWED` coverage notes:
-an item that is an expression of one column (`EXPRESSION_NVL`, `_UPPER`, `_TRIM`, `_SUBSTR`, `_MAX_MIN`, `_TO_CHAR`,
+an item that is another expression of one column (`EXPRESSION_NVL`, `_NVL2`, `_UPPER`, `_TRIM`, `_SUBSTR`, `_MAX_MIN`, `_TO_CHAR`,
 `_CONCATENATION`, `_OTHER`), a dynamic `INTO` (`DYNAMIC_INTO`), an assigned field of a row record whose column is not
 known (`RECORD_ASSIGNMENT`: the cursor's field is an expression, or the cursor or `%ROWTYPE` is not known), an assigned
 expression of such a field (`RECORD_ASSIGNMENT_EXPRESSION_UPPER`, …, by the same shapes), a field of a row record

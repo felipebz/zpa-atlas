@@ -7,6 +7,7 @@ import {
     classCounts,
     classLabel,
     classSummary,
+    functionsText,
     needsAttention,
     parameterText,
     PLACE_CLASSES,
@@ -37,7 +38,7 @@ function place(over: Partial<ColumnPlace>): ColumnPlace {
     read: CODE, viaView: false, source: "SELECT_INTO", bulk: false, path: "pk_ord.pkb", line: 12, column: 4,
     container: summary("SHOP.PK_ORD.LOAD", "PROCEDURE"), targetWritten: "l_code", target: L_CODE, field: null,
     placeClass: "FIXED_SIZE", declaredType: "varchar2(12)", length: 12, unit: "CHAR", scale: null, typeSource: L_CODE,
-    parameterMode: null, reason: null, ...over
+    parameterMode: null, reason: null, functions: [], ...over
   };
 }
 
@@ -60,6 +61,23 @@ describe("sizeText", () => {
     expect(sizeText(say, { length: 12, unit: "NLS_LENGTH_SEMANTICS", scale: null })).toBe("12");
     expect(sizeText(say, { length: 12, unit: null, scale: null })).toBe("12");
     expect(sizeText(say, { length: null, unit: null, scale: null })).toBeNull();
+  });
+});
+
+describe("functionsText", () => {
+  it("names the functions a value goes through, outer first, and nothing for a value read directly", () => {
+    expect(functionsText(say, { functions: ["MAX"] })).toBe("through MAX(…)");
+    expect(functionsText(sayPt, { functions: ["MAX"] })).toBe("por MAX(…)");
+    expect(functionsText(say, { functions: ["UPPER", "TRIM"] })).toBe("through UPPER(TRIM(…))");
+    expect(functionsText(sayPt, { functions: ["UPPER", "TRIM"] })).toBe("por UPPER(TRIM(…))");
+  });
+
+  it("says another argument may be read when NVL, NVL2 or COALESCE is in the chain", () => {
+    expect(functionsText(say, { functions: ["NVL"] })).toBe("through NVL(…): another argument may be read instead");
+    expect(functionsText(sayPt, { functions: ["NVL"] })).toBe("por NVL(…): pode ser lido outro argumento no lugar");
+    expect(functionsText(say, { functions: ["UPPER", "NVL"] })).toBe("through UPPER(NVL(…)): another argument may be read instead");
+    expect(functionsText(sayPt, { functions: ["UPPER", "NVL"] })).toBe("por UPPER(NVL(…)): pode ser lido outro argumento no lugar");
+    expect(functionsText(say, { functions: [] })).toBeNull();
   });
 });
 

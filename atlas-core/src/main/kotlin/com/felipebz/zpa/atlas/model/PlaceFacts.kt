@@ -58,7 +58,14 @@ data class ShapeField(val name: String, val key: String?, val local: TypeShape?)
  * neither. [name] is the item's alias or column name; [opaque] marks a `*` whose columns are not known, after which
  * no position can be told.
  */
-data class QueryItem(val name: String?, val columnKey: String?, val expression: String?, val opaque: Boolean = false)
+data class QueryItem(
+    val name: String?,
+    val columnKey: String?,
+    val expression: String?,
+    val opaque: Boolean = false,
+    /** The value functions the item reads [columnKey] through, outer first (`NVL`; `UPPER`, `TRIM`); empty when read directly. */
+    val functions: List<String> = emptyList()
+)
 
 /** What the declaration of [entityKey] says its type is. */
 data class DeclaredShapeFact(val entityKey: String, val shape: TypeShape)
@@ -102,7 +109,9 @@ data class IntoFact(
     val targets: List<IntoTarget>,
     val row: IntoTarget? = null,
     val rowField: String? = null,
-    val expression: String? = null
+    val expression: String? = null,
+    /** The value functions an assignment reads its record's field through, outer first (`l := nvl(r.code, '-')`). */
+    val functions: List<String> = emptyList()
 )
 
 /**
@@ -131,5 +140,7 @@ data class ColumnPlaceFact(
     val scale: Int?,
     val typeSourceKey: String?,
     val parameterMode: String?,
-    val reason: String?
+    val reason: String?,
+    /** The value functions the column is read through, outer first; empty when read directly. */
+    val functions: List<String> = emptyList()
 )

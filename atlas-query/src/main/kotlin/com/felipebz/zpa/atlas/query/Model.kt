@@ -350,7 +350,12 @@ data class ColumnPlace(
     val typeSource: EntitySummary?,
     val reason: String?,
     val scale: Int?,
-    val parameterMode: String?
+    val parameterMode: String?,
+    /**
+     * The value functions the column is read through, outer first (`NVL`; `UPPER`, `TRIM`); empty when read directly.
+     * Through them the value that lands may be other than the column's (the other argument of `NVL`).
+     */
+    val functions: List<String>
 )
 
 /**

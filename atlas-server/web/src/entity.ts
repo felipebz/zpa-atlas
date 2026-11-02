@@ -63,6 +63,7 @@ import {
     classCounts,
     classLabel,
     classTitle,
+    functionsText,
     needsAttention,
     parameterText,
     placesTotal,
@@ -684,7 +685,9 @@ function placeRowHtml(p: ColumnPlace) {
     (note === null ? "" : ` <span class="muted">(${esc(note)})</span>`);
   const source = typeSourcePhrase(p);
   const parameter = parameterText(t, p);
+  const functions = functionsText(t, p);
   const why = (source === null ? "" : `<div>${fillHtml(source.key, { source: entityLink(source.entity) })}</div>`) +
+    (functions === null ? "" : `<div>${esc(functions)}</div>`) +
     (parameter === null ? "" : `<div class="uses-gap">${esc(parameter)}</div>`) +
     (p.reason === null ? "" : `<div class="uses-gap" title="${esc(p.reason)}">${esc(reasonText(t, p.reason))}</div>`);
   const line = placeHtml({ half: null, path: p.path, line: p.line, col: p.column, partner: null, file: true }, p.target ?? p.read, null);

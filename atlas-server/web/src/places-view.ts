@@ -55,6 +55,15 @@ export function parameterText(say: Say, place: Pick<ColumnPlace, "parameterMode"
   return place.parameterMode === null ? null : say("places.parameter", { mode: place.parameterMode });
 }
 
+/** The value functions a place reads its column through, outer first, in words (`through UPPER(TRIM(…))`); null when read directly. */
+export function functionsText(say: Say, place: Pick<ColumnPlace, "functions">): string | null {
+  if (place.functions.length === 0) return null;
+  const functions = place.functions.map(f => f + "(").join("") + "…" + ")".repeat(place.functions.length);
+  // NVL, NVL2 and COALESCE may give back another argument; the others give back the column's value, or it trimmed or in another case.
+  const other = place.functions.some(f => f === "NVL" || f === "NVL2" || f === "COALESCE");
+  return say(other ? "places.functionsOther" : "places.functions", { functions });
+}
+
 /** What a size leaves unsaid: with no unit written, the compile-time `NLS_LENGTH_SEMANTICS` decides it; else null. */
 export function sizeNote(say: Say, place: Pick<ColumnPlace, "length" | "unit">): string | null {
   return place.length !== null && place.unit === "NLS_LENGTH_SEMANTICS" ? say("places.size.nlsNote") : null;

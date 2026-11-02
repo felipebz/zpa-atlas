@@ -47,7 +47,8 @@ internal class ColumnPlaces(
     /** What a step of the following reached: a declaration's shape (of [owner], when it has an entity), a column, or a failure. */
     private sealed interface Node {
         data class Shape(val shape: TypeShape, val owner: String?) : Node
-        data class Column(val key: String) : Node
+        /** A column, read through [functions] (a cursor field `nvl(code, '-')`), outer first. */
+        data class Column(val key: String, val functions: List<String> = emptyList()) : Node
         data class Failed(val reason: String) : Node
     }
 
@@ -87,7 +88,7 @@ internal class ColumnPlaces(
                     val target = if (record) into.targets[0] else into.targets.getOrNull(index) ?: break
                     if (item.expression != null) leftOut.merge("EXPRESSION_${item.expression}", 1, Int::plus)
                     val column = item.columnKey ?: continue
-                    places += place(into, target, if (record) index else null, column)
+                    places += place(into, target, if (record) index else null, column, item.functions)
                 }
             }
         }
@@ -107,7 +108,7 @@ internal class ColumnPlaces(
         when {
             column == null -> leftOut.merge("RECORD_ASSIGNMENT", 1, Int::plus)
             into.expression != null -> leftOut.merge("RECORD_ASSIGNMENT_EXPRESSION_${into.expression}", 1, Int::plus)
-            else -> places += place(into, into.targets.single(), null, column.key)
+            else -> places += place(into, into.targets.single(), null, column.key, into.functions + column.functions)
         }
     }
 
@@ -117,7 +118,7 @@ internal class ColumnPlaces(
         return node is Node.Shape && (node.shape is TypeShape.Record || node.shape is TypeShape.CursorRow || node.shape is TypeShape.Anchored && node.shape.rowType)
     }
 
-    private fun place(into: IntoFact, target: IntoTarget, field: Int?, column: String): ColumnPlaceFact {
+    private fun place(into: IntoFact, target: IntoTarget, field: Int?, column: String, functions: List<String>): ColumnPlaceFact {
         var node = targetNode(target, into.bulk)
         var fieldName: String? = null
         var text = target.entityKey?.let { texts[it] } ?: target.declaredType
@@ -138,7 +139,7 @@ internal class ColumnPlaces(
         return ColumnPlaceFact(
             into.unitIndex, into.containerKey, into.statementLocalId, target.span, column, into.source, into.bulk, target.entityKey, target.written,
             fieldName, placeClass, text, decision.length.takeIf { sized }, decision.unit.takeIf { sized }, decision.scale.takeIf { sized },
-            decision.source?.takeIf { it != target.entityKey }, mode, decision.reason
+            decision.source?.takeIf { it != target.entityKey }, mode, decision.reason, functions
         )
     }
 
@@ -235,7 +236,7 @@ internal class ColumnPlaces(
         val item = if (name != null) items.firstOrNull { it.name == name } else items.takeWhile { !it.opaque }.getOrNull(index!!)
         return when {
             item == null -> Node.Failed("CURSOR_FIELD_UNKNOWN") to name
-            item.columnKey != null -> Node.Column(item.columnKey) to item.name
+            item.columnKey != null -> Node.Column(item.columnKey, item.functions) to item.name
             item.expression != null -> Node.Failed("CURSOR_FIELD_EXPRESSION") to item.name
             else -> Node.Failed("CURSOR_FIELD_NOT_A_COLUMN") to item.name
         }
@@ -253,7 +254,9 @@ internal class ColumnPlaces(
     private fun classify(node: Node, column: String, depth: Int): Decision {
         if (depth > MAX_DEPTH) return Decision(PlaceClass.UNKNOWN, reason = "ANCHOR_CYCLE")
         return when (node) {
-            is Node.Column -> Decision(if (node.key == column) PlaceClass.ANCHORED_TO_COLUMN else PlaceClass.ANCHORED_ELSEWHERE, source = node.key)
+            // A cursor field read through a function types its record's field as the function's result, not as the column.
+            is Node.Column -> if (node.functions.isNotEmpty()) Decision(PlaceClass.UNKNOWN, reason = "CURSOR_FIELD_EXPRESSION")
+                else Decision(if (node.key == column) PlaceClass.ANCHORED_TO_COLUMN else PlaceClass.ANCHORED_ELSEWHERE, source = node.key)
             is Node.Failed -> Decision(PlaceClass.UNKNOWN, reason = node.reason)
             is Node.Shape -> when (val shape = node.shape) {
                 is TypeShape.Sized -> Decision(PlaceClass.FIXED_SIZE, shape.length, shape.unit, shape.scale, node.owner)

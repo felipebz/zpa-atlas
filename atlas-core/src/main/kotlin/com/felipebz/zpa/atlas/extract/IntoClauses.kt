@@ -6,10 +6,7 @@
 package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.flr.api.AstNode
-import com.felipebz.zpa.api.DmlGrammar
-import com.felipebz.zpa.api.PlSqlGrammar
-import com.felipebz.zpa.api.PlSqlKeyword
-import com.felipebz.zpa.api.PlSqlPunctuator
+import com.felipebz.zpa.api.*
 import com.felipebz.zpa.api.semantics.NameBinding
 import com.felipebz.zpa.api.semantics.NameDeclarationKind
 import com.felipebz.zpa.atlas.model.*
@@ -78,17 +75,21 @@ internal class IntoClauses(
 
     /**
      * `target := r.f`, or an expression of one such field (`upper(r.f)`): kept to be decided once the file is left,
-     * when what `r` is is known ([intos]).
+     * when what `r` is is known ([intos]). Through value functions only ([valueChain]), the field is read as is.
      */
     fun assignment(node: AstNode, context: Context) {
         val at = node.children.indexOfFirst { it.type == PlSqlPunctuator.ASSIGNMENT }
         if (at <= 0) return
         val value = node.children.getOrNull(at + 1) ?: return
         val field = if (isFieldOfName(value)) value else value.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).singleOrNull(::isFieldOfName) ?: return
-        assignments += Assignment(node.firstChild, spanOf(node.children[at]), field, if (field === value) null else expressionShape(value), context)
+        val functions = valueChain(value) { it === field }
+        assignments += Assignment(node.firstChild, spanOf(node.children[at]), field, if (functions == null) expressionShape(value) else null,
+            functions.orEmpty(), context)
     }
 
-    private class Assignment(val target: AstNode, val site: SourceSpan, val field: AstNode, val expression: String?, val context: Context)
+    private class Assignment(
+        val target: AstNode, val site: SourceSpan, val field: AstNode, val expression: String?, val functions: List<String>, val context: Context
+    )
 
     private val assignments = ArrayList<Assignment>()
 
@@ -178,31 +179,85 @@ internal class IntoClauses(
         return result
     }
 
-    /** One select or `RETURNING` item: the column it is, the shape of an expression of one column, or neither. */
+    /**
+     * One select or `RETURNING` item: the column it is, read as is or through value functions ([valueChain]), the shape
+     * of another expression of one column, or neither.
+     */
     private fun item(statement: Statement, expression: AstNode, alias: AstNode?): QueryItem {
         val segments = plsql.nameSegments(expression)
         val name = alias?.let { normalizeIdentifier(it.tokenOriginalValue) } ?: segments?.last()?.let { normalizeIdentifier(it) }
-        if (segments != null) {
-            val read = statement.columnReads[expression].orEmpty().singleOrNull()?.takeIf { it.entityKey != null && it.status in COLUMN_STATUSES }
-            return QueryItem(name, read?.entityKey, null)
-        }
+        fun column(node: AstNode) =
+            statement.columnReads[node].orEmpty().singleOrNull()?.takeIf { it.entityKey != null && it.status in COLUMN_STATUSES }?.entityKey
+        if (segments != null) return QueryItem(name, column(expression), null)
         val columns = HashSet<String>()
         fun visit(node: AstNode) {
             statement.columnReads[node]?.let { reads -> reads.mapNotNullTo(columns) { it.entityKey } }
             node.children.forEach(::visit)
         }
         visit(expression)
-        return QueryItem(name, null, if (columns.size == 1) expressionShape(expression) else null)
+        if (columns.size != 1) return QueryItem(name, null, null)
+        var leaf: String? = null
+        val functions = valueChain(expression) { node -> plsql.nameSegments(node) != null && column(node)?.also { leaf = it } != null }
+        return if (functions != null && leaf != null) QueryItem(name, leaf, null, functions = functions)
+            else QueryItem(name, null, expressionShape(expression))
     }
 
-    /** The outer function or operator of an expression item: `NVL`, `UPPER`, `TRIM`, `SUBSTR`, `MAX_MIN`, `TO_CHAR`, `CONCATENATION`, `OTHER`. */
+    /**
+     * The value functions [expression] reads one value through, outer first, down to the node [isValue] accepts; null
+     * when it is anything else. A value function gives back one of its arguments, or that argument trimmed or in
+     * another case: `NVL(a, b)` and `COALESCE(a, b, …)` (any argument), `NVL2(e1, e2, e3)` (`e2` or `e3`), `MAX(x)` and
+     * `MIN(x)` (with `DISTINCT`, `ALL`, `KEEP (…)`, `OVER (…)`), `TRIM`, `LTRIM`, `RTRIM`, `UPPER`, `LOWER` (`x`). Exactly
+     * one of the arguments that may be the value must lead to the node.
+     */
+    private fun valueChain(expression: AstNode, isValue: (AstNode) -> Boolean): List<String>? {
+        var node = expression
+        while (node.type == PlSqlGrammar.BRACKED_EXPRESSION && node.numberOfChildren == 3) node = node.children[1]
+        if (isValue(node)) return emptyList()
+        fun through(function: String, candidates: List<AstNode>): List<String>? {
+            val chains = candidates.mapNotNull { valueChain(it, isValue) }
+            return chains.singleOrNull()?.let { listOf(function) + it }
+        }
+        return when (node.type) {
+            PlSqlGrammar.POSTFIX_EXPRESSION -> node.firstChild.takeIf { call ->
+                call.type == PlSqlGrammar.METHOD_CALL && plsql.nameSegments(call.firstChild)?.singleOrNull()?.uppercase() in setOf("MAX", "MIN") &&
+                    node.children.drop(1).all { it.type == DmlGrammar.KEEP_CLAUSE || it.type == DmlGrammar.ANALYTIC_CLAUSE }
+            }?.let { valueChain(it, isValue) }
+            SingleRowSqlFunctionsGrammar.SINGLE_ROW_SQL_FUNCTION -> node.firstChild.takeIf { it.type == SingleRowSqlFunctionsGrammar.TRIM_EXPRESSION }?.let { trim ->
+                val parts = trim.children.filter { it.type != PlSqlPunctuator.LPARENTHESIS && it.type != PlSqlPunctuator.RPARENTHESIS }.drop(1)
+                val from = parts.indexOfFirst { it.type == PlSqlKeyword.FROM }
+                val value = if (from >= 0) parts.getOrNull(from + 1) else parts.singleOrNull()
+                value?.let { through("TRIM", listOf(it)) }
+            }
+            PlSqlGrammar.METHOD_CALL -> {
+                val function = plsql.nameSegments(node.firstChild)?.singleOrNull()?.uppercase() ?: return null
+                val arguments = node.getChildren(PlSqlGrammar.ARGUMENTS).singleOrNull()?.getChildren(PlSqlGrammar.ARGUMENT)?.map { it.lastChild }
+                    ?: return null
+                val candidates = when (function) {
+                    "NVL" -> arguments.takeIf { it.size == 2 }
+                    "COALESCE" -> arguments.takeIf { it.size >= 2 }
+                    "NVL2" -> arguments.takeIf { it.size == 3 }?.drop(1)
+                    "MAX", "MIN", "UPPER", "LOWER", "TRIM" -> arguments.takeIf { it.size == 1 }
+                    "LTRIM", "RTRIM" -> arguments.takeIf { it.size in 1..2 }?.take(1)
+                    else -> null
+                } ?: return null
+                through(function, candidates)
+            }
+            else -> null
+        }
+    }
+
+    /**
+     * The outer function or operator of an expression item: `NVL`, `NVL2`, `UPPER`, `TRIM`, `SUBSTR`, `MAX_MIN`,
+     * `TO_CHAR`, `CONCATENATION`, `OTHER`.
+     */
     private fun expressionShape(expression: AstNode): String {
         var node = expression
         while (node.type == PlSqlGrammar.BRACKED_EXPRESSION && node.numberOfChildren == 3) node = node.children[1]
         if (node.type == PlSqlGrammar.CONCATENATION_EXPRESSION) return "CONCATENATION"
         val function = if (node.type == PlSqlGrammar.METHOD_CALL) plsql.nameSegments(node.firstChild)?.last()?.uppercase() else node.tokenValue.uppercase()
         return when (function) {
-            "NVL", "NVL2" -> "NVL"
+            "NVL" -> "NVL"
+            "NVL2" -> "NVL2"
             "UPPER", "LOWER" -> if (function == "UPPER") "UPPER" else "OTHER"
             "TRIM", "LTRIM", "RTRIM" -> "TRIM"
             "SUBSTR", "SUBSTRB" -> "SUBSTR"
@@ -245,7 +300,7 @@ internal class IntoClauses(
             val row = record(assignment.field, bySpan, shapes) ?: continue
             val target = target(assignment.target, bySpan, shapes).copy(span = assignment.site)
             intos += IntoFact(PlaceSource.ASSIGNMENT, false, assignment.context.unitIndex, assignment.context.container, null, emptyList(), null,
-                listOf(target), row, normalizeIdentifier(assignment.field.lastChild.tokenOriginalValue), assignment.expression)
+                listOf(target), row, normalizeIdentifier(assignment.field.lastChild.tokenOriginalValue), assignment.expression, assignment.functions)
         }
         return intos
     }

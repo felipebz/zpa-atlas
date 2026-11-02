@@ -29,7 +29,7 @@ class ColumnPlacesTest {
         SELECT p.start_line || ' ' || replace(c.key, 'db:SHOP.', '') || ' ' || p.source || (CASE WHEN p.bulk = 1 THEN ' BULK' ELSE '' END) || ' ' ||
                p.target_written || coalesce('.' || p.field, '') || ' ' || p.class || ' ' || coalesce(p.declared_type, '-') || ' ' ||
                coalesce(p.length || ' ' || p.length_unit || coalesce(' scale ' || p.scale, ''), '-') || ' ' ||
-               coalesce(replace(replace(s.key, '$run.', ''), 'db:SHOP.', ''), '-') || ' ' || coalesce(p.reason, '-') || coalesce(' ' || p.parameter_mode, '')
+               coalesce(replace(replace(s.key, '$run.', ''), 'db:SHOP.', ''), '-') || ' ' || coalesce(p.reason, '-') || coalesce(' ' || p.parameter_mode, '') || coalesce(' via ' || p.functions, '')
         FROM column_place p JOIN entity c ON c.id = p.column_id LEFT JOIN entity s ON s.id = p.type_source_id
         JOIN source_file f ON f.id = p.file_id ${if (path == null) "" else "WHERE f.path = '$path'"} ORDER BY p.id""")
 
@@ -58,12 +58,14 @@ class ColumnPlacesTest {
             "29 ORDERS.ORDER_ID SELECT_INTO r_ord.ORDER_ID ANCHORED_TO_COLUMN orders%rowtype - ORDERS.ORDER_ID -",
             // BULK COLLECT into a collection of a fixed-size VARCHAR2: its element type holds the value.
             "30 ORDERS.CODE SELECT_INTO BULK l_codes FIXED_SIZE t_codes 12 NLS_LENGTH_SEMANTICS PK_ORD.T_CODES -",
-            // Line 31, upper(code), is an expression: not a place. Line 32 reads the view's column.
+            // Line 31 reads the column through UPPER. Line 32 reads the view's column.
+            "31 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via UPPER",
             "32 V_ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
             "33 ORDERS.CODE RETURNING l_ret FIXED_SIZE varchar2(20 byte) 20 BYTE - -",
-            // A FETCH from the spec's cursor: its third item is an expression.
+            // A FETCH from the spec's cursor: its third item reads the column through UPPER.
             "35 ORDERS.ORDER_ID FETCH l_num NO_SIZE number - - -",
             "35 ORDERS.CODE FETCH l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "35 ORDERS.CODE FETCH l_any FIXED_SIZE varchar2(4000) 4000 NLS_LENGTH_SEMANTICS - - via UPPER",
             // A variable of a package the sources do not declare: zpa binds it to nothing of the project.
             "37 ORDERS.CODE SELECT_INTO ext_pkg.g_code UNKNOWN - - - TARGET_UNDECIDED",
             // A field of a cursor loop record assigned to a variable.
@@ -214,12 +216,14 @@ class ColumnPlacesTest {
             "15 ORDERS.NOTE SELECT_INTO r_ord.NOTE ANCHORED_TO_COLUMN orders%rowtype - ORDERS.NOTE -",
             "15 ORDERS.ORDER_ID SELECT_INTO r_ord.ORDER_ID ANCHORED_TO_COLUMN orders%rowtype - ORDERS.ORDER_ID -",
             "16 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
-            // Line 17 assigns an expression of the field, line 19 a cursor field that is an expression: not places.
+            // Line 17 assigns the field through UPPER, line 19 a cursor field that is upper(code).
+            "17 ORDERS.CODE ASSIGNMENT l_up FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via UPPER",
+            "19 ORDERS.CODE ASSIGNMENT l_up FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via UPPER",
             "21 ORDERS.CODE ASSIGNMENT p_out CALLER_DECIDES varchar2 - - - OUT"
         )
         assertThat(Fixture.query(db, """SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id
             WHERE c.kind = 'COLUMN_VALUE_NOT_FOLLOWED' AND f.path = 'assign.sql' ORDER BY 1""").map { it.substringBefore(" ") })
-            .containsExactly("RECORD_ASSIGNMENT:", "RECORD_ASSIGNMENT_EXPRESSION_UPPER:")
+            .isEmpty()
     }
 
     @Test
@@ -264,10 +268,55 @@ class ColumnPlacesTest {
     }
 
     @Test
+    fun `a column read through value functions is a place, other expressions stay counted`() {
+        val sources = temp.resolve("src")
+        PlacesFixture.write(sources)
+        Files.writeString(sources.resolve("funcs.sql"), """
+            declare
+              l_code  varchar2(12);
+              l_amt   number(5);
+              l_flag  varchar2(1);
+              cursor c_max is select max(code) from orders;
+            begin
+              select nvl(code, '-') into l_code from orders where order_id = 1;
+              select max(code) into l_code from orders;
+              select nvl(amount, 0) into l_amt from orders where order_id = 1;
+              for r in (select code from orders) loop
+                l_code := upper(trim(r.code));
+              end loop;
+              select nvl2(code, 'Y', 'N') into l_flag from orders where order_id = 1;
+              select nvl(code, note) into l_code from orders where order_id = 1;
+              select nvl(substr(code, 1, 3), '-') into l_code from orders where order_id = 1;
+              open c_max;
+              fetch c_max into l_code;
+              close c_max;
+              for r in (select upper(code) code from orders) loop
+                l_code := r.code;
+              end loop;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
+        assertThat(places(db, "funcs.sql")).containsExactly(
+            "7 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via NVL",
+            "8 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via MAX",
+            "9 ORDERS.AMOUNT SELECT_INTO l_amt FIXED_SIZE number(5) 5 DIGITS scale 0 - - via NVL",
+            "11 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via UPPER,TRIM",
+            // Lines 13 (NVL2's first argument), 14 (two columns) and 15 (SUBSTR inside NVL) are not places.
+            "17 ORDERS.CODE FETCH l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via MAX",
+            "20 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via UPPER"
+        )
+        assertThat(Fixture.query(db, """SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id
+            WHERE c.kind = 'COLUMN_VALUE_NOT_FOLLOWED' AND f.path = 'funcs.sql' ORDER BY 1""").map { it.substringBefore(" ") })
+            .containsExactly("EXPRESSION_NVL2:", "EXPRESSION_NVL:")
+    }
+
+    @Test
     fun `what is not followed is counted by shape`() {
         val db = PlacesFixture.index(temp)
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1"))
-            .containsExactly("ARGUMENT", "DYNAMIC_INTO", "EXPRESSION_UPPER")
+            .containsExactly("ARGUMENT", "DYNAMIC_INTO")
     }
 
     @Test

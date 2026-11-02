@@ -32,8 +32,8 @@ internal class FileRows(private val connection: Connection) {
         val docInsert = prepare("INSERT INTO doc_comment(entity_id, file_id, in_body, shape, start_line, text, text_cut) VALUES (?,?,?,?,?,?,?)")
         val placeInsert = prepare("""INSERT INTO column_place(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line,
             end_col, column_id, source, bulk, target_entity_id, target_written, field, class, declared_type, length, length_unit, type_source_id, reason,
-            scale, parameter_mode)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
+            scale, parameter_mode, functions)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
         val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert,
             docInsert, placeInsert)
         var placeId = 0L
@@ -157,6 +157,7 @@ internal class FileRows(private val connection: Connection) {
                 placeInsert.setNullableString(21, place.reason)
                 placeInsert.setNullableLong(22, place.scale?.toLong())
                 placeInsert.setNullableString(23, place.parameterMode)
+                placeInsert.setNullableString(24, place.functions.takeIf { it.isNotEmpty() }?.joinToString(","))
                 batches.add(placeInsert)
             }
             // At a file boundary, so that the rows of one file go out together.

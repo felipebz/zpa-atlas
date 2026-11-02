@@ -228,6 +228,8 @@ export default {
   "places.size.BYTE": "{length} BYTE",
   "places.size.DIGITS": { one: "{length} dígito", other: "{length} dígitos" },
   "places.size.NUMBER": { one: "{length} dígito antes da vírgula, escala {scale}", other: "{length} dígitos antes da vírgula, escala {scale}" },
+  "places.functions": "por {functions}",
+  "places.functionsOther": "por {functions}: pode ser lido outro argumento no lugar",
   "places.parameter": "parâmetro {mode}: o argumento de cada chamada decide o tipo e o tamanho",
   "places.size.NONE": "{length}",
   "places.size.nlsNote": "unidade não escrita: NLS_LENGTH_SEMANTICS decide",

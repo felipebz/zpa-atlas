@@ -293,7 +293,9 @@ internal fun tableDdl(): List<String> = listOf(
         type_source_id INTEGER NULL REFERENCES entity(id),
         reason TEXT NULL,
         scale INTEGER NULL,
-        parameter_mode TEXT NULL CHECK (parameter_mode IN ('OUT', 'IN OUT'))
+        parameter_mode TEXT NULL CHECK (parameter_mode IN ('OUT', 'IN OUT')),
+        -- The value functions the column is read through, outer first, comma-separated (NVL; UPPER,TRIM); null when read directly.
+        functions TEXT NULL
     )
     """,
     SOURCE_LINE_DDL

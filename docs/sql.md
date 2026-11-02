@@ -11,7 +11,7 @@ the dictionary gives: `owner`, `name`, `kind`, `table_owner`, `table_name`, `rel
 `referenced_owner`, `referenced_name`, `referenced_id`), `dictionary_key_column` (its columns in order: `key_id`,
 `position`, `column_name`, `column_id`) and `column_place` (a place a column's value is read into in PL/SQL: `column_id`,
 `source`, `bulk`, `target_entity_id`, `target_written`, `field`, `class`, `declared_type`, `length`, `length_unit`,
-`scale`, `type_source_id`, `parameter_mode`, `reason`, and where: `file_id`, `unit_id`, `statement_id`, the span; see
+`scale`, `type_source_id`, `parameter_mode`, `functions`, `reason`, and where: `file_id`, `unit_id`, `statement_id`, the span; see
 [concepts.md](concepts.md#where-a-columns-value-is-read-into)). The words they use are in [concepts.md](concepts.md).
 Who writes a column:
 

@@ -36,8 +36,8 @@ class ColumnPlacesQueryTest {
     fun `a column's places come by class, with the reads through a view`() {
         val page = index.columnPlaces(code).result!!
         assertThat(page.byClass.map { "${it.value} ${it.count}" })
-            .containsExactly("FIXED_SIZE 9", "UNKNOWN 1", "CALLER_DECIDES 1", "ANCHORED_ELSEWHERE 1", "ANCHORED_TO_COLUMN 6")
-        assertThat(page.total).isEqualTo(18)
+            .containsExactly("FIXED_SIZE 11", "UNKNOWN 1", "CALLER_DECIDES 1", "ANCHORED_ELSEWHERE 1", "ANCHORED_TO_COLUMN 6")
+        assertThat(page.total).isEqualTo(20)
         assertThat(page.rows.map { it.placeClass }.distinct()).containsExactly("FIXED_SIZE", "UNKNOWN", "CALLER_DECIDES", "ANCHORED_ELSEWHERE", "ANCHORED_TO_COLUMN")
         // The read of the view's column is a place of the base column, through the view.
         val viewed = page.rows.single { it.viaView }
@@ -54,7 +54,7 @@ class ColumnPlacesQueryTest {
 
     @Test
     fun `a column counts its places by class and a target lists the columns it receives`() {
-        assertThat(index.entity(code).result!!.placesByClass.sumOf { it.count }).isEqualTo(18)
+        assertThat(index.entity(code).result!!.placesByClass.sumOf { it.count }).isEqualTo(20)
         assertThat(index.entity("db:SHOP.ORDERS.AMOUNT").result!!.placesByClass.map { "${it.value} ${it.count}" })
             .containsExactly("NO_SIZE 1", "ANCHORED_TO_COLUMN 1")
         val run = "db:SHOP.PK_ORD.RUN(P_CODE OUT VARCHAR2)@BODY"

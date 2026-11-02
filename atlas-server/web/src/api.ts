@@ -319,6 +319,8 @@ export interface ColumnPlace {
   typeSource: EntitySummary | null;
   /** `OUT` or `IN OUT` for a parameter target (CALLER_DECIDES): each caller's argument decides its type and size. */
   parameterMode: string | null;
+  /** The value functions the column is read through, outer first (`NVL`; `UPPER`, `TRIM`); empty when read directly. */
+  functions: string[];
   /** For UNKNOWN, why: TARGET_UNDECIDED, DECLARATION_UNKNOWN, ANCHOR_UNRESOLVED, … */
   reason: string | null;
 }
