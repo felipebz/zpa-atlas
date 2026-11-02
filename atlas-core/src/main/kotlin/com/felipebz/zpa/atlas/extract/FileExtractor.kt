@@ -375,7 +375,7 @@ class FileExtractor(
                 dbmsSqlParse(node)?.let { dynamic(node, it, context) }
                 val before = state.occurrences.size
                 plsql.callSite(node, context, null)
-                if (context.dynamic == null) places.call(node, before)
+                if (context.dynamic == null) places.call(node, before, context)
             }
             PlSqlGrammar.CALL_STATEMENT -> node.children.firstOrNull { it.type != PlSqlGrammar.LABELS && it.type != PlSqlPunctuator.SEMICOLON }
                 ?.takeIf { it.type != PlSqlGrammar.METHOD_CALL }

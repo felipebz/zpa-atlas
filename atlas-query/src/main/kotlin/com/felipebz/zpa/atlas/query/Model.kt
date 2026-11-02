@@ -355,7 +355,10 @@ data class ColumnPlace(
      * The value functions the column is read through, outer first (`NVL`; `UPPER`, `TRIM`); empty when read directly.
      * Through them the value that lands may be other than the column's (the other argument of `NVL`).
      */
-    val functions: List<String>
+    val functions: List<String>,
+    /** For source `OUT_ARGUMENT`: the `OUT` or `IN OUT` parameter the argument is passed for, and the routine called. */
+    val argumentOf: EntitySummary?,
+    val routine: EntitySummary?
 )
 
 /**

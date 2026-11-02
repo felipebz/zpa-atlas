@@ -70,6 +70,8 @@ internal class ColumnPlaces(
                 assignment(into, places, leftOut)
                 continue
             }
+            // The arguments of OUT parameters are followed from the places of their parameters ([arguments]).
+            if (into.source == PlaceSource.OUT_ARGUMENT) continue
             val branches = if (into.cursorKey != null) {
                 val row = shapes[into.cursorKey] as? TypeShape.CursorRow
                 if (row == null) {
@@ -112,6 +114,75 @@ internal class ColumnPlaces(
         }
     }
 
+    /**
+     * The places of the arguments callers pass for the `OUT` and `IN OUT` parameters of the [CALLER_DECIDES][PlaceClass.CALLER_DECIDES]
+     * places in [found] (by file path): each argument is a place of the same column, with the same functions, its class
+     * decided as for an `INTO` target. An argument that is itself an `OUT` or `IN OUT` parameter of the calling routine is
+     * followed to that routine's callers, once per parameter and column. What is not followed is counted by shape, in
+     * the file of the argument or call: an argument the index does not bind (`OUT_ARGUMENT_NOT_FOLLOWED`, an expression
+     * or a name zpa binds to nothing) and a call whose routine is not decided among candidates that have such a
+     * parameter (`OUT_CALL_NOT_DECIDED`).
+     */
+    fun arguments(facts: List<FileFacts>, found: Map<String, List<ColumnPlaceFact>>): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
+        val byParameter = HashMap<String, MutableList<Pair<String, IntoFact>>>()
+        for (file in facts) for (into in file.intos) if (into.source == PlaceSource.OUT_ARGUMENT && into.parameterKey != null) {
+            byParameter.getOrPut(parameterKey(file.path, into.parameterKey)) { ArrayList() } += file.path to into
+        }
+        val places = HashMap<String, MutableList<ColumnPlaceFact>>()
+        val leftOut = HashMap<String, MutableMap<String, Int>>()
+        val seen = HashSet<Triple<String, String, List<String>>>()
+        val undecided = HashSet<Pair<String, SourceSpan>>()
+        val queue = ArrayDeque<Triple<String, String, List<String>>>()
+        fun follow(path: String, place: ColumnPlaceFact, column: String, functions: List<String>) {
+            val parameter = place.targetKey ?: place.localParameter
+            if (parameter == null) {
+                // A CALLER_DECIDES place whose parameter can be told neither by its entity nor by its declaration.
+                leftOut.getOrPut(path) { HashMap() }.merge("OUT_PARAMETER_NOT_FOLLOWED", 1, Int::plus)
+                return
+            }
+            val key = parameterKey(path, parameter)
+            if (seen.add(Triple(key, column, functions))) queue += Triple(key, column, functions)
+        }
+        for ((path, list) in found) for (place in list) {
+            if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, place.columnKey, place.functions)
+        }
+        while (queue.isNotEmpty()) {
+            val (parameter, column, functions) = queue.removeFirst()
+            for ((path, into) in byParameter[parameter].orEmpty()) {
+                val target = into.targets.single()
+                if (target.reason == "OUT_CALL_NOT_DECIDED") {
+                    if (undecided.add(path to target.span)) leftOut.getOrPut(path) { HashMap() }.merge("OUT_CALL_NOT_DECIDED", 1, Int::plus)
+                    continue
+                }
+                if (target.entityKey == null && target.local == null) {
+                    leftOut.getOrPut(path) { HashMap() }.merge("OUT_ARGUMENT_NOT_FOLLOWED", 1, Int::plus)
+                    continue
+                }
+                val place = place(into, target, null, column, functions)
+                places.getOrPut(path) { ArrayList() } += place
+                if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, column, functions)
+            }
+        }
+        val routines = seen.filter { !it.first.contains('|') }.mapTo(HashSet()) { it.first.substringBeforeLast('.') }
+        // A call the index could not decide among routines, one of which leaves a column's size to its callers.
+        for (file in facts) for (occurrence in file.occurrences) {
+            if (Role.CALL in occurrence.roles && occurrence.entityKey == null && occurrence.candidateKeys.any { it in routines }) {
+                leftOut.getOrPut(file.path) { HashMap() }.merge("OUT_CALL_NOT_DECIDED", 1, Int::plus)
+            }
+        }
+        return places to leftOut
+    }
+
+    /**
+     * A parameter as a call binds it: a place's target in a package body is the body's parameter (`…)@BODY.P`), a
+     * call's argument the spec's (`…).P`); a routine only the body declares is the same key on both sides.
+     */
+    private fun specKey(parameter: String) = parameter.replace(")@BODY.", ").")
+
+    /** The key [arguments] follows a parameter by: a nested subprogram's is only known in its own file ([path]). */
+    private fun parameterKey(path: String, parameter: String) =
+        if (parameter.startsWith(LOCAL_PARAMETER)) "$path|$parameter" else specKey(parameter)
+
     /** Whether [target] is a record that takes its one item as a field (`select * into r` of a one-column table). */
     private fun isRow(target: IntoTarget, bulk: Boolean): Boolean {
         val node = structure(targetNode(target, bulk), 0)
@@ -139,7 +210,8 @@ internal class ColumnPlaces(
         return ColumnPlaceFact(
             into.unitIndex, into.containerKey, into.statementLocalId, target.span, column, into.source, into.bulk, target.entityKey, target.written,
             fieldName, placeClass, text, decision.length.takeIf { sized }, decision.unit.takeIf { sized }, decision.scale.takeIf { sized },
-            decision.source?.takeIf { it != target.entityKey }, mode, decision.reason, functions
+            decision.source?.takeIf { it != target.entityKey }, mode, decision.reason, functions, into.parameterKey,
+            target.localKey.takeIf { mode != null }
         )
     }
 
@@ -273,6 +345,9 @@ internal class ColumnPlaces(
 
     companion object {
         private const val MAX_DEPTH = 20
+
+        /** The prefix of a nested subprogram's parameter key, as the extraction writes it. */
+        private const val LOCAL_PARAMETER = "local:"
 
         private val RELATIONS = setOf(EntityKind.TABLE, EntityKind.VIEW, EntityKind.MATERIALIZED_VIEW, EntityKind.OBJECT_TABLE, EntityKind.UNKNOWN_RELATION)
     }

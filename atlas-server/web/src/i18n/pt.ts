@@ -241,6 +241,8 @@ export default {
   "places.source.FETCH": "FETCH INTO",
   "places.source.RETURNING": "RETURNING INTO",
   "places.source.ASSIGNMENT": "atribuição (:=)",
+  "places.source.OUT_ARGUMENT": "argumento de um parâmetro OUT",
+  "places.argumentOf": "passado para {parameter} de {routine}",
   "places.bulk": "{source} · BULK COLLECT",
   "places.in": "em {container}",
   "places.declaredType": "declarado",

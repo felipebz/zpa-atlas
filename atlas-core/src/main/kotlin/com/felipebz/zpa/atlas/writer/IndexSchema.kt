@@ -295,7 +295,10 @@ internal fun tableDdl(): List<String> = listOf(
         scale INTEGER NULL,
         parameter_mode TEXT NULL CHECK (parameter_mode IN ('OUT', 'IN OUT')),
         -- The value functions the column is read through, outer first, comma-separated (NVL; UPPER,TRIM); null when read directly.
-        functions TEXT NULL
+        functions TEXT NULL,
+        -- For an argument of a call (source OUT_ARGUMENT): the OUT or IN OUT parameter it is passed for, and its routine.
+        argument_parameter_id INTEGER NULL REFERENCES entity(id),
+        argument_routine_id INTEGER NULL REFERENCES entity(id)
     )
     """,
     SOURCE_LINE_DDL

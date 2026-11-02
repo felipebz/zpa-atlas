@@ -263,7 +263,9 @@ enum class PlaceSource : StoredEnum {
     SELECT_INTO,
     FETCH,
     RETURNING,
-    ASSIGNMENT
+    ASSIGNMENT,
+    /** The argument a call passes for an `OUT` or `IN OUT` parameter whose place leaves its size to the callers. */
+    OUT_ARGUMENT
 }
 
 /** The `occurrence.roles` text: the sorted, comma-separated role names. */

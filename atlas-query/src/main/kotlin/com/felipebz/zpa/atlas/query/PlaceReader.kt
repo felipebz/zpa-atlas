@@ -27,10 +27,12 @@ internal class PlaceReader(private val connection: Connection) {
             """$SCOPE SELECT r.key, r.kind, r.display, r.external, r.name, p.column_id <> ?, p.source, p.bulk, f.path, p.start_line, p.start_col,
                       c.key, c.kind, c.display, c.external, c.name, p.target_written,
                       t.key, t.kind, t.display, t.external, t.name, p.field, p.class, p.declared_type, p.length, p.length_unit,
-                      s.key, s.kind, s.display, s.external, s.name, p.reason, p.scale, p.parameter_mode, p.functions
+                      s.key, s.kind, s.display, s.external, s.name, p.reason, p.scale, p.parameter_mode, p.functions,
+                      a.key, a.kind, a.display, a.external, a.name, g.key, g.kind, g.display, g.external, g.name
                FROM column_place p JOIN entity r ON r.id = p.column_id JOIN source_file f ON f.id = p.file_id
                LEFT JOIN entity c ON c.id = p.container_entity_id LEFT JOIN entity t ON t.id = p.target_entity_id
-               LEFT JOIN entity s ON s.id = p.type_source_id
+               LEFT JOIN entity s ON s.id = p.type_source_id LEFT JOIN entity a ON a.id = p.argument_parameter_id
+               LEFT JOIN entity g ON g.id = p.argument_routine_id
                WHERE p.column_id IN (SELECT id FROM viewed)
                ORDER BY $CLASS_RANK, f.path, p.start_line, p.start_col, p.id LIMIT ? OFFSET ?""",
             listOf(id, id, limit, offset)
@@ -41,7 +43,7 @@ internal class PlaceReader(private val connection: Connection) {
                 summary(12), rs.getString(17), summary(18), rs.getString(23), rs.getString(24), rs.getString(25),
                 (rs.getObject(26) as Number?)?.toInt(), rs.getString(27), summary(28), rs.getString(33),
                 (rs.getObject(34) as Number?)?.toInt(), rs.getString(35),
-                rs.getString(36)?.split(',').orEmpty()
+                rs.getString(36)?.split(',').orEmpty(), summary(37), summary(42)
             )
         }
         val total = counts.sumOf { it.count }.toInt()

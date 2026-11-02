@@ -78,7 +78,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 9
+    private const val FORMAT = 10
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -256,7 +256,7 @@ internal object FactsCache {
                 string(into.source.name); data.writeBoolean(into.bulk); data.writeInt(into.unitIndex); nullable(into.containerKey)
                 nullableInt(into.statementLocalId); list(into.branches) { items -> list(items) { item(it) } }; nullable(into.cursorKey)
                 list(into.targets) { target(it) }
-                data.writeBoolean(into.row != null); into.row?.let { target(it) }; nullable(into.rowField); nullable(into.expression); strings(into.functions)
+                data.writeBoolean(into.row != null); into.row?.let { target(it) }; nullable(into.rowField); nullable(into.expression); strings(into.functions); nullable(into.parameterKey)
             }
             list(facts.placesLeftOut.entries.toList()) { string(it.key); data.writeInt(it.value) }
         }
@@ -269,6 +269,7 @@ internal object FactsCache {
         fun target(target: IntoTarget) {
             span(target.span); string(target.written); nullable(target.entityKey); strings(target.path); data.writeBoolean(target.element)
             data.writeBoolean(target.local != null); target.local?.let { shape(it) }; nullable(target.declaredType); nullable(target.reason)
+            nullable(target.localKey)
         }
 
         /** A [TypeShape], its variant first, then its fields, nested shapes written the same way. */
@@ -404,7 +405,7 @@ internal object FactsCache {
             val declaredShapes = list { DeclaredShapeFact(string(), shape()) }
             val intos = list {
                 IntoFact(enumValueOf(string()), data.readBoolean(), data.readInt(), nullable(), nullableInt(), list { list { item() } }, nullable(),
-                    list { target() }, if (data.readBoolean()) target() else null, nullable(), nullable(), strings())
+                    list { target() }, if (data.readBoolean()) target() else null, nullable(), nullable(), strings(), nullable())
             }
             val placesLeftOut = list { string() to data.readInt() }.toMap()
             return FileFacts(
@@ -416,7 +417,7 @@ internal object FactsCache {
         fun item() = QueryItem(nullable(), nullable(), nullable(), data.readBoolean(), strings())
 
         fun target(): IntoTarget =
-            IntoTarget(span(), string(), nullable(), strings(), data.readBoolean(), if (data.readBoolean()) shape() else null, nullable(), nullable())
+            IntoTarget(span(), string(), nullable(), strings(), data.readBoolean(), if (data.readBoolean()) shape() else null, nullable(), nullable(), nullable())
 
         fun shape(): TypeShape {
             fun optional(): TypeShape? = if (data.readBoolean()) shape() else null

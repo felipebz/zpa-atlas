@@ -53,6 +53,7 @@ import {
     langSuffix,
     literalText,
     nameBreaksHtml,
+    partBreaksHtml,
     qualifierHtml,
     queryHref,
     scrollTable,
@@ -74,7 +75,7 @@ import {
     typeSourcePhrase,
     viewOf
 } from "./places-view";
-import {displayParts, parentKeyOf} from "./names";
+import {displayParts, parentKeyOf, shownNameText} from "./names";
 import {currentProject, setPageTitle} from "./project";
 import {browserStorage, recordOpened} from "./recent";
 import type {UsesBlock} from "./uses";
@@ -688,6 +689,11 @@ function placeRowHtml(p: ColumnPlace) {
   const functions = functionsText(t, p);
   const why = (source === null ? "" : `<div>${fillHtml(source.key, { source: entityLink(source.entity) })}</div>`) +
     (functions === null ? "" : `<div>${esc(functions)}</div>`) +
+    (p.argumentOf === null || p.routine === null ? "" :
+      `<div>${fillHtml("places.argumentOf", {
+        parameter: `<a class="mono parts" href="${entityHref(p.argumentOf.key)}">${partBreaksHtml(p.argumentOf.name)}</a>`,
+        routine: `<a class="parts" href="${entityHref(p.routine.key)}" title="${esc(p.routine.display)}">${partBreaksHtml(shownNameText(p.routine))}</a>`
+      })}</div>`) +
     (parameter === null ? "" : `<div class="uses-gap">${esc(parameter)}</div>`) +
     (p.reason === null ? "" : `<div class="uses-gap" title="${esc(p.reason)}">${esc(reasonText(t, p.reason))}</div>`);
   const line = placeHtml({ half: null, path: p.path, line: p.line, col: p.column, partner: null, file: true }, p.target ?? p.read, null);

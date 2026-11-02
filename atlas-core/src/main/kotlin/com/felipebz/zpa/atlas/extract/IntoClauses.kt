@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.*
+import com.felipebz.zpa.api.project.ProjectParameterMode
 import com.felipebz.zpa.api.semantics.NameBinding
 import com.felipebz.zpa.api.semantics.NameDeclarationKind
 import com.felipebz.zpa.atlas.model.*
@@ -104,11 +105,79 @@ internal class IntoClauses(
         return false
     }
 
-    /** A PL/SQL call resolved to a routine that is passed a field of a `%ROWTYPE` or cursor loop record: counted per argument. */
-    fun call(node: AstNode, before: Int) {
-        if (node.type != PlSqlGrammar.METHOD_CALL || !calledRoutine(before)) return
+    /**
+     * A PL/SQL call resolved to a routine: a field of a `%ROWTYPE` or cursor loop record it is passed is counted per
+     * argument; an argument for an `OUT` or `IN OUT` parameter is kept, its target decided once the file is left.
+     */
+    fun call(node: AstNode, before: Int, context: Context) {
+        if (node.type != PlSqlGrammar.METHOD_CALL) return
+        val calls = state.occurrences.subList(before, state.occurrences.size).filter { Role.CALL in it.roles }
+        // A subprogram nested in the routine has no entity: its call is bound here, in the file that declares both.
+        if (calls.none { it.entityKey != null } && calls.any { it.reason == LOCAL_SUBPROGRAM }) {
+            localCall(node, context)
+            return
+        }
+        if (!calledRoutine(before)) return
         arguments(node).filter(::isFieldOfName).forEach { rowFieldCandidates += ARGUMENT to it }
+        val call = state.occurrences.subList(before, state.occurrences.size).lastOrNull { Role.CALL in it.roles && it.entityKey != null } ?: return
+        for (argument in arguments(node)) {
+            // The walk keeps the mode at the argument's expression node, which may wrap or be wrapped by this one.
+            val span = spanOf(argument)
+            val mode = (generateSequence(argument) { it.parentOrNull }.take(3) + generateSequence(argument) { it.children.firstOrNull() }.take(4))
+                .filter { it.hasToken() && spanOf(it) == span }.firstNotNullOfOrNull { state.argumentModes[it] } ?: continue
+            if (mode != ProjectParameterMode.OUT && mode != ProjectParameterMode.IN_OUT) continue
+            val parameter = call.arguments.firstOrNull { it.span == span }?.parameterKey ?: continue
+            outArguments += OutArgument(argument, parameter, context)
+        }
     }
+
+    /**
+     * A call of a subprogram nested in a routine: the subprogram of that name in the nearest declarations around the
+     * call; its arguments bound to its parameters by position, then by name. When several subprograms of that name are
+     * declared there (overloads), the call is kept for each of their `OUT` parameters as not decided, counted
+     * (`OUT_CALL_NOT_DECIDED`) when a column's value reaches one of them.
+     */
+    private fun localCall(node: AstNode, context: Context) {
+        val callee = node.firstChild.takeIf { it.type == PlSqlGrammar.VARIABLE_NAME } ?: return
+        val wanted = normalizeIdentifier(callee.tokenOriginalValue)
+        var scope = node.parentOrNull
+        var subprograms = emptyList<AstNode>()
+        while (scope != null && subprograms.isEmpty()) {
+            subprograms = scope.children.asSequence()
+                .flatMap { if (it.type == PlSqlGrammar.DECLARE_SECTION) it.children.asSequence() else sequenceOf(it) }
+                .filter { (it.type == PlSqlGrammar.PROCEDURE_DECLARATION || it.type == PlSqlGrammar.FUNCTION_DECLARATION) &&
+                    it.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { name -> normalizeIdentifier(name.tokenOriginalValue) } == wanted }
+                .toList()
+            scope = scope.parentOrNull
+        }
+        fun parametersOf(subprogram: AstNode) =
+            subprogram.getFirstChildOrNull(PlSqlGrammar.PARAMETER_DECLARATIONS)?.getChildren(PlSqlGrammar.PARAMETER_DECLARATION).orEmpty()
+        fun isOut(parameter: AstNode) = parameter.hasDirectChildren(PlSqlKeyword.OUT)
+        val subprogram = subprograms.singleOrNull()
+        if (subprogram == null) {
+            for (parameter in subprograms.flatMap(::parametersOf).filter(::isOut)) undecidedCalls += spanOf(node) to localKey(parameter)
+            return
+        }
+        val parameters = parametersOf(subprogram)
+        val written = node.getFirstChildOrNull(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT).orEmpty()
+        for ((index, argument) in written.withIndex()) {
+            val label = argument.takeIf { it.hasDirectChildren(PlSqlPunctuator.ASSOCIATION) }?.firstChild?.let { normalizeIdentifier(it.tokenOriginalValue) }
+            val parameter = if (label == null) parameters.getOrNull(index)
+                else parameters.firstOrNull { normalizeIdentifier(it.firstChild.tokenOriginalValue) == label }
+            if (parameter == null || !isOut(parameter)) continue
+            outArguments += OutArgument(argument.lastChild, localKey(parameter), context)
+        }
+    }
+
+    /** Where a nested subprogram's parameter is named in the file: `local:line:column`. */
+    private fun localKey(parameter: AstNode): String = parameter.firstChild.token.let { "$LOCAL_PREFIX${it.line}:${it.column}" }
+
+    private class OutArgument(val value: AstNode, val parameterKey: String, val context: Context)
+
+    /** The calls of overloaded nested subprograms, with each `OUT` parameter they may be for. */
+    private val undecidedCalls = ArrayList<Pair<SourceSpan, String>>()
+
+    private val outArguments = ArrayList<OutArgument>()
 
     /** The `r.f` values assigned or passed, with what they are counted as when `r` is a row record. */
     private val rowFieldCandidates = ArrayList<Pair<String, AstNode>>()
@@ -274,7 +343,7 @@ internal class IntoClauses(
      */
     fun intos(shapes: TypeShapes): List<IntoFact> {
         rowFields(shapes)
-        if (pending.isEmpty() && assignments.isEmpty()) return emptyList()
+        if (pending.isEmpty() && assignments.isEmpty() && outArguments.isEmpty() && undecidedCalls.isEmpty()) return emptyList()
         val bySpan = state.occurrences.filter { it.entityKey != null }.groupBy { it.span }
         val intos = pending.mapNotNullTo(ArrayList()) { into ->
             val targets = into.targets.map { target(it, bySpan, shapes) }
@@ -301,6 +370,16 @@ internal class IntoClauses(
             val target = target(assignment.target, bySpan, shapes).copy(span = assignment.site)
             intos += IntoFact(PlaceSource.ASSIGNMENT, false, assignment.context.unitIndex, assignment.context.container, null, emptyList(), null,
                 listOf(target), row, normalizeIdentifier(assignment.field.lastChild.tokenOriginalValue), assignment.expression, assignment.functions)
+        }
+        // The argument passed for an OUT or IN OUT parameter, as an INTO target: it takes what the parameter is given.
+        for (argument in outArguments) {
+            intos += IntoFact(PlaceSource.OUT_ARGUMENT, false, argument.context.unitIndex, argument.context.container, null, emptyList(), null,
+                listOf(target(argument.value, bySpan, shapes)), parameterKey = argument.parameterKey)
+        }
+        // A call of an overloaded nested subprogram: no target, only the parameters it may be for.
+        for ((span, parameter) in undecidedCalls) {
+            intos += IntoFact(PlaceSource.OUT_ARGUMENT, false, 0, null, null, emptyList(), null,
+                listOf(IntoTarget(span, "", null, emptyList(), false, null, null, OUT_CALL_NOT_DECIDED)), parameterKey = parameter)
         }
         return intos
     }
@@ -403,7 +482,11 @@ internal class IntoClauses(
         val declaration = local(name, shapes)
             ?: return IntoTarget(span, written, null, emptyList(), element, null, null, "TARGET_UNDECIDED")
         val shape = shapes.of(declaration, null) ?: TypeShape.Unknown("DECLARATION_UNKNOWN")
-        return IntoTarget(span, written, null, segments.drop(1), element, shape, DeclaredTexts.of("", declaration)?.datatype, null)
+        // A nested subprogram's parameter, whose calls this file binds; not an object type method's, whose calls the
+        // index does not record.
+        val localKey = declaration.takeIf { it.type == PlSqlGrammar.PARAMETER_DECLARATION && !it.hasAncestor(PlSqlGrammar.CREATE_TYPE_BODY) }
+            ?.let(::localKey)
+        return IntoTarget(span, written, null, segments.drop(1), element, shape, DeclaredTexts.of("", declaration)?.datatype, null, localKey)
     }
 
     /**
@@ -456,6 +539,13 @@ internal class IntoClauses(
         const val RECORD_ASSIGNMENT = "RECORD_ASSIGNMENT"
         const val ARGUMENT = "ARGUMENT"
         const val FETCH_CURSOR_NOT_KNOWN = "FETCH_CURSOR_NOT_KNOWN"
+        const val OUT_CALL_NOT_DECIDED = "OUT_CALL_NOT_DECIDED"
+
+        /** The prefix of the key of a nested subprogram's parameter ([IntoTarget.localKey]). */
+        const val LOCAL_PREFIX = "local:"
+
+        /** The reason of a call of a subprogram nested in a routine, which has no entity. */
+        private const val LOCAL_SUBPROGRAM = "LOCAL_SUBPROGRAM"
 
         /** A target whose shape the index does not follow (an element of an element). */
         private const val TARGET_SHAPE_NOT_FOLLOWED = "TARGET_SHAPE_NOT_FOLLOWED"

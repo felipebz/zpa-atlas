@@ -291,7 +291,7 @@ export interface ColumnPlace {
   /** The column read: the page's column, or a view column computed from it ([viaView]). */
   read: EntitySummary;
   viaView: boolean;
-  source: "SELECT_INTO" | "FETCH" | "RETURNING" | "ASSIGNMENT";
+  source: "SELECT_INTO" | "FETCH" | "RETURNING" | "ASSIGNMENT" | "OUT_ARGUMENT";
   /** `BULK COLLECT INTO`. */
   bulk: boolean;
   /** Where the target is written: the file relative to the sources, one-based line, zero-based column. */
@@ -321,6 +321,9 @@ export interface ColumnPlace {
   parameterMode: string | null;
   /** The value functions the column is read through, outer first (`NVL`; `UPPER`, `TRIM`); empty when read directly. */
   functions: string[];
+  /** For source `OUT_ARGUMENT`: the `OUT` or `IN OUT` parameter the argument is passed for, and the routine called. */
+  argumentOf: EntitySummary | null;
+  routine: EntitySummary | null;
   /** For UNKNOWN, why: TARGET_UNDECIDED, DECLARATION_UNKNOWN, ANCHOR_UNRESOLVED, … */
   reason: string | null;
 }

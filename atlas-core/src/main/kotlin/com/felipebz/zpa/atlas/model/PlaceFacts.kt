@@ -83,7 +83,12 @@ data class IntoTarget(
     val element: Boolean,
     val local: TypeShape?,
     val declaredType: String?,
-    val reason: String?
+    val reason: String?,
+    /**
+     * For a parameter of a subprogram nested in a routine, which has no entity: where its name is in the file
+     * (`local:line:column`), as a call of that subprogram names it ([IntoFact.parameterKey]).
+     */
+    val localKey: String? = null
 ) {
     companion object {
         /** A step of [path] that takes an element of the collection reached so far (`a(i).f`: `ELEMENT`, `F`). */
@@ -111,7 +116,9 @@ data class IntoFact(
     val rowField: String? = null,
     val expression: String? = null,
     /** The value functions an assignment reads its record's field through, outer first (`l := nvl(r.code, '-')`). */
-    val functions: List<String> = emptyList()
+    val functions: List<String> = emptyList(),
+    /** For [PlaceSource.OUT_ARGUMENT]: the `OUT` or `IN OUT` parameter the argument ([targets]) is passed for. */
+    val parameterKey: String? = null
 )
 
 /**
@@ -142,5 +149,9 @@ data class ColumnPlaceFact(
     val parameterMode: String?,
     val reason: String?,
     /** The value functions the column is read through, outer first; empty when read directly. */
-    val functions: List<String> = emptyList()
+    val functions: List<String> = emptyList(),
+    /** For an argument of a call ([PlaceSource.OUT_ARGUMENT]): the `OUT` or `IN OUT` parameter it is passed for. */
+    val argumentOf: String? = null,
+    /** The target's [IntoTarget.localKey]: a nested subprogram's parameter, whose callers are followed in its file. */
+    val localParameter: String? = null
 )

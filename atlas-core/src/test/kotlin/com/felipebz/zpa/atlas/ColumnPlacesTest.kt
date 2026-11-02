@@ -313,6 +313,132 @@ class ColumnPlacesTest {
     }
 
     @Test
+    fun `the arguments callers pass for an OUT parameter are places, through the callers' own OUT parameters`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("calls.sql"), """
+            create table orders (order_id number(10), code varchar2(20 byte));
+            /
+            create or replace package pk_ord as
+              procedure get_code(p_id number, o_code out varchar2);
+              procedure relay(p_id number, o_code out varchar2);
+            end;
+            /
+            create or replace package body pk_ord as
+              procedure get_code(p_id number, o_code out varchar2) is
+              begin
+                select code into o_code from orders where order_id = p_id;
+              end;
+              procedure relay(p_id number, o_code out varchar2) is
+              begin
+                get_code(p_id, o_code);
+              end;
+            end;
+            /
+            create or replace procedure show_code is
+              l_code varchar2(12);
+              l_wide varchar2(30);
+              l_any  orders.code%type;
+              type r_t is record (c varchar2(12));
+              r      r_t;
+              type a_t is table of varchar2(12) index by pls_integer;
+              a      a_t;
+            begin
+              pk_ord.get_code(1, l_code);
+              pk_ord.get_code(1, l_wide);
+              pk_ord.get_code(o_code => l_code, p_id => 1);
+              pk_ord.get_code(1, l_any);
+              pk_ord.get_code(1, r.c);
+              pk_ord.get_code(1, a(1));
+              pk_ord.relay(1, l_code);
+              pk_ord.get_code(1, l_code || 'x');
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        assertThat(places(db, "calls.sql")).containsExactly(
+            // The parameter's own place stays: a caller the index does not see may pass anything.
+            "11 ORDERS.CODE SELECT_INTO o_code CALLER_DECIDES varchar2 - - - OUT",
+            // relay passes its own OUT parameter: its callers are followed in turn.
+            "15 ORDERS.CODE OUT_ARGUMENT o_code CALLER_DECIDES varchar2 - - - OUT",
+            "28 ORDERS.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "29 ORDERS.CODE OUT_ARGUMENT l_wide FIXED_SIZE varchar2(30) 30 NLS_LENGTH_SEMANTICS - -",
+            // A named argument.
+            "30 ORDERS.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "31 ORDERS.CODE OUT_ARGUMENT l_any ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
+            "32 ORDERS.CODE OUT_ARGUMENT r.c FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "33 ORDERS.CODE OUT_ARGUMENT a(1) FIXED_SIZE a_t 12 NLS_LENGTH_SEMANTICS SHOW_CODE().A_T -",
+            // Through relay's o_code.
+            "34 ORDERS.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -"
+        )
+        // Line 35 passes an expression: counted.
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'").map { it.substringBefore(" ") })
+            .containsExactly("OUT_ARGUMENT_NOT_FOLLOWED:")
+        assertThat(Fixture.query(db, "SELECT a.key || ' ' || g.key FROM column_place p JOIN entity a ON a.id = p.argument_parameter_id JOIN entity g ON g.id = p.argument_routine_id WHERE p.start_line = 34"))
+            .containsExactly("db:SHOP.PK_ORD.RELAY(P_ID IN NUMBER,O_CODE OUT VARCHAR2).O_CODE db:SHOP.PK_ORD.RELAY(P_ID IN NUMBER,O_CODE OUT VARCHAR2)")
+    }
+
+    @Test
+    fun `the arguments a routine passes to its own nested subprogram's OUT parameter are places`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("nested.sql"), """
+            create table ord_x (order_id number(10), code varchar2(20 byte));
+
+            create or replace procedure show_x is
+              l_code varchar2(12);
+              l_wide varchar2(30);
+              procedure inner(o_i out varchar2) is
+              begin
+                select code into o_i from ord_x where order_id = 1;
+              end;
+              procedure outer(p_n number, o_o out varchar2) is
+              begin
+                inner(o_o);
+              end;
+            begin
+              inner(l_code);
+              outer(o_o => l_wide, p_n => 1);
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        assertThat(places(db, "nested.sql")).containsExactly(
+            "8 ORD_X.CODE SELECT_INTO o_i CALLER_DECIDES varchar2 - - - OUT",
+            // outer passes its own OUT parameter: outer's callers are followed in turn.
+            "12 ORD_X.CODE OUT_ARGUMENT o_o CALLER_DECIDES varchar2 - - - OUT",
+            "15 ORD_X.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "16 ORD_X.CODE OUT_ARGUMENT l_wide FIXED_SIZE varchar2(30) 30 NLS_LENGTH_SEMANTICS - -"
+        )
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'")).isEmpty()
+    }
+
+    @Test
+    fun `an object type method's OUT parameter, whose calls the index does not record, is counted`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("box.sql"), """
+            create table ord_x (order_id number(10), code varchar2(20 byte));
+            create or replace type t_box as object (n number, member procedure get_code(o_c out varchar2));
+            /
+            create or replace type body t_box as
+              member procedure get_code(o_c out varchar2) is
+              begin
+                select code into o_c from ord_x where order_id = 1;
+              end;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        assertThat(places(db, "box.sql")).containsExactly("7 ORD_X.CODE SELECT_INTO o_c CALLER_DECIDES varchar2 - - - OUT")
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'").map { it.substringBefore(":") })
+            .containsExactly("OUT_PARAMETER_NOT_FOLLOWED")
+    }
+
+    @Test
     fun `what is not followed is counted by shape`() {
         val db = PlacesFixture.index(temp)
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1"))

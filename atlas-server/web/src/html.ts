@@ -43,6 +43,14 @@ export function qualifierHtml(text: string) {
   return esc(text).replace(/\./g, ".<wbr>");
 }
 
+/**
+ * A qualified name as HTML that may break only between its parts: after a dot, a comma or an opening parenthesis (and
+ * at its spaces), never inside an identifier; with the `parts` class, a part breaks only when it is longer than a line.
+ */
+export function partBreaksHtml(text: string) {
+  return esc(text).replace(/([.,(])/g, "$1<wbr>");
+}
+
 /** A name as HTML that may break after each underscore, never inside a word. */
 export function nameBreaksHtml(text: string) {
   return esc(text).replace(/_/g, "_<wbr>");

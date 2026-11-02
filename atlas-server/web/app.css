@@ -253,6 +253,8 @@ main.entity { display: grid; gap: var(--gap); }
 .badge.pc-ANCHORED_TO_COLUMN { background: var(--ok-soft); color: var(--ok); }
 .badge.attention { font-weight: 600; }
 .place-classes .badge { margin: 2px 4px 2px 0; }
+/* A name that breaks only between its parts (partBreaksHtml), even inside a cell that breaks anywhere. */
+.parts { overflow-wrap: break-word; word-break: normal; }
 /* What the declaration says: the code as written, wrapping anywhere so a long value never widens the page. */
 .ent-decl { display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: var(--fs-s); }
 .ent-decl > span { min-width: 0; overflow-wrap: anywhere; }

@@ -32,8 +32,8 @@ internal class FileRows(private val connection: Connection) {
         val docInsert = prepare("INSERT INTO doc_comment(entity_id, file_id, in_body, shape, start_line, text, text_cut) VALUES (?,?,?,?,?,?,?)")
         val placeInsert = prepare("""INSERT INTO column_place(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line,
             end_col, column_id, source, bulk, target_entity_id, target_written, field, class, declared_type, length, length_unit, type_source_id, reason,
-            scale, parameter_mode, functions)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
+            scale, parameter_mode, functions, argument_parameter_id, argument_routine_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
         val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert,
             docInsert, placeInsert)
         var placeId = 0L
@@ -158,6 +158,8 @@ internal class FileRows(private val connection: Connection) {
                 placeInsert.setNullableLong(22, place.scale?.toLong())
                 placeInsert.setNullableString(23, place.parameterMode)
                 placeInsert.setNullableString(24, place.functions.takeIf { it.isNotEmpty() }?.joinToString(","))
+                placeInsert.setNullableLong(25, place.argumentOf?.let { entityIds[it] })
+                placeInsert.setNullableLong(26, place.argumentOf?.let { entityIds[it.substringBeforeLast('.')] })
                 batches.add(placeInsert)
             }
             // At a file boundary, so that the rows of one file go out together.
@@ -199,6 +201,9 @@ internal class FileRows(private val connection: Connection) {
             "RECORD_ASSIGNMENT" to "assignment(s) of a field of a %ROWTYPE or cursor loop record: not followed",
             "RECORD_ASSIGNMENT_EXPRESSION" to "assigned value(s) that are an expression of a field of a %ROWTYPE or cursor loop record: not followed",
             "ARGUMENT" to "column value(s) passed to a routine: not followed",
+            "OUT_ARGUMENT_NOT_FOLLOWED" to "argument(s) for an OUT parameter a column's value is read into, not a name, field or element the index binds: not followed",
+            "OUT_PARAMETER_NOT_FOLLOWED" to "OUT parameter(s) a column's value is read into whose callers the index cannot tell: not followed",
+            "OUT_CALL_NOT_DECIDED" to "call(s) whose routine is not decided, among routines with an OUT parameter a column's value is read into: not followed",
             "FETCH_CURSOR_NOT_KNOWN" to "target(s) of a FETCH from a cursor whose query is not known: not followed"
         )
     }

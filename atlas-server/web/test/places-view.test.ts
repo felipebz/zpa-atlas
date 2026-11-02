@@ -38,7 +38,7 @@ function place(over: Partial<ColumnPlace>): ColumnPlace {
     read: CODE, viaView: false, source: "SELECT_INTO", bulk: false, path: "pk_ord.pkb", line: 12, column: 4,
     container: summary("SHOP.PK_ORD.LOAD", "PROCEDURE"), targetWritten: "l_code", target: L_CODE, field: null,
     placeClass: "FIXED_SIZE", declaredType: "varchar2(12)", length: 12, unit: "CHAR", scale: null, typeSource: L_CODE,
-    parameterMode: null, reason: null, functions: [], ...over
+    parameterMode: null, reason: null, functions: [], argumentOf: null, routine: null, ...over
   };
 }
 
@@ -172,6 +172,7 @@ describe("labels", () => {
     expect(sourceText(say, { source: "FETCH", bulk: true })).toBe("FETCH INTO · BULK COLLECT");
     expect(sourceText(say, { source: "RETURNING", bulk: false })).toBe("RETURNING INTO");
     expect(sourceText(say, { source: "ASSIGNMENT", bulk: false })).toBe("assignment (:=)");
+    expect(sourceText(say, { source: "OUT_ARGUMENT", bulk: false })).toBe("argument of an OUT parameter");
   });
 });
 
