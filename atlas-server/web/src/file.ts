@@ -5,7 +5,16 @@ import type {NameOptions} from "./entity-html";
 import {kindBadgeNode, listNameOptions, nameNodes, parseLabel, placeHtml, roleLabel, statusBadge} from "./entity-html";
 import {places} from "./entity-view";
 import type {OutlineEntry, Segment} from "./file-view";
-import {currentEntry, outlineEntries, segmentClass, segmentsByLine} from "./file-view";
+import {
+    currentEntry,
+    innermost,
+    occurrencesOf,
+    outlineEntries,
+    routineMemberName,
+    segmentClass,
+    segmentsByLine
+} from "./file-view";
+import {declaredLine} from "./declared-view";
 import {entityHref, getOrPut, langSuffix} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {fileTitleParts, setPageTitle} from "./project";
@@ -27,6 +36,8 @@ const NARROW = window.matchMedia("(max-width: 700px)");
 let view!: FileView;
 let entries: OutlineEntry[] = [];
 const details = new Map<string, Promise<EntityDetail>>();
+/** The pieces of code each occurrence covers (an occurrence over several lines has several), by occurrence index. */
+const piecesOf = new Map<number, HTMLElement[]>();
 
 /** The entity detail of [key], fetched once. */
 function detail(key: string) {
@@ -58,7 +69,10 @@ function renderLine(number: number, text: string, segments: Segment[] | undefine
   for (const segment of segments ?? []) {
     if (segment.from > at) code.appendChild(document.createTextNode(text.slice(at, segment.from)));
     const piece = el("span", segmentClass(segment, view.occurrences), text.slice(segment.from, segment.to));
-    if (segment.occurrences.length) piece.dataset.o = segment.occurrences.join(",");
+    if (segment.occurrences.length) {
+      piece.dataset.o = segment.occurrences.join(",");
+      for (const index of segment.occurrences) getOrPut(piecesOf, index, () => []).push(piece);
+    }
     code.appendChild(piece);
     at = segment.to;
   }
@@ -192,21 +206,36 @@ function markCurrent() {
 
 // ---- popover ------------------------------------------------------------------------------------------------------
 
+/**
+ * The popover's header: the kind and the name, qualified as the entity page shows it; a routine's parameter or local
+ * (variable, constant, cursor, type) by its name alone, since its routine is the one being read.
+ */
 function entityHeader(entity: EntitySummary, options?: NameOptions) {
   const head = el("div", "entity");
   head.appendChild(kindBadgeNode(entity.kind));
   const name = el("b");
-  name.appendChild(nameNodes(entity, options));
+  const member = routineMemberName(entity);
+  if (member !== null) {
+    name.textContent = member;
+    name.title = entity.display;
+  } else {
+    name.appendChild(nameNodes(entity, options));
+  }
   head.appendChild(name);
   if (entity.external) head.appendChild(el("span", "badge external", t("entity.external")));
   return head;
 }
 
 /** Where [entity] is, as its page's header says it (`Declared in the spec, pkg/a.pks, line 1`), loaded on demand. */
-async function definitionLinks(entity: EntitySummary, target: HTMLElement) {
+async function definitionLinks(entity: EntitySummary, target: HTMLElement, declared: HTMLElement) {
   target.replaceChildren(el("span", "muted", t("popover.loading")));
   try {
     const own = await detail(entity.key);
+    const line = declaredLine(own.kind, own.declared);
+    if (line !== null) {
+      declared.textContent = line;
+      declared.hidden = false;
+    }
     // In a popover the file is not the page's: every place names its file.
     const all = places(own).map(p => ({ ...p, file: true }));
     if (all.length === 0) {
@@ -225,10 +254,17 @@ async function definitionLinks(entity: EntitySummary, target: HTMLElement) {
   }
 }
 
-/** An entity with its two ways out: its places and who uses it. */
-function entityBlock(entity: EntitySummary, options?: NameOptions) {
+/**
+ * An entity with its declared type, its uses in this file when [uses] gives them (stepped through from the clicked
+ * one), and its two ways out: its places and who uses it.
+ */
+function entityBlock(entity: EntitySummary, options?: NameOptions, usesLine?: HTMLElement) {
   const block = el("div", "target");
   block.appendChild(entityHeader(entity, options));
+  const declared = el("div", "declared mono");
+  declared.hidden = true;
+  block.appendChild(declared);
+  if (usesLine) block.appendChild(usesLine);
   const definitions = el("div", "definitions");
   // The link reads as the entity page's section it opens.
   const uses = el("a", null, t("usage.title"));
@@ -236,11 +272,71 @@ function entityBlock(entity: EntitySummary, options?: NameOptions) {
   const actions = el("div", "actions");
   actions.appendChild(uses);
   block.append(definitions, actions);
-  definitionLinks(entity, definitions);
+  // Once its places are in, the popover is as wide as they make it: placed again, it keeps its margins.
+  definitionLinks(entity, definitions, declared).then(() => { if (anchor) placePopover(anchor); });
   return block;
 }
 
-function occurrenceBlock(o: FileOccurrence) {
+// ---- the uses of the popover's entity in the file ------------------------------------------------------------------
+
+/** The uses of the open popover's entity: its occurrences in reading order and the current one; null when none is marked. */
+let uses: { order: number[]; current: number; position: HTMLElement } | null = null;
+
+function setMarked(index: number, mark: boolean, current: boolean) {
+  for (const piece of piecesOf.get(index) ?? []) {
+    piece.classList.toggle("in-use", mark);
+    piece.classList.toggle("in-use-current", mark && current);
+  }
+}
+
+/** Marks every occurrence of the file's entity [entity], [clicked] as the current one; the popover's line that steps through them. */
+function markUses(entity: number, clicked: number) {
+  const order = occurrencesOf(view.occurrences, entity);
+  const current = Math.max(0, order.indexOf(clicked));
+  const line = el("div", "file-uses");
+  line.appendChild(el("span", null, t("popover.uses", { count: order.length })));
+  const position = el("span", "muted");
+  const step = (delta: number, label: string, text: string) => {
+    const button = el("button", "step", text);
+    button.type = "button";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.disabled = order.length < 2;
+    button.addEventListener("click", () => stepUse(delta));
+    return button;
+  };
+  line.append(step(-1, t("popover.previous"), "‹"), position, step(1, t("popover.next"), "›"));
+  uses = { order, current, position };
+  order.forEach((index, i) => setMarked(index, true, i === current));
+  showPosition();
+  return line;
+}
+
+function showPosition() {
+  if (uses) uses.position.textContent = t("popover.usePosition", { position: uses.current + 1, count: uses.order.length });
+}
+
+/** Moves the current use [delta] steps, round the file, scrolls to it and brings the popover under it. */
+function stepUse(delta: number) {
+  if (!uses) return;
+  setMarked(uses.order[uses.current], true, false);
+  uses.current = (uses.current + delta + uses.order.length) % uses.order.length;
+  setMarked(uses.order[uses.current], true, true);
+  showPosition();
+  const piece = piecesOf.get(uses.order[uses.current])?.[0];
+  if (!piece) return;
+  piece.scrollIntoView({ block: "center" });
+  placePopover(piece);
+}
+
+function clearUses() {
+  if (!uses) return;
+  for (const index of uses.order) setMarked(index, false, false);
+  uses = null;
+}
+
+/** The occurrence whose uses are marked, [marked]: the one of the name under the click. */
+function occurrenceBlock(o: FileOccurrence, index: number, marked: number | null) {
   const block = el("div", "occurrence");
   const status = el("div");
   status.appendChild(html(statusBadge(o.status, o.reason)));
@@ -251,7 +347,7 @@ function occurrenceBlock(o: FileOccurrence) {
   }
   block.appendChild(status);
   if (o.entity !== null) {
-    block.appendChild(entityBlock(view.entities[o.entity]));
+    block.appendChild(entityBlock(view.entities[o.entity], undefined, index === marked ? markUses(o.entity, index) : undefined));
   } else if (o.candidates.length) {
     block.appendChild(el("div", "muted", t("popover.candidates")));
     // Candidates are often overloads: their parameter lists show as much as tells them apart.
@@ -266,16 +362,44 @@ function occurrenceBlock(o: FileOccurrence) {
 
 function openPopover(piece: HTMLElement) {
   const popover = document.getElementById("popover")!;
-  const occurrences = piece.dataset.o!.split(",").map(Number).map(i => view.occurrences[i]);
-  popover.replaceChildren(...occurrences.map(occurrenceBlock));
+  clearUses();
+  const indexes = piece.dataset.o!.split(",").map(Number);
+  // A piece may lie under several names (`l_pair.a` is the record's and the field's): the innermost is the one clicked.
+  const marked = innermost(view.occurrences, indexes);
+  popover.replaceChildren(...indexes.map(i => occurrenceBlock(view.occurrences[i], i, marked)));
   popover.hidden = false;
+  placePopover(piece);
+}
+
+/** The piece of code the open popover is under. */
+let anchor: HTMLElement | null = null;
+
+/**
+ * The popover under [piece], inside the page's width with a margin on both sides: on a narrow screen across it, else
+ * starting under the piece and moved left as far as its width needs.
+ */
+function placePopover(piece: HTMLElement) {
+  const popover = document.getElementById("popover")!;
+  anchor = piece;
   const box = piece.getBoundingClientRect();
-  popover.style.left = `${Math.max(8, Math.min(box.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - popover.offsetWidth - 8))}px`;
+  const width = document.documentElement.clientWidth;
+  if (NARROW.matches) {
+    popover.style.width = `${width - 2 * MARGIN}px`;
+    popover.style.left = `${window.scrollX + MARGIN}px`;
+  } else {
+    popover.style.width = "";
+    popover.style.left = `${Math.max(MARGIN, Math.min(box.left + window.scrollX, window.scrollX + width - popover.offsetWidth - MARGIN))}px`;
+  }
   popover.style.top = `${box.bottom + window.scrollY + 4}px`;
 }
 
+/** The popover's least distance from the page's edges, in pixels. */
+const MARGIN = 8;
+
 function closePopover() {
   document.getElementById("popover")!.hidden = true;
+  anchor = null;
+  clearUses();
 }
 
 document.addEventListener("click", e => {

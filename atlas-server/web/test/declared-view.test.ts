@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 import type {Declared, Member} from "../src/api";
-import {declaredFacts, memberType, parameterDefaults, returnType} from "../src/declared-view";
+import {declaredFacts, declaredLine, memberType, parameterDefaults, returnType} from "../src/declared-view";
 
 // Invented names: a package PACK_LEDGER with a routine POST_ENTRY.
 function declared(over: Partial<Declared>): Declared {
@@ -68,5 +68,19 @@ describe("memberType", () => {
     expect(memberType(member("G_TOTAL", "PACKAGE_VARIABLE", declared({ type: "number" })))).toBe("number");
     expect(memberType(member("ORDER_ID", "COLUMN", declared({ type: "NUMBER(10) NOT NULL" })))).toBe("NUMBER(10) NOT NULL");
     expect(memberType(member("C_LINES", "CURSOR", declared({ type: "r_line" })))).toBeNull();
+  });
+});
+
+describe("declaredLine", () => {
+  it("gives a variable's or parameter's type, with := and its value when it has one", () => {
+    expect(declaredLine("LOCAL_VARIABLE", declared({ type: "varchar2(12)" }))).toBe("varchar2(12)");
+    expect(declaredLine("LOCAL_CONSTANT", declared({ type: "number", value: "10" }))).toBe("number := 10");
+    expect(declaredLine("PARAMETER", declared({ type: "orders.code%type", value: "'x'" }))).toBe("orders.code%type := 'x'");
+  });
+
+  it("says nothing for a routine, a cursor or an undeclared entity", () => {
+    expect(declaredLine("PROCEDURE", declared({ type: "number" }))).toBeNull();
+    expect(declaredLine("CURSOR", declared({ type: "orders%rowtype" }))).toBeNull();
+    expect(declaredLine("LOCAL_VARIABLE", null)).toBeNull();
   });
 });

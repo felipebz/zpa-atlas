@@ -1,6 +1,14 @@
 import {describe, expect, it} from "vitest";
 import type {EntitySummary, FileObject, FileOccurrence} from "../src/api";
-import {currentEntry, outlineEntries, segmentClass, segmentsByLine} from "../src/file-view";
+import {
+    currentEntry,
+    innermost,
+    occurrencesOf,
+    outlineEntries,
+    routineMemberName,
+    segmentClass,
+    segmentsByLine
+} from "../src/file-view";
 
 const entity = (key: string, kind: string, display: string, name: string): EntitySummary => ({ key, kind, display, external: false, name });
 const occurrence = (at: number[], status = "RESOLVED", entityIndex: number | null = 0): FileOccurrence =>
@@ -63,5 +71,41 @@ describe("outlineEntries", () => {
     expect(entries[currentEntry(entries, 4)].name).toBe("POST(P_ID)");
     expect(entries[currentEntry(entries, 8)].name).toBe("POST(P_CODE)");
     expect(entries[currentEntry(entries, 30)].name).toBe("SETTLE()");
+  });
+});
+
+describe("routineMemberName", () => {
+  const entity = (kind: string, key: string): EntitySummary => ({ key, kind, display: key.slice(3), external: false, name: key.slice(key.lastIndexOf(".") + 1) });
+  it("names a routine's parameter, local or local type's field without the routine's path", () => {
+    expect(routineMemberName(entity("LOCAL_VARIABLE", "db:SHOP.PK_LEDGER.POST(P_ID IN NUMBER)@BODY.L_PAIR"))).toBe("L_PAIR");
+    expect(routineMemberName(entity("PARAMETER", "db:SHOP.PK_LEDGER.POST(P_ID IN NUMBER).P_ID"))).toBe("P_ID");
+    expect(routineMemberName(entity("CURSOR", "db:SHOP.SHOW_CODE().C_OPEN"))).toBe("C_OPEN");
+    expect(routineMemberName(entity("RECORD_FIELD", "db:SHOP.PK_LEDGER.POST(P_ID IN NUMBER)@BODY.R_PAIR.A"))).toBe("R_PAIR.A");
+  });
+
+  it("leaves a package's or schema's object to its qualified name", () => {
+    expect(routineMemberName(entity("CURSOR", "db:SHOP.PK_LEDGER.C_OPEN"))).toBeNull();
+    expect(routineMemberName(entity("PACKAGE_VARIABLE", "db:SHOP.PK_LEDGER.G_CODE"))).toBeNull();
+    expect(routineMemberName(entity("RECORD_FIELD", "db:SHOP.PK_LEDGER.R_PAIR.A"))).toBeNull();
+    expect(routineMemberName(entity("PROCEDURE", "db:SHOP.PK_LEDGER.POST(P_ID IN NUMBER)"))).toBeNull();
+  });
+});
+
+describe("innermost", () => {
+  const occ = (at: number[], entity: number | null): FileOccurrence => ({ at, roles: [], status: "RESOLVED", reason: null, entity, candidates: [] });
+  it("is the occurrence of the name under the click: the smallest span that has an entity", () => {
+    // `l_pair.a`: the record over the whole name, the field over `a`, and an unresolved one over `a`.
+    const occurrences = [occ([6, 4, 6, 12], 0), occ([6, 11, 6, 12], 1), occ([6, 11, 6, 12], null)];
+    expect(innermost(occurrences, [0, 1, 2])).toBe(1);
+    expect(innermost(occurrences, [0])).toBe(0);
+    expect(innermost(occurrences, [2])).toBeNull();
+  });
+});
+
+describe("occurrencesOf", () => {
+  it("lists an entity's occurrences in reading order, and no other's", () => {
+    const occ = (entity: number | null, line: number, col: number): FileOccurrence =>
+      ({ at: [line, col, line, col + 3], roles: [], status: "RESOLVED", reason: null, entity, candidates: [] });
+    expect(occurrencesOf([occ(0, 9, 2), occ(1, 3, 0), occ(0, 3, 8), occ(0, 3, 2), occ(null, 1, 0)], 0)).toEqual([3, 2, 0]);
   });
 });

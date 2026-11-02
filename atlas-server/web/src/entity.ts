@@ -54,7 +54,6 @@ import {
     literalText,
     nameBreaksHtml,
     partBreaksHtml,
-    qualifierHtml,
     queryHref,
     scrollTable,
     stackCell
@@ -75,7 +74,7 @@ import {
     typeSourcePhrase,
     viewOf
 } from "./places-view";
-import {displayParts, parentKeyOf, shownNameText} from "./names";
+import {displayParts, parentKeyOf} from "./names";
 import {currentProject, setPageTitle} from "./project";
 import {browserStorage, recordOpened} from "./recent";
 import type {UsesBlock} from "./uses";
@@ -656,13 +655,16 @@ function placeClassBadge(placeClass: string, text = classLabel(t, placeClass)) {
   return `<span class="badge pc-${esc(placeClass)}${attention}" title="${esc(classTitle(t, placeClass))}">${esc(text)}</span>`;
 }
 
+/** The names on a place's row break only between their parts, never inside an identifier (a phone's narrow column). */
+const PARTS = { partBreaks: true };
+
 /** A view column read in place of the page's column: the view (a link when its key is known) and the column, linked. */
 function throughViewHtml(read: EntitySummary) {
   const { view, viewKey, column } = viewOf(read);
-  const viewName = `<span class="mono">${qualifierHtml(view)}</span>`;
+  const viewName = `<span class="mono parts">${partBreaksHtml(view)}</span>`;
   return fillHtml("places.through", {
     view: viewKey === null ? viewName : `<a href="${entityHref(viewKey)}">${viewName}</a>`,
-    column: `<a class="mono" href="${entityHref(read.key)}">${nameBreaksHtml(column)}</a>`
+    column: `<a class="mono parts" href="${entityHref(read.key)}">${partBreaksHtml(column)}</a>`
   });
 }
 
@@ -677,7 +679,7 @@ function placeRowHtml(p: ColumnPlace) {
   const written = `<span class="mono">${codeBreaksHtml(p.targetWritten)}</span>`;
   const target = (p.target ? `<a href="${entityHref(p.target.key)}" title="${esc(p.target.display)}">${written}</a>` : written) +
     (p.field ? `<span class="mono">.${nameBreaksHtml(p.field)}</span>` : "");
-  const container = p.container ? `<div class="muted">${fillHtml("places.in", { container: entityLink(p.container) })}</div>` : "";
+  const container = p.container ? `<div class="muted">${fillHtml("places.in", { container: entityLink(p.container, PARTS) })}</div>` : "";
   const through = p.viaView ? `<div class="muted">${throughViewHtml(p.read)}</div>` : "";
   const size = sizeText(t, p);
   const note = sizeNote(t, p);
@@ -687,12 +689,12 @@ function placeRowHtml(p: ColumnPlace) {
   const source = typeSourcePhrase(p);
   const parameter = parameterText(t, p);
   const functions = functionsText(t, p);
-  const why = (source === null ? "" : `<div>${fillHtml(source.key, { source: entityLink(source.entity) })}</div>`) +
+  const why = (source === null ? "" : `<div>${fillHtml(source.key, { source: entityLink(source.entity, PARTS) })}</div>`) +
     (functions === null ? "" : `<div>${esc(functions)}</div>`) +
     (p.argumentOf === null || p.routine === null ? "" :
       `<div>${fillHtml("places.argumentOf", {
         parameter: `<a class="mono parts" href="${entityHref(p.argumentOf.key)}">${partBreaksHtml(p.argumentOf.name)}</a>`,
-        routine: `<a class="parts" href="${entityHref(p.routine.key)}" title="${esc(p.routine.display)}">${partBreaksHtml(shownNameText(p.routine))}</a>`
+        routine: entityLink(p.routine, PARTS)
       })}</div>`) +
     (parameter === null ? "" : `<div class="uses-gap">${esc(parameter)}</div>`) +
     (p.reason === null ? "" : `<div class="uses-gap" title="${esc(p.reason)}">${esc(reasonText(t, p.reason))}</div>`);

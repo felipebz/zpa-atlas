@@ -67,3 +67,21 @@ export function parameterDefaults(params: { name: string }[], children: Member[]
 export function memberType(member: Member): string | null {
   return ["PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "ATTRIBUTE", "COLUMN"].includes(member.entity.kind) ? member.declared?.type ?? null : null;
 }
+
+/** The kinds whose declared type the file page's popover shows. */
+const TYPED_KINDS = ["LOCAL_VARIABLE", "LOCAL_CONSTANT", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "PARAMETER", "RECORD_FIELD", "ATTRIBUTE"];
+
+/**
+ * A variable's, constant's, parameter's or field's declaration in one line, as the popover shows it: its type, then
+ * `:= …` for its default or initial value (`varchar2(12) := 'x'`; a value cut short already ends with `…`). Null for any other kind
+ * or when nothing is declared.
+ */
+export function declaredLine(kind: string, declared: Declared | null): string | null {
+  if (!TYPED_KINDS.includes(kind)) return null;
+  const facts = declaredFacts(kind, declared);
+  const type = facts.find(f => f.label === "type")?.text ?? null;
+  const value = facts.find(f => f.label === "default" || f.label === "initial");
+  const valueText = value ? ":= " + value.text : null;
+  if (type === null && valueText === null) return null;
+  return [type, valueText].filter(x => x !== null).join(" ");
+}

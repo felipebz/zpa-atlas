@@ -409,6 +409,14 @@ ul.cols li { break-inside: avoid; }
 .popover .actions { margin: 2px 0; }
 .popover ul { margin: 2px 0; padding-left: 18px; }
 .popover .label { font-weight: 600; margin-top: 4px; }
+.popover .declared { margin: 2px 0; overflow-wrap: anywhere; }
+.popover .file-uses { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 2px 0; }
+.popover .file-uses button.step { padding: 0 8px; font-size: var(--fs-s); }
+/* On a touch screen, previous and next are big enough to tap. */
+@media (pointer: coarse), (max-width: 700px) { .popover .file-uses button.step { min-width: 40px; min-height: 36px; font-size: var(--fs-base, 1rem); } }
+/* The uses of the popover's entity in the file, as a search marks its matches; the current one outlined. */
+.file-src .occ.in-use { background: var(--mark); border-radius: 2px; }
+.file-src .occ.in-use-current { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* Query: three filters and the buttons in front, the rest folded. Every control has the same height. */
 .query-page { --control: 32px; }
@@ -551,7 +559,8 @@ table.impact ol.hops li { padding: 2px 0; }
   /* A place: the class, the target, the declared type, the type source, each on a line of its own at the same indent; then the statement kind and the line. */
   table.places.stack td.pclass, table.places.stack td.ptarget, table.places.stack td.pdecl, table.places.stack td.pwhy { flex: 1 1 100%; }
   table.places.stack td.psource { flex: 0 0 auto; }
-  table.places.stack td.pline { flex: 1 1 0; }
+  /* The file and line beside the statement kind, or on a line of their own when the file name would not fit whole. */
+  table.places.stack td.pline { flex: 1 1 auto; overflow-wrap: break-word; }
 }
 button.more-rows { margin-top: 6px; }
 

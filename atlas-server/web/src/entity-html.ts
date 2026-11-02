@@ -1,7 +1,7 @@
 import type {EntitySummary} from "./api";
 import type {Place} from "./entity-view";
 import {isBodyOwn} from "./entity-view";
-import {entityHref, esc, fillMarks, langSuffix, qualifierHtml} from "./html";
+import {entityHref, esc, fillMarks, langSuffix, partBreaksHtml, qualifierHtml} from "./html";
 import {t} from "./i18n";
 import {kindMark} from "./kinds";
 import type {NameShape} from "./names";
@@ -11,6 +11,8 @@ export interface NameOptions extends NameShape {
   noBadge?: boolean;
   /** No "body" badge at all, not even for a member of a body (a header that names the program, not its place). */
   noBodyBadge?: boolean;
+  /** Break only between the name's parts (after a dot, a comma or a parenthesis), never inside an identifier. */
+  partBreaks?: boolean;
 }
 
 /**
@@ -21,10 +23,13 @@ export interface NameOptions extends NameShape {
  */
 export function nameHtml(entity: EntitySummary, options?: NameOptions) {
   const shown = shownName(entity.display, entity.name, options);
-  const qualifier = shown.qualifier ? `<span class="qualifier">${qualifierHtml(shown.qualifier)}</span>` : "";
-  // A parameter list may break at its spaces and after an underscore, as the name does, never inside a word.
-  const params = shown.params === null ? "" : `<span class="params">${esc(shown.params).replace(/_/g, "_<wbr>")}</span>`;
-  const name = `<span class="name">${esc(shown.bare).replace(/_/g, "_<wbr>")}${params}${esc(shown.collision)}</span>`;
+  const parts = options?.partBreaks === true;
+  const qualifier = shown.qualifier ? `<span class="qualifier">${parts ? partBreaksHtml(shown.qualifier) : qualifierHtml(shown.qualifier)}</span>` : "";
+  // A parameter list may break at its spaces and after an underscore, as the name does, never inside a word; with
+  // [NameOptions.partBreaks], only after a comma or a parenthesis.
+  const word = (text: string) => parts ? partBreaksHtml(text) : esc(text).replace(/_/g, "_<wbr>");
+  const params = shown.params === null ? "" : `<span class="params">${word(shown.params)}</span>`;
+  const name = `<span class="name">${word(shown.bare)}${params}${esc(shown.collision)}</span>`;
   const body = !options?.noBodyBadge && ((shown.parts.body && !options?.noBadge) || (shown.parts.qualifierBody && !options?.relative));
   const badge = body ? ` <span class="badge">${esc(t("entity.overload.body"))}</span>` : "";
   return `<span class="ename" title="${esc(entity.display)}">${qualifier}${name}${badge}</span>`;
@@ -57,7 +62,8 @@ export function nameNodes(entity: EntitySummary, options?: NameOptions) {
 export function entityLink(entity: EntitySummary | null | undefined, options?: NameOptions) {
   if (!entity) return '<span class="muted">—</span>';
   const ext = entity.external ? ` <span class="badge external">${esc(t("entity.external"))}</span>` : "";
-  return `<a href="${entityHref(entity.key)}">${nameHtml(entity, options)}</a>${ext}`;
+  const parts = options?.partBreaks ? ' class="parts"' : "";
+  return `<a${parts} href="${entityHref(entity.key)}">${nameHtml(entity, options)}</a>${ext}`;
 }
 
 /** A catalog label (`<prefix>.<NAME>`) when the catalog has one, else the stored name. */
