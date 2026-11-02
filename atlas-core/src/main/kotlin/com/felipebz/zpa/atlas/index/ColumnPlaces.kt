@@ -149,7 +149,7 @@ internal class ColumnPlaces(
             target.local != null -> Node.Shape(target.local, null)
             else -> Node.Failed(target.reason ?: "TARGET_UNDECIDED")
         }
-        for (name in target.path) node = field(node, null, name).first
+        for (name in target.path) node = if (name == IntoTarget.ELEMENT) element(node) else field(node, null, name).first
         if (target.element) node = element(node)
         if (bulk) node = element(node)
         return node

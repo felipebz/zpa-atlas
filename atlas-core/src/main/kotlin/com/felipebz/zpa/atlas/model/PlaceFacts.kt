@@ -65,7 +65,7 @@ data class DeclaredShapeFact(val entityKey: String, val shape: TypeShape)
 
 /**
  * A PL/SQL target of an `INTO`, as written at [span]: the entity zpa binds it to ([entityKey]) and the fields written
- * after it ([path]), or, for a declaration without an entity, its [local] shape and [declaredType]; [element] for a
+ * after it ([path], with [ELEMENT] steps for a field through a collection element), or, for a declaration without an entity, its [local] shape and [declaredType]; [element] for a
  * collection element (`l_tab(i)`); [reason] when the target is not known.
  */
 data class IntoTarget(
@@ -77,7 +77,12 @@ data class IntoTarget(
     val local: TypeShape?,
     val declaredType: String?,
     val reason: String?
-)
+) {
+    companion object {
+        /** A step of [path] that takes an element of the collection reached so far (`a(i).f`: `ELEMENT`, `F`). */
+        const val ELEMENT = "()"
+    }
+}
 
 /**
  * One `INTO`: [source], [bulk] for `BULK COLLECT`, where it is, the select items of each branch of its query

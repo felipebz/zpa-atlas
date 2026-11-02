@@ -81,10 +81,13 @@ a single target that takes several items, or a whole row (`select * into r`), is
 field; a `BULK COLLECT` target is a collection whose element takes the value. An item is the column when it is the
 column itself, written bare or qualified (`code`, `o.code`, `shop.orders.code`), or a `*` over a relation whose columns
 the dictionary lists. The target is the one zpa binds the name to, as for its uses; a field reached through a
-collection element (`a(i).f`, `a(i).r.f`, `a(i).f(j)`) is the field zpa binds its last name to. A variable of an
+collection element (`a(i).f`, `a(i).r.f`, `a(i).f(j)`) is the field zpa binds its last name to; when that field has
+no entity, as in an element that is a `%ROWTYPE` of a table, view or cursor, the collection's element type is followed to
+the field, as for a `%ROWTYPE` variable. A collection the index does not know leaves the field undecided
+(`FIELD_UNDECIDED`). A variable of an
 anonymous block has no entity, and its own declaration says its type. A bind or host variable (`:new.code`, `:b1`) is
 not a name the index follows (`TARGET_NOT_A_NAME`), nor an element of an element (`a(i)(j)`,
-`TARGET_SHAPE_NOT_FOLLOWED`). Places are rows of their own (`column_place`): each holds the
+`a(i)(j).f`, `TARGET_SHAPE_NOT_FOLLOWED`). Places are rows of their own (`column_place`): each holds the
 column, the target and the field it lands in, and how the target is declared, which no relation or role could carry.
 
 The target's declared type is followed to where it ends: a `%TYPE` anchor to a variable, parameter or field, a subtype

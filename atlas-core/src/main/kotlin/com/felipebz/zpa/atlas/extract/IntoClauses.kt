@@ -315,17 +315,21 @@ internal class IntoClauses(
      * A target as zpa binds it: a field with an entity at its last segment, else the entity of the whole name (the
      * segments after the one it names are fields), else a declaration without an entity, with its own type. A field
      * reached through a collection element (`a(i).f`, `a(i).r.f`, and `a(i).f(j)` for an element of it) is the field
-     * zpa binds its last segment to, as the index records its use. An element of an element (`a(i)(j)`, `a(i).f(j)(k)`)
-     * is a shape the index does not follow (`TARGET_SHAPE_NOT_FOLLOWED`).
+     * zpa binds its last segment to, as the index records its use; when that field has no entity (a field of an element
+     * that is a `%ROWTYPE`), the collection itself, its element and fields as steps of the path ([IntoTarget.ELEMENT]).
+     * An element of an element (`a(i)(j)`, `a(i).f(j)(k)`) is a shape the index does not follow
+     * (`TARGET_SHAPE_NOT_FOLLOWED`).
      */
     private fun target(node: AstNode, bySpan: Map<SourceSpan, List<OccurrenceFact>>, shapes: TypeShapes): IntoTarget {
         val span = spanOf(node)
         val written = writtenText(node)
         if (node.type == PlSqlGrammar.OBJECT_REFERENCE) {
-            val (field, element) = fieldThroughElement(node)
+            val head = node.firstChild
+            val (field, element) = fieldThroughElement(node)?.takeUnless { head.type == PlSqlGrammar.METHOD_CALL && isElementOfElement(head) }
                 ?: return IntoTarget(span, written, null, emptyList(), false, null, null, TARGET_SHAPE_NOT_FOLLOWED)
-            val key = bySpan[spanOf(field)]?.firstOrNull()?.entityKey
-            return IntoTarget(span, written, key, emptyList(), element, null, null, if (key == null) "FIELD_UNDECIDED" else null)
+            bySpan[spanOf(field)]?.firstOrNull()?.entityKey?.let { return IntoTarget(span, written, it, emptyList(), element, null, null, null) }
+            return throughElements(node, bySpan, shapes)?.copy(span = span, written = written)
+                ?: IntoTarget(span, written, null, emptyList(), element, null, null, "FIELD_UNDECIDED")
         }
         val element = node.type == PlSqlGrammar.METHOD_CALL
         if (element && isElementOfElement(node)) return IntoTarget(span, written, null, emptyList(), true, null, null, TARGET_SHAPE_NOT_FOLLOWED)
@@ -345,6 +349,25 @@ internal class IntoClauses(
             ?: return IntoTarget(span, written, null, emptyList(), element, null, null, "TARGET_UNDECIDED")
         val shape = shapes.of(declaration, null) ?: TypeShape.Unknown("DECLARATION_UNKNOWN")
         return IntoTarget(span, written, null, segments.drop(1), element, shape, DeclaredTexts.of("", declaration)?.datatype, null)
+    }
+
+    /**
+     * `a(i).f`, `a(i).r.f`, `a(i).f(j)` followed from the collection `a`: its target, then an element step and the
+     * written fields and elements after it; null when `a` is not a target the index knows.
+     */
+    private fun throughElements(reference: AstNode, bySpan: Map<SourceSpan, List<OccurrenceFact>>, shapes: TypeShapes): IntoTarget? {
+        val head = reference.firstChild.takeIf { it.type == PlSqlGrammar.METHOD_CALL } ?: return null
+        val collection = target(head.firstChild, bySpan, shapes).takeIf { it.reason == null && !it.element } ?: return null
+        val steps = ArrayList(collection.path)
+        steps += IntoTarget.ELEMENT
+        fun visit(node: AstNode): Boolean = when (node.type) {
+            PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.IDENTIFIER_NAME -> steps.add(normalizeIdentifier(node.tokenOriginalValue))
+            PlSqlGrammar.OBJECT_REFERENCE, PlSqlGrammar.MEMBER_EXPRESSION -> node.children.filter { it.type != PlSqlPunctuator.DOT }.all(::visit)
+            PlSqlGrammar.METHOD_CALL -> visit(node.firstChild) && steps.add(IntoTarget.ELEMENT)
+            else -> false
+        }
+        if (!reference.children.drop(1).filter { it.type != PlSqlPunctuator.DOT }.all(::visit)) return null
+        return collection.copy(path = steps)
     }
 
     /**

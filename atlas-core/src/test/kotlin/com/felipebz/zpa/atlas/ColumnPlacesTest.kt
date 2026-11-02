@@ -161,12 +161,16 @@ class ColumnPlacesTest {
               l tab_tab_c;
             begin
               select code into l(1)(1) from orders where rownum = 1;
+              select code into l(1)(1).x from orders where rownum = 1;
             end;
             /
         """.trimIndent())
         val db = temp.resolve("places.db")
         Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
-        assertThat(places(db, "nested.sql")).containsExactly("6 ORDERS.CODE SELECT_INTO l(1)(1) UNKNOWN - - - TARGET_SHAPE_NOT_FOLLOWED")
+        assertThat(places(db, "nested.sql")).containsExactly(
+            "6 ORDERS.CODE SELECT_INTO l(1)(1) UNKNOWN - - - TARGET_SHAPE_NOT_FOLLOWED",
+            "7 ORDERS.CODE SELECT_INTO l(1)(1).x UNKNOWN - - - TARGET_SHAPE_NOT_FOLLOWED"
+        )
     }
 
     @Test
@@ -216,6 +220,47 @@ class ColumnPlacesTest {
         assertThat(Fixture.query(db, """SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id
             WHERE c.kind = 'COLUMN_VALUE_NOT_FOLLOWED' AND f.path = 'assign.sql' ORDER BY 1""").map { it.substringBefore(" ") })
             .containsExactly("RECORD_ASSIGNMENT:", "RECORD_ASSIGNMENT_EXPRESSION_UPPER:")
+    }
+
+    @Test
+    fun `a field of an element of a collection of a row type takes its column's type`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("rows.sql"), """
+            create table t_lot (code varchar2(20 byte), qty number(9));
+            /
+            create or replace package pk_rows as
+              procedure w1;
+            end;
+            /
+            create or replace package body pk_rows as
+              cursor c is select code, qty from t_lot;
+              type tab_row is table of t_lot%rowtype index by binary_integer;
+              type tab_cur is table of c%rowtype index by binary_integer;
+              type rec_pair is record (cd varchar2(5), qty number);
+              type tab_pair is table of rec_pair index by binary_integer;
+              procedure w1 is l tab_row; begin for r in (select code from t_lot) loop l(1).code := r.code; end loop; end;
+              procedure w2 is l tab_cur; begin for r in (select code from t_lot) loop l(1).code := r.code; end loop; end;
+              procedure w4 is l tab_row; begin select code into l(1).code from t_lot where rownum = 1; end;
+              procedure w5 is l t_lot%rowtype; begin for r in (select code from t_lot) loop l.code := r.code; end loop; end;
+              procedure w6 is l tab_row; r2 t_lot%rowtype; begin select * into r2 from t_lot where rownum = 1; l(1).code := r2.code; end;
+              procedure w7 is l tab_pair; begin select code into l(1).cd from t_lot where rownum = 1; end;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        assertThat(places(db, "rows.sql").map { it.replace("T_LOT.", "") }).containsExactly(
+            // An element of a collection of a table's row, and of a cursor's row: the row's field is the column.
+            "13 CODE ASSIGNMENT l(1).code ANCHORED_TO_COLUMN tab_row - CODE -",
+            "14 CODE ASSIGNMENT l(1).code ANCHORED_TO_COLUMN tab_cur - CODE -",
+            "15 CODE SELECT_INTO l(1).code ANCHORED_TO_COLUMN tab_row - CODE -",
+            "16 CODE ASSIGNMENT l.code ANCHORED_TO_COLUMN t_lot%rowtype - CODE -",
+            // Without a dictionary `select *` names no column; the field of the %ROWTYPE variable still does.
+            "17 CODE ASSIGNMENT l(1).code ANCHORED_TO_COLUMN tab_row - CODE -",
+            // An element of a record type: its field's own declaration, as before.
+            "18 CODE SELECT_INTO l(1).cd FIXED_SIZE varchar2(5) 5 NLS_LENGTH_SEMANTICS - -"
+        )
     }
 
     @Test
