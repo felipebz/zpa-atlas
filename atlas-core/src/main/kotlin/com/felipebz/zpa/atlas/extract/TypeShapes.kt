@@ -83,7 +83,7 @@ internal class TypeShapes(
         })
         PlSqlGrammar.TABLE_OF_DECLARATION -> TypeShape.Collection(datatypeOf(node.getFirstChild(PlSqlGrammar.NESTED_TABLE_DEFINITION)) ?: unknown())
         PlSqlGrammar.VARRAY_DECLARATION -> TypeShape.Collection(datatypeOf(node.getFirstChild(PlSqlGrammar.VARRAY_TYPE_DEFINITION)) ?: unknown())
-        PlSqlGrammar.REF_CURSOR_DECLARATION -> TypeShape.Unknown("CURSOR_VARIABLE")
+        PlSqlGrammar.REF_CURSOR_DECLARATION -> TypeShape.Unknown("CURSOR_VARIABLE", strongCursor = node.hasDirectChildren(PlSqlKeyword.RETURN))
         // A standalone type: a collection (`AS TABLE OF t`, `AS VARRAY(n) OF t`), or an object type, which has no size.
         PlSqlGrammar.CREATE_TYPE -> when {
             node.hasDirectChildren(PlSqlGrammar.OBJECT_TYPE_DEFINITION) -> TypeShape.Unsized("OBJECT")

@@ -77,10 +77,15 @@ internal class ColumnPlaces(
             // The arguments of OUT parameters are followed from the places of their parameters ([arguments]), the values
             // passed to IN parameters from their calls ([passed]).
             if (into.source == PlaceSource.OUT_ARGUMENT || into.source == PlaceSource.IN_ARGUMENT) continue
+            // A FETCH from a cursor variable, which has no entity: its row is not known.
+            if (into.source == PlaceSource.FETCH && into.cursorKey == null && into.branches.isEmpty()) {
+                leftOut.merge(fetchNotKnown(into, null), into.targets.size, Int::plus)
+                continue
+            }
             val branches = if (into.cursorKey != null) {
                 val row = shapes[into.cursorKey] as? TypeShape.CursorRow
                 if (row == null) {
-                    leftOut.merge("FETCH_CURSOR_NOT_KNOWN", into.targets.size, Int::plus)
+                    leftOut.merge(fetchNotKnown(into, into.cursorKey), into.targets.size, Int::plus)
                     continue
                 }
                 listOf(row.items)
@@ -107,14 +112,14 @@ internal class ColumnPlaces(
      * `target := r.f`: a place of the column `f` stands for when `r` is a row record (a cursor `FOR` loop record, a
      * variable of a `%ROWTYPE`, or of a cursor's row), decided as a `FETCH` from that cursor decides it. Any other record
      * is not a row: nothing. A field whose column is not known (an expression of the cursor's query, a cursor or
-     * `%ROWTYPE` not known) is counted, and so is an expression of the field (`upper(r.code)`) by its shape.
+     * `%ROWTYPE` not known) is counted by why ([notKnown]), and so is an expression of the field (`upper(r.code)`) by its shape.
      */
     private fun assignment(into: IntoFact, places: MutableList<ColumnPlaceFact>, leftOut: MutableMap<String, Int>) {
         val row = structure(targetNode(into.row ?: return, false), 0)
         if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) return
         val column = field(row, null, into.rowField).first as? Node.Column
         when {
-            column == null -> leftOut.merge("RECORD_ASSIGNMENT", 1, Int::plus)
+            column == null -> leftOut.merge(notKnown("RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_", row, into.rowField), 1, Int::plus)
             into.expression != null -> leftOut.merge("RECORD_ASSIGNMENT_EXPRESSION_${into.expression}", 1, Int::plus)
             else -> for ((key, functions) in column.all) places += place(into, into.targets.single(), null, key, into.functions + functions)
         }
@@ -166,7 +171,7 @@ internal class ColumnPlaces(
                 if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) continue
                 val found = field(row, null, into.rowField).first as? Node.Column
                 if (found == null) {
-                    count(file.path, notKnown(row, into.rowField))
+                    count(file.path, notKnown("ARGUMENT_COLUMN_NOT_KNOWN_", row, into.rowField))
                     continue
                 }
                 found.all.map { (key, functions) -> key to (into.functions + functions) }
@@ -428,22 +433,25 @@ internal class ColumnPlaces(
     }
 
     /**
-     * Why the field [name] of the row record [row] has no column known, the shape it is counted under:
-     * - `ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_*`: the cursor's item is an expression the index does not follow, by its
-     *   shape as for `EXPRESSION_*` (`code || note` is `_CONCATENATION`, `nvl(note, code)` is `_NVL`);
-     * - `_ROWTYPE`: a `%ROWTYPE` whose relation or cursor the index does not know (`r missing_tab%rowtype`);
-     * - `_CURSOR`: a `%ROWTYPE` of a cursor whose query is not known (a cursor of another package with no query);
-     * - `_STAR`: the cursor's `*` over a relation whose columns are not known (`select * from missing_tab`);
-     * - `_OTHER`: anything else: an item that reads no column the index knows (a literal, a function of the routine's
-     *   parameters or of a table function's rows), or a name that is not a known column.
+     * Why the field [name] of the row record [row] has no column known, the shape it is counted under, after [prefix]
+     * (`ARGUMENT_COLUMN_NOT_KNOWN_` for a field passed to a routine, `RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_` for one assigned):
+     * - `EXPRESSION_*`: the cursor's item is an expression the index does not follow, by its shape as for `EXPRESSION_*`
+     *   (`code || note` is `_CONCATENATION`, `decode(code, 'a', 'b')` is `_OTHER_DECODE`);
+     * - `ROWTYPE`: a `%ROWTYPE` whose relation or cursor the index does not know (`r missing_tab%rowtype`);
+     * - `CURSOR`: a `%ROWTYPE` of a cursor whose query is not known (a cursor of another package with no query);
+     * - `REF_CURSOR`: a `%ROWTYPE` of a cursor variable, whose `REF CURSOR` type has a `RETURN` (`r p%rowtype`);
+     * - `STAR`: the cursor's `*` over a relation whose columns are not known (`select * from missing_tab`);
+     * - `NO_COLUMN`, `COLUMN_UNRESOLVED`, `INLINE_VIEW`: the item, by [QueryItem.notColumn];
+     * - `OTHER`: anything else.
      */
-    private fun notKnown(row: Node.Shape, name: String?): String {
-        val prefix = "ARGUMENT_COLUMN_NOT_KNOWN_"
+    private fun notKnown(prefix: String, row: Node.Shape, name: String?): String {
         val items = when (val shape = row.shape) {
             is TypeShape.CursorRow -> shape.items
             is TypeShape.Anchored -> {
                 val key = shape.anchorKey
-                ((if (key != null) shapes[key] else shape.local) as? TypeShape.CursorRow)?.items ?: return prefix + when {
+                val source = if (key != null) shapes[key] else shape.local
+                (source as? TypeShape.CursorRow)?.items ?: return prefix + when {
+                    isCursorVariable(source) -> "REF_CURSOR"
                     key == null || kinds[key] in RELATIONS -> "ROWTYPE"
                     kinds[key] == EntityKind.CURSOR -> "CURSOR"
                     else -> "OTHER"
@@ -456,8 +464,36 @@ internal class ColumnPlaces(
             item == null -> if (items.any { it.opaque }) "STAR" else "OTHER"
             item.expression != null -> "EXPRESSION_${item.expression}"
             item.combined != null -> "EXPRESSION_${item.combined}"
+            else -> item.notColumn ?: "OTHER"
+        }
+    }
+
+    /** The `REF CURSOR` type [shape] is, through type names: its [TypeShape.Unknown], or null for any other shape. */
+    private fun refCursor(shape: TypeShape?, depth: Int = 0): TypeShape.Unknown? = when {
+        depth > MAX_DEPTH -> null
+        shape is TypeShape.Unknown -> shape.takeIf { it.reason == CURSOR_VARIABLE }
+        shape is TypeShape.Named -> refCursor(shape.typeKey?.let { shapes[it] } ?: shape.local, depth + 1)
+        shape is TypeShape.OutParameter -> refCursor(shape.type, depth + 1)
+        else -> null
+    }
+
+    private fun isCursorVariable(shape: TypeShape?) = refCursor(shape) != null
+
+    /**
+     * The shape a FETCH whose cursor's query is not known is counted under, by the cursor: `_STRONG` for a variable of
+     * a `REF CURSOR` type with `RETURN` (its own entity [cursorKey], or the type the extraction found), else what the
+     * extraction told ([IntoFact.cursorKind]: opened in the routine, or a parameter), else `_OTHER`.
+     */
+    private fun fetchNotKnown(into: IntoFact, cursorKey: String?): String {
+        val strong = into.cursorKind == STRONG || refCursor(cursorKey?.let { shapes[it] })?.strongCursor == true ||
+            refCursor(into.cursorType?.let { shapes[it] })?.strongCursor == true
+        val kind = when {
+            strong -> STRONG
+            into.cursorKind != null -> into.cursorKind
+            cursorKey != null && kinds[cursorKey] == EntityKind.PARAMETER -> "PARAMETER"
             else -> "OTHER"
         }
+        return IntoClauses.FETCH_CURSOR_NOT_KNOWN + kind
     }
 
     /** The element of the collection [node] is. */
@@ -491,6 +527,10 @@ internal class ColumnPlaces(
 
     companion object {
         private const val MAX_DEPTH = 20
+
+        /** The reason of the shape of a `REF CURSOR` type ([TypeShape.Unknown]). */
+        private const val CURSOR_VARIABLE = "CURSOR_VARIABLE"
+        private const val STRONG = "STRONG"
 
         /** The prefix of a nested subprogram's parameter key, as the extraction writes it. */
         private const val LOCAL_PARAMETER = "local:"

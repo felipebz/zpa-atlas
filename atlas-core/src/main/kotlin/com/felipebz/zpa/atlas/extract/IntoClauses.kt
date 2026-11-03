@@ -33,7 +33,7 @@ internal class IntoClauses(
 ) {
     private class Pending(
         val source: PlaceSource, val bulk: Boolean, val context: Context, val statementId: Int?, val branches: List<List<QueryItem>>,
-        val cursor: AstNode?, val targets: List<AstNode>
+        val cursor: AstNode?, val targets: List<AstNode>, val fetch: AstNode? = null
     )
 
     private val pending = ArrayList<Pending>()
@@ -119,7 +119,45 @@ internal class IntoClauses(
         if (context.dynamic != null) return
         val into = node.getFirstChildOrNull(DmlGrammar.INTO_CLAUSE) ?: return
         val cursor = node.children.firstOrNull { it.type == PlSqlGrammar.MEMBER_EXPRESSION || it.type == PlSqlGrammar.VARIABLE_NAME } ?: return
-        pending += Pending(PlaceSource.FETCH, isBulk(into), context, null, emptyList(), cursor, targetsOf(into))
+        pending += Pending(PlaceSource.FETCH, isBulk(into), context, null, emptyList(), cursor, targetsOf(into), node)
+    }
+
+    /**
+     * What a `FETCH` ([fetch]) reads from the cursor variable [cursor], and the entity of its type when it names one.
+     * zpa binds no name of a `FETCH` or `OPEN`: the variable is the declaration of that name nearest the `FETCH`. The
+     * kind: `STRONG` for a `REF CURSOR` type of this file with `RETURN`, `OPENED_STATIC` when the routine opens it `FOR`
+     * static queries only, `OPENED_DYNAMIC` when it opens it `FOR` a string, `PARAMETER` for a parameter it does not
+     * open (the routine or block that declares the variable); null for anything else.
+     */
+    private fun cursorKind(fetch: AstNode, cursor: AstNode, shapes: TypeShapes): Pair<String?, String?> {
+        val declaration = cursorDeclaration(cursor) ?: return null to null
+        var shape = shapes.of(declaration, null)
+        if (shape is TypeShape.OutParameter) shape = shape.type
+        val type = (shape as? TypeShape.Named)?.typeKey
+        if (shape?.let(::isStrongCursor) == true) return "STRONG" to type
+        // The routine or block that declares the variable (its parameters, or its declare section).
+        val scope = declaration.parentOrNull?.parentOrNull
+        val opens = scope?.getDescendants(PlSqlGrammar.OPEN_FOR_STATEMENT).orEmpty().filter { open ->
+            open.children.firstOrNull { it.type == PlSqlGrammar.MEMBER_EXPRESSION || it.type == PlSqlGrammar.VARIABLE_NAME }
+                ?.let(::cursorDeclaration) === declaration
+        }
+        return when {
+            opens.isEmpty() -> if (declaration.type == PlSqlGrammar.PARAMETER_DECLARATION) "PARAMETER" else null
+            opens.all { it.hasDirectChildren(DmlGrammar.SELECT_EXPRESSION) } -> "OPENED_STATIC"
+            else -> "OPENED_DYNAMIC"
+        } to type
+    }
+
+    /** The variable or parameter declaration of the simple name [cursor] nearest it, in the blocks and routines around it. */
+    private fun cursorDeclaration(cursor: AstNode): AstNode? {
+        if (cursor.type != PlSqlGrammar.VARIABLE_NAME) return null
+        val name = normalizeIdentifier(cursor.tokenOriginalValue)
+        for (scope in generateSequence(cursor.parentOrNull) { it.parentOrNull }) {
+            val declarations = scope.getChildren(PlSqlGrammar.DECLARE_SECTION).flatMap { it.getChildren(PlSqlGrammar.VARIABLE_DECLARATION) } +
+                scope.getChildren(PlSqlGrammar.PARAMETER_DECLARATIONS).flatMap { it.getChildren(PlSqlGrammar.PARAMETER_DECLARATION) }
+            declarations.firstOrNull { normalizeIdentifier(it.firstChild.tokenOriginalValue) == name }?.let { return it }
+        }
+        return null
     }
 
     /** `EXECUTE IMMEDIATE … INTO` or `RETURNING INTO`: counted, one per target. */
@@ -146,12 +184,12 @@ internal class IntoClauses(
             return
         }
         val functions = valueChain(value) { it === field }
-        assignments += Assignment(node.firstChild, spanOf(node.children[at]), field, if (functions == null) expressionShape(value) else null,
+        assignments += Assignment(node.firstChild, spanOf(node.children[at]), field, if (functions == null) value else null,
             functions.orEmpty(), context)
     }
 
     private class Assignment(
-        val target: AstNode, val site: SourceSpan, val field: AstNode, val expression: String?, val functions: List<String>, val context: Context
+        val target: AstNode, val site: SourceSpan, val field: AstNode, val expression: AstNode?, val functions: List<String>, val context: Context
     )
 
     private val assignments = ArrayList<Assignment>()
@@ -416,7 +454,7 @@ internal class IntoClauses(
         for (column in block.getChildren(DmlGrammar.SELECT_COLUMN)) {
             val sources = columnReads.starSources(statement, column)
             if (sources == null) {
-                result += item(statement, column.firstChild, column.children.drop(1).lastOrNull { it.type == PlSqlGrammar.IDENTIFIER_NAME })
+                result += item(statement, column.firstChild, column.children.drop(1).lastOrNull { it.type == PlSqlGrammar.IDENTIFIER_NAME }, block)
                 continue
             }
             for (source in sources) {
@@ -437,11 +475,11 @@ internal class IntoClauses(
      * One select or `RETURNING` item: the column it is, read as is or through value functions ([valueChain]), the shape
      * of another expression of one column, or neither.
      */
-    private fun item(statement: Statement, expression: AstNode, alias: AstNode?): QueryItem {
+    private fun item(statement: Statement, expression: AstNode, alias: AstNode?, block: AstNode? = null): QueryItem {
         val segments = plsql.nameSegments(expression)
         val name = alias?.let { normalizeIdentifier(it.tokenOriginalValue) } ?: segments?.last()?.let { normalizeIdentifier(it) }
         fun column(node: AstNode) = columnOf(statement, node)
-        if (segments != null) return QueryItem(name, column(expression), null)
+        if (segments != null) return column(expression)?.let { QueryItem(name, it, null) } ?: QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
         val columns = HashSet<String>()
         fun visit(node: AstNode) {
             statement.columnReads[node]?.let { reads -> reads.mapNotNullTo(columns) { it.entityKey } }
@@ -457,7 +495,7 @@ internal class IntoClauses(
             }
             return QueryItem(name, null, null, combined = expressionShape(expression))
         }
-        if (columns.isEmpty()) return QueryItem(name, null, null)
+        if (columns.isEmpty()) return QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
         var leaf: String? = null
         val functions = valueChain(expression) { node -> plsql.nameSegments(node) != null && column(node)?.also { leaf = it } != null }
         return if (functions != null && leaf != null) QueryItem(name, leaf, null, functions = functions)
@@ -518,6 +556,43 @@ internal class IntoClauses(
     }
 
     /**
+     * Why the select item [expression] of the query block [block] reads no column the index knows ([QueryItem.notColumn]):
+     * `INLINE_VIEW` when it names a column of an inline view (`v.code` from `(select code from orders) v`),
+     * `COLUMN_UNRESOLVED` when it reads columns the index does not resolve, else `NO_COLUMN` (a literal, a PL/SQL value,
+     * `ROWNUM`, `LEVEL`, a function of those, `extractValue(value(t), …)` over `table(…)`).
+     */
+    private fun notColumn(statement: Statement, expression: AstNode, block: AstNode?): String {
+        if (block != null && readsInlineView(expression, block)) return "INLINE_VIEW"
+        return if (subtree(expression).any { statement.columnReads[it].orEmpty().isNotEmpty() }) "COLUMN_UNRESOLVED" else "NO_COLUMN"
+    }
+
+    /** [node] and every node under it. */
+    private fun subtree(node: AstNode): Sequence<AstNode> = sequenceOf(node) + node.children.asSequence().flatMap(::subtree)
+
+    /**
+     * Whether [expression] names a column of an inline view of [block]'s `FROM`: by its alias (`v.code`), or by a name
+     * alone when every relation of the `FROM` is an inline view.
+     */
+    private fun readsInlineView(expression: AstNode, block: AstNode): Boolean {
+        val from = block.getFirstChildOrNull(DmlGrammar.FROM_CLAUSE) ?: return false
+        val items = from.getDescendants(DmlGrammar.DML_TABLE_EXPRESSION_CLAUSE).filter { item ->
+            generateSequence(item.parentOrNull) { it.parentOrNull }.takeWhile { it !== from }.none { it.type == DmlGrammar.SELECT_EXPRESSION }
+        }
+        val views = items.filter { it.hasDirectChildren(DmlGrammar.SELECT_EXPRESSION) }
+        if (views.isEmpty()) return false
+        val aliases = views.mapNotNull { view -> view.getFirstChildOrNull(DmlGrammar.ALIAS)?.let { normalizeIdentifier(it.lastChild.tokenOriginalValue) } }.toSet()
+        val names = subtree(expression).filter { it.type == PlSqlGrammar.VARIABLE_NAME || it.type == PlSqlGrammar.MEMBER_EXPRESSION }
+        return names.any { name ->
+            val segments = plsql.nameSegments(name) ?: return@any false
+            when {
+                segments.size >= 2 -> name.type == PlSqlGrammar.MEMBER_EXPRESSION && normalizeIdentifier(segments.first()) in aliases
+                else -> name.parentOrNull?.type != PlSqlGrammar.MEMBER_EXPRESSION && views.size == items.size &&
+                    normalizeIdentifier(segments.single()) !in PSEUDO_COLUMNS && nameBinding(name) !is NameBinding.Local
+            }
+        }
+    }
+
+    /**
      * The shape of an expression a parameter is written within: as [expressionShape] says it, apart from a `CASE`
      * (which may give the value back as is) and `LENGTH` and its kin (which give a number, not the value).
      */
@@ -541,13 +616,47 @@ internal class IntoClauses(
         return when (function) {
             "NVL" -> "NVL"
             "NVL2" -> "NVL2"
-            "UPPER", "LOWER" -> if (function == "UPPER") "UPPER" else "OTHER"
+            "UPPER" -> "UPPER"
             "TRIM", "LTRIM", "RTRIM" -> "TRIM"
             "SUBSTR", "SUBSTRB" -> "SUBSTR"
             "MAX", "MIN" -> "MAX_MIN"
             "TO_CHAR" -> "TO_CHAR"
+            else -> "OTHER_" + otherShape(node)
+        }
+    }
+
+    /**
+     * What an expression of no family of its own is, by its outer function or operator: `CASE`, `ARITHMETIC` (`+`, `-`,
+     * `*`, `/`, `**`), `ROUTINE` (a call of a package or schema function), the name of a SQL built-in (`DECODE`,
+     * `TO_NUMBER`, `LOWER`, `CAST`), or `OTHER`.
+     */
+    private fun otherShape(expression: AstNode): String {
+        var node = expression
+        while (node.type == PlSqlGrammar.POSTFIX_EXPRESSION || node.numberOfChildren == 1) node = node.firstChild
+        return when {
+            node.type == PlSqlGrammar.CASE_EXPRESSION -> "CASE"
+            node.type in ARITHMETIC -> "ARITHMETIC"
+            node.type == PlSqlGrammar.METHOD_CALL -> {
+                val segments = plsql.nameSegments(node.firstChild) ?: return "OTHER"
+                if (segments.size > 1 || isRoutineCall(node.firstChild)) "ROUTINE" else segments.single().uppercase().takeIf { WORD.matches(it) } ?: "OTHER"
+            }
+            // A built-in written with its own syntax: `CAST(… AS …)`, `EXTRACT(… FROM …)`.
+            node.numberOfChildren > 1 && node.children[1].tokenValue == "(" -> node.firstChild.tokenValue.uppercase().takeIf { WORD.matches(it) } ?: "OTHER"
             else -> "OTHER"
         }
+    }
+
+    /** Whether the called name [name] is a routine the index resolves (a built-in is not one). */
+    private fun isRoutineCall(name: AstNode): Boolean {
+        val span = spanOf(name)
+        return state.occurrences.any { it.span == span && Role.CALL in it.roles && it.entityKey != null && it.status != Status.UNRESOLVED }
+    }
+
+    /** Whether [shape], followed through type names of this file, is a `REF CURSOR` type with `RETURN`. */
+    private fun isStrongCursor(shape: TypeShape): Boolean = when (shape) {
+        is TypeShape.Unknown -> shape.strongCursor
+        is TypeShape.Named -> shape.local?.let(::isStrongCursor) == true
+        else -> false
     }
 
     /**
@@ -570,20 +679,24 @@ internal class IntoClauses(
                     val declaration = local(cursor, shapes)
                     val query = declaration?.takeIf { it.type == PlSqlGrammar.CURSOR_DECLARATION }?.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION)
                     val items = query?.let { state.cursorItems[it] }
+                    // Not known: counted once the types of other files are known ([ColumnPlaces]), by the cursor it is.
                     if (items == null) {
-                        state.leftOut(FETCH_CURSOR_NOT_KNOWN, targets.size)
-                        return@mapNotNullTo null
+                        val (kind, type) = cursorKind(into.fetch!!, cursor, shapes)
+                        return@mapNotNullTo IntoFact(into.source, into.bulk, into.context.unitIndex, into.context.container, null, emptyList(), null,
+                            targets, cursorKind = kind, cursorType = type)
                     }
                     branches = listOf(items)
                 }
             }
-            IntoFact(into.source, into.bulk, into.context.unitIndex, into.context.container, into.statementId, branches, cursorKey, targets)
+            val (kind, type) = if (into.fetch != null && cursorKey != null && into.cursor != null) cursorKind(into.fetch, into.cursor, shapes) else null to null
+            IntoFact(into.source, into.bulk, into.context.unitIndex, into.context.container, into.statementId, branches, cursorKey, targets,
+                cursorKind = kind, cursorType = type)
         }
         for (assignment in assignments) {
             val row = record(assignment.field, bySpan, shapes) ?: continue
             val target = target(assignment.target, bySpan, shapes).copy(span = assignment.site)
             intos += IntoFact(PlaceSource.ASSIGNMENT, false, assignment.context.unitIndex, assignment.context.container, null, emptyList(), null,
-                listOf(target), row, normalizeIdentifier(assignment.field.lastChild.tokenOriginalValue), assignment.expression, assignment.functions)
+                listOf(target), row, normalizeIdentifier(assignment.field.lastChild.tokenOriginalValue), assignment.expression?.let(::expressionShape), assignment.functions)
         }
         // The argument passed for an OUT or IN OUT parameter, as an INTO target: it takes what the parameter is given.
         for (argument in outArguments) {
@@ -815,7 +928,13 @@ internal class IntoClauses(
         /** Marks a parameter of a routine whose body is not PL/SQL ([routine]); never counted itself. */
         const val BODY_NOT_PLSQL = "BODY_NOT_PLSQL"
         const val ARGUMENT_INTO_NOT_FOLLOWED = "ARGUMENT_INTO_NOT_FOLLOWED"
-        const val FETCH_CURSOR_NOT_KNOWN = "FETCH_CURSOR_NOT_KNOWN"
+        /** The prefix of the shape of a `FETCH` from a cursor whose query is not known, by the cursor it is. */
+        const val FETCH_CURSOR_NOT_KNOWN = "FETCH_CURSOR_NOT_KNOWN_"
+        private val ARITHMETIC = setOf(
+            PlSqlGrammar.ADDITIVE_EXPRESSION, PlSqlGrammar.MULTIPLICATIVE_EXPRESSION, PlSqlGrammar.UNARY_EXPRESSION, PlSqlGrammar.EXPONENTIATION_EXPRESSION
+        )
+        private val WORD = Regex("[A-Z][A-Z0-9_]*")
+        private val PSEUDO_COLUMNS = setOf("ROWNUM", "LEVEL", "ROWID", "SYSDATE", "SYSTIMESTAMP", "USER", "CURRENT_DATE", "CURRENT_TIMESTAMP", "UID")
         const val OUT_CALL_NOT_DECIDED = "OUT_CALL_NOT_DECIDED"
 
         /** The prefix of the key of a nested subprogram's parameter ([IntoTarget.localKey]). */

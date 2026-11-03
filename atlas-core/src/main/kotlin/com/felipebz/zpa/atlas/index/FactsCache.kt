@@ -78,7 +78,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 14
+    private const val FORMAT = 15
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -256,13 +256,13 @@ internal object FactsCache {
                 string(into.source.name); data.writeBoolean(into.bulk); data.writeInt(into.unitIndex); nullable(into.containerKey)
                 nullableInt(into.statementLocalId); list(into.branches) { items -> list(items) { item(it) } }; nullable(into.cursorKey)
                 list(into.targets) { target(it) }
-                data.writeBoolean(into.row != null); into.row?.let { target(it) }; nullable(into.rowField); nullable(into.expression); strings(into.functions); nullable(into.parameterKey); nullable(into.fromParameter)
+                data.writeBoolean(into.row != null); into.row?.let { target(it) }; nullable(into.rowField); nullable(into.expression); strings(into.functions); nullable(into.parameterKey); nullable(into.fromParameter); nullable(into.cursorKind); nullable(into.cursorType)
             }
             list(facts.placesLeftOut.entries.toList()) { string(it.key); data.writeInt(it.value) }
         }
 
         fun item(item: QueryItem) {
-            nullable(item.name); nullable(item.columnKey); nullable(item.expression); data.writeBoolean(item.opaque); strings(item.functions); nullable(item.combined); list(item.parts) { item(it) }
+            nullable(item.name); nullable(item.columnKey); nullable(item.expression); data.writeBoolean(item.opaque); strings(item.functions); nullable(item.combined); list(item.parts) { item(it) }; nullable(item.notColumn)
         }
 
         /** An `INTO` target, or the record of an assignment. */
@@ -301,7 +301,7 @@ internal object FactsCache {
                     data.writeByte(6); list(shape.items) { item(it) }
                 }
                 is TypeShape.Unknown -> {
-                    data.writeByte(7); string(shape.reason)
+                    data.writeByte(7); string(shape.reason); data.writeBoolean(shape.strongCursor)
                 }
                 is TypeShape.OutParameter -> {
                     data.writeByte(8); string(shape.mode); shape(shape.type)
@@ -405,7 +405,7 @@ internal object FactsCache {
             val declaredShapes = list { DeclaredShapeFact(string(), shape()) }
             val intos = list {
                 IntoFact(enumValueOf(string()), data.readBoolean(), data.readInt(), nullable(), nullableInt(), list { list { item() } }, nullable(),
-                    list { target() }, if (data.readBoolean()) target() else null, nullable(), nullable(), strings(), nullable(), nullable())
+                    list { target() }, if (data.readBoolean()) target() else null, nullable(), nullable(), strings(), nullable(), nullable(), nullable(), nullable())
             }
             val placesLeftOut = list { string() to data.readInt() }.toMap()
             return FileFacts(
@@ -414,7 +414,7 @@ internal object FactsCache {
             ) to dictionaryRelations
         }
 
-        fun item(): QueryItem = QueryItem(nullable(), nullable(), nullable(), data.readBoolean(), strings(), nullable(), list { item() })
+        fun item(): QueryItem = QueryItem(nullable(), nullable(), nullable(), data.readBoolean(), strings(), nullable(), list { item() }, nullable())
 
         fun target(): IntoTarget =
             IntoTarget(span(), string(), nullable(), strings(), data.readBoolean(), if (data.readBoolean()) shape() else null, nullable(), nullable(), nullable())
@@ -429,7 +429,7 @@ internal object FactsCache {
                 4 -> TypeShape.Record(list { ShapeField(string(), nullable(), optional()) })
                 5 -> TypeShape.Collection(shape())
                 6 -> TypeShape.CursorRow(list { item() })
-                7 -> TypeShape.Unknown(string())
+                7 -> TypeShape.Unknown(string(), data.readBoolean())
                 8 -> TypeShape.OutParameter(string(), shape())
                 else -> throw DamagedCacheException("a type shape of variant $variant")
             }

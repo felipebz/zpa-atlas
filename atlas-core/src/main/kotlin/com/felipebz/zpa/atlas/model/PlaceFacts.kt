@@ -46,7 +46,8 @@ sealed interface TypeShape {
     /** An explicit cursor's row: its query's select items in order. */
     data class CursorRow(val items: List<QueryItem>) : TypeShape
 
-    data class Unknown(val reason: String) : TypeShape
+    /** Not known, by [reason]; [strongCursor] for a `REF CURSOR` type with `RETURN` (reason `CURSOR_VARIABLE`). */
+    data class Unknown(val reason: String, val strongCursor: Boolean = false) : TypeShape
 }
 
 /** A field of a record type: its [name], its entity [key] when it has one, and its own [local] shape. */
@@ -71,7 +72,13 @@ data class QueryItem(
      */
     val combined: String? = null,
     /** The other columns of a concatenation of several, each a part of it (`code || note`): each a place as [columnKey] is. */
-    val parts: List<QueryItem> = emptyList()
+    val parts: List<QueryItem> = emptyList(),
+    /**
+     * Why an item that is neither a column nor an expression of columns reads no column the index knows: `NO_COLUMN` (it
+     * reads no column of a table or view: a literal, a PL/SQL value, `ROWNUM`, a function of those), `COLUMN_UNRESOLVED`
+     * (a column the index cannot resolve) or `INLINE_VIEW` (a column of an inline view); null for any other item.
+     */
+    val notColumn: String? = null
 )
 
 /**
@@ -143,7 +150,15 @@ data class IntoFact(
      * target, [branches] are its items, the parameter's the one whose column key is [fromParameter]: the target takes it
      * as it would take a column in that position.
      */
-    val fromParameter: String? = null
+    val fromParameter: String? = null,
+    /**
+     * For a [PlaceSource.FETCH] from a cursor variable: `STRONG` when its type is a `REF CURSOR` type of this file with
+     * `RETURN`, `OPENED_STATIC` or `OPENED_DYNAMIC` when the routine opens it `FOR` static queries only or `FOR` a
+     * string, `PARAMETER` when it comes in as a parameter the routine does not open; else null.
+     */
+    val cursorKind: String? = null,
+    /** For a [PlaceSource.FETCH] from a cursor variable: the entity of its type, when it names one (a `REF CURSOR` type). */
+    val cursorType: String? = null
 )
 
 /**

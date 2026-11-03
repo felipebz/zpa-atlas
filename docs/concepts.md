@@ -126,11 +126,16 @@ order above), then by file and line, with those of the view columns computed fro
 the columns it receives. The MCP tool `find_column_places` pages through them all; `get_entity` of a column counts
 them by class (`placesByClass`). What is not followed is counted by shape in `COLUMN_VALUE_NOT_FOLLOWED` coverage notes:
 an item that is another expression of one column (`EXPRESSION_NVL`, `_NVL2`, `_UPPER`, `_TRIM`, `_SUBSTR`, `_MAX_MIN`, `_TO_CHAR`,
-`_CONCATENATION`, `_OTHER`), a dynamic `INTO` (`DYNAMIC_INTO`), an assigned field of a row record whose column is not
-known (`RECORD_ASSIGNMENT`: the cursor's field is an expression, or the cursor or `%ROWTYPE` is not known), an assigned
-expression of such a field (`RECORD_ASSIGNMENT_EXPRESSION_UPPER`, …, by the same shapes), a column passed to a routine
-whose value the index does not follow (below), and a `FETCH` from a cursor whose query is not known
-(`FETCH_CURSOR_NOT_KNOWN`).
+`_CONCATENATION`, and `_OTHER_` followed by the outer function or operator: `_OTHER_DECODE`, `_OTHER_TO_NUMBER`,
+`_OTHER_LOWER`, `_OTHER_CASE`, `_OTHER_ARITHMETIC` for `+`, `-`, `*`, `/`, `_OTHER_ROUTINE` for a package or schema
+function, `_OTHER_OTHER` for the rest; every `…_EXPRESSION_OTHER` family below is split the same way), a dynamic `INTO`
+(`DYNAMIC_INTO`), an assigned field of a row record whose column is not known (`RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_*`,
+by why, as `ARGUMENT_COLUMN_NOT_KNOWN_*` below), an assigned expression of such a field
+(`RECORD_ASSIGNMENT_EXPRESSION_UPPER`, …, by the same shapes), a column passed to a routine whose value the index does
+not follow (below), and a `FETCH` from a cursor whose query is not known (`FETCH_CURSOR_NOT_KNOWN_*`, by the cursor:
+`_STRONG` for a variable of a `REF CURSOR` type with `RETURN`, `_OPENED_STATIC` and `_OPENED_DYNAMIC` for a variable
+the routine or block that declares it opens `FOR` static queries only or `FOR` a string, `_PARAMETER` for a parameter
+it does not open, `_OTHER` for the rest, such as a variable a function returns).
 
 A column passed to a routine's `IN` parameter (in static SQL, anywhere in the statement, even a `WHERE`; or a field of
 a row record passed in PL/SQL), as is or through value functions, lands in the parameter, which never limits it, even
@@ -151,7 +156,10 @@ into targets that do not match the items (`ARGUMENT_INTO_NOT_FOLLOWED`), a
 record field whose column is not known (`ARGUMENT_COLUMN_NOT_KNOWN_*`, by why: `_EXPRESSION_CONCATENATION`, … for a
 cursor item that is an expression, by the same shapes as `EXPRESSION_*`; `_ROWTYPE` for a `%ROWTYPE` whose relation or
 cursor is not known; `_CURSOR` for a `%ROWTYPE` of a cursor whose query is not known; `_STAR` for a cursor's `*` over a
-relation whose columns are not known; `_OTHER` for anything else), and the parameter returned (`ARGUMENT_RETURNED`)
+relation whose columns are not known; `_REF_CURSOR` for a `%ROWTYPE` of a cursor variable; for an item that reads no
+column the index knows, `_NO_COLUMN` when it reads no column at all (a literal, a PL/SQL value, `ROWNUM`, `LEVEL`,
+`extractValue(value(t), …)` over `table(…)`), `_COLUMN_UNRESOLVED` when it reads columns the index cannot resolve,
+`_INLINE_VIEW` for a column of an inline view; `_OTHER` for anything else), and the parameter returned (`ARGUMENT_RETURNED`)
 or written within an expression (`ARGUMENT_EXPRESSION_*`, by its shape as for `EXPRESSION_*`, with `_CASE` for a `CASE`
 and `_LENGTH` for `LENGTH` and its kin), each once per column. An unqualified name the index does not
 resolve is taken for a built-in function (`upper`, `count`) and not counted.

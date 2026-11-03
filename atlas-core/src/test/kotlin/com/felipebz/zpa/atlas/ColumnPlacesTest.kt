@@ -526,7 +526,7 @@ class ColumnPlacesTest {
         // f_return returns its parameter: counted once, for the value going in; what each function returns into n or l
         // is counted once too, as an expression of the column.
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1").map { it.substringBefore(" ") })
-            .containsExactly("ARGUMENT_RETURNED:", "EXPRESSION_OTHER:")
+            .containsExactly("ARGUMENT_RETURNED:", "EXPRESSION_OTHER_ROUTINE:")
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE message LIKE 'ARGUMENT_RETURNED%'").single()).startsWith("ARGUMENT_RETURNED: 1 ")
     }
 
@@ -789,11 +789,11 @@ class ColumnPlacesTest {
             .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
             "ARGUMENT_COLUMN_NOT_KNOWN_CURSOR: 1",                      // r_spec, a cursor declared with no query
             "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_NVL: 1",              // y.n, nvl(note, code)
-            "ARGUMENT_COLUMN_NOT_KNOWN_OTHER: 1",                       // z.lit, a literal
+            "ARGUMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1",                   // z.lit, a literal
             "ARGUMENT_COLUMN_NOT_KNOWN_STAR: 1",                        // s.code, select * from a table not known
             "ARGUMENT_EXPRESSION_CASE: 1",
             "ARGUMENT_EXPRESSION_LENGTH: 1",
-            "ARGUMENT_EXPRESSION_OTHER: 1",                             // replace(p_code, …)
+            "ARGUMENT_EXPRESSION_OTHER_REPLACE: 1",                     // replace(p_code, …)
             "ARGUMENT_EXPRESSION_SUBSTR: 1",
             "ARGUMENT_EXPRESSION_TO_CHAR: 1"
         )
@@ -832,6 +832,37 @@ class ColumnPlacesTest {
     }
 
     @Test
+    fun `the largest not followed counts say what they are made of`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("m.sql"), MADE_OF)
+        val db = temp.resolve("m.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
+            .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
+            "ARGUMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1",                       // pk_m.take(x.lit), a literal
+            "ARGUMENT_EXPRESSION_OTHER_ARITHMETIC: 1",                      // to_number(p_code) + 1
+            "ARGUMENT_EXPRESSION_OTHER_DECODE: 1",                          // decode(p_code, …)
+            "ARGUMENT_RETURNED: 1",                                         // fmt's return p, from pk_m.fmt(code)
+            "EXPRESSION_OTHER_ARITHMETIC: 1",                               // order_id * 2
+            "EXPRESSION_OTHER_DECODE: 1",                                   // decode(code, 'a', 'b')
+            "EXPRESSION_OTHER_ROUTINE: 1",                                  // pk_m.fmt(code)
+            "FETCH_CURSOR_NOT_KNOWN_OPENED_DYNAMIC: 1",                     // d, opened for a string
+            "FETCH_CURSOR_NOT_KNOWN_OPENED_STATIC: 1",                      // c, opened for a query
+            "FETCH_CURSOR_NOT_KNOWN_PARAMETER: 1",                          // from_param's p
+            "FETCH_CURSOR_NOT_KNOWN_STRONG: 1",                             // from_strong's p, of order_cur
+            "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_EXPRESSION_OTHER_DECODE: 1", // w.dc
+            "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_INLINE_VIEW: 1",            // z.code, from (select code from orders) v
+            "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 2",              // x.v (extractvalue over table(…)), x.rn (rownum)
+            "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_REF_CURSOR: 1"              // r.code, r p%rowtype
+        )
+        // Places already: lower(…) is a value function the index follows (take's l := lower(p_code), the select's
+        // lower(code)); unknown_tab's code is taken by name as a column of it, so y.code is followed.
+        assertThat(Fixture.query(db, "SELECT p.start_line || ' ' || p.source FROM column_place p ORDER BY p.start_line"))
+            .containsExactly("18 IN_ARGUMENT", "48 ASSIGNMENT", "58 SELECT_INTO")
+    }
+
+    @Test
     fun `what is not followed is counted by shape`() {
         val db = PlacesFixture.index(temp)
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1"))
@@ -859,6 +890,73 @@ class ColumnPlacesTest {
     }
 
     companion object {
+        private val MADE_OF = """
+            create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
+
+            create or replace package pk_m as
+              type order_cur is ref cursor return orders%rowtype;
+              procedure take(p_code varchar2);
+              procedure from_strong(p order_cur);
+              procedure from_param(p sys_refcursor);
+              function fmt(p varchar2) return varchar2;
+            end;
+            /
+            create or replace package body pk_m as
+              procedure take(p_code varchar2) is
+                l varchar2(30);
+                n number;
+              begin
+                l := decode(p_code, 'a', 'b', 'c');
+                n := to_number(p_code) + 1;
+                l := lower(p_code);
+              end;
+              procedure from_strong(p order_cur) is
+                r p%rowtype;
+                l varchar2(30);
+              begin
+                fetch p into r;
+                l := r.code;
+              end;
+              procedure from_param(p sys_refcursor) is
+                l varchar2(30);
+              begin
+                fetch p into l;
+              end;
+              function fmt(p varchar2) return varchar2 is begin return p; end;
+            end;
+            /
+            create or replace procedure show_m is
+              l varchar2(100);
+              n number;
+              c sys_refcursor;
+              d sys_refcursor;
+            begin
+              for x in (select extractvalue(value(t), '/a') as v, rownum as rn, 'k' as lit
+                          from table(xmlsequence(xmltype('<a>1</a>').extract('/a'))) t) loop
+                l := x.v;
+                n := x.rn;
+                pk_m.take(x.lit);
+              end loop;
+              for y in (select code from unknown_tab) loop
+                l := y.code;
+                pk_m.take(y.code);
+              end loop;
+              for z in (select v.code from (select code from orders) v) loop
+                l := z.code;
+              end loop;
+              for w in (select decode(code, 'a', 'b') as dc from orders) loop
+                l := w.dc;
+              end loop;
+              select decode(code, 'a', 'b'), order_id * 2, pk_m.fmt(code), lower(code)
+                into l, n, l, l from orders where rownum = 1;
+              open c for select code from orders;
+              fetch c into l;
+              open d for 'select code from orders';
+              fetch d into l;
+            end;
+            /
+        """.trimIndent()
+
         private val CONCATENATIONS = """
             create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
 

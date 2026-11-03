@@ -187,16 +187,22 @@ internal class FileRows(private val connection: Connection) {
 
     /** A count of what reads a column's value into PL/SQL without being followed: `COLUMN_VALUE_NOT_FOLLOWED`, its shape first. */
     private fun leftOutNote(shape: String, count: Int): CoverageFact {
-        val kind = when {
-            shape.startsWith("EXPRESSION_") -> "EXPRESSION"
-            shape.startsWith("ARGUMENT_EXPRESSION_") -> "ARGUMENT_EXPRESSION"
-            shape.startsWith("ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_") -> "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION"
-            shape.startsWith("RECORD_ASSIGNMENT_EXPRESSION_") -> "RECORD_ASSIGNMENT_EXPRESSION"
-            else -> shape
-        }
-        val what = LEFT_OUT[kind] ?: "read(s) of a column value into PL/SQL: not followed"
+        val what = when {
+            shape.startsWith("EXPRESSION_") -> LEFT_OUT.getValue("EXPRESSION")
+            shape.startsWith("ARGUMENT_EXPRESSION_") -> LEFT_OUT.getValue("ARGUMENT_EXPRESSION")
+            shape.startsWith("RECORD_ASSIGNMENT_EXPRESSION_") -> LEFT_OUT.getValue("RECORD_ASSIGNMENT_EXPRESSION")
+            shape.startsWith(ARGUMENT_NOT_KNOWN) -> "field(s) of ${fieldOf(shape.removePrefix(ARGUMENT_NOT_KNOWN))}, passed to a routine: not followed"
+            shape.startsWith(ASSIGNMENT_NOT_KNOWN) -> "assignment(s) of a field of ${fieldOf(shape.removePrefix(ASSIGNMENT_NOT_KNOWN))}: not followed"
+            shape.startsWith(FETCH_NOT_KNOWN) ->
+                "target(s) of a FETCH from ${FETCH_FROM[shape.removePrefix(FETCH_NOT_KNOWN)] ?: "a cursor"}, whose query is not known: not followed"
+            else -> LEFT_OUT[shape]
+        } ?: "read(s) of a column value into PL/SQL: not followed"
         return CoverageFact(COLUMN_VALUE_NOT_FOLLOWED, "$shape: $count $what")
     }
+
+    /** The record whose field's column is not known, by why ([reason], the shape after its family's prefix). */
+    private fun fieldOf(reason: String) =
+        if (reason.startsWith("EXPRESSION_")) NOT_KNOWN.getValue("EXPRESSION") else NOT_KNOWN[reason] ?: NOT_KNOWN.getValue("OTHER")
 
     companion object {
         const val COLUMN_VALUE_NOT_FOLLOWED = "COLUMN_VALUE_NOT_FOLLOWED"
@@ -204,7 +210,6 @@ internal class FileRows(private val connection: Connection) {
         private val LEFT_OUT = mapOf(
             "EXPRESSION" to "select item(s) that are an expression of one column, read into a PL/SQL target: not followed",
             "DYNAMIC_INTO" to "target(s) of a dynamic INTO: not followed",
-            "RECORD_ASSIGNMENT" to "assignment(s) of a field of a %ROWTYPE or cursor loop record: not followed",
             "RECORD_ASSIGNMENT_EXPRESSION" to "assigned value(s) that are an expression of a field of a %ROWTYPE or cursor loop record: not followed",
             "ARGUMENT_ROUTINE_UNDECIDED" to "column value(s) passed to a routine the index does not decide: not followed",
             "ARGUMENT_ROUTINE_OUTSIDE" to "column value(s) passed to a routine whose PL/SQL body is not in the index: not followed",
@@ -214,17 +219,36 @@ internal class FileRows(private val connection: Connection) {
             "ARGUMENT_COLUMN_POSSIBLE" to "parameter(s) a column's value is passed to, named in SQL on a table whose columns are not known (a column may take the name): not followed",
             "ARGUMENT_FETCHED" to "parameter(s) a column's value is passed to, selected by a cursor: not followed",
             "ARGUMENT_INTO_NOT_FOLLOWED" to "parameter(s) a column's value is passed to, selected into targets that do not match the items: not followed",
-            "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION" to "field(s) of a cursor record whose item is an expression, passed to a routine: not followed",
-            "ARGUMENT_COLUMN_NOT_KNOWN_ROWTYPE" to "field(s) of a %ROWTYPE whose relation or cursor is not known, passed to a routine: not followed",
-            "ARGUMENT_COLUMN_NOT_KNOWN_CURSOR" to "field(s) of a %ROWTYPE of a cursor whose query is not known, passed to a routine: not followed",
-            "ARGUMENT_COLUMN_NOT_KNOWN_STAR" to "field(s) of a cursor record whose * is over a relation whose columns are not known, passed to a routine: not followed",
-            "ARGUMENT_COLUMN_NOT_KNOWN_OTHER" to "field(s) of a %ROWTYPE or cursor loop record whose item reads no column the index knows, passed to a routine: not followed",
             "ARGUMENT_RETURNED" to "parameter(s) a column's value is passed to, returned by the function: not followed",
             "ARGUMENT_EXPRESSION" to "parameter(s) a column's value is passed to, written within an expression: not followed",
             "OUT_ARGUMENT_NOT_FOLLOWED" to "argument(s) for an OUT parameter a column's value is read into, not a name, field or element the index binds: not followed",
             "OUT_PARAMETER_NOT_FOLLOWED" to "OUT parameter(s) a column's value is read into whose callers the index cannot tell: not followed",
             "OUT_CALL_NOT_DECIDED" to "call(s) whose routine is not decided, among routines with an OUT parameter a column's value is read into: not followed",
-            "FETCH_CURSOR_NOT_KNOWN" to "target(s) of a FETCH from a cursor whose query is not known: not followed"
+        )
+
+        private const val ARGUMENT_NOT_KNOWN = "ARGUMENT_COLUMN_NOT_KNOWN_"
+        private const val ASSIGNMENT_NOT_KNOWN = "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_"
+        private const val FETCH_NOT_KNOWN = "FETCH_CURSOR_NOT_KNOWN_"
+
+        /** The record a field whose column is not known is of, by why. */
+        private val NOT_KNOWN = mapOf(
+            "EXPRESSION" to "a cursor record whose item is an expression",
+            "ROWTYPE" to "a %ROWTYPE whose relation or cursor is not known",
+            "CURSOR" to "a %ROWTYPE of a cursor whose query is not known",
+            "REF_CURSOR" to "a %ROWTYPE of a cursor variable of a REF CURSOR type with RETURN",
+            "STAR" to "a cursor record whose * is over a relation whose columns are not known",
+            "NO_COLUMN" to "a cursor record whose item reads no column of a table or view",
+            "COLUMN_UNRESOLVED" to "a cursor record whose item is a column the index cannot resolve",
+            "INLINE_VIEW" to "a cursor record whose item is a column of an inline view",
+            "OTHER" to "a %ROWTYPE or cursor loop record whose column is not known"
+        )
+
+        /** The cursor a FETCH whose query is not known reads from. */
+        private val FETCH_FROM = mapOf(
+            "STRONG" to "a cursor variable of a REF CURSOR type with RETURN",
+            "OPENED_STATIC" to "a cursor variable the routine opens FOR a static query",
+            "OPENED_DYNAMIC" to "a cursor variable the routine opens FOR a string",
+            "PARAMETER" to "a cursor variable that comes in as a parameter"
         )
     }
 }
