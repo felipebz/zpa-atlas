@@ -158,7 +158,15 @@ data class IntoFact(
      */
     val cursorKind: String? = null,
     /** For a [PlaceSource.FETCH] from a cursor variable: the entity of its type, when it names one (a `REF CURSOR` type). */
-    val cursorType: String? = null
+    val cursorType: String? = null,
+    /**
+     * The call this is an argument of, by its span in the file: for a [PlaceSource.IN_ARGUMENT] call or a flow passed
+     * on to a parameter, and for a [PlaceSource.OUT_ARGUMENT]. A value that comes back out of the called routine goes
+     * back to this call only.
+     */
+    val call: SourceSpan? = null,
+    /** For a flow from what a function returns: the call whose result it is, by its span in the file. */
+    val resultOf: SourceSpan? = null
 )
 
 /**

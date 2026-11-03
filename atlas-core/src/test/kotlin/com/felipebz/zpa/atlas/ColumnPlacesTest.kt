@@ -1121,6 +1121,153 @@ class ColumnPlacesTest {
     }
 
     @Test
+    fun `a value passed to a routine comes back out at the call that passed it, a column the routine reads at every call`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("contexts.sql"), """
+            create or replace package pk_ctx as
+              function f_direct(p varchar2) return varchar2;
+              function f_held(p varchar2) return varchar2;
+              procedure p_out(p_in varchar2, p_res out varchar2);
+              procedure p_out_f(p_in varchar2, p_res out varchar2);
+              function f_get(p_id number) return varchar2;
+              function f_mixed(p varchar2, p_id number) return varchar2;
+            end;
+            /
+            create or replace package body pk_ctx as
+              function f_direct(p varchar2) return varchar2 is begin return p; end;
+              function f_held(p varchar2) return varchar2 is l varchar2(100); begin l := p; return l; end;
+              procedure p_out(p_in varchar2, p_res out varchar2) is begin p_res := p_in; end;
+              procedure p_out_f(p_in varchar2, p_res out varchar2) is begin p_res := f_held(p_in); end;
+              function f_get(p_id number) return varchar2 is l varchar2(20);
+              begin select code into l from orders where order_id = p_id; return l; end;
+              function f_mixed(p varchar2, p_id number) return varchar2 is l varchar2(40);
+              begin
+                if p_id > 0 then select note into l from orders where order_id = p_id; else l := p; end if;
+                return l;
+              end;
+            end;
+            /
+            create or replace procedure show_ctx is
+              a1 varchar2(5); a2 varchar2(5); b1 varchar2(5); b2 varchar2(5);
+              o1 varchar2(5); o2 varchar2(5); q1 varchar2(5); q2 varchar2(5);
+              g1 varchar2(5); g2 varchar2(5); m1 varchar2(5); m2 varchar2(5);
+            begin
+              for r in (select code, note from orders) loop
+                a1 := pk_ctx.f_direct(r.code);
+                a2 := pk_ctx.f_direct(r.note);
+                b1 := pk_ctx.f_held(r.code);
+                b2 := pk_ctx.f_held(r.note);
+                pk_ctx.p_out(r.code, o1);
+                pk_ctx.p_out(r.note, o2);
+                pk_ctx.p_out_f(r.code, q1);
+                pk_ctx.p_out_f(r.note, q2);
+                m1 := pk_ctx.f_mixed(r.code, 0);
+                m2 := pk_ctx.f_mixed(r.note, 0);
+              end loop;
+              g1 := pk_ctx.f_get(1);
+              g2 := pk_ctx.f_get(2);
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("contexts.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
+        assertThat(Fixture.query(db, """
+            SELECT p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || coalesce(' calls ' || p.call_count, '')
+            FROM column_place p JOIN entity c ON c.id = p.column_id
+            WHERE p.source IN ('RETURNED', 'IN_ARGUMENT', 'OUT_ARGUMENT') ORDER BY p.target_written, c.key""")).containsExactly(
+            // Each call's target takes the column that call passed in, and the columns the routine reads itself.
+            "a1 CODE RETURNED calls 1", "a2 NOTE RETURNED calls 1",
+            "b1 CODE RETURNED calls 1", "b2 NOTE RETURNED calls 1",
+            "g1 CODE RETURNED calls 1", "g2 CODE RETURNED calls 1",
+            // Inside the routines (f_held's and f_mixed's l, p_out's and p_out_f's p_res), every column passed to them, as before.
+            "l CODE IN_ARGUMENT calls 1", "l CODE IN_ARGUMENT calls 1", "l NOTE IN_ARGUMENT calls 1", "l NOTE IN_ARGUMENT calls 1",
+            // m1: the column it passed, and the one f_mixed reads; m2: one place, whether passed or read inside.
+            "m1 CODE RETURNED calls 1", "m1 NOTE RETURNED calls 1", "m2 NOTE RETURNED calls 1",
+            "o1 CODE OUT_ARGUMENT", "o2 NOTE OUT_ARGUMENT",
+            "p_res CODE IN_ARGUMENT calls 1", "p_res CODE RETURNED calls 1", "p_res NOTE IN_ARGUMENT calls 1", "p_res NOTE RETURNED calls 1",
+            // Through two levels: p_out_f passes its parameter into f_held and gives the result back through its own OUT parameter.
+            "q1 CODE OUT_ARGUMENT", "q2 NOTE OUT_ARGUMENT"
+        )
+    }
+
+    @Test
+    fun `a value kept beyond the call, the same function nested, and a cycle still come back out`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("kept.sql"), """
+            create or replace package pk_keep as
+              procedure keep(p varchar2);
+              function last_kept return varchar2;
+              function f_id(p varchar2) return varchar2;
+              function f_outer(p varchar2) return varchar2;
+            end;
+            /
+            create or replace package body pk_keep as
+              g_last varchar2(100);
+              procedure keep(p varchar2) is begin g_last := p; end;
+              function last_kept return varchar2 is begin return g_last; end;
+              function f_id(p varchar2) return varchar2 is begin return p; end;
+              function f_outer(p varchar2) return varchar2 is
+                l_held varchar2(100);
+                procedure inner_set(x varchar2) is begin l_held := x; end;
+              begin
+                inner_set(p);
+                return l_held;
+              end;
+            end;
+            /
+            create or replace package cy_a as function f(p varchar2, n number) return varchar2; end;
+            /
+            create or replace package cy_b as function g(p varchar2, n number) return varchar2; end;
+            /
+            create or replace package body cy_a as
+              function f(p varchar2, n number) return varchar2 is l varchar2(30);
+              begin
+                if n = 0 then return p; end if;
+                l := cy_b.g(p || 'a', n - 1);
+                return 'x' || l;
+              end;
+            end;
+            /
+            create or replace package body cy_b as
+              function g(p varchar2, n number) return varchar2 is
+              begin return trim(cy_a.f(upper(p), n)); end;
+            end;
+            /
+            create or replace procedure show_keep is
+              k1 varchar2(5); k2 varchar2(5); k3 varchar2(5); k5 varchar2(5); k6 varchar2(5);
+            begin
+              for r in (select code, note from orders) loop
+                pk_keep.keep(r.note);
+                k2 := pk_keep.f_outer(r.code);
+                k3 := pk_keep.f_id(pk_keep.f_id(r.note));
+                k5 := cy_a.f(r.code, 3);
+              end loop;
+              k1 := pk_keep.last_kept;
+              k6 := pk_keep.f_id(pk_keep.f_id('x'));
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("kept.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
+        assertThat(Fixture.query(db, """
+            SELECT p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || ' ' || coalesce(p.functions, '-')
+            FROM column_place p JOIN entity c ON c.id = p.column_id
+            WHERE p.target_written IN ('k1', 'k2', 'k3', 'k5', 'k6', 'l') ORDER BY p.target_written, c.key, p.functions""")).containsExactly(
+            // A package variable written by keep, returned by last_kept: for every caller of last_kept.
+            "k1 NOTE RETURNED -",
+            // A variable of f_outer written by its nested inner_set: for every caller of f_outer.
+            "k2 CODE RETURNED -",
+            // f_id's result passed to f_id again: the column the inner call passed.
+            "k3 NOTE RETURNED -",
+            "k5 CODE RETURNED -",
+            // Inside the cycle: what f returns at the bottom, through g's trim, without going round again.
+            "l CODE RETURNED TRIM"
+        )
+    }
+
+    @Test
     fun `what is not followed is counted by shape`() {
         val db = PlacesFixture.index(temp)
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1"))

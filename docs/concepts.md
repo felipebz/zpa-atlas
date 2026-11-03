@@ -169,8 +169,14 @@ expression (`ARGUMENT_EXPRESSION_*`, by its shape as for `EXPRESSION_*`, with `_
 function (`upper`, `count`) and not counted.
 
 A column's value a function returns (`return p_code` of a parameter it is passed to, as is or through value functions,
-or `return l` of a local or a record's field a column's value is read into, `return r.code`) reaches every target its
-callers write the result into: `l := f(…)`, through value functions or a concatenation (`nvl(f(…), '-')`,
+or `return l` of a local or a record's field a column's value is read into, `return r.code`) reaches the targets its
+callers write the result into. A column passed to the function comes back out at the call that passed it only (`a :=
+f(r.code)` gets `CODE`, `b := f(r.note)` gets `NOTE`), through any number of routines in between; a column the function
+reads itself comes back out at every call, and so does one kept where it outlives the call that passed it (a package
+variable, or a variable of the routine around a nested subprogram that writes it), for every caller of the function
+that returns it. A function nested in its own argument (`f(f(r.code))`) gives back what the inner call passed. The
+same holds for a value an `OUT` parameter gives back, and for the counts of what is not followed at the call. The places inside the routines are those of every column passed to them.
+The targets: `l := f(…)`, through value functions or a concatenation (`nvl(f(…), '-')`,
 `'X' || f(…)`), a select item `select f(…) into l`, an argument for another routine's `IN` parameter (followed there),
 another function's `RETURN` (followed to its callers), an `OUT` parameter (followed to its callers). Each such target is
 a place of the column (`RETURNED`), classed as any target: `argument_routine_id` names the function, `call_count` how

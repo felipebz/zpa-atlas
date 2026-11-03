@@ -239,7 +239,7 @@ internal class IntoClauses(
      */
     private class Pass(
         val argument: AstNode, val column: String?, val field: AstNode?, val functions: List<String>, val parameterKey: String?,
-        val reason: String?, val context: Context, val statementId: Int?
+        val reason: String?, val context: Context, val statementId: Int?, val call: SourceSpan
     )
 
     private val passes = ArrayList<Pass>()
@@ -252,7 +252,11 @@ internal class IntoClauses(
         val parameter: AstNode, val site: SourceSpan, val context: Context, val target: AstNode? = null, val passedTo: String? = null,
         val shape: String? = null, val functions: List<String> = emptyList(), val fromKey: String? = null, val bulk: Boolean = false,
         /** For the single target of an `INTO`: the parameter's item and the number of items. */
-        val item: Pair<Int, Int>? = null
+        val item: Pair<Int, Int>? = null,
+        /** For a value passed on to a parameter ([passedTo]): the call it is an argument of. */
+        val call: SourceSpan? = null,
+        /** For a function's result ([fromKey] what it returns): the call whose result it is. */
+        val resultOf: SourceSpan? = null
     )
 
     private val flows = ArrayList<Flow>()
@@ -302,7 +306,7 @@ internal class IntoClauses(
         if (resolved == null) {
             // A call the index does not decide: what it is passed is not followed (a built-in function is no routine).
             val reason = calls.firstNotNullOfOrNull(::unresolvedCall)
-            if (reason != null) for (argument in arguments(node)) passedValue(argument, null, reason, context)
+            if (reason != null) for (argument in arguments(node)) passedValue(argument, null, reason, context, spanOf(node))
             return
         }
         for (argument in arguments(node)) {
@@ -312,28 +316,28 @@ internal class IntoClauses(
                 .filter { it.hasToken() && spanOf(it) == span }.firstNotNullOfOrNull { state.argumentModes[it] }
             val parameter = resolved.arguments.firstOrNull { it.span == span }?.parameterKey
             if (mode == ProjectParameterMode.OUT || mode == ProjectParameterMode.IN_OUT) {
-                if (parameter != null) outArguments += OutArgument(argument, parameter, context)
+                if (parameter != null) outArguments += OutArgument(argument, parameter, context, spanOf(node))
                 continue
             }
-            passedValue(argument, parameter, if (parameter == null) notTied(resolved) else null, context)
+            passedValue(argument, parameter, if (parameter == null) notTied(resolved) else null, context, spanOf(node))
         }
     }
 
     /**
      * An argument of a PL/SQL call for an `IN` parameter ([parameter]): a record's field, read as is or through value
      * functions, is a column's value passed to the routine (decided after the scan); one of the routine's own `IN`
-     * parameters is passed on.
+     * parameters is passed on. [call] is the call's span: what comes back out of the routine goes back to it.
      */
-    private fun passedValue(argument: AstNode, parameter: String?, reason: String?, context: Context) {
-        callArguments += CallArgument(argument, parameter, reason, context)
+    private fun passedValue(argument: AstNode, parameter: String?, reason: String?, context: Context, call: SourceSpan) {
+        callArguments += CallArgument(argument, parameter, reason, context, call)
         val field = if (isFieldOfName(argument)) argument else argument.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).singleOrNull(::isFieldOfName)
         if (field != null) {
-            valueChain(argument) { it === field }?.let { passes += Pass(argument, null, field, it, parameter, reason, context, null) }
+            valueChain(argument) { it === field }?.let { passes += Pass(argument, null, field, it, parameter, reason, context, null, call) }
             return
         }
         for (name in parameterNames(argument)) {
             val functions = valueChain(argument) { it === name } ?: continue
-            flows += if (reason == null && parameter != null) Flow(name, spanOf(argument), context, passedTo = parameter, functions = functions)
+            flows += if (reason == null && parameter != null) Flow(name, spanOf(argument), context, passedTo = parameter, functions = functions, call = call)
                 else Flow(name, spanOf(argument), context, shape = reason ?: ARGUMENT_NOT_TIED)
         }
     }
@@ -363,7 +367,7 @@ internal class IntoClauses(
         val subprogram = subprograms.singleOrNull()
         if (subprogram == null) {
             for (parameter in subprograms.flatMap(::parametersOf).filter(::isOut)) undecidedCalls += spanOf(node) to localKey(parameter)
-            if (subprograms.isNotEmpty()) for (argument in arguments(node)) passedValue(argument, null, ARGUMENT_LOCAL_SUBPROGRAM, context)
+            if (subprograms.isNotEmpty()) for (argument in arguments(node)) passedValue(argument, null, ARGUMENT_LOCAL_SUBPROGRAM, context, spanOf(node))
             return
         }
         if (subprogram.type == PlSqlGrammar.FUNCTION_DECLARATION) {
@@ -375,9 +379,9 @@ internal class IntoClauses(
             val label = argument.takeIf { it.hasDirectChildren(PlSqlPunctuator.ASSOCIATION) }?.firstChild?.let { normalizeIdentifier(it.tokenOriginalValue) }
             val parameter = if (label == null) parameters.getOrNull(index)
                 else parameters.firstOrNull { normalizeIdentifier(it.firstChild.tokenOriginalValue) == label }
-            if (parameter != null && isOut(parameter)) outArguments += OutArgument(argument.lastChild, localKey(parameter), context)
+            if (parameter != null && isOut(parameter)) outArguments += OutArgument(argument.lastChild, localKey(parameter), context, spanOf(node))
             // A nested subprogram's IN parameter: followed by where it is declared in the file.
-            else passedValue(argument.lastChild, parameter?.let(::localKey), if (parameter == null) ARGUMENT_NOT_TIED else null, context)
+            else passedValue(argument.lastChild, parameter?.let(::localKey), if (parameter == null) ARGUMENT_NOT_TIED else null, context, spanOf(node))
         }
     }
 
@@ -386,20 +390,21 @@ internal class IntoClauses(
      * passed on to [passedTo] (a parameter, or what the function around returns), through the value functions that lead
      * to the call; a call within any other expression is counted by that expression's shape
      * (`RETURNED_EXPRESSION_*`), and one passed where it is not followed by [reason]. A call inside the arguments of
-     * another routine is that routine's argument.
+     * another routine is that routine's argument: [argumentOf] is that call, for a result passed to a parameter.
      */
     private fun resultFlows(
         value: AstNode, site: SourceSpan, context: Context, target: AstNode?, passedTo: String?, reason: String?,
-        called: Map<SourceSpan, OccurrenceFact>
+        called: Map<SourceSpan, OccurrenceFact>, argumentOf: SourceSpan? = null
     ) {
         if (target == null && passedTo == null && reason == null) return
         for ((call, result) in resultCalls(value, called)) {
             val chain = valueChain(value) { it === call }
+            val of = spanOf(call)
             flows += when {
-                chain == null -> Flow(call, site, context, shape = RETURNED_EXPRESSION + argumentShape(value), fromKey = result)
-                reason != null -> Flow(call, site, context, shape = reason, fromKey = result)
-                target != null -> Flow(call, site, context, target = target, functions = chain, fromKey = result)
-                else -> Flow(call, site, context, passedTo = passedTo, functions = chain, fromKey = result)
+                chain == null -> Flow(call, site, context, shape = RETURNED_EXPRESSION + argumentShape(value), fromKey = result, resultOf = of)
+                reason != null -> Flow(call, site, context, shape = reason, fromKey = result, resultOf = of)
+                target != null -> Flow(call, site, context, target = target, functions = chain, fromKey = result, resultOf = of)
+                else -> Flow(call, site, context, passedTo = passedTo, functions = chain, fromKey = result, resultOf = of, call = argumentOf)
             }
         }
     }
@@ -460,10 +465,14 @@ internal class IntoClauses(
     private fun localKey(parameter: AstNode, name: Boolean = false): String =
         (if (name) parameter else parameter.firstChild).token.let { "$LOCAL_PREFIX${it.line}:${it.column}" }
 
-    private class OutArgument(val value: AstNode, val parameterKey: String, val context: Context)
+    /** An argument for an `OUT` or `IN OUT` parameter ([parameterKey]) of the [call] at that span. */
+    private class OutArgument(val value: AstNode, val parameterKey: String, val context: Context, val call: SourceSpan)
 
-    /** An argument for an `IN` parameter ([parameter], or the [reason] it is not followed): the results of the functions it calls go there. */
-    private class CallArgument(val argument: AstNode, val parameter: String?, val reason: String?, val context: Context)
+    /**
+     * An argument for an `IN` parameter ([parameter], or the [reason] it is not followed) of the [call] at that span: the
+     * results of the functions it calls go there.
+     */
+    private class CallArgument(val argument: AstNode, val parameter: String?, val reason: String?, val context: Context, val call: SourceSpan)
 
     private val callArguments = ArrayList<CallArgument>()
 
@@ -523,7 +532,7 @@ internal class IntoClauses(
                     parameter == null -> notTied(occurrence)
                     else -> null
                 }
-                passes += Pass(argument, column, null, functions, parameter, reason, statement.context, statement.id)
+                passes += Pass(argument, column, null, functions, parameter, reason, statement.context, statement.id, spanOf(call))
                 }
             }
         }
@@ -911,7 +920,7 @@ internal class IntoClauses(
         // The argument passed for an OUT or IN OUT parameter, as an INTO target: it takes what the parameter is given.
         for (argument in outArguments) {
             intos += IntoFact(PlaceSource.OUT_ARGUMENT, false, argument.context.unitIndex, argument.context.container, null, emptyList(), null,
-                listOf(target(argument.value, bySpan, shapes)), parameterKey = argument.parameterKey)
+                listOf(target(argument.value, bySpan, shapes)), parameterKey = argument.parameterKey, call = argument.call)
         }
         // A column, or a record's field, passed to a routine's IN parameter.
         for (pass in passes) {
@@ -919,11 +928,11 @@ internal class IntoClauses(
             if (pass.field != null) {
                 val row = record(pass.field, bySpan, shapes) ?: continue
                 intos += IntoFact(PlaceSource.IN_ARGUMENT, false, pass.context.unitIndex, pass.context.container, pass.statementId, emptyList(), null,
-                    listOf(argument), row, normalizeIdentifier(pass.field.lastChild.tokenOriginalValue), null, pass.functions, pass.parameterKey)
+                    listOf(argument), row, normalizeIdentifier(pass.field.lastChild.tokenOriginalValue), null, pass.functions, pass.parameterKey, call = pass.call)
             } else {
                 intos += IntoFact(PlaceSource.IN_ARGUMENT, false, pass.context.unitIndex, pass.context.container, pass.statementId,
                     listOf(listOf(QueryItem(null, pass.column, null, functions = pass.functions))), null, listOf(argument),
-                    functions = pass.functions, parameterKey = pass.parameterKey)
+                    functions = pass.functions, parameterKey = pass.parameterKey, call = pass.call)
             }
         }
         // What a routine writes its IN parameters into, passes them on to, or writes them in a way not followed.
@@ -951,7 +960,8 @@ internal class IntoClauses(
         }
         // The results of the functions an argument calls, passed to the parameter.
         for (argument in callArguments) {
-            resultFlows(argument.argument, spanOf(argument.argument), argument.context, null, argument.parameter, argument.reason ?: ARGUMENT_NOT_TIED.takeIf { argument.parameter == null }, called)
+            resultFlows(argument.argument, spanOf(argument.argument), argument.context, null, argument.parameter,
+                argument.reason ?: ARGUMENT_NOT_TIED.takeIf { argument.parameter == null }, called, argument.call)
         }
         // A name in SQL a column may take instead of the parameter: the parameter only when the index resolves the name,
         // the statement's tables' columns known and none of them so named.
@@ -972,12 +982,13 @@ internal class IntoClauses(
                 listOf(List(size) { if (it == index) QueryItem(null, from, null, functions = flow.functions) else QueryItem(null, null, null) })
             }.orEmpty()
             intos += IntoFact(PlaceSource.IN_ARGUMENT, flow.bulk, flow.context.unitIndex, flow.context.container, null, branches, null, targets,
-                expression = flow.shape, functions = flow.functions, parameterKey = flow.passedTo, fromParameter = from)
+                expression = flow.shape, functions = flow.functions, parameterKey = flow.passedTo, fromParameter = from, call = flow.call,
+                resultOf = flow.resultOf)
         }
         // A call of an overloaded nested subprogram: no target, only the parameters it may be for.
         for ((span, parameter) in undecidedCalls) {
             intos += IntoFact(PlaceSource.OUT_ARGUMENT, false, 0, null, null, emptyList(), null,
-                listOf(IntoTarget(span, "", null, emptyList(), false, null, null, OUT_CALL_NOT_DECIDED)), parameterKey = parameter)
+                listOf(IntoTarget(span, "", null, emptyList(), false, null, null, OUT_CALL_NOT_DECIDED)), parameterKey = parameter, call = span)
         }
         return intos
     }
