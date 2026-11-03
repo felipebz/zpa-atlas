@@ -19,11 +19,44 @@ import java.util.*
  * The facts of one file in the order they are found (the writer numbers them by position), and the counters of what is
  * counted rather than indexed. Every collaborator of [FileExtractor] adds to the same lists.
  */
-internal class FileState {
+internal class FileState(strings: FactStrings = FactStrings()) {
+    /**
+     * A list that keeps what is added with the run's instances of its strings. It holds nothing of the state around it:
+     * the file's facts keep the list until the index is written, long after the file's tree and state are gone.
+     */
+    private class Interned(private val strings: FactStrings) : ArrayList<OccurrenceFact>() {
+        override fun add(element: OccurrenceFact): Boolean = super.add(strings.occurrence(element))
+    }
+
     val units = ArrayList<UnitFact>()
     val partialUnits = ArrayList<Boolean>()
     val statements = ArrayList<StatementFact>()
-    val occurrences = ArrayList<OccurrenceFact>()
+
+    /**
+     * Only ever added to, or replaced in place with the same statement and span: [occurrencesOf] and [occurrencesAt]
+     * find them by position. What is added holds the run's instances of its strings ([FactStrings]).
+     */
+    val occurrences: ArrayList<OccurrenceFact> = Interned(strings)
+
+    /** The positions in [occurrences] of each statement's occurrences and of each span's, for those [indexed]. */
+    private val byStatement = HashMap<Int, MutableList<Int>>()
+    private val bySpan = HashMap<SourceSpan, MutableList<Int>>()
+    private var indexed = 0
+
+    /** The occurrences of the statement [statementId] so far, in the order they were added. */
+    fun occurrencesOf(statementId: Int): List<OccurrenceFact> = catchUp().let { byStatement[statementId]?.map { occurrences[it] }.orEmpty() }
+
+    /** The occurrences at [span] so far, in the order they were added. */
+    fun occurrencesAt(span: SourceSpan): List<OccurrenceFact> = catchUp().let { bySpan[span]?.map { occurrences[it] }.orEmpty() }
+
+    private fun catchUp() {
+        while (indexed < occurrences.size) {
+            val occurrence = occurrences[indexed]
+            occurrence.statementLocalId?.let { byStatement.getOrPut(it) { ArrayList(4) } += indexed }
+            bySpan.getOrPut(occurrence.span) { ArrayList(1) } += indexed
+            indexed++
+        }
+    }
     val entities = ArrayList<EntityFact>()
     val relations = ArrayList<RelationFact>()
     val coverage = ArrayList<CoverageFact>()

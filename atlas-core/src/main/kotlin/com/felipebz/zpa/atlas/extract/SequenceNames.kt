@@ -7,7 +7,6 @@ package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlPunctuator
-import com.felipebz.zpa.api.project.ProjectAnalysis
 import com.felipebz.zpa.api.project.SequenceReferenceResolution
 import com.felipebz.zpa.atlas.model.*
 
@@ -18,7 +17,8 @@ internal class SequenceNames(
     private val values: PackageValues,
     private val synonyms: SynonymResolver,
     private val runSchemas: Set<String>,
-    private val projectAnalysis: ProjectAnalysis
+    /** What zpa's project analysis says of a `….NEXTVAL` name: [SequenceReferenceResolution.RESOLVED_NON_SEQUENCE] is no sequence. */
+    private val sequenceResolution: (AstNode) -> SequenceReferenceResolution
 ) {
     /**
      * `seq.nextval`, `s.seq.currval`: a project sequence, else an external `SEQUENCE` entity, `db:S.SEQ` when
@@ -28,7 +28,7 @@ internal class SequenceNames(
      */
     fun sequenceReference(name: AstNode, segments: List<String>, context: Context, statementId: Int?) {
         if (statementId != null && scopes.isSqlQualified(name, segments)) return
-        if (projectAnalysis.resolveSequenceReference(name) == SequenceReferenceResolution.RESOLVED_NON_SEQUENCE) return
+        if (sequenceResolution(name) == SequenceReferenceResolution.RESOLVED_NON_SEQUENCE) return
         val written = segments.dropLast(1)
         val children = name.children
         val lastDot = children.indexOfLast { it.type == PlSqlPunctuator.DOT }

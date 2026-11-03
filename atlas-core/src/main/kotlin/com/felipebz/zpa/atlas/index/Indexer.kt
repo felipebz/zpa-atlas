@@ -73,8 +73,9 @@ data class IndexSummary(
 
 /**
  * Drives ZPA as zpa-cli does: project preparation once over every source, then one [AstScanner] walk per file with
- * a new [FileExtractor]. Files are scanned on [IndexOptions.threads] threads (the walk itself runs under the
- * scanner's global lock); each file's facts stay in memory and are written by one [AtlasWriter] at the end.
+ * a new [FileExtractor]. Files are scanned on [IndexOptions.threads] threads: the walk itself runs under the scanner's
+ * global lock, the extraction after it, on the file's thread. Each file's facts stay in memory and are written by one
+ * [AtlasWriter] at the end.
  *
  * A file whose walk throws is indexed as `FAILED` (its declarations only, with an `EXTRACTION_FAILED` note); the
  * facts it gathered before failing are discarded and the run continues.
@@ -91,10 +92,15 @@ class Indexer internal constructor(
      * of `PlSqlConfiguration`/`AstScanner` is only used by the lexer to read files and URLs, so one value for the run is
      * enough.
      */
-    internal class Source(val relativePath: String, val absolute: Path, val bytes: ByteArray, encoding: String) : PlSqlFile {
+    internal class Source(val relativePath: String, val absolute: Path, bytes: ByteArray, encoding: String) : PlSqlFile {
         private val decoded = SourceDecoding.decode(bytes, encoding)
         val text = decoded.text
         val charset = decoded.charset
+        /** The file's bytes are not kept: only their hash and size are written. */
+        val sha256 = sha256(bytes)
+        val size = bytes.size.toLong()
+        /** `text.lines().size`, counted without making the lines: a line ends at `\r\n`, `\n` or `\r`. */
+        val lineCount = lineCount(text)
         override fun contents(): String = text
         override fun fileName(): String = absolute.fileName.toString()
         override fun type(): PlSqlFile.Type = PlSqlFile.Type.MAIN
@@ -178,7 +184,7 @@ class Indexer internal constructor(
                 scanner.scanFile(source, listOf(typeMembers.collector(options.compilationSchema)), source.relativePath)
             }
         }
-        val hashes = sources.associate { it.relativePath to sha256(it.bytes) }
+        val hashes = sources.associate { it.relativePath to it.sha256 }
         val run = if (!incremental) null else {
             val current = sources.map { IncrementalRule.Current(it.relativePath, hashes.getValue(it.relativePath), it.text) }
             IncrementalRun.plan(options, typeMembers, current, pending!!, inputs!!, planCatalog!!, phases)
@@ -187,12 +193,13 @@ class Indexer internal constructor(
         phases?.start(PhaseTimes.FILE_WALKS)
         phases?.walkThreads = options.threads.coerceAtLeast(1)
         val catalogHolder = CatalogHolder(options.compilationSchema)
+        val strings = FactStrings()
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
         fun extractor(source: Source) = FileExtractor(
-            source.relativePath, hashes.getValue(source.relativePath), source.bytes.size.toLong(), source.charset.name(), source.text.lines().size,
+            source.relativePath, source.sha256, source.size, source.charset.name(), source.lineCount,
             options.dictionary, options.compilationSchema, catalogHolder::get,
             jsonBuiltIn = (options.conditionalCompilation.databaseVersion?.version ?: 0) >= JSON_BUILT_IN_VERSION,
-            typeMembers = typeMembers
+            typeMembers = typeMembers, strings = strings
         )
         val walked: List<Result<FileFacts>> = try {
             toWalk.map { source ->
@@ -201,13 +208,18 @@ class Indexer internal constructor(
                         val taskStarted = System.nanoTime()
                         val extractor = extractor(source)
                         val walkStart = WalkStart()
-                        val checks = visitors(source.relativePath, extractor)
-                        scanner.scanFile(source, if (phases == null) checks else listOf(walkStart) + checks, source.relativePath)
-                        if (phases != null) {
-                            val walked = System.nanoTime()
-                            phases.files += PhaseTimes.FileTime(source.relativePath, source.text.lines().size, walkStart.at - taskStarted, walked - walkStart.at)
+                        try {
+                            scanner.scanFile(source, listOf(walkStart) + visitors(source.relativePath, extractor), source.relativePath)
+                        } finally {
+                            Thread.currentThread().priority = Thread.NORM_PRIORITY
                         }
-                        Result.success(extractor.facts())
+                        val walked = System.nanoTime()
+                        val facts = extractor.facts()
+                        if (phases != null) {
+                            phases.files += PhaseTimes.FileTime(source.relativePath, source.lineCount, walkStart.at - taskStarted, walked - walkStart.at,
+                                System.nanoTime() - walked)
+                        }
+                        Result.success(facts)
                     } catch (e: Exception) {
                         Result.failure(e)
                     }
@@ -333,14 +345,17 @@ class Indexer internal constructor(
     }
 
     /**
-     * Notes when the scanner starts a file's walk: it is the first check of the walk, which [AstScanner] runs under its
-     * global lock once the file is parsed.
+     * The first check of a file's walk, which [AstScanner] runs under its global lock once the file is parsed: notes when
+     * the walk starts, and raises the thread's priority until the walk ends. Every other thread waits for that lock or
+     * parses and extracts beside it; on fewer cores than threads, the one holding it would otherwise get no more than
+     * its share of them.
      */
     private class WalkStart : PlSqlCheck() {
         var at = 0L
 
         override fun init() {
             at = System.nanoTime()
+            Thread.currentThread().priority = Thread.MAX_PRIORITY
         }
     }
 
@@ -396,6 +411,22 @@ class Indexer internal constructor(
     }
 
     companion object {
+        private fun lineCount(text: String): Int {
+            var count = 1
+            var i = 0
+            while (i < text.length) {
+                when (text[i]) {
+                    '\n' -> count++
+                    '\r' -> {
+                        count++
+                        if (i + 1 < text.length && text[i + 1] == '\n') i++
+                    }
+                }
+                i++
+            }
+            return count
+        }
+
         /** The first Oracle version with the built-in `JSON` type: from it on, a type named `JSON` cannot exist. */
         private const val JSON_BUILT_IN_VERSION = 21
 

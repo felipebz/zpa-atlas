@@ -35,16 +35,42 @@ import java.util.*
  */
 internal class DocComments(root: AstNode) {
     private val tokens: List<Token> = root.tokens
-    private val starts = HashMap<Long, Int>()
-    private val ends = HashMap<Long, Int>()
-    private val comments: List<List<Comment>>
 
-    init {
-        comments = tokens.mapIndexed { i, token ->
-            starts.putIfAbsent(position(token.line, token.column), i)
-            ends[position(token.endLine, token.endColumn)] = i
-            token.trivia.filter { it.isComment }.map { Comment(it.token) }
+    /** Where each token starts and ends ([position]); a file's tokens come in order, so both only grow. */
+    private val starts = LongArray(tokens.size) { position(tokens[it].line, tokens[it].column) }
+    private val ends = LongArray(tokens.size) { position(tokens[it].endLine, tokens[it].endColumn) }
+    private val inOrder = (1 until tokens.size).all { starts[it - 1] <= starts[it] && ends[it - 1] <= ends[it] }
+
+    /** The comments in each token's trivia, made when first asked: a file asks of a few tokens only. */
+    private val comments = arrayOfNulls<List<Comment>>(tokens.size)
+
+    private fun commentsOf(index: Int): List<Comment> =
+        comments[index] ?: tokens[index].trivia.filter { it.isComment }.map { Comment(it.token) }.also { comments[index] = it }
+
+    /** The first token that starts at [line] and [column]. */
+    private fun startingAt(line: Int, column: Int): Int? {
+        val at = position(line, column)
+        if (!inOrder) return starts.indexOfFirst { it == at }.takeIf { it >= 0 }
+        var low = 0
+        var high = starts.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (starts[middle] < at) low = middle + 1 else high = middle
         }
+        return low.takeIf { it < starts.size && starts[it] == at }
+    }
+
+    /** The last token that ends at [line] and [column]. */
+    private fun endingAt(line: Int, column: Int): Int? {
+        val at = position(line, column)
+        if (!inOrder) return ends.indexOfLast { it == at }.takeIf { it >= 0 }
+        var low = 0
+        var high = ends.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (ends[middle] <= at) low = middle + 1 else high = middle
+        }
+        return (low - 1).takeIf { it >= 0 && ends[it] == at }
     }
 
     /**
@@ -52,8 +78,8 @@ internal class DocComments(root: AstNode) {
      * [node] is the declaration's package or routine node (one of [NODE_TYPES]), null for other declarations.
      */
     fun of(entityKey: String, span: SourceSpan, inBody: Boolean, node: AstNode?): DocCommentFact? {
-        val first = starts[position(span.startLine, span.startCol)] ?: return null
-        val last = ends[position(span.endLine, span.endCol)] ?: return null
+        val first = startingAt(span.startLine, span.startCol) ?: return null
+        val last = endingAt(span.endLine, span.endCol) ?: return null
         val (shape, block) = above(first)?.let { DocShape.ABOVE to it }
             ?: node?.let(::afterIs)?.let { DocShape.AFTER_IS to it }
             ?: node?.takeIf { it.type in ROUTINE_TYPES }?.let(::afterBegin)?.let { DocShape.AFTER_BEGIN to it }
@@ -68,7 +94,7 @@ internal class DocComments(root: AstNode) {
     private fun above(first: Int): List<Comment>? {
         val token = tokens[first]
         val previousLine = if (first == 0) -1 else tokens[first - 1].endLine
-        val own = comments[first].filter { it.line != previousLine }
+        val own = commentsOf(first).filter { it.line != previousLine }
         if (own.isEmpty()) return null
         val block = blocks(own).last()
         val gap = if (block.last().endLine == token.line) -1 else token.line - block.last().endLine - 1
@@ -87,9 +113,9 @@ internal class DocComments(root: AstNode) {
 
     /** The first block after [keyword], when a blank line follows it (else it comments the next line) and it may be taken. */
     private fun firstBlockAfter(keyword: Token): List<Comment>? {
-        val at = starts[position(keyword.line, keyword.column)] ?: return null
+        val at = startingAt(keyword.line, keyword.column) ?: return null
         if (at + 1 >= tokens.size) return null
-        val after = comments[at + 1]
+        val after = commentsOf(at + 1)
         if (after.isEmpty()) return null
         val blocks = blocks(after)
         val block = blocks.first()
@@ -102,7 +128,7 @@ internal class DocComments(root: AstNode) {
         val line = tokens[last].endLine
         val found = ArrayList<Comment>()
         for (t in last + 1 until tokens.size) {
-            comments[t].filterTo(found) { it.line == line }
+            commentsOf(t).filterTo(found) { it.line == line }
             val token = tokens[t]
             if (token.line != line || token.originalValue !in END_PUNCTUATION) break
         }

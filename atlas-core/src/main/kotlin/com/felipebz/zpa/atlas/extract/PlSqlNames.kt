@@ -9,7 +9,7 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.flr.api.Token
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlPunctuator
-import com.felipebz.zpa.api.project.ProjectAnalysis
+import com.felipebz.zpa.api.project.SequenceReferenceResolution
 import com.felipebz.zpa.api.project.ProjectCallKind
 import com.felipebz.zpa.api.squid.SemanticAstNode
 import com.felipebz.zpa.api.symbols.Symbol
@@ -30,17 +30,18 @@ internal class PlSqlNames(
     typeMembers: ObjectTypeMembers,
     runSchemas: Set<String>,
     private val jsonBuiltIn: Boolean,
-    projectAnalysis: ProjectAnalysis,
     /** The body globals and parameters, whose uses zpa's name binding finds. */
     private val bound: BoundNames,
     /** The record fields the chains read here name, asked when the file is left. */
-    private val fields: FieldUses
+    private val fields: FieldUses,
+    /** What zpa's project analysis says of a name that may be a sequence pseudocolumn. */
+    sequenceResolution: (AstNode) -> SequenceReferenceResolution
 ) {
     private val ownNames = OwnNames(typeMembers)
     private val segmentValues = SegmentValues(calls, values)
     private val roles = NameRoles(state)
     private val remoteNames = RemoteNames(state, scopes, roles)
-    private val sequenceNames = SequenceNames(state, scopes, values, synonyms, runSchemas, projectAnalysis)
+    private val sequenceNames = SequenceNames(state, scopes, values, synonyms, runSchemas, sequenceResolution)
     private val conditionNameReads = ConditionNameReads(state, catalog, segmentValues, runSchemas)
 
     /** The segments of a plain dotted name as written, or null for anything else (a host variable, `f(x).g`, `c%rowcount`). */

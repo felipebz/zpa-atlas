@@ -11,14 +11,15 @@ import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectSnapshot
+import com.felipebz.zpa.api.project.SequenceReferenceResolution
 import com.felipebz.zpa.api.semantics.NameDeclarationKind
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.model.*
 
 /**
- * Extracts the facts of one file during its AST walk. A new instance is used for every file; it must be a
- * [PlSqlCheck] because the scanner installs the project analysis only on checks. Nothing is written here: the facts
- * are returned by [facts] and handed to the single writer.
+ * Extracts the facts of one file from its AST, once the scanner's walk of it ends. A new instance is used for every
+ * file; it must be a [PlSqlCheck] because the scanner installs the project analysis only on checks. Nothing is written
+ * here: the facts are returned by [facts] and handed to the single writer.
  */
 class FileExtractor(
     private val path: String,
@@ -33,10 +34,12 @@ class FileExtractor(
     /** Whether a bare `json` is always the built-in type: the run targets Oracle 21 or later. */
     private val jsonBuiltIn: Boolean = false,
     /** The members of the object types the sources specify, so that a type body tells its own members from external names. */
-    private val typeMembers: ObjectTypeMembers = ObjectTypeMembers()
+    private val typeMembers: ObjectTypeMembers = ObjectTypeMembers(),
+    /** The run's instances of the strings its occurrences hold. */
+    strings: FactStrings = FactStrings()
 ) : PlSqlCheck() {
 
-    private val state = FileState()
+    private val state = FileState(strings)
     private lateinit var catalog: DeclarationCatalog
     private lateinit var calls: CallResolver
     private lateinit var types: TypeReferenceResolver
@@ -44,6 +47,12 @@ class FileExtractor(
     private lateinit var runSchemas: Set<String>
     private var result: FileFacts? = null
     private var root: AstNode? = null
+
+    /**
+     * What `resolveSequenceReference` answers for the file's `….NEXTVAL` and `….CURRVAL` names at [visitFile], before
+     * zpa's project visitors add the per-node results it would see later.
+     */
+    private var sequenceResolutions: Map<AstNode, SequenceReferenceResolution> = emptyMap()
 
     /** The dynamic statements whose text is a variable, decided once the whole file is walked (every call's modes known). */
     private val variableStatements = ArrayList<VariableStatement>()
@@ -78,8 +87,20 @@ class FileExtractor(
         types = TypeReferenceResolver(snapshot, catalog, values, resolver, synonyms, state.entities, state.relations, runSchemas)
     }
 
+    /**
+     * The walk, under the scanner's lock, only notes the tree: [facts] extracts it once the scanner returns, so the files
+     * of a run are extracted on every thread at once. What the extraction asks of zpa is per file or fixed for the run,
+     * except `resolveSequenceReference`, asked here for every name that may be a sequence pseudocolumn.
+     */
     override fun visitFile(node: AstNode) {
         root = node
+        sequenceResolutions = node.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION)
+            .filter { normalizeIdentifier(it.lastChild.tokenValue) in PSEUDOCOLUMNS }
+            .associateWithTo(java.util.IdentityHashMap()) { projectAnalysis().resolveSequenceReference(it) }
+    }
+
+    /** The facts of the tree [visitFile] noted: the walk of its units, then what needs the whole file walked. */
+    private fun extract(node: AstNode): FileFacts {
         val scopes = SqlScopes()
         bound = BoundNames(context::nameBinding, context::typeBinding)
         // The parameters of the file's subprograms and cursors that have an entity: their uses are the names zpa binds
@@ -90,7 +111,10 @@ class FileExtractor(
         }
         bodyGlobals = BodyGlobals(bound, context::recordFields)
         fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding, bodyGlobals::fieldAt)
-        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, projectAnalysis(), bound, fields)
+        val sequences = projectAnalysis()
+        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, bound, fields) {
+            sequenceResolutions[it] ?: sequences.resolveSequenceReference(it)
+        }
         triggers = Triggers(state, resolver, plsql)
         typeReferences = TypeReferences(state, types, resolver, calls, plsql, bound, jsonBuiltIn)
         val columnReads = ColumnReads(state, resolver, scopes, plsql, context::nameBinding)
@@ -126,15 +150,12 @@ class FileExtractor(
             }
         }
         variableTexts()
-    }
-
-    /** zpa resolves the members after an element, a call result or another file's package variable only now. */
-    override fun leaveFile(node: AstNode) {
+        // zpa resolves the members after an element, a call result or another file's package variable once it walked the file.
         fields.record()
         shapes = TypeShapes(state, bound, context::typeBinding, node)
         for ((key, datatype) in returnTypes) declaredShapes += DeclaredShapeFact(key, shapes.datatype(datatype))
         intos = places.intos(shapes)
-        result = build(ParseStatus.OK.takeIf { state.recoveredRegions == 0 } ?: ParseStatus.RECOVERED)
+        return build(ParseStatus.OK.takeIf { state.recoveredRegions == 0 } ?: ParseStatus.RECOVERED).also { result = it }
     }
 
     /**
@@ -160,8 +181,12 @@ class FileExtractor(
         }
     }
 
-    /** The facts of the file; a file the parser rejected has only its declarations, in one unparsed unit. */
+    /**
+     * The facts of the file, extracted on the first call, once the scanner's walk ended; a file the parser rejected has
+     * only its declarations, in one unparsed unit.
+     */
     fun facts(): FileFacts = result
+        ?: root?.let { extract(it) }
         ?: failedFacts(if (::catalog.isInitialized) catalog else null,
             CoverageFact("PARSE_FAILED", "The file could not be parsed; only the declarations of the project index are kept"))
 

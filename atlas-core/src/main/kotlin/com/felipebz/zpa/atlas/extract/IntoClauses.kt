@@ -517,7 +517,7 @@ internal class IntoClauses(
      * is outside the index, or the call does not tie the argument to a parameter).
      */
     private fun passedColumns(statement: Statement) {
-        val calls = state.occurrences.filter { it.statementLocalId == statement.id && Role.CALL in it.roles }.associateBy { it.span }
+        val calls = state.occurrencesOf(statement.id).filter { Role.CALL in it.roles }.associateBy { it.span }
         if (calls.isEmpty()) return
         for (call in statement.root.getDescendants(PlSqlGrammar.METHOD_CALL)) {
             val occurrence = calls[spanOf(call.firstChild)] ?: continue
@@ -861,8 +861,7 @@ internal class IntoClauses(
 
     /** Whether the called name [name] is a routine the index resolves (a built-in is not one). */
     private fun isRoutineCall(name: AstNode): Boolean {
-        val span = spanOf(name)
-        return state.occurrences.any { it.span == span && Role.CALL in it.roles && it.entityKey != null && it.status != Status.UNRESOLVED }
+        return state.occurrencesAt(spanOf(name)).any { Role.CALL in it.roles && it.entityKey != null && it.status != Status.UNRESOLVED }
     }
 
     /** Whether [shape], followed through type names of this file, is a `REF CURSOR` type with `RETURN`. */

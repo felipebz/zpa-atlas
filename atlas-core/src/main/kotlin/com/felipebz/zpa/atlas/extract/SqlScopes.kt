@@ -50,7 +50,7 @@ internal class Statement(val root: AstNode, val context: Context, val id: Int, p
         val fact = OccurrenceFact(context.unitIndex, context.container, id, span, written, entityKey,
             roles, status(status, context.partial), context.origin, reason, candidates, writtenValues = values)
         state.occurrences += fact
-        if (roles == COLUMN_READ) columnReads.getOrPut(node) { ArrayList() } += fact
+        if (roles == COLUMN_READ) columnReads.getOrPut(node) { ArrayList() } += state.occurrences.last()
     }
 }
 
