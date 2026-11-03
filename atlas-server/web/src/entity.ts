@@ -696,6 +696,7 @@ function placeRowHtml(p: ColumnPlace) {
   const why = (source === null ? "" : `<div>${fillHtml(source.key, { source: entityLink(source.entity, PARTS) })}</div>`) +
     (concatenated === null ? "" : `<div>${esc(concatenated)}</div>`) +
     (functions === null ? "" : `<div>${esc(functions)}</div>`) +
+    (p.source === "RETURNED" && p.routine !== null ? `<div>${fillHtml("places.returnedBy", { routine: entityLink(p.routine, PARTS) })}</div>` : "") +
     (p.argumentOf === null || p.routine === null ? "" :
       `<div>${fillHtml(p.source === "IN_ARGUMENT" ? "places.passedTo" : "places.argumentOf", {
         parameter: `<a class="mono parts" href="${entityHref(p.argumentOf.key)}">${partBreaksHtml(p.argumentOf.name)}</a>`,

@@ -751,22 +751,22 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         const val PLACES = "Every PL/SQL variable, parameter or field a column's value is read into, and how each is " +
             "declared. source: SELECT_INTO, FETCH (explicit cursor), RETURNING (with bulk); ASSIGNMENT (target := r.f, " +
             "r a cursor FOR loop or %ROWTYPE record; line of the :=); OUT_ARGUMENT (a call's argument for an OUT " +
-            "parameter below; argumentOf, routine); IN_ARGUMENT (a target inside the routine the column is passed to, " +
-            "written from the IN parameter argumentOf of routine; one row per column and target, callCount calls pass " +
-            "it, one at callPath and callLine). One row per target, by class then file and line, a page at a time " +
-            "(pass nextOffset as offset; absent on the last page); with view columns computed from it (viaView, read " +
-            "is the view column). Each row: the column read, source, path, line, container, targetWritten, target " +
-            "(absent for an anonymous block's variable), the field of a record target, functions: value functions " +
-            "read through, outer first (NVL, NVL2, COALESCE, MAX, MIN, TRIM, LTRIM, RTRIM, UPPER, LOWER; NVL may give its " +
-            "other argument); concatenated: the value is one part of a || or CONCAT, other text lands with it. " +
-            "placeClass: FIXED_SIZE (its own length or precision: length, unit CHAR, BYTE, DIGITS, or " +
-            "NLS_LENGTH_SEMANTICS when none is written; for a number, length is the digits before the point, p-s, " +
-            "scale is s: compare both with the column's NUMBER(p,s)), UNKNOWN (reason), CALLER_DECIDES (an OUT or IN " +
-            "OUT parameter, parameterMode: each caller's argument decides its type and size; each known call's " +
-            "argument is a row of its own), ANCHORED_ELSEWHERE (to another column, typeSource), NO_SIZE (NUMBER, " +
-            "FLOAT, CLOB, DATE), ANCHORED_TO_COLUMN (%TYPE, %ROWTYPE or a cursor record over the column, or anchored " +
-            "to something so anchored). declaredType is as written; typeSource decides the type. total and byClass " +
-            "count all. Not followed: other expressions (substr(code, 1, 3)), dynamic SQL. $PATHS"
+            "parameter below; argumentOf, routine); IN_ARGUMENT (a target inside routine, written from its IN parameter " +
+            "argumentOf the column is passed to; callCount calls pass it, one at callPath, callLine); RETURNED (a target " +
+            "the result of routine, a function returning the column, is written into; callCount calls). One row per " +
+            "column and target, by class then file and line, a page at a time (nextOffset as offset; absent on the " +
+            "last); with view columns computed from it (viaView, read is the view column). Each row: the column read, " +
+            "source, path, line, container, targetWritten, target (absent for an anonymous block's variable), the field " +
+            "of a record target, functions: value functions read through, outer first (NVL, NVL2, COALESCE, MAX, MIN, " +
+            "TRIM, LTRIM, RTRIM, UPPER, LOWER; NVL may give its other argument); concatenated: the value is one part of " +
+            "a || or CONCAT, other text lands with it. placeClass: FIXED_SIZE (its own length or precision: length, " +
+            "unit CHAR, BYTE, DIGITS, or NLS_LENGTH_SEMANTICS when none is written; for a number, length is the digits " +
+            "before the point, p-s, scale is s: compare both with the column's NUMBER(p,s)), UNKNOWN (reason), " +
+            "CALLER_DECIDES (an OUT or IN OUT parameter, parameterMode: each caller's argument decides its type and " +
+            "size; each known call's argument is a row), ANCHORED_ELSEWHERE (to another column, typeSource), NO_SIZE " +
+            "(NUMBER, FLOAT, CLOB, DATE), ANCHORED_TO_COLUMN (%TYPE, %ROWTYPE or a cursor record over the column, or " +
+            "anchored to something so anchored). declaredType is as written; typeSource decides the type. total and " +
+            "byClass count all. Not followed: other expressions, dynamic SQL. $PATHS"
 
         const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column " +
             "is in (referencedBy of get_entity, which cuts it), by table then name, a page at a time: pass the answer's " +

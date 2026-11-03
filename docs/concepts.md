@@ -163,10 +163,24 @@ cursor is not known; `_CURSOR` for a `%ROWTYPE` of a cursor whose query is not k
 relation whose columns are not known; `_REF_CURSOR` for a `%ROWTYPE` of a cursor variable; for an item that reads no
 column the index knows, `_NO_COLUMN` when it reads no column at all (a literal, a PL/SQL value, `ROWNUM`, `LEVEL`,
 `extractValue(value(t), …)` over `table(…)`), `_COLUMN_UNRESOLVED` when it reads columns the index cannot resolve,
-`_INLINE_VIEW` for a column of an inline view; `_OTHER` for anything else), and the parameter returned (`ARGUMENT_RETURNED`)
-or written within an expression (`ARGUMENT_EXPRESSION_*`, by its shape as for `EXPRESSION_*`, with `_CASE` for a `CASE`
-and `_LENGTH` for `LENGTH` and its kin), each once per column. An unqualified name the index does not
-resolve is taken for a built-in function (`upper`, `count`) and not counted.
+`_INLINE_VIEW` for a column of an inline view; `_OTHER` for anything else), and the parameter written within an
+expression (`ARGUMENT_EXPRESSION_*`, by its shape as for `EXPRESSION_*`, with `_CASE` for a `CASE` and `_LENGTH` for
+`LENGTH` and its kin), each once per column. An unqualified name the index does not resolve is taken for a built-in
+function (`upper`, `count`) and not counted.
+
+A column's value a function returns (`return p_code` of a parameter it is passed to, as is or through value functions,
+or `return l` of a local or a record's field a column's value is read into, `return r.code`) reaches every target its
+callers write the result into: `l := f(…)`, through value functions or a concatenation (`nvl(f(…), '-')`,
+`'X' || f(…)`), a select item `select f(…) into l`, an argument for another routine's `IN` parameter (followed there),
+another function's `RETURN` (followed to its callers), an `OUT` parameter (followed to its callers). Each such target is
+a place of the column (`RETURNED`), classed as any target: `argument_routine_id` names the function, `call_count` how
+many calls write its result there, `call_path` and `call_line` one of them. The return type does not limit the value:
+Oracle returns a value longer than a constrained return type (`return t_short`, `return orders.code%type`) without an
+error. What is not followed is counted in the file of the call: the result written within another expression
+(`RETURNED_EXPRESSION_*`, by its shape as for `ARGUMENT_EXPRESSION_*`; also `return substr(l, 1, 3)` of a local), and
+the call of a function that returns a record, a collection or an object (`RETURNED_NOT_SCALAR`). A function that
+returns its own result, or two that return each other's, are followed once. Not followed: pipelined and table
+functions, a function's result in dynamic SQL, a local the function only assigns from another local.
 
 ## Occurrence
 

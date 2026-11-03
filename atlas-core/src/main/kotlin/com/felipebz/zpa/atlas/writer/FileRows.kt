@@ -190,6 +190,7 @@ internal class FileRows(private val connection: Connection) {
         val what = when {
             shape.startsWith("EXPRESSION_") -> LEFT_OUT.getValue("EXPRESSION")
             shape.startsWith("ARGUMENT_EXPRESSION_") -> LEFT_OUT.getValue("ARGUMENT_EXPRESSION")
+            shape.startsWith("RETURNED_EXPRESSION_") -> LEFT_OUT.getValue("RETURNED_EXPRESSION")
             shape.startsWith("RECORD_ASSIGNMENT_EXPRESSION_") -> LEFT_OUT.getValue("RECORD_ASSIGNMENT_EXPRESSION")
             shape.startsWith(ARGUMENT_NOT_KNOWN) -> "field(s) of ${fieldOf(shape.removePrefix(ARGUMENT_NOT_KNOWN))}, passed to a routine: not followed"
             shape.startsWith(ASSIGNMENT_NOT_KNOWN) -> "assignment(s) of a field of ${fieldOf(shape.removePrefix(ASSIGNMENT_NOT_KNOWN))}: not followed"
@@ -219,7 +220,8 @@ internal class FileRows(private val connection: Connection) {
             "ARGUMENT_COLUMN_POSSIBLE" to "parameter(s) a column's value is passed to, named in SQL on a table whose columns are not known (a column may take the name): not followed",
             "ARGUMENT_FETCHED" to "parameter(s) a column's value is passed to, selected by a cursor: not followed",
             "ARGUMENT_INTO_NOT_FOLLOWED" to "parameter(s) a column's value is passed to, selected into targets that do not match the items: not followed",
-            "ARGUMENT_RETURNED" to "parameter(s) a column's value is passed to, returned by the function: not followed",
+            "RETURNED_EXPRESSION" to "results of a function that returns a column's value, written within an expression: not followed",
+            "RETURNED_NOT_SCALAR" to "calls of a function that returns a column's value in a record, a collection or an object: not followed",
             "ARGUMENT_EXPRESSION" to "parameter(s) a column's value is passed to, written within an expression: not followed",
             "OUT_ARGUMENT_NOT_FOLLOWED" to "argument(s) for an OUT parameter a column's value is read into, not a name, field or element the index binds: not followed",
             "OUT_PARAMETER_NOT_FOLLOWED" to "OUT parameter(s) a column's value is read into whose callers the index cannot tell: not followed",

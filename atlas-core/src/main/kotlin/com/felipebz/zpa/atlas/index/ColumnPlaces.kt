@@ -139,7 +139,7 @@ internal class ColumnPlaces(
      * whose `INTO` targets do not match its items (`ARGUMENT_INTO_NOT_FOLLOWED`), a record field whose column is not known (`ARGUMENT_COLUMN_NOT_KNOWN_*`, by why: [notKnown]), and the
      * parameter returned (`ARGUMENT_RETURNED`) or written within an expression (`ARGUMENT_EXPRESSION_*`, by its shape).
      */
-    fun passed(facts: List<FileFacts>): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
+    fun passed(facts: List<FileFacts>, found: Map<String, List<ColumnPlaceFact>>): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
         val places = HashMap<String, MutableList<ColumnPlaceFact>>()
         val leftOut = HashMap<String, MutableMap<String, Int>>()
         fun count(path: String, shape: String) {
@@ -198,10 +198,27 @@ internal class ColumnPlaces(
             seen += key
             queue += Reached(key.first, key.second, key.third, calls.sortedWith(compareBy({ it.first }, { it.second.targets.single().span })))
         }
-        val placed = HashSet<List<Any>>()
+        // A variable or field holding a column's value that a function returns: what its places hold goes to the return.
+        fun held(path: String, place: ColumnPlaceFact) {
+            val key = place.targetKey ?: return
+            val held = listOfNotNull(place.field?.let { "$key.$it" }, key).map { parameterKey(path, it) }
+            for (node in held) if (node in flows && seen.add(Triple(node, place.columnKey, place.functions))) {
+                queue += Reached(node, place.columnKey, place.functions, emptyList())
+            }
+        }
+        for ((path, list) in found) for (place in list) held(path, place)
+        val placed = HashMap<List<Any>, Pair<String, Int>>()
         val counted = HashSet<List<Any>>()
         while (queue.isNotEmpty()) {
             val reached = queue.removeFirst()
+            val returns = reached.parameter.endsWith(".$RETURN")
+            // A function that returns a record, a collection or an object: its callers are not followed, each counted.
+            if (returns && !isScalar(reached.parameter)) {
+                for ((path, flow) in flows[reached.parameter].orEmpty()) {
+                    if (counted.add(listOf(path, flow.targets.single().span))) count(path, "RETURNED_NOT_SCALAR")
+                }
+                continue
+            }
             for ((path, flow) in flows[reached.parameter].orEmpty()) {
                 val functions = flow.functions + reached.functions
                 val site = flow.targets.single().span
@@ -209,22 +226,39 @@ internal class ColumnPlaces(
                     flow.expression != null -> if (counted.add(listOf(path, site, reached.column))) count(path, flow.expression)
                     flow.parameterKey != null -> {
                         val next = parameterKey(path, flow.parameterKey)
+                        // A function's result passed to a parameter: that call is the one that passes the column.
+                        val calls = if (returns && !next.endsWith(".$RETURN")) listOf(path to flow) else reached.calls
                         if (!isDefined(next)) {
                             if (counted.add(listOf(path, site, reached.column))) count(path, "ARGUMENT_ROUTINE_OUTSIDE")
                         } else if (seen.add(Triple(next, reached.column, functions))) {
-                            queue += Reached(next, reached.column, functions, reached.calls)
+                            queue += Reached(next, reached.column, functions, calls)
                         }
                     }
-                    placed.add(listOf(path, site, reached.column, functions)) -> {
-                        val (callPath, call) = reached.calls.first()
+                    else -> {
+                        val key = listOf(path, site, reached.column, functions)
+                        val earlier = placed[key]
+                        if (earlier != null) {
+                            // Another call of a function writing its result into the same target.
+                            if (returns) places.getValue(earlier.first)[earlier.second].let { place ->
+                                places.getValue(earlier.first)[earlier.second] = place.copy(callCount = (place.callCount ?: 1) + 1)
+                            }
+                            continue
+                        }
                         // Read by an INTO with a single target: a record takes the item as its field, as for a column.
                         val target = flow.targets.single()
                         val items = flow.branches.singleOrNull()
                         val field = items?.takeIf { it.size > 1 || isRow(target, flow.bulk) }?.indexOfFirst { it.columnKey == flow.fromParameter }
-                        places.getOrPut(path) { ArrayList() } += place(flow, target, field, reached.column, functions).copy(
-                            argumentOf = call.parameterKey, callCount = reached.calls.size, callPath = callPath,
-                            callLine = call.targets.single().span.startLine
-                        )
+                        val made = place(flow, target, field, reached.column, functions)
+                        val place = if (returns) {
+                            made.copy(source = PlaceSource.RETURNED, argumentOf = specKey(reached.parameter), callCount = 1, callPath = path, callLine = site.startLine)
+                        } else {
+                            val (callPath, call) = reached.calls.firstOrNull() ?: continue
+                            made.copy(argumentOf = call.parameterKey, callCount = reached.calls.size, callPath = callPath, callLine = call.targets.single().span.startLine)
+                        }
+                        val list = places.getOrPut(path) { ArrayList() }
+                        placed[key] = path to list.size
+                        list += place
+                        held(path, place)
                     }
                 }
             }
@@ -479,6 +513,17 @@ internal class ColumnPlaces(
 
     private fun isCursorVariable(shape: TypeShape?) = refCursor(shape) != null
 
+    /** Whether what a function returns ([returned], its return key) is a scalar: not a record, a collection or an object. */
+    private fun isScalar(returned: String): Boolean {
+        val node = structure(Node.Shape(shapes[specKey(returned)] ?: return true, null), 0) as? Node.Shape ?: return true
+        return when (val shape = node.shape) {
+            is TypeShape.Record, is TypeShape.Collection, is TypeShape.CursorRow -> false
+            is TypeShape.Anchored -> !shape.rowType
+            is TypeShape.Unsized -> shape.type != "OBJECT"
+            else -> true
+        }
+    }
+
     /**
      * The shape a FETCH whose cursor's query is not known is counted under, by the cursor: `_STRONG` for a variable of
      * a `REF CURSOR` type with `RETURN` (its own entity [cursorKey], or the type the extraction found), else what the
@@ -531,6 +576,7 @@ internal class ColumnPlaces(
         /** The reason of the shape of a `REF CURSOR` type ([TypeShape.Unknown]). */
         private const val CURSOR_VARIABLE = "CURSOR_VARIABLE"
         private const val STRONG = "STRONG"
+        private const val RETURN = IntoClauses.RETURN_SUFFIX
 
         /** The prefix of a nested subprogram's parameter key, as the extraction writes it. */
         private const val LOCAL_PARAMETER = "local:"

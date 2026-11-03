@@ -60,7 +60,7 @@ class AtlasWriter private constructor(private val connection: Connection, privat
     override fun close() = connection.close()
 
     companion object {
-        const val SCHEMA_VERSION = 23
+        const val SCHEMA_VERSION = 24
 
         /**
          * Writes the index to a temporary file beside [target] and moves it over [target] when everything succeeded.

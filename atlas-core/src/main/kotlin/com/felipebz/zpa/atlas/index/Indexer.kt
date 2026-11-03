@@ -282,7 +282,7 @@ class Indexer internal constructor(
             if (counts.isNotEmpty()) placesLeftOut[file.path] = counts
         }
         // The targets inside routines of the columns passed to their IN parameters, across files.
-        val (passed, passedLeftOut) = columnPlaces.passed(facts)
+        val (passed, passedLeftOut) = columnPlaces.passed(facts, places)
         for ((path, found) in passed) places[path] = places[path].orEmpty() + found
         for ((path, counts) in passedLeftOut) placesLeftOut[path] = TreeMap(placesLeftOut[path].orEmpty()).apply { counts.forEach { (k, v) -> merge(k, v, Int::plus) } }
         // The callers' arguments of the OUT parameters a column's value is read into, across files.

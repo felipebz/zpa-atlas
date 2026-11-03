@@ -6765,8 +6765,6 @@ hr/views_star.sql	VIEW_LINEAGE_UNKNOWN	db:HR.V_PARTIAL: column ID comes from a s
 hr/views_star.sql	VIEW_LINEAGE_UNKNOWN	db:HR.V_TABLE_FN: column COL_A comes from a source whose columns cannot be followed
 hr/views_star.sql	VIEW_LINEAGE_UNKNOWN	db:HR.V_TABLE_FN: column COL_B comes from a source whose columns cannot be followed
 scripts/load.sql	WRITE_VALUE_UNKNOWN	1 column write(s) without a value: columns not complete
-hr/imp_fn.fun	COLUMN_VALUE_NOT_FOLLOWED	ARGUMENT_RETURNED: 1 parameter(s) a column's value is passed to, returned by the function: not followed
-hr/pack_calls.pkb	COLUMN_VALUE_NOT_FOLLOWED	ARGUMENT_RETURNED: 1 parameter(s) a column's value is passed to, returned by the function: not followed
 hr/pack_dynamic.pkb	COLUMN_VALUE_NOT_FOLLOWED	DYNAMIC_INTO: 4 target(s) of a dynamic INTO: not followed
 hr/pack_methods.pkb	COLUMN_VALUE_NOT_FOLLOWED	EXPRESSION_OTHER_OTHER: 2 select item(s) that are an expression of one column, read into a PL/SQL target: not followed
 hr/param_fixes.sql	COLUMN_VALUE_NOT_FOLLOWED	FETCH_CURSOR_NOT_KNOWN_PARAMETER: 1 target(s) of a FETCH from a cursor variable that comes in as a parameter, whose query is not known: not followed
@@ -7295,6 +7293,7 @@ HR.UK_KY_ORDERS_CODE	1	CODE	db:HR.KY_ORDERS.CODE
 hr/fn_company_name.fun	4:27	db:HR.COMPANY.COMPANY_NAME	SELECT_INTO	0	v_name	db:HR.FN_COMPANY_NAME(P_ID IN NUMBER).V_NAME	-	ANCHORED_TO_COLUMN	company.company_name%type	-	-	-	db:HR.COMPANY.COMPANY_NAME	-	-	-	-	-	-
 hr/imp_read_view.prc	4:21	db:HR.V_IMP.N	SELECT_INTO	0	v_n	db:HR.IMP_READ_VIEW().V_N	-	NO_SIZE	number	-	-	-	-	-	-	MAX	-	-	-
 hr/pack_args.pkb	32:32	db:HR.COMPANY.ID	SELECT_INTO	0	v	db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY.V	-	NO_SIZE	number	-	-	-	-	-	-	NVL,MAX	-	-	-
+hr/pack_calls.pkb	45:11	db:HR.COMPANY.ID	RETURNED	0	n	db:HR.PACK_CALLS.P_MIX(P_A IN NUMBER)@BODY.N	-	NO_SIZE	number	-	-	-	-	-	-	-	-	1	hr/pack_calls.pkb:45
 hr/pack_chains.pkb	35:25	db:HR.COMPANY.ID	SELECT_INTO	0	l	db:HR.PACK_CHAINS.RUN()@BODY.L	-	NO_SIZE	number	-	-	-	-	-	-	-	-	-	-
 hr/pack_inline.sql	14:24	db:HR.COMPANY.ID	FETCH	0	v	db:HR.PACK_INLINE.GO()@BODY.V	ID	ANCHORED_TO_COLUMN	c_inline%rowtype	-	-	-	db:HR.COMPANY.ID	-	-	-	-	-	-
 hr/pack_process.pkb	4:123	db:HR.SEND_QUEUE.ID	SELECT_INTO	0	g_counter	db:HR.PACK_PROCESS.G_COUNTER	-	NO_SIZE	number	-	-	-	-	-	-	-	-	-	-
@@ -7302,6 +7301,7 @@ hr/pack_process.pkb	19:72	db:HR.SEND_QUEUE.ID	FETCH	0	v_pending	db:HR.PACK_PROCE
 hr/pack_types.pkb	26:29	db:HR.COMPANY.COMPANY_NAME	SELECT_INTO	0	v_name	db:HR.PACK_TYPES.NAME_OF(P_ID IN COMPANY.ID%TYPE)@BODY.V_NAME	-	ANCHORED_TO_COLUMN	s_company_name	-	-	-	db:HR.COMPANY.COMPANY_NAME	-	-	-	-	-	-
 hr/proc_columns.prc	18:72	db:HR.EVENT_LOG.MSG	RETURNING	0	company_name	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).COMPANY_NAME	-	FIXED_SIZE	varchar2(100)	100	NLS_LENGTH_SEMANTICS	-	-	-	-	-	-	-	-
 hr/proc_mview.prc	3:33	db:HR.MV_COMPANY_LOG.COMPANY_LABEL	SELECT_INTO	0	o	db:HR.PROC_MVIEW(O OUT VARCHAR2).O	-	CALLER_DECIDES	varchar2	-	-	-	-	-	OUT	MAX	-	-	-
+hr/proc_synonym_objects.prc	12:4	db:HR.COMPANY.ID	RETURNED	0	n	db:HR.PROC_SYNONYM_OBJECTS().N	-	NO_SIZE	number	-	-	-	-	-	-	-	-	1	hr/proc_synonym_objects.prc:12
 hr/proc_synonyms.prc	7:23	db:SYS.USER_TABLES.NUM_ROWS	SELECT_INTO	0	n	db:HR.PROC_SYNONYMS().N	-	NO_SIZE	number	-	-	-	-	-	-	-	-	-	-
 hr/proc_view_chain.prc	4:20	db:HR.V_CHAIN2.LABEL	SELECT_INTO	0	l	db:HR.PROC_VIEW_CHAIN().L	-	FIXED_SIZE	varchar2(100)	100	NLS_LENGTH_SEMANTICS	-	-	-	-	-	-	-	-
 hr/proc_view_chain.prc	5:18	db:HR.V_LIN_JOIN.MSG	SELECT_INTO	0	l	db:HR.PROC_VIEW_CHAIN().L	-	FIXED_SIZE	varchar2(100)	100	NLS_LENGTH_SEMANTICS	-	-	-	-	-	-	-	-

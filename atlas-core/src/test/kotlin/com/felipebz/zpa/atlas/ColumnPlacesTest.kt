@@ -523,11 +523,12 @@ class ColumnPlacesTest {
             "29 CODE l FIXED_SIZE varchar2(12) - P_ASSIGN(P_CODE IN VARCHAR2).P_CODE 2 fmt.sql:47"
             // f_filter only compares its parameter: no place.
         )
-        // f_return returns its parameter: counted once, for the value going in; what each function returns into n or l
-        // is counted once too, as an expression of the column.
+        // What each function returns into n or l is counted once, as an expression of the column; f_return returns its
+        // parameter, which reaches l as the function's result.
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1").map { it.substringBefore(" ") })
-            .containsExactly("ARGUMENT_RETURNED:", "EXPRESSION_OTHER_ROUTINE:")
-        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE message LIKE 'ARGUMENT_RETURNED%'").single()).startsWith("ARGUMENT_RETURNED: 1 ")
+            .containsExactly("EXPRESSION_OTHER_ROUTINE:")
+        assertThat(Fixture.query(db, "SELECT p.start_line || ' ' || p.target_written || ' ' || p.class FROM column_place p WHERE p.source = 'RETURNED'"))
+            .containsExactly("49 l FIXED_SIZE")
     }
 
     @Test
@@ -843,7 +844,6 @@ class ColumnPlacesTest {
             "ARGUMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1",                       // pk_m.take(x.lit), a literal
             "ARGUMENT_EXPRESSION_OTHER_ARITHMETIC: 1",                      // to_number(p_code) + 1
             "ARGUMENT_EXPRESSION_OTHER_DECODE: 1",                          // decode(p_code, …)
-            "ARGUMENT_RETURNED: 1",                                         // fmt's return p, from pk_m.fmt(code)
             "EXPRESSION_OTHER_ARITHMETIC: 1",                               // order_id * 2
             "EXPRESSION_OTHER_DECODE: 1",                                   // decode(code, 'a', 'b')
             "EXPRESSION_OTHER_ROUTINE: 1",                                  // pk_m.fmt(code)
@@ -857,9 +857,9 @@ class ColumnPlacesTest {
         )
         // Places already: lower(…) is a value function the index follows (take's l := lower(p_code), the select's
         // lower(code)); unknown_tab's code is taken by name as a column of it, so y.code is followed; z.code is the
-        // code of orders the inline view reads.
+        // code of orders the inline view reads; pk_m.fmt(code) returns its parameter into l.
         assertThat(Fixture.query(db, "SELECT p.start_line || ' ' || p.source FROM column_place p ORDER BY p.start_line"))
-            .containsExactly("18 IN_ARGUMENT", "48 ASSIGNMENT", "52 ASSIGNMENT", "58 SELECT_INTO")
+            .containsExactly("18 IN_ARGUMENT", "48 ASSIGNMENT", "52 ASSIGNMENT", "57 RETURNED", "58 SELECT_INTO")
     }
 
     @Test
@@ -867,17 +867,8 @@ class ColumnPlacesTest {
         val sources = temp.resolve("src")
         Files.createDirectories(sources)
         Files.writeString(sources.resolve("iv.sql"), INLINE_VIEWS)
-        fun text(length: Int) = ProjectExternalDatatype.of("VARCHAR2", null, length, LengthSemantics.BYTE, null, null)
-        val id = ProjectExternalDatatype.of("NUMBER", null, null, null, 10, 0)
-        val relations = listOf(
-            "ORDERS" to listOf("ORDER_ID" to id, "CODE" to text(20), "NOTE" to text(40)),
-            "ITEMS" to listOf("ORDER_ID" to id, "SKU" to text(15))
-        ).map { (table, columns) ->
-            DictionaryRelation(ProjectExternalRelation.of("SHOP", table, true, columns.mapIndexed { i, (c, t) -> ProjectExternalColumn.of(c, i + 1, t) }),
-                DictionaryRelationKind.TABLE)
-        }
         val db = temp.resolve("iv.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.of("iv", listOf("SHOP"), relations), threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
         fun places(from: Int, to: Int) = Fixture.query(db, """
             SELECT p.start_line || ' ' || p.target_written || coalesce('.' || p.field, '') || ' ' || replace(replace(c.key, 'db:SHOP.', ''), 'ORDERS.', '') || ' ' ||
                    p.source || ' ' || p.class || ' ' || coalesce(p.length, '-') || ' ' || coalesce(p.functions, '-') || ' ' || p.concatenated
@@ -969,6 +960,85 @@ class ColumnPlacesTest {
     }
 
     @Test
+    fun `a column's value a function returns reaches the targets its callers write the result into`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("pk_ret.sql"), RETURNS_PACKAGE)
+        Files.writeString(sources.resolve("show_ret.sql"), RETURNS_CALLER)
+        Files.writeString(sources.resolve("show_more.sql"), """
+            create or replace package pk_ret2 as
+              type t_rec is record (code varchar2(20));
+              function f_rec(p_id number) return t_rec;
+              function f_self(p_code varchar2, n number) return varchar2;
+              function f_ping(p_code varchar2, n number) return varchar2;
+              function f_pong(p_code varchar2, n number) return varchar2;
+            end;
+            /
+            create or replace package body pk_ret2 as
+              function f_rec(p_id number) return t_rec is r t_rec; begin select code into r from orders where order_id = p_id; return r; end;
+              function f_self(p_code varchar2, n number) return varchar2 is
+              begin
+                if n > 0 then return f_self(p_code, n - 1); end if;
+                return p_code;
+              end;
+              function f_ping(p_code varchar2, n number) return varchar2 is
+              begin
+                if n > 0 then return f_pong(p_code, n - 1); end if;
+                return p_code;
+              end;
+              function f_pong(p_code varchar2, n number) return varchar2 is begin return f_ping(p_code, n); end;
+            end;
+            /
+            create or replace procedure show_more is
+              l1 varchar2(5); l2 varchar2(5); l3 varchar2(5); l4 varchar2(5); l5 varchar2(5);
+              r pk_ret2.t_rec;
+            begin
+              for x in (select code from orders) loop
+                l1 := pk_ret.f_cut(x.code);
+                l2 := pk_ret2.f_self(x.code, 3);
+                l3 := pk_ret2.f_ping(x.code, 3);
+              end loop;
+              l4 := pk_ret.f_short(1);
+              l5 := pk_ret.f_anchored(1);
+              r := pk_ret2.f_rec(1);
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("ret.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
+        // Column, target, class, length, functions, concatenated, the function (or the routine of the parameter), calls.
+        assertThat(Fixture.query(db, RETURNED_PLACES)).containsExactly(
+            "pk_ret.sql:67 l CODE IN_ARGUMENT FIXED_SIZE 5 - 0 PK_RET.TAKE(P_CODE IN VARCHAR2) 1 show_ret.sql:23",     // c15
+            "show_more.sql:30 l2 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET2.F_SELF(P_CODE IN VARCHAR2,N IN NUMBER) 1 show_more.sql:30",
+            "show_more.sql:31 l3 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET2.F_PING(P_CODE IN VARCHAR2,N IN NUMBER) 1 show_more.sql:31",
+            "show_more.sql:33 l4 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_SHORT(P_ID IN NUMBER) 1 show_more.sql:33",       // r10
+            "show_more.sql:34 l5 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_ANCHORED(P_ID IN NUMBER) 1 show_more.sql:34",    // r11
+            "show_ret.sql:8 l1 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_PARAM(P_CODE IN VARCHAR2) 1 show_ret.sql:8",       // c1
+            "show_ret.sql:9 l2 CODE RETURNED FIXED_SIZE 5 UPPER 0 PK_RET.F_UPPER(P_CODE IN VARCHAR2) 1 show_ret.sql:9",   // c2
+            "show_ret.sql:10 l3 CODE RETURNED FIXED_SIZE 5 - 1 PK_RET.F_TAGGED(P_CODE IN VARCHAR2) 1 show_ret.sql:10",    // c3
+            "show_ret.sql:12 l13 CODE RETURNED FIXED_SIZE 5 - 0 - 1 show_ret.sql:12",                                     // c13, nested
+            "show_ret.sql:14 l4 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:14",           // c4
+            "show_ret.sql:15 l5 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_GET_ROW(P_ID IN NUMBER) 1 show_ret.sql:15",       // c5
+            "show_ret.sql:16 l6 NOTE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_GET_CUR(P_ID IN NUMBER) 1 show_ret.sql:16",       // c6
+            "show_ret.sql:17 l7 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_TWO(P_ID IN NUMBER) 1 show_ret.sql:17",           // c7
+            "show_ret.sql:17 l7 NOTE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_TWO(P_ID IN NUMBER) 1 show_ret.sql:17",
+            "show_ret.sql:18 l8 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_CHAIN(P_ID IN NUMBER) 1 show_ret.sql:18",         // c8
+            "show_ret.sql:19 l9 CODE RETURNED FIXED_SIZE 5 NVL 0 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:19",         // c9
+            "show_ret.sql:20 l10 CODE RETURNED FIXED_SIZE 5 - 1 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:20",          // c10
+            "show_ret.sql:22 l14 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:22",          // c14, in SQL
+            "show_ret.sql:24 p_out CODE RETURNED CALLER_DECIDES - - 0 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:24"     // c16
+        )
+        assertThat(Fixture.query(db, "SELECT f.path || ' ' || n.message FROM coverage_note n JOIN source_file f ON f.id = n.file_id WHERE n.kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1")
+            .map { it.substringBefore(": ") + ": " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
+            "pk_ret.sql ARGUMENT_EXPRESSION_SUBSTR: 1",     // f_cut's substr(p_code, 1, 3), from show_more's f_cut(x.code)
+            "show_more.sql RETURNED_NOT_SCALAR: 1",         // r := f_rec(1), a record
+            "show_ret.sql ARGUMENT_ROUTINE_UNDECIDED: 1",   // c12: zpa leaves the overloaded f_over AMBIGUOUS
+            "show_ret.sql EXPRESSION_OTHER_ROUTINE: 1",     // c14's item: order_id passed to f_get, as today
+            "show_ret.sql RETURNED_EXPRESSION_SUBSTR: 1"    // c11
+        )
+    }
+
+    @Test
     fun `what is not followed is counted by shape`() {
         val db = PlacesFixture.index(temp)
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1"))
@@ -996,6 +1066,131 @@ class ColumnPlacesTest {
     }
 
     companion object {
+        /** A dictionary listing `ORDERS (ORDER_ID, CODE varchar2(20), NOTE varchar2(40))` and `ITEMS (ORDER_ID, SKU varchar2(15))`. */
+        private val ORDERS_ITEMS: AtlasDictionary by lazy {
+            fun text(length: Int) = ProjectExternalDatatype.of("VARCHAR2", null, length, LengthSemantics.BYTE, null, null)
+            val id = ProjectExternalDatatype.of("NUMBER", null, null, null, 10, 0)
+            AtlasDictionary.of("orders", listOf("SHOP"), listOf(
+                "ORDERS" to listOf("ORDER_ID" to id, "CODE" to text(20), "NOTE" to text(40)),
+                "ITEMS" to listOf("ORDER_ID" to id, "SKU" to text(15))
+            ).map { (table, columns) ->
+                DictionaryRelation(ProjectExternalRelation.of("SHOP", table, true, columns.mapIndexed { i, (c, t) -> ProjectExternalColumn.of(c, i + 1, t) }),
+                    DictionaryRelationKind.TABLE)
+            })
+        }
+
+        private const val RETURNED_PLACES = """
+            SELECT f.path || ':' || p.start_line || ' ' || p.target_written || coalesce('.' || p.field, '') || ' ' ||
+                   replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || ' ' || p.class || ' ' || coalesce(p.length, '-') || ' ' ||
+                   coalesce(p.functions, '-') || ' ' || p.concatenated || ' ' || coalesce(replace(g.key, 'db:SHOP.', ''), '-') || ' ' ||
+                   coalesce(p.call_count, '-') || ' ' || coalesce(p.call_path || ':' || p.call_line, '-')
+            FROM column_place p JOIN entity c ON c.id = p.column_id JOIN source_file f ON f.id = p.file_id
+            LEFT JOIN entity g ON g.id = p.argument_routine_id
+            WHERE p.source IN ('RETURNED', 'IN_ARGUMENT') ORDER BY f.path, p.start_line, p.start_col, c.key"""
+
+        private val RETURNS_PACKAGE = """
+            create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
+
+            create or replace package pk_ret as
+              subtype t_short is varchar2(5);
+              function f_param(p_code varchar2) return varchar2;
+              function f_upper(p_code varchar2) return varchar2;
+              function f_tagged(p_code varchar2) return varchar2;
+              function f_get(p_id number) return varchar2;
+              function f_get_row(p_id number) return varchar2;
+              function f_get_cur(p_id number) return varchar2;
+              function f_two(p_id number) return varchar2;
+              function f_chain(p_id number) return varchar2;
+              function f_cut(p_code varchar2) return varchar2;
+              function f_short(p_id number) return t_short;
+              function f_anchored(p_id number) return orders.code%type;
+              function f_over(p_code varchar2) return varchar2;
+              function f_over(p_code number) return varchar2;
+              procedure take(p_code varchar2);
+            end;
+            /
+            create or replace package body pk_ret as
+              function f_param(p_code varchar2) return varchar2 is begin return p_code; end;
+              function f_upper(p_code varchar2) return varchar2 is begin return upper(p_code); end;
+              function f_tagged(p_code varchar2) return varchar2 is begin return 'C:' || p_code; end;
+              function f_get(p_id number) return varchar2 is
+                l orders.code%type;
+              begin
+                select code into l from orders where order_id = p_id;
+                return l;
+              end;
+              function f_get_row(p_id number) return varchar2 is
+                r orders%rowtype;
+              begin
+                select * into r from orders where order_id = p_id;
+                return r.code;
+              end;
+              function f_get_cur(p_id number) return varchar2 is
+                cursor c is select note from orders where order_id = p_id;
+                l varchar2(40);
+              begin
+                open c; fetch c into l; close c;
+                return l;
+              end;
+              function f_two(p_id number) return varchar2 is
+                l1 varchar2(20); l2 varchar2(40);
+              begin
+                select code, note into l1, l2 from orders where order_id = p_id;
+                if p_id > 0 then return l1; end if;
+                return l2;
+              end;
+              function f_chain(p_id number) return varchar2 is begin return f_get(p_id); end;
+              function f_cut(p_code varchar2) return varchar2 is begin return substr(p_code, 1, 3); end;
+              function f_short(p_id number) return t_short is
+                l varchar2(20);
+              begin
+                select code into l from orders where order_id = p_id;
+                return l;
+              end;
+              function f_anchored(p_id number) return orders.code%type is
+                l varchar2(20);
+              begin
+                select code into l from orders where order_id = p_id;
+                return l;
+              end;
+              function f_over(p_code varchar2) return varchar2 is begin return p_code; end;
+              function f_over(p_code number) return varchar2 is begin return to_char(p_code); end;
+              procedure take(p_code varchar2) is l varchar2(5); begin l := p_code; end;
+            end;
+            /
+        """.trimIndent()
+
+        private val RETURNS_CALLER = """
+            create or replace procedure show_ret(p_out out varchar2) is
+              l1 varchar2(5); l2 varchar2(5); l3 varchar2(5); l4 varchar2(5); l5 varchar2(5);
+              l6 varchar2(5); l7 varchar2(5); l8 varchar2(5); l9 varchar2(5); l10 varchar2(5);
+              l11 varchar2(5); l12 varchar2(5); l13 varchar2(5); l14 varchar2(5); l15 varchar2(5);
+              function f_local(p varchar2) return varchar2 is begin return p; end;
+            begin
+              for r in (select code from orders) loop
+                l1 := pk_ret.f_param(r.code);
+                l2 := pk_ret.f_upper(r.code);
+                l3 := pk_ret.f_tagged(r.code);
+                l12 := pk_ret.f_over(r.code);
+                l13 := f_local(r.code);
+              end loop;
+              l4 := pk_ret.f_get(1);
+              l5 := pk_ret.f_get_row(1);
+              l6 := pk_ret.f_get_cur(1);
+              l7 := pk_ret.f_two(1);
+              l8 := pk_ret.f_chain(1);
+              l9 := nvl(pk_ret.f_get(1), '-');
+              l10 := 'X' || pk_ret.f_get(1);
+              l11 := substr(pk_ret.f_get(1), 1, 3);
+              select pk_ret.f_get(order_id) into l14 from orders where rownum = 1;
+              pk_ret.take(pk_ret.f_get(1));
+              p_out := pk_ret.f_get(1);
+              l15 := pk_ret.f_cut('abc');
+              if pk_ret.f_get(1) = 'A' then null; end if;
+            end;
+            /
+        """.trimIndent()
+
         private val INLINE_VIEWS = """
             create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
             create table items (order_id number(10), sku varchar2(15 byte));

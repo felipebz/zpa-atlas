@@ -52,8 +52,13 @@ internal class IntoClauses(
                 pending += Pending(PlaceSource.SELECT_INTO, isBulk(into), statement.context, statement.id,
                     branches(root).map { selectItems(statement, it) }, null, targetsOf(into))
                 for (block in branches(root)) {
-                    selectedParameters(statement, block.getChildren(DmlGrammar.SELECT_COLUMN)
-                        .map { it.firstChild }, into)
+                    val values = block.getChildren(DmlGrammar.SELECT_COLUMN).map { it.firstChild }
+                    selectedParameters(statement, values, into)
+                    // A function called in a select item: its result is written into the item's target.
+                    val targets = targetsOf(into)
+                    if (!isBulk(into) && targets.size == values.size) {
+                        for ((index, value) in values.withIndex()) valueWrites += ValueWrite(value, spanOf(value), targets[index], statement.context, sql = true)
+                    }
                 }
             }
             DmlGrammar.INSERT_EXPRESSION, DmlGrammar.UPDATE_EXPRESSION, DmlGrammar.DELETE_EXPRESSION ->
@@ -103,6 +108,23 @@ internal class IntoClauses(
      * aggregate (`AGGREGATE USING`) or a polymorphic table function (`PIPELINED … USING`). Its parameters are marked so;
      * what its callers give them is counted at each call, as for a routine outside the index.
      */
+    fun function(node: AstNode, key: String?) {
+        if (node.type != PlSqlGrammar.FUNCTION_DECLARATION && node.type != PlSqlGrammar.CREATE_FUNCTION) return
+        functions[node] = returnKey(key ?: localKey(node.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: return, true))
+    }
+
+    /** The functions of the file, by their declaration: the key of what each returns ([returnKey]). */
+    private val functions = IdentityHashMap<AstNode, String>()
+
+    /** The nested functions the calls of the file name, by the call: the key of what each returns. */
+    private val localFunctions = IdentityHashMap<AstNode, String>()
+
+    /** The key of what the function [function] (its entity key, or its nested declaration's [localKey]) returns. */
+    private fun returnKey(function: String) = "$function.$RETURN_SUFFIX"
+
+    /** What the function around [node] returns ([returnKey]); null outside a function. */
+    private fun enclosingReturn(node: AstNode): String? = generateSequence(node.parentOrNull) { it.parentOrNull }.firstNotNullOfOrNull { functions[it] }
+
     fun routine(node: AstNode, context: Context) {
         val outside = node.hasDirectChildren(PlSqlGrammar.CALL_SPECIFICATION) || node.hasDirectChildren(PlSqlKeyword.AGGREGATE) ||
             node.children.any { it.hasDirectChildren(PlSqlKeyword.PIPELINED) && it.hasDirectChildren(PlSqlKeyword.USING) } ||
@@ -207,7 +229,7 @@ internal class IntoClauses(
      * A value written in PL/SQL: assigned to [target] (`target := value`, at the `:=`), or returned (null [target]). The
      * routine's `IN` parameters it writes are told once the file is left, when its calls are known ([parameterFlows]).
      */
-    private class ValueWrite(val value: AstNode, val site: SourceSpan, val target: AstNode?, val context: Context)
+    private class ValueWrite(val value: AstNode, val site: SourceSpan, val target: AstNode?, val context: Context, val sql: Boolean = false)
 
     private val valueWrites = ArrayList<ValueWrite>()
 
@@ -303,6 +325,7 @@ internal class IntoClauses(
      * parameters is passed on.
      */
     private fun passedValue(argument: AstNode, parameter: String?, reason: String?, context: Context) {
+        callArguments += CallArgument(argument, parameter, reason, context)
         val field = if (isFieldOfName(argument)) argument else argument.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).singleOrNull(::isFieldOfName)
         if (field != null) {
             valueChain(argument) { it === field }?.let { passes += Pass(argument, null, field, it, parameter, reason, context, null) }
@@ -343,6 +366,9 @@ internal class IntoClauses(
             if (subprograms.isNotEmpty()) for (argument in arguments(node)) passedValue(argument, null, ARGUMENT_LOCAL_SUBPROGRAM, context)
             return
         }
+        if (subprogram.type == PlSqlGrammar.FUNCTION_DECLARATION) {
+            subprogram.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { localFunctions[node] = returnKey(localKey(it, true)) }
+        }
         val parameters = parametersOf(subprogram)
         val written = node.getFirstChildOrNull(PlSqlGrammar.ARGUMENTS)?.getChildren(PlSqlGrammar.ARGUMENT).orEmpty()
         for ((index, argument) in written.withIndex()) {
@@ -355,6 +381,75 @@ internal class IntoClauses(
         }
     }
 
+    /**
+     * The functions [value] calls whose result is the value, or a part of it: each one's result written into [target],
+     * passed on to [passedTo] (a parameter, or what the function around returns), through the value functions that lead
+     * to the call; a call within any other expression is counted by that expression's shape
+     * (`RETURNED_EXPRESSION_*`), and one passed where it is not followed by [reason]. A call inside the arguments of
+     * another routine is that routine's argument.
+     */
+    private fun resultFlows(
+        value: AstNode, site: SourceSpan, context: Context, target: AstNode?, passedTo: String?, reason: String?,
+        called: Map<SourceSpan, OccurrenceFact>
+    ) {
+        if (target == null && passedTo == null && reason == null) return
+        for ((call, result) in resultCalls(value, called)) {
+            val chain = valueChain(value) { it === call }
+            flows += when {
+                chain == null -> Flow(call, site, context, shape = RETURNED_EXPRESSION + argumentShape(value), fromKey = result)
+                reason != null -> Flow(call, site, context, shape = reason, fromKey = result)
+                target != null -> Flow(call, site, context, target = target, functions = chain, fromKey = result)
+                else -> Flow(call, site, context, passedTo = passedTo, functions = chain, fromKey = result)
+            }
+        }
+    }
+
+    /**
+     * The calls of functions in [value], not counting those inside another call's arguments: each with the key of what
+     * the function returns ([returnKey]). A function is a routine call the index resolves (with or without an argument
+     * list) or a nested function of the file.
+     */
+    private fun resultCalls(value: AstNode, called: Map<SourceSpan, OccurrenceFact>): List<Pair<AstNode, String>> {
+        val result = ArrayList<Pair<AstNode, String>>()
+        fun visit(node: AstNode) {
+            val key = when (node.type) {
+                PlSqlGrammar.METHOD_CALL -> localFunctions[node] ?: called[spanOf(node.firstChild)]?.entityKey
+                PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION ->
+                    called[spanOf(node)]?.takeIf { node.parentOrNull?.type != PlSqlGrammar.METHOD_CALL || node.parentOrNull?.firstChild !== node }?.entityKey
+                else -> null
+            }
+            if (key != null && (key.startsWith(LOCAL_PREFIX) || ROUTINE_KEY.containsMatchIn(key))) {
+                result += node to (if (key.startsWith(LOCAL_PREFIX)) key else returnKey(key))
+                return
+            }
+            // The arguments of any other routine's call belong to that call.
+            if (node.type == PlSqlGrammar.METHOD_CALL && called[spanOf(node.firstChild)] != null) return
+            node.children.forEach(::visit)
+        }
+        visit(value)
+        return result
+    }
+
+    /**
+     * The variables and record fields `RETURN` gives back ([write], of the function whose result is [returned]), as is
+     * or through value functions: whatever column's value they hold is what the function returns. Within any other
+     * expression, counted by its shape (`RETURNED_EXPRESSION_*`) when a column's value reaches them.
+     */
+    private fun returnedVariables(write: ValueWrite, returned: String, parameters: List<AstNode>, bySpan: Map<SourceSpan, List<OccurrenceFact>>, shapes: TypeShapes) {
+        val names = (sequenceOf(write.value) + write.value.getDescendants(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION).asSequence())
+            .filter { (it.type == PlSqlGrammar.VARIABLE_NAME || it.type == PlSqlGrammar.MEMBER_EXPRESSION) && plsql.isValueName(it) && plsql.nameSegments(it) != null }
+            .filter { name -> parameters.none { it === name } && generateSequence(name.parentOrNull) { it.parentOrNull }.takeWhile { it !== write.value.parentOrNull }
+                .none { it.type == PlSqlGrammar.METHOD_CALL } }
+            .toList()
+        for (name in names) {
+            val held = target(name, bySpan, shapes).takeIf { it.entityKey != null && !it.element } ?: continue
+            val key = held.entityKey + held.path.joinToString("") { ".$it" }
+            val chain = valueChain(write.value) { it === name }
+            flows += if (chain == null) Flow(name, write.site, write.context, shape = RETURNED_EXPRESSION + argumentShape(write.value), fromKey = key)
+                else Flow(name, write.site, write.context, passedTo = returned, functions = chain, fromKey = key)
+        }
+    }
+
     /** The key of the nested subprogram's parameter zpa binds [name] to, which has no entity ([localKey]); null for any other. */
     private fun localParameterKey(name: AstNode, shapes: TypeShapes): String? {
         val declaration = parameterDeclaration(name)?.takeIf { it.fileId == null } ?: return null
@@ -362,9 +457,15 @@ internal class IntoClauses(
     }
 
     /** Where a nested subprogram's parameter is named in the file: `local:line:column`. */
-    private fun localKey(parameter: AstNode): String = parameter.firstChild.token.let { "$LOCAL_PREFIX${it.line}:${it.column}" }
+    private fun localKey(parameter: AstNode, name: Boolean = false): String =
+        (if (name) parameter else parameter.firstChild).token.let { "$LOCAL_PREFIX${it.line}:${it.column}" }
 
     private class OutArgument(val value: AstNode, val parameterKey: String, val context: Context)
+
+    /** An argument for an `IN` parameter ([parameter], or the [reason] it is not followed): the results of the functions it calls go there. */
+    private class CallArgument(val argument: AstNode, val parameter: String?, val reason: String?, val context: Context)
+
+    private val callArguments = ArrayList<CallArgument>()
 
     /** The calls of overloaded nested subprograms, with each `OUT` parameter they may be for. */
     private val undecidedCalls = ArrayList<Pair<SourceSpan, String>>()
@@ -736,7 +837,9 @@ internal class IntoClauses(
                 when {
                     called == null || isRoutineCall(node.firstChild) -> "ROUTINE"
                     // A collection's element (`v(i)`), a variable or parameter zpa binds the name to.
-                    nameBinding(node.firstChild) is NameBinding.Local -> "ELEMENT"
+                    (nameBinding(node.firstChild) as? NameBinding.Local)?.declaration?.kind.let {
+                        it == NameDeclarationKind.VARIABLE || it == NameDeclarationKind.PARAMETER
+                    } -> "ELEMENT"
                     OracleBuiltins.isBuiltin(called) && WORD.matches(called) -> called
                     else -> "ROUTINE"
                 }
@@ -793,7 +896,13 @@ internal class IntoClauses(
             IntoFact(into.source, into.bulk, into.context.unitIndex, into.context.container, into.statementId, branches, cursorKey, targets,
                 cursorKind = kind, cursorType = type)
         }
+        val callers = state.occurrences.filter { Role.CALL in it.roles && it.entityKey != null && it.status in CALLED_STATUSES }
+            .mapTo(HashSet()) { it.span }
         for (assignment in assignments) {
+            // A field passed to a function the index follows is that call's argument, its result what is assigned.
+            if (assignment.expression != null && generateSequence(assignment.field.parentOrNull) { it.parentOrNull }
+                    .takeWhile { it !== assignment.expression.parentOrNull }
+                    .any { it.type == PlSqlGrammar.METHOD_CALL && (it in localFunctions || spanOf(it.firstChild) in callers) }) continue
             val row = record(assignment.field, bySpan, shapes) ?: continue
             val target = target(assignment.target, bySpan, shapes).copy(span = assignment.site)
             intos += IntoFact(PlaceSource.ASSIGNMENT, false, assignment.context.unitIndex, assignment.context.container, null, emptyList(), null,
@@ -819,7 +928,13 @@ internal class IntoClauses(
         }
         // What a routine writes its IN parameters into, passes them on to, or writes them in a way not followed.
         val routineCalls = state.occurrences.filter { Role.CALL in it.roles && it.entityKey != null }.mapTo(HashSet()) { it.span }
+        val called = state.occurrences.filter { Role.CALL in it.roles && it.entityKey != null && it.status in CALLED_STATUSES }
+            .associateBy { it.span }
         for (write in valueWrites) {
+            // A returned value goes to what the function around it returns.
+            val returned = if (write.target == null) enclosingReturn(write.value) ?: continue else null
+            resultFlows(write.value, write.site, write.context, write.target, returned, null, called)
+            if (write.sql) continue
             // A parameter passed to a routine inside the value is that call's argument ([call]).
             val names = parameterNames(write.value).filter { name ->
                 generateSequence(name.parentOrNull) { it.parentOrNull }.takeWhile { it !== write.value.parentOrNull }
@@ -827,11 +942,16 @@ internal class IntoClauses(
             }
             for ((name, functions) in parameterChains(write.value, names)) {
                 flows += when {
-                    write.target == null -> Flow(name, write.site, write.context, shape = ARGUMENT_RETURNED)
                     functions == null -> Flow(name, write.site, write.context, shape = ARGUMENT_EXPRESSION + argumentShape(write.value))
+                    returned != null -> Flow(name, write.site, write.context, passedTo = returned, functions = functions)
                     else -> Flow(name, write.site, write.context, target = write.target, functions = functions)
                 }
             }
+            if (returned != null) returnedVariables(write, returned, names, bySpan, shapes)
+        }
+        // The results of the functions an argument calls, passed to the parameter.
+        for (argument in callArguments) {
+            resultFlows(argument.argument, spanOf(argument.argument), argument.context, null, argument.parameter, argument.reason ?: ARGUMENT_NOT_TIED.takeIf { argument.parameter == null }, called)
         }
         // A name in SQL a column may take instead of the parameter: the parameter only when the index resolves the name,
         // the statement's tables' columns known and none of them so named.
@@ -1018,7 +1138,10 @@ internal class IntoClauses(
         const val ARGUMENT_ROUTINE_UNDECIDED = "ARGUMENT_ROUTINE_UNDECIDED"
         const val ARGUMENT_ROUTINE_OUTSIDE = "ARGUMENT_ROUTINE_OUTSIDE"
         const val ARGUMENT_NOT_TIED = "ARGUMENT_NOT_TIED"
-        const val ARGUMENT_RETURNED = "ARGUMENT_RETURNED"
+        /** The prefix of the shape of a function's result written within an expression ([resultFlows]). */
+        const val RETURNED_EXPRESSION = "RETURNED_EXPRESSION_"
+        /** The last segment of the key of what a function returns: `<function key>.#RETURN`. */
+        const val RETURN_SUFFIX = "#RETURN"
         /** The prefix of the shape of an expression a parameter is written within ([argumentShape]). */
         const val ARGUMENT_EXPRESSION = "ARGUMENT_EXPRESSION_"
         private val LENGTH_FUNCTIONS = setOf("LENGTH", "LENGTHB", "LENGTHC", "LENGTH2", "LENGTH4")

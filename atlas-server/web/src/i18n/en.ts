@@ -246,6 +246,8 @@ export default {
   "places.argumentOf": "passed for {parameter} of {routine}",
   "places.source.IN_ARGUMENT": "value passed to a parameter",
   "places.passedTo": "the value passed to {parameter} of {routine}",
+  "places.source.RETURNED": "value returned by a function",
+  "places.returnedBy": "the value returned by {routine}",
   "places.calls": { one: "by {count} call:", other: "by {count} calls, one at" },
   "places.bulk": "{source} · BULK COLLECT",
   "places.in": "in {container}",

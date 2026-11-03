@@ -291,7 +291,7 @@ export interface ColumnPlace {
   /** The column read: the page's column, or a view column computed from it ([viaView]). */
   read: EntitySummary;
   viaView: boolean;
-  source: "SELECT_INTO" | "FETCH" | "RETURNING" | "ASSIGNMENT" | "OUT_ARGUMENT" | "IN_ARGUMENT";
+  source: "SELECT_INTO" | "FETCH" | "RETURNING" | "ASSIGNMENT" | "OUT_ARGUMENT" | "IN_ARGUMENT" | "RETURNED";
   /** `BULK COLLECT INTO`. */
   bulk: boolean;
   /** Where the target is written: the file relative to the sources, one-based line, zero-based column. */
@@ -321,10 +321,13 @@ export interface ColumnPlace {
   parameterMode: string | null;
   /** The value functions the column is read through, outer first (`NVL`; `UPPER`, `TRIM`); empty when read directly. */
   functions: string[];
-  /** For source `OUT_ARGUMENT`: the `OUT` or `IN OUT` parameter the argument is passed for, and the routine called. */
+  /**
+   * For source `OUT_ARGUMENT`: the `OUT` or `IN OUT` parameter the argument is passed for, and the routine called. For
+   * `IN_ARGUMENT`: the `IN` parameter and its routine. For `RETURNED`: only the routine, the function whose result it is.
+   */
   argumentOf: EntitySummary | null;
   routine: EntitySummary | null;
-  /** For source `IN_ARGUMENT`: how many calls pass the column to [argumentOf], and one of them. */
+  /** For `IN_ARGUMENT`: how many calls pass the column to [argumentOf]; for `RETURNED`, how many write the result here; and one of them. */
   callCount: number | null;
   callPath: string | null;
   callLine: number | null;

@@ -132,6 +132,7 @@ class FileExtractor(
     override fun leaveFile(node: AstNode) {
         fields.record()
         shapes = TypeShapes(state, bound, context::typeBinding, node)
+        for ((key, datatype) in returnTypes) declaredShapes += DeclaredShapeFact(key, shapes.datatype(datatype))
         intos = places.intos(shapes)
         result = build(ParseStatus.OK.takeIf { state.recoveredRegions == 0 } ?: ParseStatus.RECOVERED)
     }
@@ -202,6 +203,9 @@ class FileExtractor(
 
     /** The types the file's declarations with an entity write ([TypeShapes]); none for a file that was not walked. */
     private val declaredShapes = ArrayList<DeclaredShapeFact>()
+
+    /** The return types of the file's functions, by the key of what each returns; their shapes are told when the file is left. */
+    private val returnTypes = ArrayList<Pair<String, AstNode>>()
 
     /** The `INTO`s of the file ([IntoClauses]), decided when the file is left. */
     private var intos: List<IntoFact> = emptyList()
@@ -350,8 +354,14 @@ class FileExtractor(
         when (node.type) {
             PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION,
             PlSqlGrammar.CREATE_PROCEDURE, PlSqlGrammar.CREATE_FUNCTION -> {
-                subprogramAt(node)?.let { current = context.inside(it) }
-                if (context.dynamic == null) places.routine(node, current)
+                val key = subprogramAt(node)
+                key?.let { current = context.inside(it) }
+                if (context.dynamic == null) {
+                    places.routine(node, current)
+                    places.function(node, key)
+                    // What a function returns, as its callers name it: the return type gives the shape of its value.
+                    if (key != null) node.getFirstChildOrNull(PlSqlGrammar.DATATYPE)?.let { returnTypes += key.removeSuffix("@BODY") + "." + IntoClauses.RETURN_SUFFIX to it }
+                }
             }
             DmlGrammar.SELECT_EXPRESSION, DmlGrammar.INSERT_EXPRESSION, DmlGrammar.UPDATE_EXPRESSION,
             DmlGrammar.DELETE_EXPRESSION, DmlGrammar.MERGE_EXPRESSION, TclGrammar.LOCK_TABLE_EXPRESSION -> {

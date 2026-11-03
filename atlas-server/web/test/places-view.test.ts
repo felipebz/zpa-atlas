@@ -184,6 +184,8 @@ describe("labels", () => {
     expect(sourceText(say, { source: "ASSIGNMENT", bulk: false })).toBe("assignment (:=)");
     expect(sourceText(say, { source: "OUT_ARGUMENT", bulk: false })).toBe("argument of an OUT parameter");
     expect(sourceText(say, { source: "IN_ARGUMENT", bulk: false })).toBe("value passed to a parameter");
+    expect(sourceText(say, { source: "RETURNED", bulk: false })).toBe("value returned by a function");
+    expect(sourceText(sayPt, { source: "RETURNED", bulk: false })).toBe("valor devolvido por uma função");
   });
 
   it("counts the calls that pass a column to a parameter", () => {
