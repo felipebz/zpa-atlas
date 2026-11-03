@@ -166,7 +166,13 @@ data class IntoFact(
      */
     val call: SourceSpan? = null,
     /** For a flow from what a function returns: the call whose result it is, by its span in the file. */
-    val resultOf: SourceSpan? = null
+    val resultOf: SourceSpan? = null,
+    /**
+     * For a flow or a [PlaceSource.OUT_ARGUMENT]: whether its single target is a variable or parameter of the subprogram
+     * the code is in (a nested one included). What it holds came in with the call of that subprogram; a package
+     * variable, or one of a routine around a nested subprogram, outlives that call.
+     */
+    val keeps: Boolean = false
 )
 
 /**

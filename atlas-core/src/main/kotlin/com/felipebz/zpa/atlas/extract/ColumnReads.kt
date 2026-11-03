@@ -175,7 +175,7 @@ internal class ColumnReads(
             }
             return
         }
-        added.clear()
+        state.removeOccurrencesFrom(before)
         // A declaration in scope, column or not, or a binding zpa cannot decide: still undecided. zpa does not answer
         // for a dynamic text, which binds nothing of the code around it: there only the text's own declarations bind.
         val dynamic = statement.context.dynamic

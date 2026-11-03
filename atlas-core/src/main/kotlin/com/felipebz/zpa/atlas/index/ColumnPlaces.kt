@@ -76,8 +76,8 @@ internal class ColumnPlaces(
                 assignment(into, places, leftOut)
                 continue
             }
-            // The arguments of OUT parameters are followed from the places of their parameters ([arguments]), the values
-            // passed to IN parameters from their calls ([passed]).
+            // The arguments of OUT parameters are followed from the places of their parameters, the values passed to IN
+            // parameters from their calls ([followed]).
             if (into.source == PlaceSource.OUT_ARGUMENT || into.source == PlaceSource.IN_ARGUMENT) continue
             // A FETCH from a cursor variable, which has no entity: its row is not known.
             if (into.source == PlaceSource.FETCH && into.cursorKey == null && into.branches.isEmpty()) {
@@ -172,35 +172,42 @@ internal class ColumnPlaces(
     /** A value an `OUT` parameter ([parameter]) is given: [column] through [functions], come into its routine at [entry]. */
     private data class OutValue(val parameter: String, val column: String, val functions: List<String>, val entry: Entry?)
 
-    /** The calls each [Entry] came in through ([passed]): [arguments] gives an `OUT` parameter's value back to them. */
-    private val incoming = HashMap<Entry, MutableList<Incoming>>()
-
-    /** The entries of the values of the [CALLER_DECIDES][PlaceClass.CALLER_DECIDES] places [passed] found, by [placeKey]. */
-    private val passedEntries = HashMap<List<Any>, MutableSet<Entry?>>()
-
     private fun placeKey(path: String, place: ColumnPlaceFact) = listOf(path, place.span, place.columnKey, place.functions)
 
     /** Whether the call site [path]/[call] is one of [incoming]'s calls: one the extraction did not tie is everyone's (not expected). */
     private fun isCall(incoming: Incoming, path: String, call: SourceSpan?) = incoming.path == path && (call == null || incoming.call == null || incoming.call == call)
 
     /**
-     * The places inside routines of the columns their calls pass to `IN` parameters: each target a routine writes its
-     * parameter's value into (as is or through value functions) is a place of the column, once per column and target
-     * however many calls pass it, naming the parameter the column was passed to, how many calls pass it and one of
-     * them. A parameter passed on to another routine's `IN` parameter is followed there, once per parameter and column.
-     * What a function returns goes back to the calls the value came into it through: a column passed at one call comes
-     * back out at that call only, a column the function reads itself at every call. What reaches a function's return
-     * from each [Entry] is kept, and given back to every call that brings that entry in.
-     * A parameter only read (compared, in a condition) gives nothing. What is not followed is counted by shape, in the
-     * file of the call or of the routine's statement: the routine not decided (`ARGUMENT_ROUTINE_UNDECIDED`), outside
-     * the index (`ARGUMENT_ROUTINE_OUTSIDE`: a call the dictionary resolves, a routine whose body the sources do not have,
-     * or one whose body is not PL/SQL), the argument not tied to a parameter (`ARGUMENT_NOT_TIED`), an overloaded nested
-     * subprogram (`ARGUMENT_LOCAL_SUBPROGRAM`), a parameter named in SQL on a table whose columns are not known
-     * (`ARGUMENT_COLUMN_POSSIBLE`), a parameter a cursor selects (`ARGUMENT_FETCHED`) or selected into a record
-     * whose `INTO` targets do not match its items (`ARGUMENT_INTO_NOT_FOLLOWED`), a record field whose column is not known (`ARGUMENT_COLUMN_NOT_KNOWN_*`, by why: [notKnown]), and the
-     * parameter returned (`ARGUMENT_RETURNED`) or written within an expression (`ARGUMENT_EXPRESSION_*`, by its shape).
+     * The places a column's value reaches through routines, from the places in [found] (by file path) and the columns
+     * calls pass to `IN` parameters.
+     *
+     * Into a routine: each target a routine writes its `IN` parameter's value into (as is or through value functions)
+     * is a place of the column, once per column and target however many calls pass it, naming the parameter the column
+     * was passed to, how many calls pass it and one of them. A parameter passed on to another routine's `IN` parameter
+     * is followed there, once per parameter and column. A parameter only read (compared, in a condition) gives nothing.
+     *
+     * Back out of it: what a function returns, and what an `OUT` or `IN OUT` parameter is given, goes back to the calls
+     * the value came into the routine through. A column passed at one call comes back out at that call only; a column
+     * the routine reads itself, or one kept where it outlives the call (a package variable, a variable of the routine
+     * around a nested subprogram), at every call. An `OUT` parameter's value is a place of each argument callers pass
+     * for it, decided as for an `INTO` target; an argument that is itself an `OUT` or `IN OUT` parameter of the caller
+     * goes on to that routine's callers. A variable that holds such a value (a target a value was written into, an
+     * argument an `OUT` parameter gave it) goes on to where the routine writes it: what it returns, its own `OUT`
+     * parameters.
+     *
+     * What is not followed is counted by shape, in the file of the call or of the routine's statement: the routine not
+     * decided (`ARGUMENT_ROUTINE_UNDECIDED`), outside the index (`ARGUMENT_ROUTINE_OUTSIDE`: a call the dictionary
+     * resolves, a routine whose body the sources do not have, or one whose body is not PL/SQL), the argument not tied
+     * to a parameter (`ARGUMENT_NOT_TIED`), an overloaded nested subprogram (`ARGUMENT_LOCAL_SUBPROGRAM`), a parameter
+     * named in SQL on a table whose columns are not known (`ARGUMENT_COLUMN_POSSIBLE`), a parameter a cursor selects
+     * (`ARGUMENT_FETCHED`) or selected into a record whose `INTO` targets do not match its items
+     * (`ARGUMENT_INTO_NOT_FOLLOWED`), a record field whose column is not known (`ARGUMENT_COLUMN_NOT_KNOWN_*`, by why:
+     * [notKnown]), the parameter returned (`ARGUMENT_RETURNED`) or written within an expression
+     * (`ARGUMENT_EXPRESSION_*`, by its shape); an `OUT` argument the index does not bind (`OUT_ARGUMENT_NOT_FOLLOWED`,
+     * an expression or a name zpa binds to nothing), and a call whose routine is not decided among candidates that have
+     * such a parameter (`OUT_CALL_NOT_DECIDED`).
      */
-    fun passed(facts: List<FileFacts>, found: Map<String, List<ColumnPlaceFact>>): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
+    fun followed(facts: List<FileFacts>, found: Map<String, List<ColumnPlaceFact>>): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
         val places = HashMap<String, MutableList<ColumnPlaceFact>>()
         val leftOut = HashMap<String, MutableMap<String, Int>>()
         fun count(path: String, shape: String) {
@@ -219,6 +226,11 @@ internal class ColumnPlaces(
         // A nested subprogram's parameter (its file's) has its body where it is declared.
         fun isDefined(parameter: String) = parameter !in outside && ('|' in parameter || parameter.substringBeforeLast('.') in defined)
         val flows = HashMap<String, MutableList<Pair<String, IntoFact>>>()
+        // The arguments callers pass for each OUT or IN OUT parameter.
+        val byParameter = HashMap<String, MutableList<Pair<String, IntoFact>>>()
+        for (file in facts) for (into in file.intos) if (into.source == PlaceSource.OUT_ARGUMENT && into.parameterKey != null) {
+            byParameter.getOrPut(parameterKey(file.path, into.parameterKey)) { ArrayList() } += file.path to into
+        }
         val seeds = LinkedHashMap<Triple<String, String, List<String>>, MutableList<Pair<String, IntoFact>>>()
         for (file in facts) for (into in file.intos) {
             if (into.source != PlaceSource.IN_ARGUMENT) continue
@@ -252,39 +264,66 @@ internal class ColumnPlaces(
             }
             for ((column, functions) in columns) seeds.getOrPut(Triple(parameter, column, functions)) { ArrayList() } += file.path to into
         }
-        // The work: a value at a node, or what reached a function's return given back to one call that brought its entry in.
+        // The work: a value at a node, or what reached a function's return given back to one call that brought its entry in;
+        // once none is left, an OUT parameter's value given back to its callers (all of them, or one call that came in later).
         val queue = ArrayDeque<Any>()
+        val outQueue = ArrayDeque<Pair<OutValue, Incoming?>>()
         val seen = HashSet<Pair<Entry?, Triple<String, String, List<String>>>>()
         fun reach(node: String, column: String, functions: List<String>, calls: List<Pair<String, IntoFact>>, entry: Entry?, previous: Reached?) {
             if (seen.add(entry to Triple(node, column, functions))) queue += Reached(node, column, functions, calls, entry, previous)
         }
-        // What reached the return of the routine of each entry: given back to each call that brings it in, now or later.
+        // The calls each entry came in through; what reached the return of its routine, and what its OUT parameters were
+        // given: given back to each call that brings it in, now or later.
+        val incoming = HashMap<Entry, MutableList<Incoming>>()
         val exits = HashMap<Entry, MutableList<Reached>>()
+        val outs = HashMap<Entry, MutableList<OutValue>>()
         val calledWith = HashSet<List<Any?>>()
         fun call(entry: Entry, coming: Incoming) {
             if (!calledWith.add(listOf(entry, coming.path, coming.call, coming.entry))) return
             incoming.getOrPut(entry) { ArrayList() } += coming
             for (exit in exits[entry].orEmpty()) queue += exit to coming
+            for (out in outs[entry].orEmpty()) outQueue += out to coming
+        }
+        // An OUT parameter's value ([place] in [path], whose parameter it is), come into its routine at each of [entries].
+        val outSeen = HashSet<OutValue>()
+        val notFollowedOut = HashSet<List<Any>>()
+        fun follow(path: String, place: ColumnPlaceFact, entries: Collection<Entry?>) {
+            val parameter = place.targetKey ?: place.localParameter
+            if (parameter == null) {
+                // A CALLER_DECIDES place whose parameter can be told neither by its entity nor by its declaration.
+                if (notFollowedOut.add(placeKey(path, place))) count(path, "OUT_PARAMETER_NOT_FOLLOWED")
+                return
+            }
+            for (entry in entries) {
+                val value = OutValue(parameterKey(path, parameter), place.columnKey, place.functions, entry)
+                if (!outSeen.add(value)) continue
+                if (entry != null) outs.getOrPut(entry) { ArrayList() } += value
+                outQueue += value to null
+            }
         }
         for ((key, calls) in seeds) {
             val entry = Entry(key.first, key.second, key.third)
             for ((path, into) in calls) call(entry, Incoming(path, into.call, null, null))
             reach(key.first, key.second, key.third, calls.sortedWith(compareBy({ it.first }, { it.second.targets.single().span })), entry, null)
         }
-        // A variable or field holding a column's value that a function returns: what its places hold goes to the return.
-        // A variable that outlives the call the value came in at (a package variable, a variable of the routine around a
-        // nested subprogram) holds it for every caller: what returns it gives it back to every call, as a column the
-        // routine reads itself. A variable of the routine the value came into keeps the call.
-        fun held(path: String, place: ColumnPlaceFact, entry: Entry?, previous: Reached?) {
+        // A variable or field holding a column's value ([place], made by [flow]) that the routine returns or writes into
+        // its OUT parameters: what its places hold goes there, with the [calls] that brought it. A variable that outlives
+        // the call the value came in at (a package variable, a variable of the routine around a nested subprogram) holds
+        // it for every caller: what returns it gives it back to every call, as a column the routine reads itself. A
+        // variable of the subprogram the value came into ([IntoFact.keeps]) keeps the call.
+        fun held(path: String, flow: IntoFact?, place: ColumnPlaceFact, entry: Entry?, previous: Reached?, calls: List<Pair<String, IntoFact>>) {
             val key = place.targetKey ?: return
-            val kept = entry?.takeIf { parameterKey(path, key).substringBeforeLast('.') == it.parameter.substringBeforeLast('.') }
+            val kept = entry?.takeIf { flow?.keeps == true }
             val held = listOfNotNull(place.field?.let { "$key.$it" }, key).map { parameterKey(path, it) }
             for (node in held) {
                 if (node !in flows || previous?.onPath(node) == true) continue
-                reach(node, place.columnKey, place.functions, emptyList(), kept, previous)
+                reach(node, place.columnKey, place.functions, calls, kept, previous)
             }
         }
-        for ((path, list) in found) for (place in list) held(path, place, null, null)
+        for ((path, list) in found) for (place in list) {
+            held(path, null, place, null, null, emptyList())
+            if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, listOf(null))
+        }
         val placed = HashMap<List<Any>, Pair<String, Int>>()
         // The calls each place of a function's result was written by: another call of it into the same target counts once more.
         val placedCalls = HashMap<List<Any>, MutableSet<SourceSpan?>>()
@@ -348,8 +387,8 @@ internal class ColumnPlaces(
                         list += place
                         place
                     }
-                    if (place.placeClass == PlaceClass.CALLER_DECIDES) passedEntries.getOrPut(placeKey(path, place)) { HashSet() } += entry
-                    held(path, place, entry, previous)
+                    if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, listOf(entry))
+                    held(path, flow, place, entry, previous, if (returns) listOf(path to flow) else reached.calls)
                 }
             }
         }
@@ -365,7 +404,42 @@ internal class ColumnPlaces(
             val joined = if (to?.reached == null) exit else Reached(exit.parameter, exit.column, exit.functions, exit.calls, to.entry, exit, to.reached)
             for ((path, flow) in calls) along(path, flow, exit, to?.entry, joined)
         }
-        while (queue.isNotEmpty()) {
+        // The arguments callers pass for the OUT parameter of [value]: the calls the value came into the routine through take
+        // it ([to] alone, a call that came in after the value was given; all, for a value with no entry), each going on in
+        // its caller with the caller's entry and value at the call.
+        val outPlaced = HashSet<List<Any>>()
+        val undecided = HashSet<Pair<String, SourceSpan>>()
+        val notFollowed = HashSet<List<Any>>()
+        fun outBack(value: OutValue, to: Incoming?) {
+            val (parameter, column, functions, entry) = value
+            for ((path, into) in byParameter[parameter].orEmpty()) {
+                val back = when {
+                    entry == null -> listOf(null)
+                    to != null -> listOf(to).filter { isCall(it, path, into.call) }
+                    else -> incoming[entry].orEmpty().filter { isCall(it, path, into.call) }
+                }
+                if (back.isEmpty()) continue
+                val target = into.targets.single()
+                if (target.reason == "OUT_CALL_NOT_DECIDED") {
+                    if (undecided.add(path to target.span)) count(path, "OUT_CALL_NOT_DECIDED")
+                    continue
+                }
+                if (target.entityKey == null && target.local == null) {
+                    if (notFollowed.add(listOf(path, target.span, column, functions))) count(path, "OUT_ARGUMENT_NOT_FOLLOWED")
+                    continue
+                }
+                val place = place(into, target, null, column, functions)
+                if (outPlaced.add(placeKey(path, place))) places.getOrPut(path) { ArrayList() } += place
+                if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, back.mapTo(LinkedHashSet()) { it?.entry })
+                else for (coming in back) held(path, into, place, coming?.entry, coming?.reached, listOf(path to into))
+            }
+        }
+        while (queue.isNotEmpty() || outQueue.isNotEmpty()) {
+            if (queue.isEmpty()) {
+                val (value, to) = outQueue.removeFirst()
+                outBack(value, to)
+                continue
+            }
             val work = queue.removeFirst()
             if (work is Pair<*, *>) {
                 back(work.first as Reached, work.second as Incoming)
@@ -383,75 +457,11 @@ internal class ColumnPlaces(
             }
             for ((path, flow) in flows[reached.parameter].orEmpty()) along(path, flow, reached, reached.entry, reached)
         }
-        return places to leftOut
-    }
-
-    /**
-     * The places of the arguments callers pass for the `OUT` and `IN OUT` parameters of the [CALLER_DECIDES][PlaceClass.CALLER_DECIDES]
-     * places in [found] (by file path): each argument is a place of the same column, with the same functions, its class
-     * decided as for an `INTO` target. An argument that is itself an `OUT` or `IN OUT` parameter of the calling routine is
-     * followed to that routine's callers, once per parameter and column. A value [passed] brought into the routine
-     * through a call goes back out to that call's argument only; a column the routine reads itself, to every caller's.
-     * What is not followed is counted by shape, in the file of the argument or call: an argument the index does not
-     * bind (`OUT_ARGUMENT_NOT_FOLLOWED`, an expression or a name zpa binds to nothing) and a call whose routine is not
-     * decided among candidates that have such a parameter (`OUT_CALL_NOT_DECIDED`). Runs after [passed].
-     */
-    fun arguments(facts: List<FileFacts>, found: Map<String, List<ColumnPlaceFact>>): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
-        val byParameter = HashMap<String, MutableList<Pair<String, IntoFact>>>()
-        for (file in facts) for (into in file.intos) if (into.source == PlaceSource.OUT_ARGUMENT && into.parameterKey != null) {
-            byParameter.getOrPut(parameterKey(file.path, into.parameterKey)) { ArrayList() } += file.path to into
-        }
-        val places = HashMap<String, MutableList<ColumnPlaceFact>>()
-        val leftOut = HashMap<String, MutableMap<String, Int>>()
-        val seen = HashSet<OutValue>()
-        val undecided = HashSet<Pair<String, SourceSpan>>()
-        val notFollowed = HashSet<List<Any>>()
-        val placed = HashSet<List<Any>>()
-        val queue = ArrayDeque<OutValue>()
-        fun follow(path: String, place: ColumnPlaceFact, column: String, functions: List<String>, entries: Collection<Entry?>) {
-            val parameter = place.targetKey ?: place.localParameter
-            if (parameter == null) {
-                // A CALLER_DECIDES place whose parameter can be told neither by its entity nor by its declaration.
-                leftOut.getOrPut(path) { HashMap() }.merge("OUT_PARAMETER_NOT_FOLLOWED", 1, Int::plus)
-                return
-            }
-            for (entry in entries) {
-                val value = OutValue(parameterKey(path, parameter), column, functions, entry)
-                if (seen.add(value)) queue += value
-            }
-        }
-        for ((path, list) in found) for (place in list) {
-            if (place.placeClass == PlaceClass.CALLER_DECIDES) {
-                follow(path, place, place.columnKey, place.functions, passedEntries[placeKey(path, place)] ?: setOf(null))
-            }
-        }
-        while (queue.isNotEmpty()) {
-            val (parameter, column, functions, entry) = queue.removeFirst()
-            for ((path, into) in byParameter[parameter].orEmpty()) {
-                // The calls the value came into the routine through take it, each going on in its caller with the caller's entry.
-                val back = if (entry == null) listOf(null) else incoming[entry].orEmpty().filter { isCall(it, path, into.call) }.map { it.entry }
-                if (back.isEmpty()) continue
-                val target = into.targets.single()
-                if (target.reason == "OUT_CALL_NOT_DECIDED") {
-                    if (undecided.add(path to target.span)) leftOut.getOrPut(path) { HashMap() }.merge("OUT_CALL_NOT_DECIDED", 1, Int::plus)
-                    continue
-                }
-                if (target.entityKey == null && target.local == null) {
-                    if (notFollowed.add(listOf(path, target.span, column, functions))) {
-                        leftOut.getOrPut(path) { HashMap() }.merge("OUT_ARGUMENT_NOT_FOLLOWED", 1, Int::plus)
-                    }
-                    continue
-                }
-                val place = place(into, target, null, column, functions)
-                if (placed.add(placeKey(path, place))) places.getOrPut(path) { ArrayList() } += place
-                if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, column, functions, back.toSet())
-            }
-        }
-        val routines = seen.filter { !it.parameter.contains('|') }.mapTo(HashSet()) { it.parameter.substringBeforeLast('.') }
+        val routines = outSeen.filter { !it.parameter.contains('|') }.mapTo(HashSet()) { it.parameter.substringBeforeLast('.') }
         // A call the index could not decide among routines, one of which leaves a column's size to its callers.
         for (file in facts) for (occurrence in file.occurrences) {
             if (Role.CALL in occurrence.roles && occurrence.entityKey == null && occurrence.candidateKeys.any { it in routines }) {
-                leftOut.getOrPut(file.path) { HashMap() }.merge("OUT_CALL_NOT_DECIDED", 1, Int::plus)
+                count(file.path, "OUT_CALL_NOT_DECIDED")
             }
         }
         return places to leftOut
@@ -463,7 +473,7 @@ internal class ColumnPlaces(
      */
     private fun specKey(parameter: String) = parameter.replace(")@BODY.", ").")
 
-    /** The key [arguments] follows a parameter by: a nested subprogram's is only known in its own file ([path]). */
+    /** The key [followed] follows a parameter by: a nested subprogram's is only known in its own file ([path]). */
     private fun parameterKey(path: String, parameter: String) =
         if (parameter.startsWith(LOCAL_PARAMETER)) "$path|$parameter" else specKey(parameter)
 

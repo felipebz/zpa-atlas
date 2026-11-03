@@ -33,8 +33,9 @@ internal class FileState(strings: FactStrings = FactStrings()) {
     val statements = ArrayList<StatementFact>()
 
     /**
-     * Only ever added to, or replaced in place with the same statement and span: [occurrencesOf] and [occurrencesAt]
-     * find them by position. What is added holds the run's instances of its strings ([FactStrings]).
+     * Added to at the end, replaced in place with the same statement and span, or cut back from the end through
+     * [removeOccurrencesFrom], never otherwise: [occurrencesOf] and [occurrencesAt] find them by position. What is added
+     * holds the run's instances of its strings ([FactStrings]).
      */
     val occurrences: ArrayList<OccurrenceFact> = Interned(strings)
 
@@ -48,6 +49,24 @@ internal class FileState(strings: FactStrings = FactStrings()) {
 
     /** The occurrences at [span] so far, in the order they were added. */
     fun occurrencesAt(span: SourceSpan): List<OccurrenceFact> = catchUp().let { bySpan[span]?.map { occurrences[it] }.orEmpty() }
+
+    /** Removes the occurrences from position [from] on, the last ones added, from the list and from its lookups. */
+    fun removeOccurrencesFrom(from: Int) {
+        // Each lookup's positions grow: those removed are the last of their lists.
+        for (position in indexed - 1 downTo from) {
+            val occurrence = occurrences[position]
+            occurrence.statementLocalId?.let { drop(byStatement, it) }
+            drop(bySpan, occurrence.span)
+        }
+        indexed = minOf(indexed, from)
+        if (from < occurrences.size) occurrences.subList(from, occurrences.size).clear()
+    }
+
+    private fun <K> drop(lookup: HashMap<K, MutableList<Int>>, key: K) {
+        val positions = lookup.getValue(key)
+        positions.removeAt(positions.lastIndex)
+        if (positions.isEmpty()) lookup.remove(key)
+    }
 
     private fun catchUp() {
         while (indexed < occurrences.size) {

@@ -259,6 +259,7 @@ internal object FactsCache {
                 data.writeBoolean(into.row != null); into.row?.let { target(it) }; nullable(into.rowField); nullable(into.expression); strings(into.functions); nullable(into.parameterKey); nullable(into.fromParameter); nullable(into.cursorKind); nullable(into.cursorType)
                 data.writeBoolean(into.call != null); into.call?.let { span(it) }
                 data.writeBoolean(into.resultOf != null); into.resultOf?.let { span(it) }
+                data.writeBoolean(into.keeps)
             }
             list(facts.placesLeftOut.entries.toList()) { string(it.key); data.writeInt(it.value) }
         }
@@ -408,7 +409,7 @@ internal object FactsCache {
             val intos = list {
                 IntoFact(enumValueOf(string()), data.readBoolean(), data.readInt(), nullable(), nullableInt(), list { list { item() } }, nullable(),
                     list { target() }, if (data.readBoolean()) target() else null, nullable(), nullable(), strings(), nullable(), nullable(), nullable(), nullable(),
-                    if (data.readBoolean()) span() else null, if (data.readBoolean()) span() else null)
+                    if (data.readBoolean()) span() else null, if (data.readBoolean()) span() else null, data.readBoolean())
             }
             val placesLeftOut = list { string() to data.readInt() }.toMap()
             return FileFacts(

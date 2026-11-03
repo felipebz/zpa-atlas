@@ -293,14 +293,11 @@ class Indexer internal constructor(
             expressions.forEach { (shape, count) -> counts.merge(shape, count, Int::plus) }
             if (counts.isNotEmpty()) placesLeftOut[file.path] = counts
         }
-        // The targets inside routines of the columns passed to their IN parameters, across files.
-        val (passed, passedLeftOut) = columnPlaces.passed(facts, places)
-        for ((path, found) in passed) places[path] = places[path].orEmpty() + found
-        for ((path, counts) in passedLeftOut) placesLeftOut[path] = TreeMap(placesLeftOut[path].orEmpty()).apply { counts.forEach { (k, v) -> merge(k, v, Int::plus) } }
-        // The callers' arguments of the OUT parameters a column's value is read into, across files.
-        val (arguments, argumentsLeftOut) = columnPlaces.arguments(facts, places)
-        for ((path, found) in arguments) places[path] = places[path].orEmpty() + found
-        for ((path, counts) in argumentsLeftOut) placesLeftOut[path] = TreeMap(placesLeftOut[path].orEmpty()).apply { counts.forEach { (k, v) -> merge(k, v, Int::plus) } }
+        // Through routines, across files: the targets inside them of the columns passed to their IN parameters, and what
+        // comes back out of them through RETURN and OUT parameters to their callers.
+        val (followed, followedLeftOut) = columnPlaces.followed(facts, places)
+        for ((path, found) in followed) places[path] = places[path].orEmpty() + found
+        for ((path, counts) in followedLeftOut) placesLeftOut[path] = TreeMap(placesLeftOut[path].orEmpty()).apply { counts.forEach { (k, v) -> merge(k, v, Int::plus) } }
 
         val texts = sources.associate { it.relativePath to it.text }
         val phase: (String) -> Unit = { phases?.start(it) }

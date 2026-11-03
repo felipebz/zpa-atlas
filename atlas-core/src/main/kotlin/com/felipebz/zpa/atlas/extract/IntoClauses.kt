@@ -436,11 +436,13 @@ internal class IntoClauses(
     }
 
     /**
-     * The variables and record fields `RETURN` gives back ([write], of the function whose result is [returned]), as is
-     * or through value functions: whatever column's value they hold is what the function returns. Within any other
-     * expression, counted by its shape (`RETURNED_EXPRESSION_*`) when a column's value reaches them.
+     * The variables and record fields [write] gives on, as is or through value functions: what `RETURN` gives back (of
+     * the function whose result is [returned]), or what is written into an `OUT` or `IN OUT` parameter of the
+     * subprogram ([ValueWrite.target]). Whatever column's value they hold goes there. Within any other expression of a
+     * `RETURN`, counted by its shape (`RETURNED_EXPRESSION_*`) when a column's value reaches them; of a parameter, not
+     * followed.
      */
-    private fun returnedVariables(write: ValueWrite, returned: String, parameters: List<AstNode>, bySpan: Map<SourceSpan, List<OccurrenceFact>>, shapes: TypeShapes) {
+    private fun heldVariables(write: ValueWrite, returned: String?, parameters: List<AstNode>, bySpan: Map<SourceSpan, List<OccurrenceFact>>, shapes: TypeShapes) {
         val names = (sequenceOf(write.value) + write.value.getDescendants(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION).asSequence())
             .filter { (it.type == PlSqlGrammar.VARIABLE_NAME || it.type == PlSqlGrammar.MEMBER_EXPRESSION) && plsql.isValueName(it) && plsql.nameSegments(it) != null }
             .filter { name -> parameters.none { it === name } && generateSequence(name.parentOrNull) { it.parentOrNull }.takeWhile { it !== write.value.parentOrNull }
@@ -450,10 +452,35 @@ internal class IntoClauses(
             val held = target(name, bySpan, shapes).takeIf { it.entityKey != null && !it.element } ?: continue
             val key = held.entityKey + held.path.joinToString("") { ".$it" }
             val chain = valueChain(write.value) { it === name }
-            flows += if (chain == null) Flow(name, write.site, write.context, shape = RETURNED_EXPRESSION + argumentShape(write.value), fromKey = key)
-                else Flow(name, write.site, write.context, passedTo = returned, functions = chain, fromKey = key)
+            flows += when {
+                returned == null -> Flow(name, write.site, write.context, target = write.target, functions = chain ?: continue, fromKey = key)
+                chain == null -> Flow(name, write.site, write.context, shape = RETURNED_EXPRESSION + argumentShape(write.value), fromKey = key)
+                else -> Flow(name, write.site, write.context, passedTo = returned, functions = chain, fromKey = key)
+            }
         }
     }
+
+    /** Whether [target], a whole name, is an `OUT` or `IN OUT` parameter of the subprogram the code at it is in. */
+    private fun isOwnOutParameter(target: AstNode, shapes: TypeShapes): Boolean {
+        if (!isParameterName(target)) return false
+        val declaration = ownDeclaration(target, target, shapes) ?: return false
+        return declaration.type == PlSqlGrammar.PARAMETER_DECLARATION && declaration.hasDirectChildren(PlSqlKeyword.OUT)
+    }
+
+    /**
+     * The declaration of the variable or parameter [target] names (the record of a field, the collection of an element),
+     * when it is declared in the subprogram [site] is in, the innermost one: null for any other.
+     */
+    private fun ownDeclaration(target: AstNode, site: AstNode, shapes: TypeShapes): AstNode? {
+        val name = generateSequence(target) { if (it.type in WHOLE_OF) it.firstChild else null }.last()
+        val declared = (nameBinding(name) as? NameBinding.Local)?.declaration?.takeIf { it.fileId == null } ?: return null
+        val declaration = shapes.localDeclaration(declared.line, declared.column) ?: return null
+        val routine = subprogramOf(site) ?: return null
+        return declaration.takeIf { subprogramOf(it) === routine }
+    }
+
+    /** The innermost subprogram [node] is in. */
+    private fun subprogramOf(node: AstNode): AstNode? = generateSequence(node.parentOrNull) { it.parentOrNull }.firstOrNull { it.type in SUBPROGRAMS }
 
     /** The key of the nested subprogram's parameter zpa binds [name] to, which has no entity ([localKey]); null for any other. */
     private fun localParameterKey(name: AstNode, shapes: TypeShapes): String? {
@@ -919,7 +946,8 @@ internal class IntoClauses(
         // The argument passed for an OUT or IN OUT parameter, as an INTO target: it takes what the parameter is given.
         for (argument in outArguments) {
             intos += IntoFact(PlaceSource.OUT_ARGUMENT, false, argument.context.unitIndex, argument.context.container, null, emptyList(), null,
-                listOf(target(argument.value, bySpan, shapes)), parameterKey = argument.parameterKey, call = argument.call)
+                listOf(target(argument.value, bySpan, shapes)), parameterKey = argument.parameterKey, call = argument.call,
+                keeps = ownDeclaration(argument.value, argument.value, shapes) != null)
         }
         // A column, or a record's field, passed to a routine's IN parameter.
         for (pass in passes) {
@@ -955,7 +983,7 @@ internal class IntoClauses(
                     else -> Flow(name, write.site, write.context, target = write.target, functions = functions)
                 }
             }
-            if (returned != null) returnedVariables(write, returned, names, bySpan, shapes)
+            if (returned != null || write.target != null && isOwnOutParameter(write.target, shapes)) heldVariables(write, returned, names, bySpan, shapes)
         }
         // The results of the functions an argument calls, passed to the parameter.
         for (argument in callArguments) {
@@ -982,7 +1010,7 @@ internal class IntoClauses(
             }.orEmpty()
             intos += IntoFact(PlaceSource.IN_ARGUMENT, flow.bulk, flow.context.unitIndex, flow.context.container, null, branches, null, targets,
                 expression = flow.shape, functions = flow.functions, parameterKey = flow.passedTo, fromParameter = from, call = flow.call,
-                resultOf = flow.resultOf)
+                resultOf = flow.resultOf, keeps = flow.target != null && ownDeclaration(flow.target, flow.parameter, shapes) != null)
         }
         // A call of an overloaded nested subprogram: no target, only the parameters it may be for.
         for ((span, parameter) in undecidedCalls) {
@@ -1143,6 +1171,14 @@ internal class IntoClauses(
         call.getChildren(PlSqlGrammar.ARGUMENTS).size > 1 || call.firstChild.type == PlSqlGrammar.METHOD_CALL
 
     companion object {
+        /** The subprograms whose own declarations [ownDeclaration] tells apart, a nested one included. */
+        private val SUBPROGRAMS = setOf(
+            PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION, PlSqlGrammar.CREATE_PROCEDURE, PlSqlGrammar.CREATE_FUNCTION
+        )
+
+        /** What a target goes through to the name it starts with: a field, an element, an object reference. */
+        private val WHOLE_OF = setOf(PlSqlGrammar.MEMBER_EXPRESSION, PlSqlGrammar.METHOD_CALL, PlSqlGrammar.OBJECT_REFERENCE)
+
         const val DYNAMIC_INTO = "DYNAMIC_INTO"
         const val RECORD_ASSIGNMENT = "RECORD_ASSIGNMENT"
         const val ARGUMENT_ROUTINE_UNDECIDED = "ARGUMENT_ROUTINE_UNDECIDED"

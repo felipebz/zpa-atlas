@@ -1268,6 +1268,94 @@ class ColumnPlacesTest {
     }
 
     @Test
+    fun `a value comes back out through OUT parameters and the locals that hold it, to the call that passed it`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("leftovers.sql"), """
+            create or replace package pk_fl as
+              procedure keep(p varchar2);
+              procedure out_kept(p_res out varchar2);
+              procedure out_local(p_in varchar2, p_res out varchar2);
+              procedure out_read(p_id number, p_res out varchar2);
+              function f_via_out(p varchar2) return varchar2;
+              function f_via_out_read(p_id number) return varchar2;
+              procedure out_via_out(p_in varchar2, p_res out varchar2);
+            end;
+            /
+            create or replace package body pk_fl as
+              g_kept varchar2(100);
+              procedure keep(p varchar2) is begin g_kept := p; end;
+              procedure out_kept(p_res out varchar2) is begin p_res := g_kept; end;
+              procedure out_local(p_in varchar2, p_res out varchar2) is l varchar2(100); begin l := p_in; p_res := l; end;
+              procedure out_read(p_id number, p_res out varchar2) is begin select code into p_res from orders where order_id = p_id; end;
+              function f_via_out(p varchar2) return varchar2 is l varchar2(100); begin out_local(p, l); return l; end;
+              function f_via_out_read(p_id number) return varchar2 is l varchar2(100); begin out_read(p_id, l); return l; end;
+              procedure out_via_out(p_in varchar2, p_res out varchar2) is begin out_local(p_in, p_res); end;
+            end;
+            /
+            create or replace procedure show_fl is
+              e1 varchar2(5); e2 varchar2(5); e3 varchar2(5); e4 varchar2(5); e5 varchar2(5);
+              e6 varchar2(5); e7 varchar2(5); e8 varchar2(5); e9 varchar2(5); e10 varchar2(5);
+              e11 varchar2(5); e12 varchar2(5);
+              function inner_l(x varchar2) return varchar2 is l varchar2(100); begin l := x; return l; end;
+              procedure inner_o(x varchar2, o out varchar2) is l varchar2(100); begin l := x; o := l; end;
+              procedure inner_d(x varchar2, o out varchar2) is begin o := x; end;
+            begin
+              for r in (select code, note from orders) loop
+                pk_fl.keep(r.note);
+                e2 := inner_l(r.code);
+                e3 := inner_l(r.note);
+                inner_o(r.code, e4);
+                inner_o(r.note, e5);
+                inner_d(r.code, e6);
+                inner_d(r.note, e7);
+                pk_fl.out_local(r.code, e8);
+                e9 := pk_fl.f_via_out(r.code);
+                e10 := pk_fl.f_via_out(r.note);
+                pk_fl.out_via_out(r.note, e12);
+              end loop;
+              pk_fl.out_kept(e1);
+              e11 := pk_fl.f_via_out_read(1);
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("leftovers.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
+        assertThat(Fixture.query(db, """
+            SELECT p.start_line || ' ' || p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || ' ' || p.class ||
+                   coalesce(' ' || p.length, '')
+            FROM column_place p JOIN entity c ON c.id = p.column_id
+            WHERE p.source IN ('RETURNED', 'IN_ARGUMENT', 'OUT_ARGUMENT') ORDER BY p.start_line, p.target_written, c.key""")).containsExactly(
+            // Inside the routines, every column that reaches a target across the calls.
+            "13 g_kept NOTE IN_ARGUMENT FIXED_SIZE 100",
+            "14 p_res NOTE IN_ARGUMENT CALLER_DECIDES",                                         // out_kept's, from the package variable
+            "15 l CODE IN_ARGUMENT FIXED_SIZE 100", "15 l NOTE IN_ARGUMENT FIXED_SIZE 100",
+            "15 p_res CODE IN_ARGUMENT CALLER_DECIDES", "15 p_res NOTE IN_ARGUMENT CALLER_DECIDES", // out_local's, from its local
+            "17 l CODE OUT_ARGUMENT FIXED_SIZE 100", "17 l NOTE OUT_ARGUMENT FIXED_SIZE 100",     // f_via_out's, from out_local
+            "18 l CODE OUT_ARGUMENT FIXED_SIZE 100",                                            // f_via_out_read's, read in out_read
+            "19 p_res NOTE OUT_ARGUMENT CALLER_DECIDES",                                        // out_via_out's, given out_local's
+            "26 l CODE IN_ARGUMENT FIXED_SIZE 100", "26 l NOTE IN_ARGUMENT FIXED_SIZE 100",
+            "27 l CODE IN_ARGUMENT FIXED_SIZE 100", "27 l NOTE IN_ARGUMENT FIXED_SIZE 100",
+            "27 o CODE IN_ARGUMENT CALLER_DECIDES", "27 o NOTE IN_ARGUMENT CALLER_DECIDES",
+            "28 o CODE IN_ARGUMENT CALLER_DECIDES", "28 o NOTE IN_ARGUMENT CALLER_DECIDES",
+            // Each call's target: the column that call passed in, never another call's.
+            "32 e2 CODE RETURNED FIXED_SIZE 5",          // a nested function returning its own local
+            "33 e3 NOTE RETURNED FIXED_SIZE 5",
+            "34 e4 CODE OUT_ARGUMENT FIXED_SIZE 5",      // a nested procedure's OUT parameter given its local
+            "35 e5 NOTE OUT_ARGUMENT FIXED_SIZE 5",
+            "36 e6 CODE OUT_ARGUMENT FIXED_SIZE 5",      // given the parameter itself
+            "37 e7 NOTE OUT_ARGUMENT FIXED_SIZE 5",
+            "38 e8 CODE OUT_ARGUMENT FIXED_SIZE 5",      // a package procedure's OUT parameter given its local
+            "39 e9 CODE RETURNED FIXED_SIZE 5",          // back through an OUT argument, then out by RETURN
+            "40 e10 NOTE RETURNED FIXED_SIZE 5",
+            "41 e12 NOTE OUT_ARGUMENT FIXED_SIZE 5",     // an OUT parameter passed as another routine's OUT argument
+            // A column kept in a package variable, or read inside: for every caller.
+            "43 e1 NOTE OUT_ARGUMENT FIXED_SIZE 5",
+            "44 e11 CODE RETURNED FIXED_SIZE 5"
+        )
+    }
+
+    @Test
     fun `what is not followed is counted by shape`() {
         val db = PlacesFixture.index(temp)
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1"))
