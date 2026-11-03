@@ -104,7 +104,8 @@ internal class EntityReader(private val connection: Connection) {
             keys(ownKeys),
             referencing(ownKeys, 0, null).second,
             referencedByIncomplete(ownKeys),
-            if (row.kind == "COLUMN") PlaceReader(connection).counts(row.id) else emptyList(),
+            if (row.kind == "COLUMN") PlaceReader(connection).counts(row.id, concatenated = false) else emptyList(),
+            if (row.kind == "COLUMN") PlaceReader(connection).total(row.id, concatenated = true) else 0,
             PlaceReader(connection).receives(row.id)
         )
     }

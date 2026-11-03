@@ -180,10 +180,15 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     private fun findColumnPlaces(args: Arguments): JsonElement {
         val key = args.requiredString("key")
         val offset = args.int("offset", 0..Int.MAX_VALUE) ?: 0
-        val answer = index.columnPlaces(key, offset, args.int("limit", 1..PLACES_MAX) ?: PLACES_DEFAULT)
-        if (answer.result == null) throw unknownEntity(key)
+        val concatenated = args.boolean("concatenated") ?: false
+        val answer = index.columnPlaces(key, offset, args.int("limit", 1..PLACES_MAX) ?: PLACES_DEFAULT, concatenated)
+        val page = answer.result ?: throw unknownEntity(key)
+        // The other group is never left unsaid: thousands of concatenated places behind "3 places" would mislead.
+        val other = if (concatenated) "${page.directTotal} place(s) where the value lands alone: ask again with concatenated false"
+            else "${page.concatenatedTotal} place(s) where the value is one part of a concatenation: ask again with concatenated true"
+        val told = toolAnswer(answer).withResult("otherPlaces", JsonPrimitive(other))
         // The offset counts rows, so a cut page goes on right after its last row kept.
-        return McpAnswers.fitList(toolAnswer(answer), maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
+        return McpAnswers.fitList(told, maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
             a.withResult("nextOffset", JsonPrimitive(offset + rows.size))
         }
     }
@@ -431,6 +436,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         string("key", "A COLUMN key (a table's or a view's), as search_entities or another answer gives it.")
         integer("offset", 0..Int.MAX_VALUE, 0, "The nextOffset of the previous page.")
         integer("limit", 1..PLACES_MAX, PLACES_DEFAULT)
+        boolean("concatenated", "false (the default): the places the value lands in alone; true: those where it is one part " +
+            "of a concatenation (a message built from several columns), listed apart since a column may have thousands.")
     }
 
     private fun findSchema() = schema(emptyList()) {
@@ -733,18 +740,18 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
 
         const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
             "(members or columns, with their uses), relations, triggers and the views that read it. A routine spec's " +
-            "bodies (key and definitions, never cut), a body's spec: one call answers where both are. declared (entity, " +
+            "bodies (key and definitions, never cut), a body's spec. declared (entity, " +
             "child): the declaration as written (not resolved): type is " +
             "a function's or cursor's return type, else the declared type; value is a parameter's default or a " +
             "variable's, constant's or record field's initial value, valueCut true when cut; valueFrom SPEC when a " +
             "body's parameter takes the default its spec writes; specText, on a " +
             "body that differs from its spec, what the spec says. documentation (entity, child): its doc comment, " +
             "then the other half's (from SPEC or BODY) when it differs. " +
-            "usesIncomplete (entity, child): reasons unrecorded uses can't be ruled out; uses are " +
-            "a lower bound. membersIncomplete (object type): its attributes may not be all. keys (dictionary): a " +
+            "usesIncomplete (entity, child): why uses are a lower bound. membersIncomplete (object type): its attributes may not be all. keys (dictionary): a " +
             "table's keys, or a column's; referencedBy: the foreign keys to them, each naming the key it references, " +
             "cut (find_referencing_keys gives all); referencedByIncomplete: there may be more, " +
-            "not every table was seen. placesByClass (column): its places by class (find_column_places lists them); " +
+            "not every table was seen. placesByClass (column): where its value lands alone, by class; " +
+            "concatenatedPlaces: where it is one part of a concatenation (find_column_places lists both); " +
             "receives: the columns read into this target. " +
             "$PATHS $KEYS"
 
@@ -753,20 +760,20 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "r a cursor FOR loop or %ROWTYPE record; line of the :=); OUT_ARGUMENT (a call's argument for an OUT " +
             "parameter below; argumentOf, routine); IN_ARGUMENT (a target inside routine, written from its IN parameter " +
             "argumentOf the column is passed to; callCount calls pass it, one at callPath, callLine); RETURNED (a target " +
-            "the result of routine, a function returning the column, is written into; callCount calls). One row per " +
-            "column and target, by class then file and line, a page at a time (nextOffset as offset; absent on the " +
-            "last); with view columns computed from it (viaView, read is the view column). Each row: the column read, " +
-            "source, path, line, container, targetWritten, target (absent for an anonymous block's variable), the field " +
-            "of a record target, functions: value functions read through, outer first (NVL, NVL2, COALESCE, MAX, MIN, " +
-            "TRIM, LTRIM, RTRIM, UPPER, LOWER; NVL may give its other argument); concatenated: the value is one part of " +
-            "a || or CONCAT, other text lands with it. placeClass: FIXED_SIZE (its own length or precision: length, " +
-            "unit CHAR, BYTE, DIGITS, or NLS_LENGTH_SEMANTICS when none is written; for a number, length is the digits " +
-            "before the point, p-s, scale is s: compare both with the column's NUMBER(p,s)), UNKNOWN (reason), " +
-            "CALLER_DECIDES (an OUT or IN OUT parameter, parameterMode: each caller's argument decides its type and " +
-            "size; each known call's argument is a row), ANCHORED_ELSEWHERE (to another column, typeSource), NO_SIZE " +
-            "(NUMBER, FLOAT, CLOB, DATE), ANCHORED_TO_COLUMN (%TYPE, %ROWTYPE or a cursor record over the column, or " +
-            "anchored to something so anchored). declaredType is as written; typeSource decides the type. total and " +
-            "byClass count all. Not followed: other expressions, dynamic SQL. $PATHS"
+            "routine's result, a function returning the column, is written into; callCount calls). One row per column " +
+            "and target, by class then file and line, paged (nextOffset as offset; absent on the last); view columns " +
+            "computed from it too (viaView, read is the view column). Each row: the column read, source, path, line, " +
+            "container, targetWritten, target (absent for a block's variable), field (of a record), functions: " +
+            "value functions read through, outer first (NVL, NVL2, COALESCE, MAX, MIN, TRIM and kin, UPPER, LOWER; NVL " +
+            "may give its other argument); concatenated: the value is one part of a || or CONCAT, with other text. " +
+            "placeClass: FIXED_SIZE (its own length or precision: length, unit CHAR, BYTE, DIGITS, or " +
+            "NLS_LENGTH_SEMANTICS when none is written; for a number, length is the digits before the point, p-s, scale " +
+            "is s: compare both with the column's NUMBER(p,s)), UNKNOWN (reason), CALLER_DECIDES (an OUT or IN OUT " +
+            "parameter, parameterMode: each caller's argument decides its size and is a row), ANCHORED_ELSEWHERE (to " +
+            "another column, typeSource), NO_SIZE (NUMBER, FLOAT, CLOB, DATE), ANCHORED_TO_COLUMN (%TYPE, %ROWTYPE or a " +
+            "cursor record over the column, or anchored so). declaredType is as written; typeSource decides the " +
+            "type. Lists where the value lands alone; concatenated true, where it is one part. total, byClass: those " +
+            "listed; directTotal, concatenatedTotal: each group; otherPlaces: how to ask for the other. $PATHS"
 
         const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column " +
             "is in (referencedBy of get_entity, which cuts it), by table then name, a page at a time: pass the answer's " +

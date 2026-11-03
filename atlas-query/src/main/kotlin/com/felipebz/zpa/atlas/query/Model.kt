@@ -250,10 +250,13 @@ data class EntityDetail(
      */
     val referencedByIncomplete: List<String>? = null,
     /**
-     * For a column, its places ([ColumnPlace]) counted by class (`FIXED_SIZE`, `UNKNOWN`, `ANCHORED_ELSEWHERE`,
-     * `NO_SIZE`, `ANCHORED_TO_COLUMN`, in that order), those read through a view computed from it included.
+     * For a column, the places ([ColumnPlace]) its value lands in alone counted by class (`FIXED_SIZE`, `UNKNOWN`,
+     * `ANCHORED_ELSEWHERE`, `NO_SIZE`, `ANCHORED_TO_COLUMN`, in that order), those read through a view computed from it
+     * included; those where it is a part of a concatenation are [concatenatedPlaces].
      */
     val placesByClass: List<Count> = emptyList(),
+    /** For a column, how many places its value is a part of a concatenation in ([ColumnPlace.concatenated]). */
+    val concatenatedPlaces: Int = 0,
     /** For a variable, parameter, field or other PL/SQL target, the columns whose value it is read into, by key. */
     val receives: List<EntitySummary> = emptyList()
 )
@@ -373,10 +376,15 @@ data class ColumnPlace(
 /**
  * A page of the places of a column ([EntityDetail.placesByClass]), by class (fixed size,
  * unknown, caller decides, anchored elsewhere, no size, anchored to the column), then by file and line: [total] of them, [byClass] the
- * counts, [rows] from [offset], [nextOffset] the offset of the next page (null on the last).
+ * counts, [rows] from [offset], [nextOffset] the offset of the next page (null on the last). [concatenated] says which
+ * places it lists: those the value lands in alone (false), those it is a part of a concatenation in (true), or all
+ * (null); [directTotal] and [concatenatedTotal] count each group, whichever is listed.
  */
 @Serializable
-data class ColumnPlacePage(val total: Int, val byClass: List<Count>, val offset: Int, val rows: List<ColumnPlace>, val nextOffset: Int?)
+data class ColumnPlacePage(
+    val total: Int, val byClass: List<Count>, val offset: Int, val rows: List<ColumnPlace>, val nextOffset: Int?,
+    val concatenated: Boolean? = null, val directTotal: Int = 0, val concatenatedTotal: Int = 0
+)
 
 /**
  * What "who uses" covers besides the entity itself: [IMPLEMENTATIONS] its `IMPLEMENTS` partners (for a parameter, the

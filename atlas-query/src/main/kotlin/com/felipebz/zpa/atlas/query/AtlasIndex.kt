@@ -86,12 +86,13 @@ class AtlasIndex(
     /**
      * A page of the places the value of the column [key] is read into in PL/SQL ([ColumnPlace]), its own and those of
      * the view columns computed from it: by class, then by file and line, [limit] from
-     * [offset]. Null when there is no such entity.
+     * [offset]; with [concatenated], only those the value lands in alone (false) or as a part of a concatenation
+     * (true). Null when there is no such entity.
      */
-    fun columnPlaces(key: String, offset: Int = 0, limit: Int = 100): Answer<ColumnPlacePage?> {
+    fun columnPlaces(key: String, offset: Int = 0, limit: Int = 100, concatenated: Boolean? = null): Answer<ColumnPlacePage?> {
         if (offset < 0) throw InvalidQueryException("offset must not be negative")
         if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
-        return read { connection, _ -> PlaceReader(connection).page(key, offset, limit) }
+        return read { connection, _ -> PlaceReader(connection).page(key, offset, limit, concatenated) }
     }
 
     /**

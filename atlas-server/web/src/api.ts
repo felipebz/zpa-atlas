@@ -255,6 +255,8 @@ export interface EntityDetail {
    * ANCHORED_ELSEWHERE, NO_SIZE, ANCHORED_TO_COLUMN when present; empty for any other entity.
    */
   placesByClass: Count[];
+  /** For a column, how many places its value is one part of a concatenation in: apart from [placesByClass]. */
+  concatenatedPlaces: number;
   /** For a variable, parameter, field or other PL/SQL target: the columns whose value is read into it, by key. */
   receives: EntitySummary[];
 }
@@ -337,10 +339,16 @@ export interface ColumnPlace {
   reason: string | null;
 }
 
-/** A page of a column's places (`api/places`): [byClass] counts all of them, [nextOffset] is null on the last page. */
+/**
+ * A page of a column's places (`api/places`): [byClass] counts those it lists (the direct ones, the concatenated ones,
+ * or all), [directTotal] and [concatenatedTotal] each group; [nextOffset] is null on the last page.
+ */
 export interface ColumnPlacePage {
   total: number;
   byClass: Count[];
+  concatenated: boolean | null;
+  directTotal: number;
+  concatenatedTotal: number;
   offset: number;
   rows: ColumnPlace[];
   nextOffset: number | null;
@@ -549,7 +557,10 @@ export function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** One page of the places the column [key]'s value is read into, from [offset]. */
-export async function columnPlaces(key: string, offset: number, limit = 100): Promise<ColumnPlacePage> {
-  return (await api<Answer<ColumnPlacePage>>("api/places", { key, offset, limit })).result;
+/**
+ * One page of the places the column [key]'s value is read into, from [offset]: those it lands in alone ([concatenated]
+ * false) or those it is one part of a concatenation in (true).
+ */
+export async function columnPlaces(key: string, offset: number, concatenated: boolean, limit = 100): Promise<ColumnPlacePage> {
+  return (await api<Answer<ColumnPlacePage>>("api/places", { key, offset, limit, concatenated })).result;
 }

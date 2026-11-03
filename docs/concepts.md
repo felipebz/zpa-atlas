@@ -126,8 +126,12 @@ digits (`NUMBER(5,-2)`: 7, scale -2).
 `type_source_id` is the entity whose declaration decides the type, when it is not the target itself: the column an
 anchor ends at, or the variable, field or type that writes the size. A column's page lists its places by class (in the
 order above), then by file and line, with those of the view columns computed from it, marked as read through the view; a target's page lists
-the columns it receives. The MCP tool `find_column_places` pages through them all; `get_entity` of a column counts
-them by class (`placesByClass`). What is not followed is counted by shape in `COLUMN_VALUE_NOT_FOLLOWED` coverage notes:
+the columns it receives. The places where the value lands alone come first; those where it is one part of a
+concatenation (a message built from many columns may give thousands) are a group of their own, closed until opened.
+`/api/places` lists one group or the other with `concatenated=false` or `true` (both without it), each answer giving
+the totals of both. The MCP tool `find_column_places` pages through them, the direct ones unless asked for
+`concatenated: true`, and says how many the other group has; `get_entity` of a column counts the direct ones by
+class (`placesByClass`) and the concatenated ones as a total (`concatenatedPlaces`). What is not followed is counted by shape in `COLUMN_VALUE_NOT_FOLLOWED` coverage notes:
 an item that is another expression of one column (`EXPRESSION_NVL`, `_NVL2`, `_UPPER`, `_TRIM`, `_SUBSTR`, `_MAX_MIN`, `_TO_CHAR`,
 `_CONCATENATION`, and `_OTHER_` followed by the outer function or operator: `_OTHER_DECODE`, `_OTHER_TO_NUMBER`,
 `_OTHER_LOWER`, `_OTHER_CASE`, `_OTHER_ARITHMETIC` for `+`, `-`, `*`, `/`, the name only for an Oracle built-in,

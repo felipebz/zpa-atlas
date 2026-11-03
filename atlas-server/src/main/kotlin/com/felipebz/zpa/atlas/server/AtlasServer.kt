@@ -222,7 +222,7 @@ internal fun Route.indexApi(index: AtlasIndex, tabWidth: Int) {
         call.respondEntityAnswer(answer)
     }
     get("/places") {
-        val answer = index.columnPlaces(call.required("key"), call.int("offset") ?: 0, call.int("limit") ?: 100)
+        val answer = index.columnPlaces(call.required("key"), call.int("offset") ?: 0, call.int("limit") ?: 100, call.boolean("concatenated"))
         call.respondEntityAnswer(answer)
     }
     get("/source") {

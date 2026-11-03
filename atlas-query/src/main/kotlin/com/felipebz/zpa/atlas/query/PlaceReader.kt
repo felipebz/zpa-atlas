@@ -12,17 +12,29 @@ import java.sql.Connection
  * the view columns computed from it, through every level of views, the way "who uses" follows views.
  */
 internal class PlaceReader(private val connection: Connection) {
-    /** The class of each place, in the order of [CLASS_ORDER]. */
-    fun counts(columnId: Long): List<Count> {
-        val counts = connection.query("$SCOPE SELECT p.class, count(*) FROM column_place p WHERE p.column_id IN (SELECT id FROM viewed) GROUP BY p.class",
+    /**
+     * The class of each place, in the order of [CLASS_ORDER]: with [concatenated], only the places where the value lands
+     * alone (false) or as a part of a concatenation (true).
+     */
+    fun counts(columnId: Long, concatenated: Boolean? = null): List<Count> {
+        val counts = connection.query(
+            "$SCOPE SELECT p.class, count(*) FROM column_place p WHERE p.column_id IN (SELECT id FROM viewed)${which(concatenated)} GROUP BY p.class",
             listOf(columnId)) { it.getString(1) to it.getLong(2) }.toMap()
         return CLASS_ORDER.mapNotNull { name -> counts[name]?.let { Count(name, it) } }
     }
 
-    /** A page of the places of the column [key]: [limit] from [offset]; null when there is no such entity. */
-    fun page(key: String, offset: Int, limit: Int): ColumnPlacePage? {
+    /** How many places of the column [columnId] the value lands in alone (false) or as a part of a concatenation (true). */
+    fun total(columnId: Long, concatenated: Boolean): Int = connection.query(
+        "$SCOPE SELECT count(*) FROM column_place p WHERE p.column_id IN (SELECT id FROM viewed)${which(concatenated)}", listOf(columnId)
+    ) { it.getInt(1) }.single()
+
+    /**
+     * A page of the places of the column [key]: [limit] from [offset], those [concatenated] says (all when null); null when
+     * there is no such entity.
+     */
+    fun page(key: String, offset: Int, limit: Int, concatenated: Boolean? = null): ColumnPlacePage? {
         val id = connection.query("SELECT id FROM entity WHERE key = ?", listOf(key)) { it.getLong(1) }.singleOrNull() ?: return null
-        val counts = counts(id)
+        val counts = counts(id, concatenated)
         val rows = connection.query(
             """$SCOPE SELECT r.key, r.kind, r.display, r.external, r.name, p.column_id <> ?, p.source, p.bulk, f.path, p.start_line, p.start_col,
                       c.key, c.kind, c.display, c.external, c.name, p.target_written,
@@ -34,7 +46,7 @@ internal class PlaceReader(private val connection: Connection) {
                LEFT JOIN entity c ON c.id = p.container_entity_id LEFT JOIN entity t ON t.id = p.target_entity_id
                LEFT JOIN entity s ON s.id = p.type_source_id LEFT JOIN entity a ON a.id = p.argument_parameter_id
                LEFT JOIN entity g ON g.id = p.argument_routine_id
-               WHERE p.column_id IN (SELECT id FROM viewed)
+               WHERE p.column_id IN (SELECT id FROM viewed)${which(concatenated)}
                ORDER BY $CLASS_RANK, f.path, p.start_line, p.start_col, p.id LIMIT ? OFFSET ?""",
             listOf(id, id, limit, offset)
         ) { rs ->
@@ -49,7 +61,9 @@ internal class PlaceReader(private val connection: Connection) {
             )
         }
         val total = counts.sumOf { it.count }.toInt()
-        return ColumnPlacePage(total, counts, offset, rows, (offset + rows.size).takeIf { it < total })
+        val direct = if (concatenated == false) total else total(id, false)
+        val joined = if (concatenated == true) total else total(id, true)
+        return ColumnPlacePage(total, counts, offset, rows, (offset + rows.size).takeIf { it < total }, concatenated, direct, joined)
     }
 
     /** The columns whose value is read into the entity [targetId], or into one of its fields. */
@@ -57,6 +71,13 @@ internal class PlaceReader(private val connection: Connection) {
         """SELECT DISTINCT e.key, e.kind, e.display, e.external, e.name FROM column_place p JOIN entity e ON e.id = p.column_id
            WHERE p.target_entity_id = ? ORDER BY e.key""", listOf(targetId), ::entitySummary
     )
+
+    /** The condition on `p.concatenated` that keeps the places [concatenated] says, none for all of them. */
+    private fun which(concatenated: Boolean?) = when (concatenated) {
+        null -> ""
+        true -> " AND p.concatenated = 1"
+        false -> " AND p.concatenated = 0"
+    }
 
     companion object {
         /** The classes in the order a page lists them. */

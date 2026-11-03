@@ -253,6 +253,11 @@ main.entity { display: grid; gap: var(--gap); }
 .badge.pc-ANCHORED_TO_COLUMN { background: var(--ok-soft); color: var(--ok); }
 .badge.attention { font-weight: 600; }
 .place-classes .badge { margin: 2px 4px 2px 0; }
+.place-total { margin: 0 0 6px; }
+/* The places where the column's value is one part of a concatenation: a group of their own, closed until opened. */
+details.place-group { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+details.place-group > summary { cursor: pointer; font-weight: 600; }
+details.place-group > p { margin: 4px 0 8px; }
 /* A name that breaks only between its parts (partBreaksHtml), even inside a cell that breaks anywhere. */
 .parts { overflow-wrap: break-word; word-break: normal; }
 /* What the declaration says: the code as written, wrapping anywhere so a long value never widens the page. */

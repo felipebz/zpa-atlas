@@ -504,8 +504,11 @@ function renderEntity(entity: EntityDetail) {
   const valuesTitle = entity.kind === "PARAMETER" ? "values.title.passed" : entity.kind === "COLUMN" ? "values.title.written" : null;
   if (valuesTitle) loadValues(valuesTitle);
   // Where a column's value is read into in PL/SQL, and how each target is declared.
+  // The places the value lands in alone count for the section; those where it is one part of a concatenation are a
+  // group of their own, closed.
   const placeCount = entity.kind === "COLUMN" ? placesTotal(entity.placesByClass) : 0;
-  if (placeCount > 0) loadPlaces();
+  const joinedCount = entity.kind === "COLUMN" ? entity.concatenatedPlaces : 0;
+  if (placeCount + joinedCount > 0) loadPlaces(placeCount, joinedCount);
 
   // The list leads to every section of the content column; the usage count becomes the scope's total once it loads,
   // and values have no count until they load.
@@ -514,7 +517,7 @@ function renderEntity(entity: EntityDetail) {
     { id: "parameters", label: t("entity.parameters"), count: params?.length ?? -1 },
     { id: "overloads", label: t("entity.overloads"), count: overloads.length >= 2 ? overloads.length : -1 },
     { id: "values", label: valuesTitle ? t(valuesTitle) : "", count: valuesTitle ? null : -1 },
-    { id: "places", label: t("places.title"), count: placeCount || -1 },
+    { id: "places", label: t("places.title"), count: placeCount + joinedCount > 0 ? placeCount : -1 },
     { id: "receives", label: t("receives.title"), count: entity.receives.length || -1 },
     { id: "usage", label: t("usage.title"), count: direct },
     { id: "relations", label: t("entity.relations"), count: entity.relations.length || -1 },
@@ -713,35 +716,56 @@ function placeRowHtml(p: ColumnPlace) {
 }
 
 /**
- * The places the page's column is read into, a page at a time: the counts by class over all of them, then a row per
- * place in the backend's order (by class, then file and line), and "more" while there are more.
+ * The places the page's column is read into: first those its value lands in alone ([direct] of them), then, in a group
+ * closed until opened, those where it is one part of a concatenation ([joined]), which a message built from many
+ * columns may give by the thousand. Each lists its counts by class, then a row per place in the backend's order (by
+ * class, then file and line), and "more" while there are more.
  */
-async function loadPlaces() {
+async function loadPlaces(direct: number, joined: number) {
   const target = document.getElementById("places")!;
   const head = sectionHead(t("places.title"), t("places.line"));
+  const total = joined > 0 ? t("places.totalWith", { count: direct, joined }) : t("places.total", { count: direct });
+  const group = joined === 0 ? "" : `<details class="place-group"><summary>${esc(t("places.joined.title", { count: joined }))}</summary>` +
+    `<p class="muted">${esc(t("places.joined.why"))}</p><div class="place-list"></div></details>`;
+  target.innerHTML = head + `<p class="muted place-total">${esc(total)}</p><div class="place-list"></div>` + group;
+  const lists = target.querySelectorAll<HTMLElement>(".place-list");
+  if (direct > 0) await fillPlaces(lists[0], false);
+  if (joined > 0) {
+    const details = target.querySelector<HTMLDetailsElement>("details.place-group")!;
+    details.addEventListener("toggle", () => {
+      if (details.open && !details.dataset.loaded) {
+        details.dataset.loaded = "true";
+        fillPlaces(lists[1], true);
+      }
+    });
+  }
+}
+
+/** The places of one group ([concatenated] or not) in [holder]: its counts by class, its rows, and "more" while there are more. */
+async function fillPlaces(holder: HTMLElement, concatenated: boolean) {
   let page: ColumnPlacePage;
   try {
-    page = await columnPlaces(key, 0, PLACES_PAGE);
+    page = await columnPlaces(key, 0, concatenated, PLACES_PAGE);
   } catch (e) {
-    target.innerHTML = head + `<p class="muted">${esc(t("error.message", { error: errorMessage(e) }))}</p>`;
+    holder.innerHTML = `<p class="muted">${esc(t("error.message", { error: errorMessage(e) }))}</p>`;
     return;
   }
   if (page.rows.length === 0) {
-    target.innerHTML = head + `<p class="muted">${esc(t("places.none"))}</p>`;
+    holder.innerHTML = `<p class="muted">${esc(t("places.none"))}</p>`;
     return;
   }
   const counts = classCounts(t, page.byClass).map(c => placeClassBadge(c.value, c.text)).join("");
-  target.innerHTML = head + `<p class="place-classes"><span class="muted">${esc(t("places.total", { count: page.total }))}</span> ${counts}</p>` +
+  holder.innerHTML = `<p class="place-classes">${counts}</p>` +
     scrollTable(`<tbody>${page.rows.map(placeRowHtml).join("")}</tbody>`, "compact stack places") +
     `<button type="button" class="more-rows"${page.nextOffset === null ? " hidden" : ""}>${esc(t("usage.more"))}</button>`;
-  const rows = target.querySelector("tbody")!;
-  const more = target.querySelector<HTMLButtonElement>("button.more-rows")!;
+  const rows = holder.querySelector("tbody")!;
+  const more = holder.querySelector<HTMLButtonElement>("button.more-rows")!;
   let next = page.nextOffset;
   more.addEventListener("click", async () => {
     if (next === null) return;
     more.disabled = true;
     try {
-      const following = await columnPlaces(key, next, PLACES_PAGE);
+      const following = await columnPlaces(key, next, concatenated, PLACES_PAGE);
       rows.insertAdjacentHTML("beforeend", following.rows.map(placeRowHtml).join(""));
       next = following.nextOffset;
     } finally {

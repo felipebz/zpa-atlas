@@ -21,6 +21,7 @@ import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.toolAnswer
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
+import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.cio.*
 import io.ktor.server.engine.*
@@ -586,6 +587,83 @@ class McpServerTest {
         }
         assertThat(cut).isGreaterThan(0)
         assertThat(seen).isEqualTo((1..15).toList())
+    }
+
+    /**
+     * The places project, with its note column read into two more direct places, of two classes, and built into an OUT message by
+     * concatenation, which 149 calls take: 150 concatenated places.
+     */
+    private fun messagePlaces(): Path {
+        val folder = temp.resolve("messages")
+        if (Files.exists(folder.resolve("places.db"))) return folder.resolve("places.db")
+        PlacesFixture.write(folder.resolve("src"))
+        Files.writeString(folder.resolve("src/pk_msg.sql"), """
+            create or replace package pk_msg as
+              procedure build_msg(p_id number, p_message out varchar2);
+            end;
+            /
+            create or replace package body pk_msg as
+              procedure build_msg(p_id number, p_message out varchar2) is
+              begin
+                select 'Order ' || note || ' noted' into p_message from orders where order_id = p_id;
+              end;
+            end;
+            /
+            create or replace procedure note_reads is
+              l_note varchar2(40);
+              l_same orders.note%type;
+            begin
+              select note into l_note from orders where order_id = 1;
+              select note into l_same from orders where order_id = 2;
+            end;
+            /
+        """.trimIndent() + "\n")
+        Files.writeString(folder.resolve("src/many_msgs.prc"), "create or replace procedure many_msgs is\n  m varchar2(200);\nbegin\n" +
+            (1..149).joinToString("") { "  pk_msg.build_msg($it, m);\n" } + "end;\n/\n")
+        val output = folder.resolve("places.db")
+        Indexer().index(IndexOptions(folder.resolve("src"), output, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
+        return output
+    }
+
+    /** A page's total, its counts by class, the totals of both groups and the next offset, on one line. */
+    private fun pageLine(page: JsonObject): String {
+        val byClass = page["byClass"]!!.jsonArray.joinToString(",") { "${it.jsonObject["value"]!!.jsonPrimitive.content} ${it.jsonObject["count"]!!.jsonPrimitive.content}" }
+        return "total ${page["total"]!!.jsonPrimitive.content} [$byClass] rows ${page["rows"]!!.jsonArray.size} " +
+            "direct ${page["directTotal"]!!.jsonPrimitive.content} concatenated ${page["concatenatedTotal"]!!.jsonPrimitive.content} " +
+            "next ${page["nextOffset"]?.jsonPrimitive?.contentOrNull ?: "-"}"
+    }
+
+    @Test
+    fun `a column's places where its value lands alone are apart from those where it is one part of a concatenation`() {
+        val output = messagePlaces()
+        mcp(AtlasIndex(output, output.parent.resolve("src"))) { client ->
+            val note = "db:SHOP.ORDERS.NOTE"
+            suspend fun places(query: String) = Json.parseToJsonElement(this.client.get("/api/places?key=$note&limit=100$query").bodyAsText()).jsonObject["result"]!!.jsonObject
+            val direct = places("&concatenated=false")
+            val joined = places("&concatenated=true")
+            val all = places("")
+            assertThat(pageLine(direct)).isEqualTo("total 3 [FIXED_SIZE 1,ANCHORED_TO_COLUMN 2] rows 3 direct 3 concatenated 150 next -")
+            assertThat(pageLine(joined)).isEqualTo("total 150 [FIXED_SIZE 149,CALLER_DECIDES 1] rows 100 direct 3 concatenated 150 next 100")
+            assertThat(pageLine(places("&concatenated=true&offset=100"))).isEqualTo("total 150 [FIXED_SIZE 149,CALLER_DECIDES 1] rows 50 direct 3 concatenated 150 next -")
+            assertThat(pageLine(all)).isEqualTo("total 153 [FIXED_SIZE 150,CALLER_DECIDES 1,ANCHORED_TO_COLUMN 2] rows 100 direct 3 concatenated 150 next 100")
+            assertThat(direct["rows"]!!.jsonArray).allSatisfy { assertThat(it.jsonObject["concatenated"]!!.jsonPrimitive.content).isEqualTo("false") }
+            assertThat(joined["rows"]!!.jsonArray).allSatisfy { assertThat(it.jsonObject["concatenated"]!!.jsonPrimitive.content).isEqualTo("true") }
+            // The MCP lists the direct places by default, and always says how many concatenated places there are and how to ask.
+            val byDefault = client.call("find_column_places", args { put("key", note) }).json().jsonObject["result"]!!.jsonObject
+            assertThat(pageLine(byDefault)).isEqualTo("total 3 [FIXED_SIZE 1,ANCHORED_TO_COLUMN 2] rows 3 direct 3 concatenated 150 next -")
+            assertThat(byDefault["otherPlaces"]!!.jsonPrimitive.content)
+                .isEqualTo("150 place(s) where the value is one part of a concatenation: ask again with concatenated true")
+            val asked = client.call("find_column_places", args { put("key", note); put("concatenated", true) }).json().jsonObject["result"]!!.jsonObject
+            // Cut for size: the next page goes on right after the last row kept.
+            val kept = asked["rows"]!!.jsonArray.size
+            assertThat(pageLine(asked)).isEqualTo("total 150 [FIXED_SIZE 149,CALLER_DECIDES 1] rows $kept direct 3 concatenated 150 next $kept")
+            assertThat(asked["otherPlaces"]!!.jsonPrimitive.content).isEqualTo("3 place(s) where the value lands alone: ask again with concatenated false")
+            // get_entity: the direct places by class, and the concatenated ones as a total.
+            val entity = client.call("get_entity", args { put("key", note) }).json().jsonObject["result"]!!.jsonObject
+            assertThat(entity["placesByClass"]!!.jsonArray.map { "${it.jsonObject["value"]!!.jsonPrimitive.content} ${it.jsonObject["count"]!!.jsonPrimitive.content}" })
+                .containsExactly("FIXED_SIZE 1", "ANCHORED_TO_COLUMN 2")
+            assertThat(entity["concatenatedPlaces"]!!.jsonPrimitive.content).isEqualTo("150")
+        }
     }
 
     @Test
