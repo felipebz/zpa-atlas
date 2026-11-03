@@ -191,7 +191,16 @@ internal class ColumnPlaces(
             }
             for ((column, functions) in columns) seeds.getOrPut(Triple(parameter, column, functions)) { ArrayList() } += file.path to into
         }
-        class Reached(val parameter: String, val column: String, val functions: List<String>, val calls: List<Pair<String, IntoFact>>)
+        /**
+         * A node (a parameter, a variable a function returns, what a function returns) a column's value reached, through
+         * [functions], from [previous]: the path back to where the value came in.
+         */
+        class Reached(
+            val parameter: String, val column: String, val functions: List<String>, val calls: List<Pair<String, IntoFact>>, val previous: Reached? = null
+        ) {
+            /** Whether [node] is on the path that reached this one, this one included: going there again is a cycle. */
+            fun onPath(node: String): Boolean = generateSequence(this) { it.previous }.any { it.parameter == node }
+        }
         val queue = ArrayDeque<Reached>()
         val seen = HashSet<Triple<String, String, List<String>>>()
         for ((key, calls) in seeds) {
@@ -199,11 +208,12 @@ internal class ColumnPlaces(
             queue += Reached(key.first, key.second, key.third, calls.sortedWith(compareBy({ it.first }, { it.second.targets.single().span })))
         }
         // A variable or field holding a column's value that a function returns: what its places hold goes to the return.
-        fun held(path: String, place: ColumnPlaceFact) {
+        fun held(path: String, place: ColumnPlaceFact, previous: Reached? = null) {
             val key = place.targetKey ?: return
             val held = listOfNotNull(place.field?.let { "$key.$it" }, key).map { parameterKey(path, it) }
-            for (node in held) if (node in flows && seen.add(Triple(node, place.columnKey, place.functions))) {
-                queue += Reached(node, place.columnKey, place.functions, emptyList())
+            for (node in held) {
+                if (node !in flows || previous?.onPath(node) == true || !seen.add(Triple(node, place.columnKey, place.functions))) continue
+                queue += Reached(node, place.columnKey, place.functions, emptyList(), previous)
             }
         }
         for ((path, list) in found) for (place in list) held(path, place)
@@ -228,10 +238,12 @@ internal class ColumnPlaces(
                         val next = parameterKey(path, flow.parameterKey)
                         // A function's result passed to a parameter: that call is the one that passes the column.
                         val calls = if (returns && !next.endsWith(".$RETURN")) listOf(path to flow) else reached.calls
+                        // A cycle (a routine passing its parameter to itself, a function returning its own result) only
+                        // wraps the value in more functions on each turn: what it reaches, the path without it reached.
                         if (!isDefined(next)) {
                             if (counted.add(listOf(path, site, reached.column))) count(path, "ARGUMENT_ROUTINE_OUTSIDE")
-                        } else if (seen.add(Triple(next, reached.column, functions))) {
-                            queue += Reached(next, reached.column, functions, calls)
+                        } else if (!reached.onPath(next) && seen.add(Triple(next, reached.column, functions))) {
+                            queue += Reached(next, reached.column, functions, calls, reached)
                         }
                     }
                     else -> {
@@ -258,7 +270,7 @@ internal class ColumnPlaces(
                         val list = places.getOrPut(path) { ArrayList() }
                         placed[key] = path to list.size
                         list += place
-                        held(path, place)
+                        held(path, place, reached)
                     }
                 }
             }

@@ -178,8 +178,9 @@ many calls write its result there, `call_path` and `call_line` one of them. The 
 Oracle returns a value longer than a constrained return type (`return t_short`, `return orders.code%type`) without an
 error. What is not followed is counted in the file of the call: the result written within another expression
 (`RETURNED_EXPRESSION_*`, by its shape as for `ARGUMENT_EXPRESSION_*`; also `return substr(l, 1, 3)` of a local), and
-the call of a function that returns a record, a collection or an object (`RETURNED_NOT_SCALAR`). A function that
-returns its own result, or two that return each other's, are followed once. Not followed: pipelined and table
+the call of a function that returns a record, a collection or an object (`RETURNED_NOT_SCALAR`). A cycle (a
+routine passing its parameter to itself, a function returning its own result, two that return each other's) is
+followed once: going round it again only wraps the value in more functions, and reaches nothing new. Not followed: pipelined and table
 functions, a function's result in dynamic SQL, a local the function only assigns from another local.
 
 ## Occurrence

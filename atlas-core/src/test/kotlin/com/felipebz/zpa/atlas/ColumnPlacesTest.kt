@@ -16,6 +16,7 @@ import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -1035,6 +1036,87 @@ class ColumnPlacesTest {
             "show_ret.sql ARGUMENT_ROUTINE_UNDECIDED: 1",   // c12: zpa leaves the overloaded f_over AMBIGUOUS
             "show_ret.sql EXPRESSION_OTHER_ROUTINE: 1",     // c14's item: order_id passed to f_get, as today
             "show_ret.sql RETURNED_EXPRESSION_SUBSTR: 1"    // c11
+        )
+    }
+
+    @Test
+    @Timeout(60)
+    fun `a cycle that wraps the value in a function on each turn is followed once`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("cycles.sql"), """
+            create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
+
+            create or replace function f_rec(n number) return varchar2 is
+              l varchar2(20);
+            begin
+              if n = 0 then
+                select code into l from orders where rownum = 1;
+                return l;
+              end if;
+              return nvl(f_rec(n - 1), 'x');
+            end;
+            /
+            create or replace function f_var(n number) return varchar2 is
+              l varchar2(20);
+            begin
+              if n = 0 then
+                select note into l from orders where rownum = 1;
+              else
+                l := 'x' || f_var(n - 1);
+              end if;
+              return l;
+            end;
+            /
+            create or replace package pk_cycle as
+              function f_ping(p_code varchar2, n number) return varchar2;
+              function f_pong(p_code varchar2, n number) return varchar2;
+            end;
+            /
+            create or replace package body pk_cycle as
+              function f_ping(p_code varchar2, n number) return varchar2 is
+              begin
+                if n > 0 then return lower(f_pong(p_code, n - 1)); end if;
+                return p_code;
+              end;
+              function f_pong(p_code varchar2, n number) return varchar2 is
+              begin
+                return upper(f_ping(trim(p_code), n));
+              end;
+            end;
+            /
+            create or replace procedure p_rec(p_code varchar2, n number) is
+              l varchar2(6);
+            begin
+              l := p_code;
+              if n > 0 then p_rec(upper(p_code), n - 1); end if;
+            end;
+            /
+            create or replace procedure show_cycles is
+              l1 varchar2(5); l2 varchar2(5); l3 varchar2(5);
+            begin
+              l1 := f_rec(3);
+              l2 := f_var(3);
+              for r in (select code from orders) loop
+                l3 := pk_cycle.f_ping(r.code, 3);
+                p_rec(r.code, 3);
+              end loop;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("cycles.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
+        // Each target once per column, through the path that does not go round the cycle.
+        assertThat(Fixture.query(db, """
+            SELECT p.start_line || ' ' || p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || ' ' ||
+                   p.class || ' ' || coalesce(p.functions, '-') || ' ' || p.concatenated
+            FROM column_place p JOIN entity c ON c.id = p.column_id WHERE p.source IN ('RETURNED', 'IN_ARGUMENT') ORDER BY p.start_line, c.key""")).containsExactly(
+            // f_var's l := 'x' || f_var(…): its own result written back into its local, once.
+            "19 l NOTE RETURNED FIXED_SIZE - 1",
+            "44 l CODE IN_ARGUMENT FIXED_SIZE - 0",       // p_rec's l := p_code; p_rec(upper(p_code)) only goes round
+            "51 l1 CODE RETURNED FIXED_SIZE - 0",         // f_rec returns l; nvl(f_rec(…)) only goes round
+            "52 l2 NOTE RETURNED FIXED_SIZE - 0",         // f_var returns l
+            "54 l3 CODE RETURNED FIXED_SIZE - 0"          // f_ping returns p_code; through f_pong only goes round
         )
     }
 
