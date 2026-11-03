@@ -13,14 +13,17 @@ Oracle data dictionary.
 - **Who uses it:** who calls a procedure, overloads included, and who reads or writes a table or a column, including
   `select *`, column lists and triggers.
 - **What a change reaches:** from an entity up to the entry points, grouped by package, with the path behind each one.
-- **Which values flow where:** the values passed to a parameter, and the values written to a column, e.g. who sets a
+- **Where a column's value goes:** the variables and parameters it is read into, and whether each one's type follows
+  the column or is written on its own.
+- **Which values are written:** the values passed to a parameter, and the values written to a column, e.g. who sets a
   status column to `'S'`.
 - **Views:** which views read a table, and where the value of each view column comes from.
 - **Triggers:** which fire on a table or column, with timing, level and event.
 - **What a name refers to:** any source file, with every indexed name clickable.
 - **What it could not tell:** every use carries a status and a reason, so an unproven answer shows as one.
 
-The answers come from a local web page, from AI agents over MCP, or from SQL on the index file.
+The answers come from a local web page, from AI agents over MCP, or from SQL on the index file. See
+[What Atlas answers](docs/answers.md) for a tour.
 
 ## How it works
 
@@ -57,13 +60,14 @@ To run it without a JDK, use the container image: see [Running in a container](d
 
 ## Documentation
 
-- [Concepts](docs/concepts.md): entities, occurrences, roles, statuses and reasons.
+- [What Atlas answers](docs/answers.md): a tour of the answers, on the page and for agents.
+- [Concepts](docs/concepts.md): entities, uses, and how far to trust each answer.
 - [Indexing](docs/indexing.md): options, the Oracle dictionary, project files, incremental indexing.
-- [Serving](docs/serving.md): options, the page, MCP, base paths behind a proxy, several projects.
+- [Serving](docs/serving.md): options, agents (MCP), serving behind a proxy and several projects.
 - [Authentication](docs/authentication.md): OpenID Connect for the page, the API and agents.
 - [Running in a container](docs/container.md).
 - [Querying the index with SQL](docs/sql.md).
-- [Development](docs/development.md): modules, validation tools, third-party notice.
+- [Development](docs/development.md): modules, and what the documentation covers.
 
 ## Status
 

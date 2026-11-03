@@ -1,50 +1,44 @@
 # Indexing
 
-`zpa-atlas index` reads a folder of sources and writes one index file.
+`zpa-atlas index` reads a folder of sources and writes one index file, a SQLite database.
 
 ```sh
-zpa-atlas index --project <name>.yaml [any option below, which wins over the file] [--threads N] [--incremental] [--phase-times]
-zpa-atlas index --sources <dir> --out <file.db> [--compilation-schema HR] [--threads N] [--incremental] [--phase-times] [--extensions sql,pks,...] [--encoding auto|<charset>] \
-  [--database-version 19] [--ccflags 'name:value, ...'] \
-  [--oracle-url URL --oracle-user USER --oracle-schemas HR [--oracle-relations S.T] [--oracle-password-env VAR]]
-zpa-atlas stats <file.db>
+zpa-atlas index --sources path/to/sources --out atlas.db --compilation-schema HR
+zpa-atlas index --project hr.yaml
+zpa-atlas stats atlas.db
 ```
 
-| Option               | Default                                                                                          |
-|----------------------|--------------------------------------------------------------------------------------------------|
-| `--extensions`       | `sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps`                                            |
-| `--encoding`         | `auto` (per file: strict UTF-8, else windows-1252), or a charset name forced for every file      |
-| `--threads`          | the number of processors                                                                         |
-| `--incremental`      | off. With it, `index` walks only the files a change can affect: see [Incremental indexing](#incremental-indexing) |
-| `--phase-times`      | off. With it, `index` prints to stderr the time, share and peak heap of each phase, and the slowest files |
-| `--database-version` | the version of the `--oracle-url` database, else none                                            |
-| `--ccflags`          | none                                                                                             |
+| Option | What it does |
+|---|---|
+| `--sources`, `--out` | The folder to read, and the index file to write. |
+| `--compilation-schema` | The schema of the code that does not name its owner. Without it, keys show `~` for that schema. |
+| `--extensions` | The files to read. Default: `sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps`. |
+| `--encoding` | `auto` (default: each file read as UTF-8, else windows-1252), or one charset for every file. |
+| `--database-version`, `--ccflags` | The values conditional compilation (`$IF`) sees, as on the database. The version defaults to the one of `--oracle-url`. |
+| `--oracle-…` | Read the Oracle dictionary: see [Using the Oracle dictionary](#using-the-oracle-dictionary). |
+| `--project` | Take the options from a project file: see [Project files](#project-files). |
+| `--incremental` | Walk only the files a change can affect: see [Incremental indexing](#incremental-indexing). |
+| `--threads` | How many files to read at once. Default: the number of processors. |
+| `--phase-times` | Print how long each phase took, and the slowest files. |
 
-- `--compilation-schema` is the schema of the code that does not write its owner; without it, keys use `~`.
-- `stats` prints counts by file parse status, entity kind, occurrence roles and status, coverage note kind, and the top
-  called and written entities.
-- The output is a new SQLite file per run, written to a temporary file and renamed at the end.
-- A schema change means re-indexing.
-- Oracle options and exit codes are those of zpa-cli: 0 success, 2 invalid usage, 3 execution failure.
-- `index` and `stats` read no environment variables for their options.
-- In a container: see [container.md](container.md).
+- Each run writes a new file and renames it over the old one at the end, so a server can keep serving while you index.
+- `stats` prints a summary of an index.
+- Exit codes: 0 success, 2 invalid usage, 3 execution failure.
+- In a container: see [Running in a container](container.md).
 
 ## Using the Oracle dictionary
 
-Without a database, uses that the sources alone cannot confirm stay `UNVERIFIED`. With the dictionary they become
-`RESOLVED` or `UNRESOLVED`; table and view columns are known, so `select *` expands and view columns get definitions;
-synonyms are followed, and views are told apart from tables. Each column also gets its datatype and `NOT NULL`, and
-each table its primary, unique and foreign keys (see [concepts.md](concepts.md#dictionary-columns-and-keys)).
+From the sources alone, uses the code cannot confirm stay `UNVERIFIED`. With the dictionary, Atlas confirms them and
+learns what only the database knows: each table's columns and their types, the keys, the synonyms. See
+[The Oracle dictionary](concepts.md#the-oracle-dictionary).
 
-- **Driver:** download the Oracle JDBC driver JAR (e.g. `ojdbc17.jar`, for JDK 17 and later) from
-  [Oracle's JDBC downloads page](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it
-  in the `drivers` directory of the distribution, `atlas-cli/build/install/zpa-atlas/drivers/`. Create the directory
-  if it does not exist.
-- **Password:** read from the environment variable `ZPA_ORACLE_PASSWORD`; choose another with `--oracle-password-env`.
-- **Schemas:** `--oracle-schemas` reads whole schemas; `--oracle-relations S.T` reads single relations.
-- **Privileges:** the foreign keys that reference a table are read from `ALL_CONSTRAINTS`, which shows only the tables
-  the user can see. With `SELECT ANY TABLE` (or another `… ANY TABLE` privilege) the lists are complete; without, the
-  index says they may not be (see [concepts.md](concepts.md#dictionary-columns-and-keys)).
+1. **Driver:** download the Oracle JDBC driver JAR (e.g. `ojdbc17.jar`) from
+   [Oracle's JDBC downloads page](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it
+   in the `drivers` folder of the distribution, `atlas-cli/build/install/zpa-atlas/drivers/`.
+2. **Password:** put it in the environment variable `ZPA_ORACLE_PASSWORD`, or name another with
+   `--oracle-password-env`. It is never an option.
+3. **Schemas:** `--oracle-schemas` reads whole schemas; `--oracle-relations OWNER.TABLE` reads single tables or views.
+4. **User:** a user with `SELECT ANY TABLE` gives complete lists of the foreign keys that reference each table.
 
 ```sh
 export ZPA_ORACLE_PASSWORD=...
@@ -54,14 +48,13 @@ zpa-atlas index --sources path/to/sources --out atlas.db --compilation-schema HR
 
 ## Project files
 
-A project is one codebase, indexed into one index file from its own sources with its own options. Instead of
-repeating the options, describe the project in `<name>.yaml` and index it with `zpa-atlas index --project <name>.yaml`:
+A project file keeps a codebase's options in one place, so you index it with `zpa-atlas index --project hr.yaml`:
 
 ```yaml
 # the project "hr": hr.yaml
 sources: ../src/hr              # required
-index: ../data/hr.db            # required: the index file `index` writes
-extensions: [sql, pks, pkb]     # default: index's default list
+index: ../data/hr.db            # required: the index file to write
+extensions: [sql, pks, pkb]
 encoding: auto
 compilationSchema: HR
 databaseVersion: "19"
@@ -75,38 +68,19 @@ oracle:                         # optional
 tabWidth: 2                     # optional: how wide the page shows a tab, 2, 4 or 8
 ```
 
-- **The name** is the file's name without `.yaml`: lower-case letters, digits, `-` and `_`, starting with a letter or a
-  digit.
-- **Each key is an option** of `index`, with the same values and checks: `index` is `--out`, `compilationSchema` is
-  `--compilation-schema`, `oracle.passwordEnv` is `--oracle-password-env`, and so on. `--threads`, `--incremental` and
-  `--phase-times` belong to the machine and stay on the command line.
-- **`tabWidth`** is no option of `index`: it tells `serve --projects` how wide the project's pages show a tab (2, 4 or
-  8; without it, `serve`'s `--tab-width`, 8 by default). A reader may pick another width in the page.
-- **Paths** are relative to the file's folder. **Lists** are YAML lists or the comma-separated text the option takes.
-- **An option given beside `--project` wins** over the file's key: `--out other.db` writes elsewhere.
-- **Refused:** an unknown key, a value of the wrong type, a `tabWidth` other than 2, 4 or 8, a missing `sources` or `index`, and a password in the file;
-  each message names the file and the key.
+- **The project's name** is the file's name without `.yaml`.
+- **Each key is an option** of `index`, in camel case: `compilationSchema` is `--compilation-schema`, and `index` is
+  `--out`. `tabWidth` is for `serve`.
+- **Paths** are relative to the file's folder.
+- **An option on the command line wins** over the file: `--out other.db` writes elsewhere.
 
-`serve --projects` serves a folder of these files: see [Serving several projects](serving.md#serving-several-projects).
+`serve --projects` serves a folder of project files: see [Serving several projects](serving.md#serving-several-projects).
 
 ## Incremental indexing
 
-`index --incremental` keeps each file's facts in a cache beside the index, `<index file>.facts`, and on the next run walks
-only the files a change can affect; the other files' facts come from the cache. The index it writes is the one a full
-run writes, ids included. Each run prints one more line: the files walked out of the total, as changed, new, or affected
-by a change elsewhere, and the files removed; or, for a full run, why.
+`index --incremental` keeps a cache beside the index (`<index file>.facts`) and, on the next run, reads again only the
+files that changed and those a change can affect, such as the callers of a procedure whose signature changed. The
+index it writes is the same as a full run's.
 
-- **A file is walked again** when its text changed, when it is new, or when a declaration other files can see changed
-  (a package spec's member, a signature, a type, a standalone subprogram, an object type's attributes or methods) and
-  the file writes its name, directly or through another declaration that refers to it. A change inside a package
-  body, a procedure or a function that changes no declaration walks that file only.
-- **Every file is walked** when the preparation of the sources failed differently, or when the schemas of the declared
-  entities changed; the line says which.
-- **A full run** replaces the cache when there is none, when it was written by another atlas or ZPA build, with other
-  options (`--compilation-schema`, `--encoding`, `--extensions`, `--database-version`, `--ccflags`), or with another
-  dictionary (the Oracle metadata, including relations the sources name for the first time), and when it is damaged or
-  cut short. A run killed midway leaves the old cache or none, never a wrong one.
-- **What is still done in full:** the dictionary load, the project preparation, the object type members pass and the
-  writing of the whole index. The cache is read while the dictionary loads and written while the index is, and is
-  rewritten on every run; it is about a twentieth of the index's size. `--phase-times` shows the plan's parts.
-- `serve` never reads the cache. Without `--incremental`, `index` neither reads nor writes it.
+A run reads everything again when the options or the dictionary changed, or when the cache was written by another
+version of Atlas.
