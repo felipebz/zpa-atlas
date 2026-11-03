@@ -85,9 +85,7 @@ internal class IntoClauses(
         val targets = targetsOf(into)
         val single = targets.size == 1
         for ((index, value) in values.withIndex()) {
-            for (name in parameterNames(value)) {
-                if (columnOf(statement, name) != null) continue
-                val functions = valueChain(value) { it === name }
+            for ((name, functions) in parameterChains(value, parameterNames(value).filter { columnOf(statement, it) == null })) {
                 flows += when {
                     functions == null -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_EXPRESSION + argumentShape(value))
                     !single && targets.size != values.size -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_INTO_NOT_FOLLOWED)
@@ -138,7 +136,15 @@ internal class IntoClauses(
         if (at <= 0) return
         val value = node.children.getOrNull(at + 1) ?: return
         valueWrites += ValueWrite(value, spanOf(node.children[at]), node.firstChild, context)
-        val field = if (isFieldOfName(value)) value else value.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).singleOrNull(::isFieldOfName) ?: return
+        val fields = if (isFieldOfName(value)) listOf(value) else value.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).filter(::isFieldOfName)
+        val field = fields.singleOrNull()
+        if (field == null) {
+            // Several fields: followed when each is a part of a concatenation (`r.code || r.note`), a place for each.
+            val chains = fields.map { f -> valueChain(value) { it === f } }
+            if (fields.isEmpty() || chains.any { it == null || CONCATENATED !in it }) return
+            for ((f, chain) in fields.zip(chains)) assignments += Assignment(node.firstChild, spanOf(node.children[at]), f, null, chain!!, context)
+            return
+        }
         val functions = valueChain(value) { it === field }
         assignments += Assignment(node.firstChild, spanOf(node.children[at]), field, if (functions == null) expressionShape(value) else null,
             functions.orEmpty(), context)
@@ -366,9 +372,10 @@ internal class IntoClauses(
         for (call in statement.root.getDescendants(PlSqlGrammar.METHOD_CALL)) {
             val occurrence = calls[spanOf(call.firstChild)] ?: continue
             for (argument in arguments(call)) {
-                var column: String? = null
-                val functions = valueChain(argument) { node -> plsql.nameSegments(node) != null && columnOf(statement, node)?.also { column = it } != null }
-                if (functions == null || column == null) continue
+                val item = item(statement, argument, null)
+                for (part in listOf(item) + item.parts) {
+                val column = part.columnKey ?: continue
+                val functions = part.functions
                 val parameter = occurrence.arguments.firstOrNull { it.span == spanOf(argument) }?.parameterKey
                 val reason = when {
                     occurrence.entityKey == null || occurrence.status !in CALLED_STATUSES -> unresolvedCall(occurrence) ?: continue
@@ -376,9 +383,20 @@ internal class IntoClauses(
                     else -> null
                 }
                 passes += Pass(argument, column, null, functions, parameter, reason, statement.context, statement.id)
+                }
             }
         }
     }
+
+    /**
+     * The parameters among [names] in [value], once each, with the value functions [value] reads it through (null when
+     * it is another expression): a parameter named twice (`upper(p) || nvl(p, '?')`) is told by its first name the
+     * value is read through.
+     */
+    private fun parameterChains(value: AstNode, names: List<AstNode>): List<Pair<AstNode, List<String>?>> =
+        names.groupBy { parameterDeclaration(it) }.values.map { same ->
+            same.firstNotNullOfOrNull { name -> valueChain(value) { it === name }?.let { name to it } } ?: (same.first() to null)
+        }
 
     /** The query blocks of a compound query, in order, parenthesized branches flattened. */
     private fun branches(query: AstNode): List<AstNode> = query.getChildren(DmlGrammar.QUERY_BLOCK).flatMap { block ->
@@ -430,7 +448,15 @@ internal class IntoClauses(
             node.children.forEach(::visit)
         }
         visit(expression)
-        if (columns.size > 1) return QueryItem(name, null, null, combined = expressionShape(expression))
+        if (columns.size > 1) {
+            // A concatenation of several columns, each a part of it: the item is each of them.
+            val chains = columns.sorted().map { key -> key to valueChain(expression) { node -> plsql.nameSegments(node) != null && column(node) == key } }
+            if (chains.all { it.second != null && CONCATENATED in it.second!! }) {
+                val (first, chain) = chains.first()
+                return QueryItem(name, first, null, functions = chain!!, parts = chains.drop(1).map { (key, f) -> QueryItem(name, key, null, functions = f!!) })
+            }
+            return QueryItem(name, null, null, combined = expressionShape(expression))
+        }
         if (columns.isEmpty()) return QueryItem(name, null, null)
         var leaf: String? = null
         val functions = valueChain(expression) { node -> plsql.nameSegments(node) != null && column(node)?.also { leaf = it } != null }
@@ -464,8 +490,17 @@ internal class IntoClauses(
                 val value = if (from >= 0) parts.getOrNull(from + 1) else parts.singleOrNull()
                 value?.let { through("TRIM", listOf(it)) }
             }
+            // A concatenation: the value is one of its parts, with other text around it.
+            PlSqlGrammar.CONCATENATION_EXPRESSION ->
+                node.children.filter { it.type != PlSqlGrammar.CONCATENATION_OPERATOR }.firstNotNullOfOrNull { valueChain(it, isValue) }
+                    ?.let { listOf(CONCATENATED) + it }
             PlSqlGrammar.METHOD_CALL -> {
                 val function = plsql.nameSegments(node.firstChild)?.singleOrNull()?.uppercase() ?: return null
+                if (function == "CONCAT") {
+                    val arguments = node.getChildren(PlSqlGrammar.ARGUMENTS).singleOrNull()?.getChildren(PlSqlGrammar.ARGUMENT)?.map { it.lastChild }
+                        ?.takeIf { it.size == 2 } ?: return null
+                    return arguments.firstNotNullOfOrNull { valueChain(it, isValue) }?.let { listOf(CONCATENATED) + it }
+                }
                 val arguments = node.getChildren(PlSqlGrammar.ARGUMENTS).singleOrNull()?.getChildren(PlSqlGrammar.ARGUMENT)?.map { it.lastChild }
                     ?: return null
                 val candidates = when (function) {
@@ -571,11 +606,12 @@ internal class IntoClauses(
         // What a routine writes its IN parameters into, passes them on to, or writes them in a way not followed.
         val routineCalls = state.occurrences.filter { Role.CALL in it.roles && it.entityKey != null }.mapTo(HashSet()) { it.span }
         for (write in valueWrites) {
-            for (name in parameterNames(write.value)) {
-                // A parameter passed to a routine inside the value is that call's argument ([call]).
-                if (generateSequence(name.parentOrNull) { it.parentOrNull }.takeWhile { it !== write.value.parentOrNull }
-                        .any { it.type == PlSqlGrammar.METHOD_CALL && spanOf(it.firstChild) in routineCalls }) continue
-                val functions = valueChain(write.value) { it === name }
+            // A parameter passed to a routine inside the value is that call's argument ([call]).
+            val names = parameterNames(write.value).filter { name ->
+                generateSequence(name.parentOrNull) { it.parentOrNull }.takeWhile { it !== write.value.parentOrNull }
+                    .none { it.type == PlSqlGrammar.METHOD_CALL && spanOf(it.firstChild) in routineCalls }
+            }
+            for ((name, functions) in parameterChains(write.value, names)) {
                 flows += when {
                     write.target == null -> Flow(name, write.site, write.context, shape = ARGUMENT_RETURNED)
                     functions == null -> Flow(name, write.site, write.context, shape = ARGUMENT_EXPRESSION + argumentShape(write.value))

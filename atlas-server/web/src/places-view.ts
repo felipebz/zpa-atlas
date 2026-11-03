@@ -55,6 +55,11 @@ export function parameterText(say: Say, place: Pick<ColumnPlace, "parameterMode"
   return place.parameterMode === null ? null : say("places.parameter", { mode: place.parameterMode });
 }
 
+/** That the column's value was concatenated into the target with other text; null when it lands alone. */
+export function concatenatedText(say: Say, place: Pick<ColumnPlace, "concatenated">): string | null {
+  return place.concatenated ? say("places.concatenated") : null;
+}
+
 /** The value functions a place reads its column through, outer first, in words (`through UPPER(TRIM(…))`); null when read directly. */
 export function functionsText(say: Say, place: Pick<ColumnPlace, "functions">): string | null {
   if (place.functions.length === 0) return null;

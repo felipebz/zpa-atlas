@@ -302,7 +302,9 @@ internal fun tableDdl(): List<String> = listOf(
         -- For source IN_ARGUMENT: how many calls pass the column to argument_parameter_id, and one of them (file, line).
         call_count INTEGER NULL,
         call_path TEXT NULL,
-        call_line INTEGER NULL
+        call_line INTEGER NULL,
+        -- 1 when the column's value is a part of a concatenation written into the target (`'C:' || code`), other text around it.
+        concatenated INTEGER NOT NULL DEFAULT 0 CHECK (concatenated IN (0, 1))
     )
     """,
     SOURCE_LINE_DDL

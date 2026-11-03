@@ -49,7 +49,10 @@ internal class ColumnPlaces(
     private sealed interface Node {
         data class Shape(val shape: TypeShape, val owner: String?) : Node
         /** A column, read through [functions] (a cursor field `nvl(code, '-')`), outer first. */
-        data class Column(val key: String, val functions: List<String> = emptyList()) : Node
+        data class Column(val key: String, val functions: List<String> = emptyList(), val parts: List<QueryItem> = emptyList()) : Node {
+            /** The column and those of the other parts of a concatenation of several, with their functions. */
+            val all get() = listOf(key to functions) + parts.mapNotNull { part -> part.columnKey?.let { it to part.functions } }
+        }
         data class Failed(val reason: String) : Node
     }
 
@@ -91,8 +94,9 @@ internal class ColumnPlaces(
                 for ((index, item) in known.withIndex()) {
                     val target = if (record) into.targets[0] else into.targets.getOrNull(index) ?: break
                     if (item.expression != null) leftOut.merge("EXPRESSION_${item.expression}", 1, Int::plus)
-                    val column = item.columnKey ?: continue
-                    places += place(into, target, if (record) index else null, column, item.functions)
+                    for (part in listOf(item) + item.parts) {
+                        places += place(into, target, if (record) index else null, part.columnKey ?: continue, part.functions)
+                    }
                 }
             }
         }
@@ -112,7 +116,7 @@ internal class ColumnPlaces(
         when {
             column == null -> leftOut.merge("RECORD_ASSIGNMENT", 1, Int::plus)
             into.expression != null -> leftOut.merge("RECORD_ASSIGNMENT_EXPRESSION_${into.expression}", 1, Int::plus)
-            else -> places += place(into, into.targets.single(), null, column.key, into.functions + column.functions)
+            else -> for ((key, functions) in column.all) places += place(into, into.targets.single(), null, key, into.functions + functions)
         }
     }
 
@@ -157,7 +161,7 @@ internal class ColumnPlaces(
                 flows.getOrPut(parameterKey(file.path, into.fromParameter)) { ArrayList() } += file.path to into
                 continue
             }
-            val (column, functions) = if (into.row != null) {
+            val columns = if (into.row != null) {
                 val row = structure(targetNode(into.row, false), 0)
                 if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) continue
                 val found = field(row, null, into.rowField).first as? Node.Column
@@ -165,10 +169,10 @@ internal class ColumnPlaces(
                     count(file.path, notKnown(row, into.rowField))
                     continue
                 }
-                found.key to (into.functions + found.functions)
+                found.all.map { (key, functions) -> key to (into.functions + functions) }
             } else {
                 val item = into.branches.single().single()
-                (item.columnKey ?: continue) to item.functions
+                listOf((item.columnKey ?: continue) to item.functions)
             }
             val reason = into.targets.single().reason
             if (reason != null) {
@@ -180,7 +184,7 @@ internal class ColumnPlaces(
                 count(file.path, "ARGUMENT_ROUTINE_OUTSIDE")
                 continue
             }
-            seeds.getOrPut(Triple(parameter, column, functions)) { ArrayList() } += file.path to into
+            for ((column, functions) in columns) seeds.getOrPut(Triple(parameter, column, functions)) { ArrayList() } += file.path to into
         }
         class Reached(val parameter: String, val column: String, val functions: List<String>, val calls: List<Pair<String, IntoFact>>)
         val queue = ArrayDeque<Reached>()
@@ -417,7 +421,7 @@ internal class ColumnPlaces(
         val item = if (name != null) items.firstOrNull { it.name == name } else items.takeWhile { !it.opaque }.getOrNull(index!!)
         return when {
             item == null -> Node.Failed("CURSOR_FIELD_UNKNOWN") to name
-            item.columnKey != null -> Node.Column(item.columnKey, item.functions) to item.name
+            item.columnKey != null -> Node.Column(item.columnKey, item.functions, item.parts) to item.name
             item.expression != null -> Node.Failed("CURSOR_FIELD_EXPRESSION") to item.name
             else -> Node.Failed("CURSOR_FIELD_NOT_A_COLUMN") to item.name
         }

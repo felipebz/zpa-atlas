@@ -757,8 +757,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "(pass nextOffset as offset; absent on the last page); with view columns computed from it (viaView, read " +
             "is the view column). Each row: the column read, source, path, line, container, targetWritten, target " +
             "(absent for an anonymous block's variable), the field of a record target, functions: value functions " +
-            "read through, outer first (NVL, NVL2, COALESCE, MAX, MIN, TRIM, LTRIM, RTRIM, UPPER, LOWER). Through them " +
-            "the value may be other than the column's (NVL's other argument), which placeClass does not tell. " +
+            "read through, outer first (NVL, NVL2, COALESCE, MAX, MIN, TRIM, LTRIM, RTRIM, UPPER, LOWER; NVL may give its " +
+            "other argument); concatenated: the value is one part of a || or CONCAT, other text lands with it. " +
             "placeClass: FIXED_SIZE (its own length or precision: length, unit CHAR, BYTE, DIGITS, or " +
             "NLS_LENGTH_SEMANTICS when none is written; for a number, length is the digits before the point, p-s, " +
             "scale is s: compare both with the column's NUMBER(p,s)), UNKNOWN (reason), CALLER_DECIDES (an OUT or IN " +

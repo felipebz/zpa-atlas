@@ -328,6 +328,8 @@ export interface ColumnPlace {
   callCount: number | null;
   callPath: string | null;
   callLine: number | null;
+  /** The column's value is a part of a concatenation written into the target (`'C:' || code`): other text lands with it. */
+  concatenated: boolean;
   /** For UNKNOWN, why: TARGET_UNDECIDED, DECLARATION_UNKNOWN, ANCHOR_UNRESOLVED, … */
   reason: string | null;
 }

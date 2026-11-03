@@ -29,7 +29,7 @@ internal class PlaceReader(private val connection: Connection) {
                       t.key, t.kind, t.display, t.external, t.name, p.field, p.class, p.declared_type, p.length, p.length_unit,
                       s.key, s.kind, s.display, s.external, s.name, p.reason, p.scale, p.parameter_mode, p.functions,
                       a.key, a.kind, a.display, a.external, a.name, g.key, g.kind, g.display, g.external, g.name,
-                      p.call_count, p.call_path, p.call_line
+                      p.call_count, p.call_path, p.call_line, p.concatenated
                FROM column_place p JOIN entity r ON r.id = p.column_id JOIN source_file f ON f.id = p.file_id
                LEFT JOIN entity c ON c.id = p.container_entity_id LEFT JOIN entity t ON t.id = p.target_entity_id
                LEFT JOIN entity s ON s.id = p.type_source_id LEFT JOIN entity a ON a.id = p.argument_parameter_id
@@ -45,7 +45,7 @@ internal class PlaceReader(private val connection: Connection) {
                 (rs.getObject(26) as Number?)?.toInt(), rs.getString(27), summary(28), rs.getString(33),
                 (rs.getObject(34) as Number?)?.toInt(), rs.getString(35),
                 rs.getString(36)?.split(',').orEmpty(), summary(37), summary(42),
-                (rs.getObject(47) as Number?)?.toInt(), rs.getString(48), (rs.getObject(49) as Number?)?.toInt()
+                (rs.getObject(47) as Number?)?.toInt(), rs.getString(48), (rs.getObject(49) as Number?)?.toInt(), rs.getInt(50) == 1
             )
         }
         val total = counts.sumOf { it.count }.toInt()

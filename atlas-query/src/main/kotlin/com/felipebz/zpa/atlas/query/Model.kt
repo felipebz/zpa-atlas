@@ -365,7 +365,9 @@ data class ColumnPlace(
     /** For source `IN_ARGUMENT`: how many calls pass the column to [argumentOf], and one of them ([callPath], [callLine]). */
     val callCount: Int?,
     val callPath: String?,
-    val callLine: Int?
+    val callLine: Int?,
+    /** The column's value is a part of a concatenation written into the target (`'C:' || code`): other text lands with it. */
+    val concatenated: Boolean
 )
 
 /**

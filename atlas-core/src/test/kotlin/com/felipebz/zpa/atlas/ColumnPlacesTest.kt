@@ -781,23 +781,54 @@ class ColumnPlacesTest {
         """.trimIndent())
         val db = temp.resolve("split.db")
         Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
-        // x.up is read through UPPER, which the index follows; r_unknown's relation is not known but its field is named:
+        // x.up is read through UPPER and x.joined (code || note) and p_concat's p_code || '-' are concatenations, which
+        // the index follows; r_unknown's relation is not known but its field is named:
         // the column is told by name, and p_rec writes it nowhere. Neither is counted; nor is r_anchor, whose type the
         // index does not resolve at all.
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
             .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
             "ARGUMENT_COLUMN_NOT_KNOWN_CURSOR: 1",                      // r_spec, a cursor declared with no query
-            "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_CONCATENATION: 1",    // x.joined, code || note
             "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_NVL: 1",              // y.n, nvl(note, code)
             "ARGUMENT_COLUMN_NOT_KNOWN_OTHER: 1",                       // z.lit, a literal
             "ARGUMENT_COLUMN_NOT_KNOWN_STAR: 1",                        // s.code, select * from a table not known
             "ARGUMENT_EXPRESSION_CASE: 1",
-            "ARGUMENT_EXPRESSION_CONCATENATION: 1",
             "ARGUMENT_EXPRESSION_LENGTH: 1",
             "ARGUMENT_EXPRESSION_OTHER: 1",                             // replace(p_code, …)
             "ARGUMENT_EXPRESSION_SUBSTR: 1",
             "ARGUMENT_EXPRESSION_TO_CHAR: 1"
         )
+    }
+
+    @Test
+    fun `a column's value concatenated into a target is a place of the column, which says so`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("cat.sql"), CONCATENATIONS)
+        val db = temp.resolve("cat.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        assertThat(Fixture.query(db, """
+            SELECT p.start_line || ' ' || p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || ' ' || p.class || ' ' ||
+                   coalesce(p.length, -1) || ' ' || coalesce(p.functions, '-') || ' ' || p.concatenated
+            FROM column_place p JOIN entity c ON c.id = p.column_id ORDER BY p.start_line, c.key""")).containsExactly(
+            "12 l CODE IN_ARGUMENT FIXED_SIZE 11 - 1",          // k7  'C:' || p_code
+            "13 l CODE IN_ARGUMENT FIXED_SIZE 12 UPPER 1",      // k8  upper(p_code) || '-' || nvl(p_code, '?'): one place, by its first part
+            "15 l CODE IN_ARGUMENT FIXED_SIZE 14 - 1",          // k10 concat(p_code, 'x')
+            "16 l CODE IN_ARGUMENT FIXED_SIZE 15 - 1",          // k11 select p_code || 'x' into l
+            "29 l1 CODE SELECT_INTO FIXED_SIZE 16 - 1",         // k1
+            "30 l2 CODE SELECT_INTO FIXED_SIZE 17 - 1",         // k2, a place for each column
+            "30 l2 NOTE SELECT_INTO FIXED_SIZE 17 - 1",
+            "31 l3 CODE SELECT_INTO FIXED_SIZE 18 UPPER 1",     // k3 upper(code || 'x')
+            "33 l4 CODE ASSIGNMENT FIXED_SIZE 19 - 1",          // k4 r.code || '#'
+            "34 l5 CODE FETCH FIXED_SIZE 20 - 1",               // k5 the cursor's item code || '/'
+            "35 l6 CODE RETURNING FIXED_SIZE 10 - 1",           // k6
+            "47 o_text CODE SELECT_INTO CALLER_DECIDES -1 - 1", // an OUT parameter ...
+            "55 l7 CODE OUT_ARGUMENT FIXED_SIZE 21 - 1",        // ... and its caller's argument
+            "57 l8 CODE ASSIGNMENT FIXED_SIZE 22 - 1",          // r.code || r.note, a place for each field
+            "57 l8 NOTE ASSIGNMENT FIXED_SIZE 22 - 1"
+        )
+        // k9: substr(p_code || 'x', 1, 5), the concatenation inside a function the index does not follow.
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'").map { it.substringBefore(" parameter") })
+            .containsExactly("ARGUMENT_EXPRESSION_SUBSTR: 1")
     }
 
     @Test
@@ -825,5 +856,69 @@ class ColumnPlacesTest {
         Files.writeString(temp.resolve("src/pk_ord.pks"), PlacesFixture.spec(codeLength = 30))
         Indexer().index(IndexOptions(temp.resolve("src"), db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1), incremental = true)
         assertThat(places(db)).contains("22 ORDERS.CODE SELECT_INTO l_sub FIXED_SIZE t_code 30 CHAR PK_ORD.T_CODE -")
+    }
+
+    companion object {
+        private val CONCATENATIONS = """
+            create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
+
+            create or replace package pk_cat as
+              procedure p_param(p_code varchar2);
+              procedure p_param_upper(p_code varchar2);
+              procedure p_param_inner(p_code varchar2);
+              procedure p_param_concat_fn(p_code varchar2);
+              procedure p_param_into(p_code varchar2);
+            end;
+            /
+            create or replace package body pk_cat as
+              procedure p_param(p_code varchar2) is l varchar2(11); begin l := 'C:' || p_code; end;
+              procedure p_param_upper(p_code varchar2) is l varchar2(12); begin l := upper(p_code) || '-' || nvl(p_code, '?'); end;
+              procedure p_param_inner(p_code varchar2) is l varchar2(13); begin l := substr(p_code || 'x', 1, 5); end;
+              procedure p_param_concat_fn(p_code varchar2) is l varchar2(14); begin l := concat(p_code, 'x'); end;
+              procedure p_param_into(p_code varchar2) is l varchar2(15); begin select p_code || 'x' into l from dual; end;
+            end;
+            /
+            create or replace procedure show_cat is
+              l1 varchar2(16);
+              l2 varchar2(17);
+              l3 varchar2(18);
+              l4 varchar2(19);
+              l5 varchar2(20);
+              l6 varchar2(10);
+              r orders%rowtype;
+              cursor c is select code || '/' as joined from orders;
+            begin
+              select code || '-' into l1 from orders where rownum = 1;
+              select code || note into l2 from orders where rownum = 1;
+              select upper(code || 'x') into l3 from orders where rownum = 1;
+              select * into r from orders where rownum = 1;
+              l4 := r.code || '#';
+              open c; fetch c into l5; close c;
+              update orders set note = note where rownum = 1 returning code || '!' into l6;
+              for x in (select code from orders) loop
+                pk_cat.p_param(x.code);
+                pk_cat.p_param_upper(x.code);
+                pk_cat.p_param_inner(x.code);
+                pk_cat.p_param_concat_fn(x.code);
+                pk_cat.p_param_into(x.code);
+              end loop;
+            end;
+            /
+            create or replace procedure fill_cat(o_text out varchar2) is
+            begin
+              select code || '+' into o_text from orders where rownum = 1;
+            end;
+            /
+            create or replace procedure show_cat_more is
+              l7 varchar2(21);
+              l8 varchar2(22);
+              r orders%rowtype;
+            begin
+              fill_cat(l7);
+              select * into r from orders where rownum = 1;
+              l8 := r.code || r.note;
+            end;
+            /
+        """.trimIndent()
     }
 }

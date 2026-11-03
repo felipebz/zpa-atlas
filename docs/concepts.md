@@ -85,6 +85,10 @@ place of that column too, with its `functions` outer first (`NVL`; `UPPER,TRIM`)
 (any argument), `NVL2(e1, e2, e3)` (`e2` or `e3`, not `e1`), `MAX(x)` and `MIN(x)` (with `DISTINCT`, `ALL`, `KEEP`,
 `OVER`), `TRIM`, `LTRIM`, `RTRIM`, `UPPER`, `LOWER` (`x`), nested (`nvl(max(qty), 0)`). Through them the value that lands
 may be other than the column's (`NVL`'s other argument); the class still tells only how the target is declared. A
+concatenation (`||` or `CONCAT`) one of whose parts is the column's value, as is or through those functions, is a place
+of that column too, with `concatenated` set: other text lands with the value, so the target needs more room than the
+column. A concatenation of several columns is a place of each (`code || note`). A concatenation inside another
+expression (`substr(code || 'x', 1, 5)`) is not followed and is counted by that expression's shape. A
 record field typed by such a cursor field (`c%rowtype` with `nvl(code, '-') code`) stays `UNKNOWN`
 (`CURSOR_FIELD_EXPRESSION`). The target is the one zpa binds the name to, as for its uses; a field reached through a
 collection element (`a(i).f`, `a(i).r.f`, `a(i).f(j)`) is the field zpa binds its last name to; when that field has

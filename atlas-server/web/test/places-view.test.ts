@@ -8,6 +8,7 @@ import {
     classCounts,
     classLabel,
     classSummary,
+    concatenatedText,
     functionsText,
     needsAttention,
     parameterText,
@@ -39,7 +40,7 @@ function place(over: Partial<ColumnPlace>): ColumnPlace {
     read: CODE, viaView: false, source: "SELECT_INTO", bulk: false, path: "pk_ord.pkb", line: 12, column: 4,
     container: summary("SHOP.PK_ORD.LOAD", "PROCEDURE"), targetWritten: "l_code", target: L_CODE, field: null,
     placeClass: "FIXED_SIZE", declaredType: "varchar2(12)", length: 12, unit: "CHAR", scale: null, typeSource: L_CODE,
-    parameterMode: null, reason: null, functions: [], argumentOf: null, routine: null, callCount: null, callPath: null, callLine: null, ...over
+    parameterMode: null, reason: null, functions: [], argumentOf: null, routine: null, callCount: null, callPath: null, callLine: null, concatenated: false, ...over
   };
 }
 
@@ -62,6 +63,14 @@ describe("sizeText", () => {
     expect(sizeText(say, { length: 12, unit: "NLS_LENGTH_SEMANTICS", scale: null })).toBe("12");
     expect(sizeText(say, { length: 12, unit: null, scale: null })).toBe("12");
     expect(sizeText(say, { length: null, unit: null, scale: null })).toBeNull();
+  });
+});
+
+describe("concatenatedText", () => {
+  it("says the value was concatenated with other text, and nothing when it lands alone", () => {
+    expect(concatenatedText(say, { concatenated: true })).toBe("concatenated with other text: the target takes more than the column's value");
+    expect(concatenatedText(sayPt, { concatenated: true })).toBe("concatenado a outro texto: o destino recebe mais que o valor da coluna");
+    expect(concatenatedText(say, { concatenated: false })).toBeNull();
   });
 });
 

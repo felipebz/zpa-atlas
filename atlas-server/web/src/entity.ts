@@ -64,6 +64,7 @@ import {
     classCounts,
     classLabel,
     classTitle,
+    concatenatedText,
     functionsText,
     needsAttention,
     parameterText,
@@ -690,8 +691,10 @@ function placeRowHtml(p: ColumnPlace) {
   const source = typeSourcePhrase(p);
   const parameter = parameterText(t, p);
   const functions = functionsText(t, p);
+  const concatenated = concatenatedText(t, p);
   const calls = callsText(t, p);
   const why = (source === null ? "" : `<div>${fillHtml(source.key, { source: entityLink(source.entity, PARTS) })}</div>`) +
+    (concatenated === null ? "" : `<div>${esc(concatenated)}</div>`) +
     (functions === null ? "" : `<div>${esc(functions)}</div>`) +
     (p.argumentOf === null || p.routine === null ? "" :
       `<div>${fillHtml(p.source === "IN_ARGUMENT" ? "places.passedTo" : "places.argumentOf", {

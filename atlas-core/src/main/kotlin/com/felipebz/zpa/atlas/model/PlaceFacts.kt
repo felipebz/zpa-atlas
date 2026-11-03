@@ -69,8 +69,16 @@ data class QueryItem(
      * An expression of several columns (`code || note`, `nvl(note, code)`): its shape, as [expression] says it for one
      * column. Only told when a routine is passed the item's field; such an item is not counted as an `EXPRESSION_*`.
      */
-    val combined: String? = null
+    val combined: String? = null,
+    /** The other columns of a concatenation of several, each a part of it (`code || note`): each a place as [columnKey] is. */
+    val parts: List<QueryItem> = emptyList()
 )
+
+/**
+ * In a list of value functions, a concatenation: the value is a part of what is written, other text around it
+ * (`'C:' || code`, `CONCAT(code, 'x')`).
+ */
+const val CONCATENATED = "||"
 
 /** What the declaration of [entityKey] says its type is. */
 data class DeclaredShapeFact(val entityKey: String, val shape: TypeShape)
