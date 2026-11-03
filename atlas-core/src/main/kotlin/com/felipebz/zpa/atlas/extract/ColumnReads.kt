@@ -13,8 +13,10 @@ import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
 import com.felipebz.zpa.api.semantics.NameBinding
 import com.felipebz.zpa.api.squid.SemanticAstNode
-import com.felipebz.zpa.atlas.model.*
-import java.util.IdentityHashMap
+import com.felipebz.zpa.atlas.model.Role
+import com.felipebz.zpa.atlas.model.SourceSpan
+import com.felipebz.zpa.atlas.model.Status
+import java.util.*
 
 /** Column reads of static SQL: the names, qualified or not, that read the columns of the sources of their scope. */
 internal class ColumnReads(
@@ -202,14 +204,28 @@ internal class ColumnReads(
     /** Only [NameBinding.NothingLocal] tells that no declaration of the file has the name. */
     private fun isBound(binding: NameBinding): Boolean = binding !is NameBinding.NothingLocal
 
-    /** Whether a scope enclosing [scope] has a source known to have [column] (a correlated name we cannot place). */
+    /**
+     * Whether a scope enclosing [scope] has a source known to have [column] (a correlated name we cannot place). The
+     * query of an inline view (not `LATERAL`) or of a `WITH` name sees no scope around it: the walk stops there.
+     */
     private fun isKnownOutside(statement: Statement, name: AstNode, scope: AstNode, column: String): Boolean {
+        var current = scope
         var outer = scopes.sqlScope(scope)
         while (outer != null) {
+            if (isUncorrelated(current)) return false
             if (scopeSources(statement, outer, name, qualified = false).any { has(it, column) == true }) return true
+            current = outer
             outer = scopes.sqlScope(outer)
         }
         return false
+    }
+
+    /** Whether [scope] is the query (or a query block of the query) of an inline view that is not `LATERAL`, or of a `WITH` name. */
+    private fun isUncorrelated(scope: AstNode): Boolean {
+        val query = if (scope.type == DmlGrammar.SELECT_EXPRESSION) scope else scope.parentOrNull?.takeIf { it.type == DmlGrammar.SELECT_EXPRESSION } ?: return false
+        val holder = query.parentOrNull ?: return false
+        return holder.type == DmlGrammar.SUBQUERY_FACTORING_CLAUSE ||
+            holder.type == DmlGrammar.DML_TABLE_EXPRESSION_CLAUSE && !holder.hasDirectChildren(PlSqlKeyword.LATERAL)
     }
 
 

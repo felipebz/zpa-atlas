@@ -11,6 +11,7 @@ import com.felipebz.zpa.api.project.ProjectParameterMode
 import com.felipebz.zpa.api.semantics.NameBinding
 import com.felipebz.zpa.api.semantics.NameDeclarationKind
 import com.felipebz.zpa.atlas.model.*
+import java.util.*
 
 /**
  * The `INTO`s that read select items into PL/SQL targets ([IntoFact]): `SELECT … INTO`, `FETCH … INTO` of an explicit
@@ -29,6 +30,7 @@ internal class IntoClauses(
     private val state: FileState,
     private val plsql: PlSqlNames,
     private val columnReads: ColumnReads,
+    private val lineage: ViewLineage,
     private val nameBinding: (AstNode) -> NameBinding
 ) {
     private class Pending(
@@ -460,7 +462,10 @@ internal class IntoClauses(
             for (source in sources) {
                 val relation = source.target?.resolved?.relation?.takeIf { it.isColumnsComplete }
                 if (relation == null) {
-                    result += QueryItem(null, null, null, opaque = true)
+                    // An inline view or `WITH` subquery: each of its columns, as its items read it.
+                    val inner = lineage.sourceSlots(statement, source)
+                    if (inner == null) result += QueryItem(null, null, null, opaque = true)
+                    else inner.forEach { (name, slots) -> result += through(name, slots.map { slotItem(statement, it) }, emptyList()) }
                     continue
                 }
                 for (field in relation.rowFields.sortedBy { it.position.asInt }) {
@@ -473,13 +478,19 @@ internal class IntoClauses(
 
     /**
      * One select or `RETURNING` item: the column it is, read as is or through value functions ([valueChain]), the shape
-     * of another expression of one column, or neither.
+     * of another expression of one column, or neither. A name of a column of an inline view or `WITH` subquery reads
+     * what that column's items read ([viewItems]): the same item as reading them directly.
      */
     private fun item(statement: Statement, expression: AstNode, alias: AstNode?, block: AstNode? = null): QueryItem {
         val segments = plsql.nameSegments(expression)
         val name = alias?.let { normalizeIdentifier(it.tokenOriginalValue) } ?: segments?.last()?.let { normalizeIdentifier(it) }
         fun column(node: AstNode) = columnOf(statement, node)
-        if (segments != null) return column(expression)?.let { QueryItem(name, it, null) } ?: QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
+        if (segments != null) {
+            column(expression)?.let { return QueryItem(name, it, null) }
+            viewItems(statement, expression)?.let { return through(name, it, emptyList()) }
+            return QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
+        }
+        viewExpression(statement, expression, name)?.let { return it }
         val columns = HashSet<String>()
         fun visit(node: AstNode) {
             statement.columnReads[node]?.let { reads -> reads.mapNotNullTo(columns) { it.entityKey } }
@@ -500,6 +511,83 @@ internal class IntoClauses(
         val functions = valueChain(expression) { node -> plsql.nameSegments(node) != null && column(node)?.also { leaf = it } != null }
         return if (functions != null && leaf != null) QueryItem(name, leaf, null, functions = functions)
             else QueryItem(name, null, expressionShape(expression))
+    }
+
+    /**
+     * What the name [name] of a column of an inline view or `WITH` subquery reads: the item of every branch at its
+     * position, as [item] tells it (a column, an expression of one, a constant), followed through nested views; null
+     * when [name] is not such a column, or when the view cannot be followed.
+     */
+    private fun viewItems(statement: Statement, name: AstNode): List<QueryItem>? {
+        if (statement.columnReads[name] != null || !following.add(name)) return null
+        try {
+            return lineage.viewSlots(statement, name)?.map { slotItem(statement, it) }
+        } finally {
+            following.remove(name)
+        }
+    }
+
+    /** The names being followed through views, against a `WITH` that reads itself. */
+    private val following: MutableSet<AstNode> = Collections.newSetFromMap(IdentityHashMap())
+
+    private fun slotItem(statement: Statement, slot: Slot): QueryItem = when (slot) {
+        is Slot.Item -> item(statement, slot.column.firstChild, null)
+        is Slot.Star -> QueryItem(slot.name, slot.key, null)
+        else -> QueryItem(slot.name, null, null, notColumn = "NO_COLUMN")
+    }
+
+    /**
+     * The item named [name] that reads [inner] (the items of a view's column, one per branch) through the value
+     * functions [chain]: each column of them, with [chain] before its own functions, the first as the item and the
+     * others as its [QueryItem.parts]. Without a column: the inner item itself when read as is, else the shape of the
+     * outer [outer] expression (an expression of an expression), or [QueryItem.notColumn] when none reads a column.
+     */
+    private fun through(name: String?, inner: List<QueryItem>, chain: List<String>, outer: AstNode? = null): QueryItem {
+        val columns = inner.flatMap { listOf(it) + it.parts }.filter { it.columnKey != null }
+        if (columns.isNotEmpty()) {
+            val all = columns.map { QueryItem(name, it.columnKey, null, functions = chain + it.functions) }
+            return all.first().copy(parts = all.drop(1))
+        }
+        val first = inner.firstOrNull { it.expression != null || it.combined != null } ?: inner.firstOrNull()
+            ?: return QueryItem(name, null, null, notColumn = "NO_COLUMN")
+        return when {
+            chain.isEmpty() || outer == null -> first.copy(name = name)
+            first.expression != null || first.combined != null -> QueryItem(name, null, expressionShape(outer))
+            else -> QueryItem(name, null, null, notColumn = first.notColumn ?: "NO_COLUMN")
+        }
+    }
+
+    /**
+     * An expression item ([expression]) that reads a column of an inline view or `WITH` subquery: told as the same
+     * expression of the columns that view column reads would be. A single name read through value functions is those
+     * columns with the functions; several names, each a part of a concatenation, are the columns of each; any other
+     * expression is its shape, by how many columns it reads. Null when the expression reads no view column.
+     */
+    private fun viewExpression(statement: Statement, expression: AstNode, name: String?): QueryItem? {
+        val leaves = ArrayList<Pair<AstNode, List<QueryItem>>>()
+        fun visit(node: AstNode) {
+            if (plsql.nameSegments(node) != null) {
+                columnOf(statement, node)?.let { leaves += node to listOf(QueryItem(null, it, null)); return }
+                if (statement.columnReads[node] == null) viewItems(statement, node)?.let { leaves += node to it; return }
+            }
+            node.children.forEach(::visit)
+        }
+        visit(expression)
+        if (leaves.none { (node, _) -> statement.columnReads[node] == null }) return null
+        val chains = leaves.map { (node, _) -> valueChain(expression) { it === node } }
+        if (leaves.size == 1 && chains.single() != null) return through(name, leaves.single().second, chains.single()!!, expression)
+        if (leaves.size > 1 && chains.all { it != null && CONCATENATED in it }) {
+            val all = leaves.zip(chains).map { (leaf, chain) -> through(name, leaf.second, chain!!, expression) }.filter { it.columnKey != null }
+                .flatMap { listOf(it.copy(parts = emptyList())) + it.parts }
+            if (all.isNotEmpty()) return all.first().copy(parts = all.drop(1))
+        }
+        val inner = leaves.flatMap { it.second }
+        val columns = inner.flatMap { listOf(it) + it.parts }.mapNotNullTo(HashSet()) { it.columnKey }
+        return when {
+            columns.size > 1 -> QueryItem(name, null, null, combined = expressionShape(expression))
+            columns.size == 1 || inner.any { it.expression != null || it.combined != null } -> QueryItem(name, null, expressionShape(expression))
+            else -> QueryItem(name, null, null, notColumn = inner.firstNotNullOfOrNull { it.notColumn } ?: "NO_COLUMN")
+        }
     }
 
     /**
@@ -558,12 +646,17 @@ internal class IntoClauses(
     /**
      * Why the select item [expression] of the query block [block] reads no column the index knows ([QueryItem.notColumn]):
      * `INLINE_VIEW` when it names a column of an inline view (`v.code` from `(select code from orders) v`),
-     * `COLUMN_UNRESOLVED` when it reads columns the index does not resolve, else `NO_COLUMN` (a literal, a PL/SQL value,
+     * `COLUMN_UNRESOLVED` when it reads columns the index does not resolve (or is a bare name SQL may take as a column of
+     * a source whose columns are not known), else `NO_COLUMN` (a literal, a PL/SQL value,
      * `ROWNUM`, `LEVEL`, a function of those, `extractValue(value(t), …)` over `table(…)`).
      */
     private fun notColumn(statement: Statement, expression: AstNode, block: AstNode?): String {
         if (block != null && readsInlineView(expression, block)) return "INLINE_VIEW"
-        return if (subtree(expression).any { statement.columnReads[it].orEmpty().isNotEmpty() }) "COLUMN_UNRESOLVED" else "NO_COLUMN"
+        if (subtree(expression).any { statement.columnReads[it].orEmpty().isNotEmpty() }) return "COLUMN_UNRESOLVED"
+        // A bare name that no declaration has and that SQL may take as a column, of a source whose columns are not known.
+        val bare = plsql.nameSegments(expression)?.singleOrNull()?.let { normalizeIdentifier(it) }
+        val unresolved = bare != null && bare !in SQL_PSEUDOCOLUMNS && (nameBinding(expression) as? NameBinding.NothingLocal)?.sqlColumnPossible == true
+        return if (unresolved) "COLUMN_UNRESOLVED" else "NO_COLUMN"
     }
 
     /** [node] and every node under it. */
@@ -627,8 +720,9 @@ internal class IntoClauses(
 
     /**
      * What an expression of no family of its own is, by its outer function or operator: `CASE`, `ARITHMETIC` (`+`, `-`,
-     * `*`, `/`, `**`), `ROUTINE` (a call of a package or schema function), the name of a SQL built-in (`DECODE`,
-     * `TO_NUMBER`, `LOWER`, `CAST`), or `OTHER`.
+     * `*`, `/`, `**`), the name of an Oracle built-in ([OracleBuiltins]: `DECODE`, `TO_NUMBER`, `LOWER`, `CAST`), `ELEMENT`
+     * (an element of a collection variable or parameter, `v(i)`), `ROUTINE` (any other call: a function of the code or of
+     * another schema, resolved or not), or `OTHER`.
      */
     private fun otherShape(expression: AstNode): String {
         var node = expression
@@ -638,7 +732,14 @@ internal class IntoClauses(
             node.type in ARITHMETIC -> "ARITHMETIC"
             node.type == PlSqlGrammar.METHOD_CALL -> {
                 val segments = plsql.nameSegments(node.firstChild) ?: return "OTHER"
-                if (segments.size > 1 || isRoutineCall(node.firstChild)) "ROUTINE" else segments.single().uppercase().takeIf { WORD.matches(it) } ?: "OTHER"
+                val called = segments.singleOrNull()?.let { normalizeIdentifier(it) }
+                when {
+                    called == null || isRoutineCall(node.firstChild) -> "ROUTINE"
+                    // A collection's element (`v(i)`), a variable or parameter zpa binds the name to.
+                    nameBinding(node.firstChild) is NameBinding.Local -> "ELEMENT"
+                    OracleBuiltins.isBuiltin(called) && WORD.matches(called) -> called
+                    else -> "ROUTINE"
+                }
             }
             // A built-in written with its own syntax: `CAST(… AS …)`, `EXTRACT(… FROM …)`.
             node.numberOfChildren > 1 && node.children[1].tokenValue == "(" -> node.firstChild.tokenValue.uppercase().takeIf { WORD.matches(it) } ?: "OTHER"

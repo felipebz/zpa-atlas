@@ -264,28 +264,91 @@ internal class ViewLineage(
      * (`TABLE(...)`).
      */
     private fun nameLineage(statement: Statement, name: AstNode): Set<String>? {
-        val segments = plsql.nameSegments(name)?.map { normalizeIdentifier(it) } ?: return emptySet()
+        val (source, column) = capture(statement, name) ?: return emptySet()
+        return follow(statement, source, column)
+    }
+
+    /**
+     * The source that captures the name [name] without a column read, and the column it names; null for a
+     * pseudocolumn, a name no source captures, or one several sources may capture.
+     */
+    private fun capture(statement: Statement, name: AstNode): Pair<ColumnSource, String>? {
+        val segments = plsql.nameSegments(name)?.map { normalizeIdentifier(it) } ?: return null
         val column = segments.last()
-        if (segments.size > 2 || column in SQL_PSEUDOCOLUMNS || segments.size == 2 && column in PSEUDOCOLUMNS) return emptySet()
+        if (segments.size > 2 || column in SQL_PSEUDOCOLUMNS || segments.size == 2 && column in PSEUDOCOLUMNS) return null
         var scope = scopes.sqlScope(name)
         while (scope != null) {
             val sources = columnReads.scopeSources(statement, scope, name, qualified = segments.size == 2)
             if (segments.size == 2) {
-                sources.firstOrNull { it.qualifier == segments[0] }?.let { return follow(statement, it, column) }
+                sources.firstOrNull { it.qualifier == segments[0] }?.let { return it to column }
             } else if (sources.isNotEmpty()) {
                 val known = sources.map { columnReads.has(it, column) }
                 val matches = sources.filterIndexed { index, _ -> known[index] == true }
                 val open = sources.filterIndexed { index, _ -> known[index] == null }
                 when {
-                    matches.size == 1 -> return follow(statement, matches.single(), column)
-                    matches.size > 1 -> return emptySet()
-                    open.size == 1 -> return follow(statement, open.single(), column)
-                    open.size > 1 -> return emptySet()
+                    matches.size == 1 -> return matches.single() to column
+                    matches.size > 1 -> return null
+                    open.size == 1 -> return open.single() to column
+                    open.size > 1 -> return null
                 }
             }
             scope = scopes.sqlScope(scope)
         }
-        return emptySet()
+        return null
+    }
+
+    /**
+     * What the name [name] reads through an inline view or `WITH` subquery: the select item, star column or constant
+     * at its position in every branch of that query, followed through nested views. Null when [name] is not a column
+     * of such a source, or when the source cannot be followed (a `*` over columns that cannot be listed).
+     */
+    fun viewSlots(statement: Statement, name: AstNode): List<Slot>? {
+        if ((name.type != PlSqlGrammar.VARIABLE_NAME && name.type != PlSqlGrammar.MEMBER_EXPRESSION) || !plsql.isValueName(name)) return null
+        val (source, column) = capture(statement, name) ?: return null
+        val query = source.query ?: return null
+        val listed = source.listed
+        return if (listed != null) terminalAt(statement, query, listed.indexOf(column)) else terminalByName(statement, query, column)
+    }
+
+    /**
+     * The columns of the inline view or `WITH` subquery [source] a `*` covers, in order: the name of each and what it
+     * reads ([viewSlots]); null when it is not such a source, or when its columns cannot be listed.
+     */
+    fun sourceSlots(statement: Statement, source: ColumnSource): List<Pair<String?, List<Slot>>>? {
+        val query = source.query ?: return null
+        val first = slots(statement, branches(query).firstOrNull() ?: return null)
+        if (first.any { it is Slot.Opaque }) return null
+        val names = source.listed ?: first.map { it.name }
+        return names.mapIndexed { index, name -> name to (terminalAt(statement, query, index) ?: return null) }
+    }
+
+    private fun terminalByName(statement: Statement, query: AstNode, name: String): List<Slot>? {
+        val first = slots(statement, branches(query).firstOrNull() ?: return null)
+        val index = first.indexOfFirst { it.name == name }
+        if (index < 0 || first.subList(0, index).any { it is Slot.Opaque }) return null
+        return terminalAt(statement, query, index)
+    }
+
+    /** The slot at [position] of every branch of [query], an inner view's followed to its own; null when one cannot tell. */
+    private fun terminalAt(statement: Statement, query: AstNode, position: Int): List<Slot>? {
+        if (position < 0) return null
+        val active = statement.following.getOrPut(query) { HashSet() }
+        // A recursive `WITH` reaches the column it is computing again: that path adds nothing.
+        if (!active.add("t:$position")) return emptyList()
+        try {
+            val result = ArrayList<Slot>()
+            for (branch in branches(query)) {
+                val slots = slots(statement, branch)
+                if (slots.size <= position || slots.subList(0, position + 1).any { it is Slot.Opaque }) return null
+                when (val slot = slots[position]) {
+                    is Slot.Inner -> result += terminalAt(statement, slot.query, slot.position) ?: return null
+                    else -> result += slot
+                }
+            }
+            return result
+        } finally {
+            active.remove("t:$position")
+        }
     }
 
     /** The base columns of [column] of [source]: nothing for a named relation (its reads are occurrences) or `DUAL`. */

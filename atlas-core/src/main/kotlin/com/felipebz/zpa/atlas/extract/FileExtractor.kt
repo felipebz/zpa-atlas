@@ -94,9 +94,9 @@ class FileExtractor(
         triggers = Triggers(state, resolver, plsql)
         typeReferences = TypeReferences(state, types, resolver, calls, plsql, bound, jsonBuiltIn)
         val columnReads = ColumnReads(state, resolver, scopes, plsql, context::nameBinding)
-        places = IntoClauses(state, plsql, columnReads, context::nameBinding)
-        sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads, places)
         lineage = ViewLineage(state, scopes, columnReads, plsql)
+        places = IntoClauses(state, plsql, columnReads, lineage, context::nameBinding)
+        sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads, places)
         ddl = DdlTargets(path, state, dictionary, resolver, values, catalog, plsql)
         var inRecovered = false
         for (child in node.children) {

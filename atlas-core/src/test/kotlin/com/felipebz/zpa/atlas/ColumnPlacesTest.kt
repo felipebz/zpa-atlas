@@ -852,14 +852,120 @@ class ColumnPlacesTest {
             "FETCH_CURSOR_NOT_KNOWN_PARAMETER: 1",                          // from_param's p
             "FETCH_CURSOR_NOT_KNOWN_STRONG: 1",                             // from_strong's p, of order_cur
             "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_EXPRESSION_OTHER_DECODE: 1", // w.dc
-            "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_INLINE_VIEW: 1",            // z.code, from (select code from orders) v
             "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 2",              // x.v (extractvalue over table(…)), x.rn (rownum)
             "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_REF_CURSOR: 1"              // r.code, r p%rowtype
         )
         // Places already: lower(…) is a value function the index follows (take's l := lower(p_code), the select's
-        // lower(code)); unknown_tab's code is taken by name as a column of it, so y.code is followed.
+        // lower(code)); unknown_tab's code is taken by name as a column of it, so y.code is followed; z.code is the
+        // code of orders the inline view reads.
         assertThat(Fixture.query(db, "SELECT p.start_line || ' ' || p.source FROM column_place p ORDER BY p.start_line"))
-            .containsExactly("18 IN_ARGUMENT", "48 ASSIGNMENT", "58 SELECT_INTO")
+            .containsExactly("18 IN_ARGUMENT", "48 ASSIGNMENT", "52 ASSIGNMENT", "58 SELECT_INTO")
+    }
+
+    @Test
+    fun `a column read through an inline view or a WITH query gives the place a direct read gives`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("iv.sql"), INLINE_VIEWS)
+        fun text(length: Int) = ProjectExternalDatatype.of("VARCHAR2", null, length, LengthSemantics.BYTE, null, null)
+        val id = ProjectExternalDatatype.of("NUMBER", null, null, null, 10, 0)
+        val relations = listOf(
+            "ORDERS" to listOf("ORDER_ID" to id, "CODE" to text(20), "NOTE" to text(40)),
+            "ITEMS" to listOf("ORDER_ID" to id, "SKU" to text(15))
+        ).map { (table, columns) ->
+            DictionaryRelation(ProjectExternalRelation.of("SHOP", table, true, columns.mapIndexed { i, (c, t) -> ProjectExternalColumn.of(c, i + 1, t) }),
+                DictionaryRelationKind.TABLE)
+        }
+        val db = temp.resolve("iv.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.of("iv", listOf("SHOP"), relations), threads = 1))
+        fun places(from: Int, to: Int) = Fixture.query(db, """
+            SELECT p.start_line || ' ' || p.target_written || coalesce('.' || p.field, '') || ' ' || replace(replace(c.key, 'db:SHOP.', ''), 'ORDERS.', '') || ' ' ||
+                   p.source || ' ' || p.class || ' ' || coalesce(p.length, '-') || ' ' || coalesce(p.functions, '-') || ' ' || p.concatenated
+            FROM column_place p JOIN entity c ON c.id = p.column_id WHERE p.start_line BETWEEN $from AND $to ORDER BY p.start_line, p.start_col, c.key""")
+        assertThat(places(1, 46)).containsExactly(
+            "9 l CODE IN_ARGUMENT FIXED_SIZE 5 - 0",                // take's l := p_code, from pk_iv.take(z.code)
+            "20 l1 CODE SELECT_INTO FIXED_SIZE 5 - 0",              // v1 v.code
+            "21 l2 CODE SELECT_INTO FIXED_SIZE 5 - 0",              // v2 bare name
+            "22 l3 CODE SELECT_INTO FIXED_SIZE 5 - 0",              // v3 renamed
+            "23 l4 CODE SELECT_INTO FIXED_SIZE 5 - 0",              // v4 WITH
+            "24 l5 CODE SELECT_INTO FIXED_SIZE 5 - 0",              //    WITH read by another
+            "25 l6 CODE SELECT_INTO FIXED_SIZE 5 - 0",              // v5 nested
+            "26 l7 CODE SELECT_INTO FIXED_SIZE 5 - 0",              // v6 union: both columns
+            "26 l7 NOTE SELECT_INTO FIXED_SIZE 5 - 0",
+            "27 l8 CODE SELECT_INTO FIXED_SIZE 5 UPPER 0",          // v7
+            "28 l9 CODE SELECT_INTO FIXED_SIZE 5 NVL 0",
+            "29 l10 CODE SELECT_INTO FIXED_SIZE 5 - 1",
+            "31 r_all.CODE CODE SELECT_INTO ANCHORED_TO_COLUMN - - 0", // v9 * of the view into orders%rowtype
+            "31 r_all.NOTE NOTE SELECT_INTO ANCHORED_TO_COLUMN - - 0",
+            "31 r_all.ORDER_ID ORDER_ID SELECT_INTO ANCHORED_TO_COLUMN - - 0",
+            "32 l12 CODE SELECT_INTO FIXED_SIZE 5 - 0",             //    a view joined with a table
+            "32 l13 ITEMS.SKU SELECT_INTO FIXED_SIZE 5 - 0",
+            "34 l1 CODE ASSIGNMENT FIXED_SIZE 5 - 0",               // v10 cursor loop
+            "37 r_iv.CODE CODE FETCH ANCHORED_TO_COLUMN - - 0",     //     FETCH into the cursor's %ROWTYPE
+            "38 l2 CODE ASSIGNMENT FIXED_SIZE 5 - 0",
+            "40 l3 CODE ASSIGNMENT FIXED_SIZE 5 - 0",               //     a loop over a WITH query
+            "45 l5 CODE SELECT_INTO FIXED_SIZE 5 MAX 0"             // v12 MAX is a value function; COUNT gives nothing
+        )
+        // The same reads made directly give the same places.
+        assertThat(places(52, 70).map { it.substringAfter(' ') }).containsExactly(
+            "l8 CODE SELECT_INTO FIXED_SIZE 5 UPPER 0",
+            "l9 CODE SELECT_INTO FIXED_SIZE 5 NVL 0",
+            "l10 CODE SELECT_INTO FIXED_SIZE 5 - 1",
+            "r_all.CODE CODE SELECT_INTO ANCHORED_TO_COLUMN - - 0",
+            "r_all.NOTE NOTE SELECT_INTO ANCHORED_TO_COLUMN - - 0",
+            "r_all.ORDER_ID ORDER_ID SELECT_INTO ANCHORED_TO_COLUMN - - 0",
+            "r_iv.CODE CODE FETCH ANCHORED_TO_COLUMN - - 0"
+        )
+        // v8 is counted under the shape a direct replace(code, …) has, in both procedures; v11 under _NO_COLUMN.
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
+            .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") })
+            .containsExactly("EXPRESSION_OTHER_REPLACE: 2", "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1")
+    }
+
+    @Test
+    fun `an expression is named by an Oracle built-in only, a collection element and any other call apart`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("names.sql"), """
+            create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
+
+            create or replace package pk_names as
+              procedure take(p_code varchar2);
+            end;
+            /
+            create or replace package body pk_names as
+              procedure take(p_code varchar2) is
+                type t_map is table of varchar2(30) index by varchar2(20);
+                m t_map;
+                l varchar2(30);
+              begin
+                l := fmt_code(p_code);
+                l := m(p_code);
+                l := lpad(p_code, 30);
+              end;
+            end;
+            /
+            create or replace procedure show_names is
+              l varchar2(30);
+            begin
+              select fmt_code(code), lpad(code, 30) into l, l from orders where rownum = 1;
+              for r in (select code from orders) loop
+                pk_names.take(r.code);
+              end loop;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("names.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
+        // fmt_code is not in the index: a routine, not named; m(p_code) is an element of the local collection m.
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
+            .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
+            "ARGUMENT_EXPRESSION_OTHER_ELEMENT: 1",
+            "ARGUMENT_EXPRESSION_OTHER_LPAD: 1",
+            "ARGUMENT_EXPRESSION_OTHER_ROUTINE: 1",
+            "EXPRESSION_OTHER_LPAD: 1",
+            "EXPRESSION_OTHER_ROUTINE: 1"
+        )
     }
 
     @Test
@@ -890,6 +996,71 @@ class ColumnPlacesTest {
     }
 
     companion object {
+        private val INLINE_VIEWS = """
+            create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
+            create table items (order_id number(10), sku varchar2(15 byte));
+
+            create or replace package pk_iv as
+              procedure take(p_code varchar2);
+            end;
+            /
+            create or replace package body pk_iv as
+              procedure take(p_code varchar2) is l varchar2(5); begin l := p_code; end;
+            end;
+            /
+            create or replace procedure show_iv is
+              l1 varchar2(5); l2 varchar2(5); l3 varchar2(5); l4 varchar2(5); l5 varchar2(5);
+              l6 varchar2(5); l7 varchar2(5); l8 varchar2(5); l9 varchar2(5); l10 varchar2(5);
+              l11 varchar2(5); l12 varchar2(5); l13 varchar2(5); n number;
+              r_all orders%rowtype;
+              cursor c_iv is select v.code from (select code from orders) v;
+              r_iv c_iv%rowtype;
+            begin
+              select v.code into l1 from (select code from orders) v where rownum = 1;
+              select code into l2 from (select code from orders) where rownum = 1;
+              select x.c2 into l3 from (select code as c2 from orders) x where rownum = 1;
+              with w as (select code from orders) select w.code into l4 from w where rownum = 1;
+              with a as (select code from orders), b as (select code from a) select code into l5 from b where rownum = 1;
+              select code into l6 from (select code from (select code from orders)) where rownum = 1;
+              select u.v into l7 from (select code as v from orders union all select note from orders) u where rownum = 1;
+              select up into l8 from (select upper(code) as up from orders) where rownum = 1;
+              select nvl(v.code, 'x') into l9 from (select code from orders) v where rownum = 1;
+              select tag into l10 from (select 'C:' || code as tag from orders) where rownum = 1;
+              select r into l11 from (select replace(code, 'a', 'b') as r from orders) where rownum = 1;
+              select * into r_all from (select * from orders) where rownum = 1;
+              select v.code, i.sku into l12, l13 from (select order_id, code from orders) v join items i on i.order_id = v.order_id where rownum = 1;
+              for z in (select v.code from (select code from orders) v) loop
+                l1 := z.code;
+                pk_iv.take(z.code);
+              end loop;
+              open c_iv; fetch c_iv into r_iv; close c_iv;
+              l2 := r_iv.code;
+              for q in (with w as (select code from orders) select code from w) loop
+                l3 := q.code;
+              end loop;
+              for k in (select lit from (select 'k' as lit from dual)) loop
+                l4 := k.lit;
+              end loop;
+              select m into l5 from (select max(code) as m from orders) where rownum = 1;
+              select cnt into n from (select count(*) as cnt from orders);
+            end;
+            /
+            create or replace procedure show_direct is
+              l8 varchar2(5); l9 varchar2(5); l10 varchar2(5); l11 varchar2(5);
+              r_all orders%rowtype;
+              cursor c_d is select code from orders;
+              r_iv c_d%rowtype;
+            begin
+              select upper(code) into l8 from orders where rownum = 1;
+              select nvl(code, 'x') into l9 from orders where rownum = 1;
+              select 'C:' || code into l10 from orders where rownum = 1;
+              select replace(code, 'a', 'b') into l11 from orders where rownum = 1;
+              select * into r_all from orders where rownum = 1;
+              open c_d; fetch c_d into r_iv; close c_d;
+            end;
+            /
+        """.trimIndent()
+
         private val MADE_OF = """
             create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
 

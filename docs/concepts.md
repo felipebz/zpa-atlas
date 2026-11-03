@@ -80,7 +80,10 @@ query would read at its name, or the relation's column of that name. The select 
 a single target that takes several items, or a whole row (`select * into r`), is a record that takes them field by
 field; a `BULK COLLECT` target is a collection whose element takes the value. An item is the column when it is the
 column itself, written bare or qualified (`code`, `o.code`, `shop.orders.code`), or a `*` over a relation whose columns
-the dictionary lists. An item, cursor field or assigned value that reads one column through value functions only is a
+the dictionary lists. A column of an inline view or of a `WITH` query (`v.code` from `(select code from orders) v`, a
+`*` over it, nested views, every branch of a `UNION`) is what that column's items read: the same place, class,
+`functions` and `concatenated` as reading them directly, or the same shape counted. A `TABLE(collection)`, `LATERAL`,
+`PIVOT`, `MODEL` source, or a view in dynamic SQL, is not followed. An item, cursor field or assigned value that reads one column through value functions only is a
 place of that column too, with its `functions` outer first (`NVL`; `UPPER,TRIM`): `NVL(a, b)` and `COALESCE(a, b, …)`
 (any argument), `NVL2(e1, e2, e3)` (`e2` or `e3`, not `e1`), `MAX(x)` and `MIN(x)` (with `DISTINCT`, `ALL`, `KEEP`,
 `OVER`), `TRIM`, `LTRIM`, `RTRIM`, `UPPER`, `LOWER` (`x`), nested (`nvl(max(qty), 0)`). Through them the value that lands
@@ -127,8 +130,9 @@ the columns it receives. The MCP tool `find_column_places` pages through them al
 them by class (`placesByClass`). What is not followed is counted by shape in `COLUMN_VALUE_NOT_FOLLOWED` coverage notes:
 an item that is another expression of one column (`EXPRESSION_NVL`, `_NVL2`, `_UPPER`, `_TRIM`, `_SUBSTR`, `_MAX_MIN`, `_TO_CHAR`,
 `_CONCATENATION`, and `_OTHER_` followed by the outer function or operator: `_OTHER_DECODE`, `_OTHER_TO_NUMBER`,
-`_OTHER_LOWER`, `_OTHER_CASE`, `_OTHER_ARITHMETIC` for `+`, `-`, `*`, `/`, `_OTHER_ROUTINE` for a package or schema
-function, `_OTHER_OTHER` for the rest; every `…_EXPRESSION_OTHER` family below is split the same way), a dynamic `INTO`
+`_OTHER_LOWER`, `_OTHER_CASE`, `_OTHER_ARITHMETIC` for `+`, `-`, `*`, `/`, the name only for an Oracle built-in,
+`_OTHER_ELEMENT` for an element of a collection variable or parameter (`v(i)`), `_OTHER_ROUTINE` for any other call, a
+function of the code or of another schema, resolved or not, `_OTHER_OTHER` for the rest; every `…_EXPRESSION_OTHER` family below is split the same way), a dynamic `INTO`
 (`DYNAMIC_INTO`), an assigned field of a row record whose column is not known (`RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_*`,
 by why, as `ARGUMENT_COLUMN_NOT_KNOWN_*` below), an assigned expression of such a field
 (`RECORD_ASSIGNMENT_EXPRESSION_UPPER`, …, by the same shapes), a column passed to a routine whose value the index does
