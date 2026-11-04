@@ -325,6 +325,8 @@ internal class ColumnPlaces(
             if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, listOf(null))
         }
         val placed = HashMap<List<Any>, Pair<String, Int>>()
+        // The places found directly (a row record's field assigned to the target): not made again through a variable.
+        val direct = found.flatMapTo(HashSet()) { (path, list) -> list.map { placeKey(path, it) } }
         // The calls each place of a function's result was written by: another call of it into the same target counts once more.
         val placedCalls = HashMap<List<Any>, MutableSet<SourceSpan?>>()
         val counted = HashSet<List<Any>>()
@@ -362,6 +364,7 @@ internal class ColumnPlaces(
                 }
                 else -> {
                     val key = listOf(path, site, reached.column, functions)
+                    if (!returns && key in direct) return
                     val earlier = placed[key]
                     val place = if (earlier != null) {
                         // Another call of a function writing its result into the same target.
@@ -378,8 +381,10 @@ internal class ColumnPlaces(
                         val place = if (returns) {
                             made.copy(source = PlaceSource.RETURNED, argumentOf = specKey(reached.parameter), callCount = 1, callPath = path, callLine = site.startLine)
                         } else {
-                            val (callPath, call) = reached.calls.firstOrNull() ?: return
-                            made.copy(argumentOf = call.parameterKey, callCount = reached.calls.size, callPath = callPath, callLine = call.targets.single().span.startLine)
+                            // A column read in the routine itself, held by a variable written here: no call brought it.
+                            val (callPath, call) = reached.calls.firstOrNull() ?: (null to null)
+                            if (call == null) made
+                            else made.copy(argumentOf = call.parameterKey, callCount = reached.calls.size, callPath = callPath, callLine = call.targets.single().span.startLine)
                         }
                         val list = places.getOrPut(path) { ArrayList() }
                         placed[key] = path to list.size

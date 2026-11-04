@@ -438,23 +438,26 @@ internal class IntoClauses(
     /**
      * The variables and record fields [write] gives on, as is or through value functions: what `RETURN` gives back (of
      * the function whose result is [returned]), or what is written into an `OUT` or `IN OUT` parameter of the
-     * subprogram ([ValueWrite.target]). Whatever column's value they hold goes there. Within any other expression of a
-     * `RETURN`, counted by its shape (`RETURNED_EXPRESSION_*`) when a column's value reaches them; of a parameter, not
-     * followed.
+     * subprogram ([ValueWrite.target]). Whatever column's value they hold goes there. Within any other expression, counted
+     * by its shape (`RETURNED_EXPRESSION_*`) when a column's value reaches them: the value leaves the routine either way.
+     * A variable passed to a routine (one of [routineCalls], or a nested function) is that call's argument, not this.
      */
-    private fun heldVariables(write: ValueWrite, returned: String?, parameters: List<AstNode>, bySpan: Map<SourceSpan, List<OccurrenceFact>>, shapes: TypeShapes) {
+    private fun heldVariables(
+        write: ValueWrite, returned: String?, parameters: List<AstNode>, bySpan: Map<SourceSpan, List<OccurrenceFact>>, shapes: TypeShapes,
+        routineCalls: Set<SourceSpan>
+    ) {
         val names = (sequenceOf(write.value) + write.value.getDescendants(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION).asSequence())
             .filter { (it.type == PlSqlGrammar.VARIABLE_NAME || it.type == PlSqlGrammar.MEMBER_EXPRESSION) && plsql.isValueName(it) && plsql.nameSegments(it) != null }
             .filter { name -> parameters.none { it === name } && generateSequence(name.parentOrNull) { it.parentOrNull }.takeWhile { it !== write.value.parentOrNull }
-                .none { it.type == PlSqlGrammar.METHOD_CALL } }
+                .none { it.type == PlSqlGrammar.METHOD_CALL && (it in localFunctions || spanOf(it.firstChild) in routineCalls) } }
             .toList()
         for (name in names) {
             val held = target(name, bySpan, shapes).takeIf { it.entityKey != null && !it.element } ?: continue
             val key = held.entityKey + held.path.joinToString("") { ".$it" }
             val chain = valueChain(write.value) { it === name }
             flows += when {
-                returned == null -> Flow(name, write.site, write.context, target = write.target, functions = chain ?: continue, fromKey = key)
                 chain == null -> Flow(name, write.site, write.context, shape = RETURNED_EXPRESSION + argumentShape(write.value), fromKey = key)
+                returned == null -> Flow(name, write.site, write.context, target = write.target, functions = chain, fromKey = key)
                 else -> Flow(name, write.site, write.context, passedTo = returned, functions = chain, fromKey = key)
             }
         }
@@ -983,7 +986,7 @@ internal class IntoClauses(
                     else -> Flow(name, write.site, write.context, target = write.target, functions = functions)
                 }
             }
-            if (returned != null || write.target != null && isOwnOutParameter(write.target, shapes)) heldVariables(write, returned, names, bySpan, shapes)
+            if (returned != null || write.target != null && isOwnOutParameter(write.target, shapes)) heldVariables(write, returned, names, bySpan, shapes, routineCalls)
         }
         // The results of the functions an argument calls, passed to the parameter.
         for (argument in callArguments) {

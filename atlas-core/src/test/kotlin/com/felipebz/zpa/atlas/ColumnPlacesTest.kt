@@ -1356,6 +1356,85 @@ class ColumnPlacesTest {
     }
 
     @Test
+    fun `a local given out through a value function or read inside reaches the callers, one within another expression is counted`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("held.sql"), """
+            create or replace package pk_h as
+              function f_upper(p varchar2) return varchar2;
+              function f_nvl(p varchar2) return varchar2;
+              function f_trim(p varchar2) return varchar2;
+              function f_upper_p(p varchar2) return varchar2;
+              procedure out_upper(p_in varchar2, p_res out varchar2);
+              procedure out_read(p_id number, p_res out varchar2);
+              function f_read(p_id number) return varchar2;
+              procedure out_substr(p_in varchar2, p_res out varchar2);
+              function f_substr(p varchar2) return varchar2;
+              function f_lower(p varchar2) return varchar2;
+              function f_rtrim(p varchar2) return varchar2;
+            end;
+            /
+            create or replace package body pk_h as
+              function f_upper(p varchar2) return varchar2 is l varchar2(100); begin l := p; return upper(l); end;
+              function f_nvl(p varchar2) return varchar2 is l varchar2(100); begin l := p; return nvl(l, 'x'); end;
+              function f_trim(p varchar2) return varchar2 is l varchar2(100); begin l := p; return trim(l); end;
+              function f_upper_p(p varchar2) return varchar2 is begin return upper(p); end;
+              procedure out_upper(p_in varchar2, p_res out varchar2) is l varchar2(100); begin l := p_in; p_res := upper(l); end;
+              procedure out_read(p_id number, p_res out varchar2) is l varchar2(100);
+              begin select code into l from orders where order_id = p_id; p_res := l; end;
+              function f_read(p_id number) return varchar2 is l varchar2(100);
+              begin select code into l from orders where order_id = p_id; return l; end;
+              procedure out_substr(p_in varchar2, p_res out varchar2) is l varchar2(100); begin l := p_in; p_res := substr(l, 1, 3); end;
+              function f_substr(p varchar2) return varchar2 is l varchar2(100); begin l := p; return substr(l, 1, 3); end;
+              function f_lower(p varchar2) return varchar2 is l varchar2(100); begin l := p; return lower(l); end;
+              function f_rtrim(p varchar2) return varchar2 is l varchar2(100); begin l := p; return rtrim(l); end;
+            end;
+            /
+            create or replace procedure show_h is
+              h1 varchar2(5); h2 varchar2(5); h3 varchar2(5); h4 varchar2(5); h5 varchar2(5);
+              h6 varchar2(5); h7 varchar2(5); h8 varchar2(5); h9 varchar2(5); h10 varchar2(5);
+              h11 varchar2(5); h12 varchar2(5); h13 varchar2(5);
+            begin
+              for r in (select code, note from orders) loop
+                h1 := pk_h.f_upper(r.code);
+                h2 := pk_h.f_upper(r.note);
+                h3 := pk_h.f_nvl(r.note);
+                h4 := pk_h.f_trim(r.code);
+                h5 := pk_h.f_upper_p(r.code);
+                pk_h.out_upper(r.code, h6);
+                pk_h.out_upper(r.note, h7);
+                pk_h.out_substr(r.code, h10);
+                h11 := pk_h.f_substr(r.code);
+                h12 := pk_h.f_lower(r.note);
+                h13 := pk_h.f_rtrim(r.code);
+              end loop;
+              pk_h.out_read(1, h8);
+              h9 := pk_h.f_read(1);
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("held.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
+        assertThat(Fixture.query(db, """
+            SELECT p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || ' ' || p.class || coalesce(' ' || p.length, '') ||
+                   coalesce(' via ' || p.functions, '')
+            FROM column_place p JOIN entity c ON c.id = p.column_id
+            WHERE p.target_written <> 'l' AND p.source IN ('RETURNED', 'IN_ARGUMENT', 'OUT_ARGUMENT') ORDER BY p.target_written, c.key""")).containsExactly(
+            // Each call's target: the column that call passed in, through the function its routine applies.
+            "h1 CODE RETURNED FIXED_SIZE 5 via UPPER", "h12 NOTE RETURNED FIXED_SIZE 5 via LOWER", "h13 CODE RETURNED FIXED_SIZE 5 via RTRIM",
+            "h2 NOTE RETURNED FIXED_SIZE 5 via UPPER", "h3 NOTE RETURNED FIXED_SIZE 5 via NVL", "h4 CODE RETURNED FIXED_SIZE 5 via TRIM",
+            "h5 CODE RETURNED FIXED_SIZE 5 via UPPER", "h6 CODE OUT_ARGUMENT FIXED_SIZE 5 via UPPER", "h7 NOTE OUT_ARGUMENT FIXED_SIZE 5 via UPPER",
+            // A column read in the routine itself: for every caller, through RETURN or an OUT parameter.
+            "h8 CODE OUT_ARGUMENT FIXED_SIZE 5", "h9 CODE RETURNED FIXED_SIZE 5",
+            // Inside the routines: what their OUT parameters are given.
+            "p_res CODE IN_ARGUMENT CALLER_DECIDES via UPPER", "p_res CODE IN_ARGUMENT CALLER_DECIDES", "p_res NOTE IN_ARGUMENT CALLER_DECIDES via UPPER"
+        )
+        // Within substr, given to an OUT parameter (h10) or returned (h11): not followed, counted where the routine writes it.
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
+            .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly("RETURNED_EXPRESSION_SUBSTR: 2")
+    }
+
+    @Test
     fun `what is not followed is counted by shape`() {
         val db = PlacesFixture.index(temp)
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1"))
