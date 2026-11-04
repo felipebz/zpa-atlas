@@ -46,7 +46,9 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
         val flags = validated("--ccflags") { ConditionalCompilationSettings.parseFlags(args.ccflags) }
         val settings = OracleSettings.from(args.oracle, ::about, environment)
         val compilationSchema = OracleSettings.compilationSchema(args)
-        CheckedIndex(sources, encoding, explicitVersion, flags, settings, compilationSchema)
+        val lengthSemantics = args.nlsLengthSemantics.trim().uppercase().takeIf { it in LENGTH_SEMANTICS }
+            ?: throw CliValidationException(about("--nls-length-semantics", "--nls-length-semantics must be BYTE or CHAR: ${args.nlsLengthSemantics}"))
+        CheckedIndex(sources, encoding, explicitVersion, flags, settings, compilationSchema, lengthSemantics)
     } catch (e: CliValidationException) {
         throw CliValidationException(project?.let { inFile(it, taken, e.message.orEmpty()) } ?: e.message.orEmpty())
     }
@@ -66,7 +68,7 @@ private fun index(
     args: IndexArguments, project: ProjectFile?, phases: PhaseTimes?, indexer: Indexer, cache: PendingFactsCache?, read: Indexer.ReadSources,
     extensions: List<String>, checked: CheckedIndex
 ): Int {
-    val (sources, encoding, explicitVersion, flags, settings, compilationSchema) = checked
+    val (sources, encoding, explicitVersion, flags, settings, compilationSchema, lengthSemantics) = checked
     val oracle = settings?.let {
         phases?.start(PhaseTimes.DICTIONARY_NAMES)
         val writtenNames = SourceIdentifiers.scan(read, args.threads)
@@ -75,7 +77,8 @@ private fun index(
     }
     val dictionary = oracle?.let { (oracleSettings, loaded) ->
         val schemas = oracleSettings.schemas.toSet() + oracleSettings.relations.map { relation -> relation.first }
-        AtlasDictionary.lookupOnly(loaded.result.metadata, schemas, loaded.synonyms, loaded.objects, loaded.keys, loaded.notNull, loaded.seesEveryTable)
+        AtlasDictionary.lookupOnly(loaded.result.metadata, schemas, loaded.synonyms, loaded.objects, loaded.keys, loaded.notNull, loaded.seesEveryTable,
+            loaded.lengthSemantics)
     }
         ?: AtlasDictionary.NONE
     phases?.stop()
@@ -91,7 +94,8 @@ private fun index(
             threads = args.threads,
             encoding = encoding,
             conditionalCompilation = conditionalCompilation,
-            databaseVersionOrigin = databaseVersionOrigin
+            databaseVersionOrigin = databaseVersionOrigin,
+            nlsLengthSemantics = lengthSemantics
         ),
         phases,
         args.incremental,
@@ -119,8 +123,12 @@ private data class CheckedIndex(
     val explicitVersion: DatabaseVersion?,
     val flags: Map<String, CcValue>,
     val settings: OracleSettings?,
-    val compilationSchema: String?
+    val compilationSchema: String?,
+    val lengthSemantics: String
 )
+
+/** The values of `--nls-length-semantics`. */
+private val LENGTH_SEMANTICS = setOf("BYTE", "CHAR")
 
 /**
  * Sets the options [project] gives a key for, but those [given] on the command line, which win: the options taken
@@ -139,6 +147,7 @@ private fun IndexArguments.take(project: ProjectFile, given: Set<String>): Map<S
             "--compilation-schema" -> compilationSchema = value
             "--database-version" -> databaseVersion = value
             "--ccflags" -> ccflags = value
+            "--nls-length-semantics" -> nlsLengthSemantics = value
             "--oracle-url" -> oracle.oracleUrl = value
             "--oracle-user" -> oracle.oracleUser = value
             "--oracle-password-env" -> oracle.oraclePasswordEnv = value

@@ -181,12 +181,13 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         val key = args.requiredString("key")
         val offset = args.int("offset", 0..Int.MAX_VALUE) ?: 0
         val concatenated = args.boolean("concatenated") ?: false
-        val answer = index.columnPlaces(key, offset, args.int("limit", 1..PLACES_MAX) ?: PLACES_DEFAULT, concatenated)
+        val verdicts = args.list("verdicts").takeIf { it.isNotEmpty() }?.let(PlaceFilter::verdicts)
+        val filter = PlaceFilter(args.int("size", 1..Int.MAX_VALUE), verdicts, concatenated = concatenated)
+        val answer = index.columnPlaces(key, filter, offset, args.int("limit", 1..PLACES_MAX) ?: PLACES_DEFAULT)
         val page = answer.result ?: throw unknownEntity(key)
-        // The other group is never left unsaid: thousands of concatenated places behind "3 places" would mislead.
-        val other = if (concatenated) "${page.directTotal} place(s) where the value lands alone: ask again with concatenated false"
-            else "${page.concatenatedTotal} place(s) where the value is one part of a concatenation: ask again with concatenated true"
-        val told = toolAnswer(answer).withResult("otherPlaces", JsonPrimitive(other))
+        // The concatenated places are never left unsaid: thousands of them behind "3 places" would mislead.
+        val told = if (concatenated || page.concatenatedCount == 0) toolAnswer(answer) else toolAnswer(answer).withResult("otherPlaces",
+            JsonPrimitive("${page.concatenatedCount} place(s) where the value is one part of a concatenation: ask again with concatenated true"))
         // The offset counts rows, so a cut page goes on right after its last row kept.
         return McpAnswers.fitList(told, maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
             a.withResult("nextOffset", JsonPrimitive(offset + rows.size))
@@ -436,8 +437,10 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         string("key", "A COLUMN key (a table's or a view's), as search_entities or another answer gives it.")
         integer("offset", 0..Int.MAX_VALUE, 0, "The nextOffset of the previous page.")
         integer("limit", 1..PLACES_MAX, PLACES_DEFAULT)
+        integer("size", 1..Int.MAX_VALUE, null, "The size to compare each place with, in the column's unit; the column's by default.")
+        enumArray("verdicts", Verdict.entries.map { it.name }, "The verdicts to list; all but FOLLOWS by default.", minItems = 1)
         boolean("concatenated", "false (the default): the places the value lands in alone; true: those where it is one part " +
-            "of a concatenation (a message built from several columns), listed apart since a column may have thousands.")
+            "of a concatenation (a message built from several columns) too, which a column may have thousands of.")
     }
 
     private fun findSchema() = schema(emptyList()) {
@@ -755,26 +758,23 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "receives: the columns read into this target. " +
             "$PATHS $KEYS"
 
-        const val PLACES = "Every PL/SQL variable, parameter or field a column's value is read into, and how each is " +
-            "declared. source: SELECT_INTO, FETCH, RETURNING (with bulk); ASSIGNMENT (target := r.f, " +
-            "r a cursor FOR loop or %ROWTYPE record; line of the :=); OUT_ARGUMENT (a call's argument for an OUT " +
-            "parameter below; argumentOf, routine); IN_ARGUMENT (a target inside a routine, written from the IN parameter " +
-            "argumentOf; callCount calls pass it, one at callPath, callLine); RETURNED (a target " +
-            "routine's result, a function returning the column, is written into; callCount calls). One row per column " +
-            "and target, by class, file, line; paged (nextOffset; absent on the last); view columns " +
-            "computed from it too (viaView, read is the view column). Each row: the column read, source, path, line, " +
-            "container, targetWritten, target (absent for a block's variable), field (of a record), functions: " +
-            "value functions read through, outer first (NVL, NVL2, COALESCE, MAX, MIN, TRIM and kin, UPPER, LOWER, " +
-            "REPLACE and REGEXP_REPLACE (may change its length); NVL may give its other argument); " +
-            "concatenated: the value is one part of a || or CONCAT, or REPLACE's replacement text, with other text. " +
-            "placeClass: FIXED_SIZE (its own length or precision: length, unit CHAR, BYTE, DIGITS, or " +
-            "NLS_LENGTH_SEMANTICS when none is written; a number's length is its digits before the point, p-s, and " +
-            "scale s, as the column's NUMBER(p,s)), UNKNOWN (reason), CALLER_DECIDES (an OUT or IN OUT " +
-            "parameter, parameterMode: each caller's argument decides its size and is a row), ANCHORED_ELSEWHERE (to " +
-            "another column, typeSource), NO_SIZE (NUMBER, FLOAT, CLOB, DATE), ANCHORED_TO_COLUMN (%TYPE, %ROWTYPE or a " +
-            "cursor record over the column, or anchored so). declaredType as written; typeSource decides " +
-            "it. Lists where the value lands alone; concatenated true, where it is one part. total, byClass: those " +
-            "listed; directTotal, concatenatedTotal: each group; otherPlaces: how to ask for the other. $PATHS"
+        const val PLACES = "Every PL/SQL variable, parameter or field a column's value is read into, each with its verdict against a size: " +
+            "size, the column's by default (in the column's unit: bytes, characters, or a number's digits before the point). " +
+            "verdict: SMALLER (its own size is less), FITS (as large or larger, or a type without a size: CLOB, NUMBER, DATE), " +
+            "CALLER_DECIDES (an OUT or IN OUT parameter: each caller's argument decides, and is a row), UNKNOWN (type not " +
+            "known: reason; or verdictReason UNIT_MISMATCH, bytes fewer than 4 per character of a column counting characters; " +
+            "OTHER_COLUMN_UNKNOWN; NO_LENGTH; OTHER_KIND), FOLLOWS (%TYPE, %ROWTYPE or a cursor record over the column), " +
+            "OWN_SIZE (no size given and the column's not known). verdicts: those to list, all but FOLLOWS by default; counts: " +
+            "each, under the other arguments. source: SELECT_INTO, FETCH, RETURNING (with bulk); ASSIGNMENT (target := r.f, r a " +
+            "cursor FOR loop or %ROWTYPE record); OUT_ARGUMENT (a call's argument for an OUT parameter; argumentOf, routine); " +
+            "IN_ARGUMENT (a target inside a routine, written from the IN parameter argumentOf; callCount calls pass it, one at " +
+            "callPath, callLine); RETURNED (a function's result holding the column is written into it; callCount calls). Rows " +
+            "by verdict, file, line; paged (nextOffset); view columns computed from it too (viaView). Each row: read, source, " +
+            "path, line, container, targetWritten, target, field, declaredType, length, unit (BYTE, CHAR, DIGITS: p-s, with " +
+            "scale), unitSource (WRITTEN; COMPILED, as unitCompiledIn was; OPTION, the index's default optionUnit), size and " +
+            "sizeUnit compared (the other column's for ANCHORED_ELSEWHERE, typeSource), functions read through, outer first " +
+            "(NVL may give its other argument; REPLACE may change the length), concatenated (one part of a || or CONCAT; room: " +
+            "what the size leaves). Lists where the value lands alone; concatenated true adds those (concatenatedCount). $PATHS"
 
         const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column " +
             "is in (referencedBy of get_entity, which cuts it), by table then name, a page at a time: pass the answer's " +

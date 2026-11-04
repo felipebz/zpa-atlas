@@ -214,5 +214,14 @@ data class ColumnPlaceFact(
      */
     val callCount: Int? = null,
     val callPath: String? = null,
-    val callLine: Int? = null
+    val callLine: Int? = null,
+    /** For a character [unit]: where it comes from; [unitCompiledIn] the unit whose setting gave it ([UnitSource.COMPILED]). */
+    val unitSource: UnitSource? = null,
+    val unitCompiledIn: CompiledUnit? = null
 )
+
+/**
+ * A PL/SQL unit as `ALL_PLSQL_OBJECT_SETTINGS` names it: its [owner], [name] and [type] (`PACKAGE`, `PACKAGE BODY`,
+ * `PROCEDURE`, `FUNCTION`, `TRIGGER`, `TYPE`, `TYPE BODY`).
+ */
+data class CompiledUnit(val owner: String, val name: String, val type: String)

@@ -12,6 +12,7 @@ import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionaryKey
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.extract.SynonymResolver
+import com.felipebz.zpa.atlas.model.CompiledUnit
 import com.felipebz.zpa.atlas.model.KeyKind
 import com.felipebz.zpa.oracle.metadata.OracleMetadataAcquisition
 import com.felipebz.zpa.oracle.metadata.OracleMetadataException
@@ -35,7 +36,8 @@ class LoadedMetadata(
     val databaseVersion: DetectedDatabaseVersion,
     val keys: List<DictionaryKey> = emptyList(),
     val notNull: Map<Pair<String, String>, Set<String>> = emptyMap(),
-    val seesEveryTable: Boolean = true
+    val seesEveryTable: Boolean = true,
+    val lengthSemantics: Map<CompiledUnit, String> = emptyMap()
 )
 
 /**
@@ -95,6 +97,9 @@ object OracleMetadataLoader {
 
     /** The `NOT NULL` columns matching `%s` (`NULLABLE` is on 10g). */
     private const val NOT_NULL_SQL = "SELECT owner, table_name, column_name FROM all_tab_cols WHERE nullable = 'N' AND (%s)"
+
+    /** The `NLS_LENGTH_SEMANTICS` each PL/SQL unit of the owners `%s` was compiled with. */
+    private const val LENGTH_SEMANTICS_SQL = "SELECT owner, name, type, nls_length_semantics FROM all_plsql_object_settings WHERE owner IN (%s)"
 
     /** Pairs in one `IN` list: Oracle takes at most 1000 expressions in a list. */
     private const val PAIRS_PER_QUERY = 500
@@ -179,7 +184,12 @@ object OracleMetadataLoader {
         }
         LOG.info("Keys: ${keys.groupingBy { it.kind }.eachCount()}, ${notNull.values.sumOf { it.size }} NOT NULL column(s)" +
             (if (seesEveryTable) "" else "; ${settings.user} has none of ${AtlasDictionary.EVERY_TABLE_PRIVILEGES}: foreign keys of tables it cannot see are not read"))
-        return LoadedMetadata(result, synonyms, objects, databaseVersion, keys, notNull, seesEveryTable)
+        val lengthSemantics = try {
+            dataSource.connection.use { connection -> lengthSemantics(connection, schemas) }
+        } catch (e: SQLException) {
+            throw CliExecutionException("Reading the PL/SQL compilation settings failed${errorCode(e)}: ${redact(e.message, settings)}")
+        }
+        return LoadedMetadata(result, synonyms, objects, databaseVersion, keys, notNull, seesEveryTable, lengthSemantics)
     }
 
     /** Runs [read] and logs how long it took and how many [rows] it read, as [what]. */
@@ -187,6 +197,22 @@ object OracleMetadataLoader {
         val started = System.nanoTime()
         val result = read()
         LOG.info("$what: ${rows(result)} row(s) in ${(System.nanoTime() - started) / 1_000_000} ms")
+        return result
+    }
+
+    /** The `NLS_LENGTH_SEMANTICS` of each PL/SQL unit of [owners] (`ALL_PLSQL_OBJECT_SETTINGS`), by unit. */
+    private fun lengthSemantics(connection: Connection, owners: List<String>): Map<CompiledUnit, String> {
+        if (owners.isEmpty()) return emptyMap()
+        val result = HashMap<CompiledUnit, String>()
+        timed("PL/SQL length semantics", { it }) {
+            connection.prepareStatement(LENGTH_SEMANTICS_SQL.format(owners.joinToString(",") { "?" })).use { statement ->
+                owners.forEachIndexed { index, owner -> statement.setString(index + 1, owner) }
+                statement.executeQuery().use { rows ->
+                    while (rows.next()) rows.getString(4)?.let { result[CompiledUnit(rows.getString(1), rows.getString(2), rows.getString(3))] = it }
+                }
+            }
+            result.size
+        }
         return result
     }
 

@@ -49,6 +49,8 @@ internal fun tableDdl(): List<String> = listOf(
         database_version TEXT NULL,
         database_version_origin TEXT NULL CHECK (database_version_origin IN ('OPTION', 'DATABASE', 'JDBC')),
         ccflags TEXT NULL,
+        -- The unit of a PL/SQL length written without one where the dictionary does not say how its unit was compiled.
+        nls_length_semantics TEXT NOT NULL CHECK (nls_length_semantics IN ('BYTE', 'CHAR')),
         started_at TEXT NOT NULL,
         finished_at TEXT NOT NULL
     )
@@ -290,6 +292,11 @@ internal fun tableDdl(): List<String> = listOf(
         declared_type TEXT NULL,
         length INTEGER NULL,
         length_unit TEXT NULL,
+        -- For a BYTE or CHAR length_unit: where it comes from, and for COMPILED the unit whose NLS_LENGTH_SEMANTICS gave it.
+        unit_source TEXT NULL ${check<UnitSource>("unit_source")},
+        unit_compiled_owner TEXT NULL,
+        unit_compiled_name TEXT NULL,
+        unit_compiled_type TEXT NULL,
         type_source_id INTEGER NULL REFERENCES entity(id),
         reason TEXT NULL,
         scale INTEGER NULL,

@@ -256,6 +256,17 @@ enum class PlaceClass : StoredEnum {
 }
 
 /**
+ * Where the unit of a character length comes from: [WRITTEN] in the declaration (`10 CHAR`, or a type that has one,
+ * `NVARCHAR2`, `RAW`), [COMPILED] the `NLS_LENGTH_SEMANTICS` the dictionary says the unit declaring it was compiled with
+ * (`ALL_PLSQL_OBJECT_SETTINGS`), [OPTION] the index's `--nls-length-semantics`.
+ */
+enum class UnitSource : StoredEnum {
+    WRITTEN,
+    COMPILED,
+    OPTION
+}
+
+/**
  * What reads a column's value into a PL/SQL target: `SELECT … INTO`, `FETCH … INTO`, `RETURNING … INTO`, or an
  * assignment `target := r.f` of a field of a row record (a cursor `FOR` loop record or a `%ROWTYPE` variable).
  */

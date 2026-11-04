@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas.index
 
 import com.felipebz.zpa.atlas.extract.IntoClauses
+import com.felipebz.zpa.atlas.extract.TypeShapes
 import com.felipebz.zpa.atlas.model.*
 import java.util.Collections
 import java.util.IdentityHashMap
@@ -71,15 +72,29 @@ import kotlin.collections.withIndex
  * - an `OUT` or `IN OUT` parameter taking the value itself is [PlaceClass.CALLER_DECIDES]: the value lands in each
  *   caller's argument, which does not take the size of the parameter's type;
  * - anything that cannot be followed is [PlaceClass.UNKNOWN], with the reason.
+ *
+ * A character length written without a unit counts in the `NLS_LENGTH_SEMANTICS` the unit declaring it was compiled
+ * with, as the dictionary gives it ([compiledSemantics]): the package body for a variable of the body, the package spec
+ * for a field of a record type of the spec, wherever the place is. Without it, in [defaultSemantics].
  */
 internal class ColumnPlaces(
     facts: List<FileFacts>,
     private val kinds: Map<String, EntityKind>,
     /** The columns of each dictionary relation, in their position order. */
-    private val relationColumns: Map<String, List<String>>
+    private val relationColumns: Map<String, List<String>>,
+    /** The `NLS_LENGTH_SEMANTICS` each PL/SQL unit was compiled with (`ALL_PLSQL_OBJECT_SETTINGS`). */
+    private val compiledSemantics: Map<CompiledUnit, String> = emptyMap(),
+    /** `BYTE` or `CHAR`: the unit of a length written without one that [compiledSemantics] does not decide. */
+    private val defaultSemantics: String = "BYTE"
 ) {
     private val shapes = HashMap<String, TypeShape>()
     private val texts = HashMap<String, String>()
+
+    /** The units of each file, by path. */
+    private val units = HashMap<String, List<UnitFact>>()
+
+    /** The unit that declares each entity with a type, whose compilation decides a length written there without a unit. */
+    private val declaredIn = HashMap<String, UnitFact>()
 
     init {
         for (file in facts) {
@@ -89,6 +104,12 @@ internal class ColumnPlaces(
                 if (known == null || known !is TypeShape.CursorRow && fact.shape is TypeShape.CursorRow) shapes[fact.entityKey] = fact.shape
             }
             for (text in file.declaredTexts) if (text.datatype != null) texts.putIfAbsent(text.entityKey, text.datatype)
+            units[file.path] = file.units
+        }
+        for (file in facts) for (occurrence in file.occurrences) {
+            val key = occurrence.entityKey ?: continue
+            if (Role.DEFINITION !in occurrence.roles && Role.DECLARATION !in occurrence.roles) continue
+            if (key in shapes || kinds[key] == EntityKind.RECORD_FIELD) file.units.getOrNull(occurrence.unitIndex)?.let { declaredIn.putIfAbsent(key, it) }
         }
     }
 
@@ -108,6 +129,9 @@ internal class ColumnPlaces(
         val reason: String? = null
     )
 
+    /** A character length's [unit], where it comes from ([source]) and the unit whose compilation gave it ([compiledIn]). */
+    private class LengthUnit(val unit: String?, val source: UnitSource? = null, val compiledIn: CompiledUnit? = null)
+
     /**
      * The places of [file], and what its `INTO`s and assignments read without being followed, by shape: the expression
      * items of one column, the fetches from an unknown cursor, the assignments of a row record's field whose column is
@@ -118,7 +142,7 @@ internal class ColumnPlaces(
         val leftOut = HashMap<String, Int>()
         for (into in file.intos) {
             if (into.source == PlaceSource.ASSIGNMENT) {
-                assignment(into, places, leftOut)
+                assignment(file.path, into, places, leftOut)
                 continue
             }
             // The arguments of OUT parameters are followed from the places of their parameters, the values passed to IN
@@ -160,7 +184,7 @@ internal class ColumnPlaces(
                     val target = if (record) into.targets[0] else into.targets.getOrNull(index) ?: break
                     if (item.expression != null) leftOut.merge("EXPRESSION_${item.expression}", 1, Int::plus)
                     for (part in listOf(item) + item.parts) {
-                        places += place(into, target, if (record) index else null, part.columnKey ?: continue, part.functions)
+                        places += place(file.path, into, target, if (record) index else null, part.columnKey ?: continue, part.functions)
                     }
                 }
             }
@@ -176,14 +200,14 @@ internal class ColumnPlaces(
      * is not a row: nothing. A field whose column is not known (an expression of the cursor's query, a cursor or
      * `%ROWTYPE` not known) is counted by why ([notKnown]), and so is an expression of the field (`upper(r.code)`) by its shape.
      */
-    private fun assignment(into: IntoFact, places: MutableList<ColumnPlaceFact>, leftOut: MutableMap<String, Int>) {
+    private fun assignment(path: String, into: IntoFact, places: MutableList<ColumnPlaceFact>, leftOut: MutableMap<String, Int>) {
         val row = structure(targetNode(into.row ?: return, false), 0)
         if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) return
         val column = field(row, null, into.rowField).first as? Node.Column
         when {
             column == null -> leftOut.merge(notKnown("RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_", row, into.rowField), 1, Int::plus)
             into.expression != null -> leftOut.merge("RECORD_ASSIGNMENT_EXPRESSION_${into.expression}", 1, Int::plus)
-            else -> for ((key, functions) in column.all) places += place(into, into.targets.single(), null, key, into.functions + functions)
+            else -> for ((key, functions) in column.all) places += place(path, into, into.targets.single(), null, key, into.functions + functions)
         }
     }
 
@@ -451,13 +475,14 @@ internal class ColumnPlaces(
                         val target = flow.targets.single()
                         val items = flow.branches.singleOrNull()
                         val field = items?.takeIf { it.size > 1 || isRow(target, flow.bulk) }?.indexOfFirst { it.columnKey == flow.fromParameter }
-                        val made = place(flow, target, field, reached.column, functions)
+                        val made = place(path, flow, target, field, reached.column, functions)
                         val place = if (returns) {
                             made.copy(source = PlaceSource.RETURNED, argumentOf = specKey(reached.parameter), callCount = 1, callPath = path, callLine = site.startLine)
                         } else {
-                            // A column read in the routine itself, held by a variable written here: no call brought it.
+                            // A column read in the routine itself, held by a variable written here: no call brought it,
+                            // the value lands by the statement that writes the target (`p_out := l`), as any other.
                             val (callPath, call) = reached.calls.firstOrNull() ?: (null to null)
-                            if (call == null) made
+                            if (call == null) made.copy(source = if (flow.branches.isEmpty()) PlaceSource.ASSIGNMENT else PlaceSource.SELECT_INTO)
                             else made.copy(argumentOf = call.parameterKey, callCount = reached.calls.size, callPath = callPath, callLine = call.targets.single().span.startLine)
                         }
                         val list = places.getOrPut(path) { ArrayList() }
@@ -507,7 +532,7 @@ internal class ColumnPlaces(
                     if (notFollowed.add(listOf(path, target.span, column, written(functions)))) count(path, "OUT_ARGUMENT_NOT_FOLLOWED")
                     continue
                 }
-                val place = place(into, target, null, column, functions)
+                val place = place(path, into, target, null, column, functions)
                 if (outPlaced.add(placeKey(path, place))) places.getOrPut(path) { ArrayList() } += place
                 if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, back.mapTo(LinkedHashSet()) { it?.entry })
                 else for (coming in back) held(path, into, place, coming?.entry, coming?.reached, listOf(path to into))
@@ -562,7 +587,8 @@ internal class ColumnPlaces(
         return node is Node.Shape && (node.shape is TypeShape.Record || node.shape is TypeShape.CursorRow || node.shape is TypeShape.Anchored && node.shape.rowType)
     }
 
-    private fun place(into: IntoFact, target: IntoTarget, field: Int?, column: String, functions: List<String>): ColumnPlaceFact {
+    /** The place of [column] in [target] of [into], a statement of the file [path]. */
+    private fun place(path: String, into: IntoFact, target: IntoTarget, field: Int?, column: String, functions: List<String>): ColumnPlaceFact {
         var node = targetNode(target, into.bulk)
         var fieldName: String? = null
         var text = target.entityKey?.let { texts[it] } ?: target.declaredType
@@ -579,13 +605,29 @@ internal class ColumnPlaces(
             ?.takeIf { field == null && target.path.isEmpty() && !target.element && !into.bulk }?.mode
         val placeClass = if (mode != null) PlaceClass.CALLER_DECIDES else decision.placeClass
         val sized = mode == null
+        val unit = when (val written = decision.unit.takeIf { sized }) {
+            TypeShapes.NLS_LENGTH_SEMANTICS -> lengthUnit(decision.source, path, into)
+            "BYTE", "CHAR" -> LengthUnit(written, UnitSource.WRITTEN)
+            else -> LengthUnit(written)
+        }
         // The type source is another entity whose declaration decides the type; the target's own declaration is not repeated.
         return ColumnPlaceFact(
             into.unitIndex, into.containerKey, into.statementLocalId, target.span, column, into.source, into.bulk, target.entityKey, target.written,
-            fieldName, placeClass, text, decision.length.takeIf { sized }, decision.unit.takeIf { sized }, decision.scale.takeIf { sized },
+            fieldName, placeClass, text, decision.length.takeIf { sized }, unit.unit, decision.scale.takeIf { sized },
             decision.source?.takeIf { it != target.entityKey }, mode, decision.reason, functions, into.parameterKey,
-            target.localKey.takeIf { mode != null }
+            target.localKey.takeIf { mode != null }, unitSource = unit.source, unitCompiledIn = unit.compiledIn
         )
+    }
+
+    /**
+     * The unit of a length written without one in the declaration of [owner] (or, for one without an entity, in the unit
+     * of [into] in [path]): the `NLS_LENGTH_SEMANTICS` the unit declaring it was compiled with, else [defaultSemantics].
+     */
+    private fun lengthUnit(owner: String?, path: String, into: IntoFact): LengthUnit {
+        val declaring = owner?.let { declaredIn[it] } ?: units[path]?.getOrNull(into.unitIndex)
+        val compiled = declaring?.let { unit -> COMPILED_TYPES[unit.kind]?.let { type -> unit.compilationSchema?.let { CompiledUnit(it, unit.name, type) } } }
+        val setting = compiled?.let { compiledSemantics[it] }
+        return if (setting != null) LengthUnit(setting, UnitSource.COMPILED, compiled) else LengthUnit(defaultSemantics, UnitSource.OPTION)
     }
 
     /** The target's declaration, its written fields followed, then its element for a collection element or `BULK COLLECT`. */
@@ -807,6 +849,12 @@ internal class ColumnPlaces(
 
         /** The prefix of a nested subprogram's parameter key, as the extraction writes it. */
         private const val LOCAL_PARAMETER = "local:"
+
+        /** The `TYPE` of `ALL_PLSQL_OBJECT_SETTINGS` of each unit kind that has one. */
+        private val COMPILED_TYPES = mapOf(
+            UnitKind.PACKAGE to "PACKAGE", UnitKind.PACKAGE_BODY to "PACKAGE BODY", UnitKind.PROCEDURE to "PROCEDURE", UnitKind.FUNCTION to "FUNCTION",
+            UnitKind.TRIGGER to "TRIGGER", UnitKind.TYPE to "TYPE", UnitKind.TYPE_BODY to "TYPE BODY"
+        )
 
         private val RELATIONS = setOf(EntityKind.TABLE, EntityKind.VIEW, EntityKind.MATERIALIZED_VIEW, EntityKind.OBJECT_TABLE, EntityKind.UNKNOWN_RELATION)
     }

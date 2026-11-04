@@ -80,6 +80,8 @@ internal class FileState(strings: FactStrings = FactStrings()) {
     val relations = ArrayList<RelationFact>()
     val coverage = ArrayList<CoverageFact>()
     val triggerEvents = ArrayList<TriggerEventFact>()
+    /** The datatypes the columns of the file's `CREATE TABLE` statements write, by column key ([DdlTargets]). */
+    val columnTypes = ArrayList<DeclaredTextFact>()
     var recoveredRegions = 0
 
     /** Datatype names captured by a local declaration: counted, not indexed (locals are not entities). */

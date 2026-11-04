@@ -20,6 +20,8 @@ data class RunInfo(
     val databaseVersionOrigin: String? = null,
     /** The `PLSQL_CCFLAGS` of the run as `NAME:VALUE, …`, or null. */
     val ccflags: String? = null,
+    /** `--nls-length-semantics`: the unit of a length written without one where the dictionary does not tell it. */
+    val nlsLengthSemantics: String = "BYTE",
     val startedAt: String,
     val finishedAt: String
 )

@@ -76,6 +76,12 @@ class IndexArguments {
 
     @Parameter(names = ["--ccflags"], description = "PLSQL_CCFLAGS for conditional compilation, e.g. 'debug:TRUE, level:2'")
     var ccflags: String = ""
+
+    @Parameter(
+        names = ["--nls-length-semantics"],
+        description = "BYTE or CHAR: the unit of a PL/SQL length written without one, where the dictionary does not say how its unit was compiled"
+    )
+    var nlsLengthSemantics: String = "BYTE"
 }
 
 @Parameters(commandNames = ["stats"], commandDescription = "Print a summary of an index database")

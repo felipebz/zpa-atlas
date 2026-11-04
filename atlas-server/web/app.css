@@ -247,17 +247,79 @@ main.entity { display: grid; gap: var(--gap); }
 /* Uses the index may have missed: a warning beside the count, never mistaken for the whole answer. */
 .uses-gap { color: var(--warning); }
 .badge.gap { background: var(--warning-soft); color: var(--warning); }
-/* A column's places by class: a fixed size needs a change when the column grows, an unknown one or one its callers decide a look; anchored to the column is fine. */
-.badge.pc-FIXED_SIZE { background: var(--error-soft); color: var(--error); }
-.badge.pc-UNKNOWN, .badge.pc-CALLER_DECIDES { background: var(--warning-soft); color: var(--warning); }
-.badge.pc-ANCHORED_TO_COLUMN { background: var(--ok-soft); color: var(--ok); }
-.badge.attention { font-weight: 600; }
-.place-classes .badge { margin: 2px 4px 2px 0; }
-.place-total { margin: 0 0 6px; }
-/* The places where the column's value is one part of a concatenation: a group of their own, closed until opened. */
-details.place-group { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
-details.place-group > summary { cursor: pointer; font-weight: 600; }
-details.place-group > p { margin: 4px 0 8px; }
+/*
+ * A column's places, compared with a size: the verdict buttons (a smaller target in the error colors, one its callers
+ * decide or one not known in the warning colors), the size compared, the filters, then a group per routine. A row: the
+ * size with a bar of how much of the size compared it holds, the target, how the value arrives, and the line; its
+ * detail opens under it. On a phone a row is two lines (the size, the target and the line; how the value arrives under
+ * the target) and nothing scrolls sideways, open details included.
+ */
+.place-verdicts { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 0 0 8px; }
+.place-verdicts button { font-size: var(--fs-xs); padding: 2px 10px; border-radius: 999px; border-style: dashed; color: var(--muted); }
+.place-verdicts button .count { font-variant-numeric: tabular-nums; font-weight: 600; margin-left: 2px; }
+.place-verdicts button[aria-pressed="true"] { border-style: solid; border-color: var(--fg); background: var(--surface-2); color: var(--fg); }
+.place-verdicts button.v-SMALLER[aria-pressed="true"] { border-color: var(--error); background: var(--error-soft); color: var(--error); }
+.place-verdicts button.v-CALLER_DECIDES[aria-pressed="true"], .place-verdicts button.v-UNKNOWN[aria-pressed="true"] {
+  border-color: var(--warning); background: var(--warning-soft); color: var(--warning); }
+.place-option { margin: 0 0 8px; font-size: var(--fs-xs); }
+.place-compare { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 0 0 8px; font-size: var(--fs-s); }
+.place-compare input { width: 6.5em; padding: 2px 6px; font-size: var(--fs-s); }
+button.place-back { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); }
+button.place-back:hover:not(:disabled) { text-decoration: underline; }
+.place-filters select { min-width: 0; max-width: 100%; }
+/* Wide enough for its placeholder in either language. */
+.sec .tools.place-filters .filter { flex: 0 1 25em; }
+.place-joined { display: inline-flex; align-items: baseline; gap: 4px; font-size: var(--fs-s); min-width: 0; }
+.place-shown { margin: 0 0 6px; font-size: var(--fs-s); }
+.place-groups { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.place-groups:empty { display: none; }
+.place-groups > p { margin: 0; padding: 8px 12px; }
+.place-grp + .place-grp { border-top: 1px solid var(--border); }
+.place-grp-h { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; padding: 6px 12px; background: var(--surface-2); cursor: pointer; }
+.place-grp-h::before { content: "▾"; flex: none; color: var(--muted); font-size: var(--fs-xs); }
+.place-grp-h[aria-expanded="false"]::before { content: "▸"; }
+.place-grp-h[aria-expanded="false"] + .place-rows { display: none; }
+/* Names break after an underscore or a dot (nameBreaksHtml), inside a word only when one alone is wider than the line. */
+.place-grp-name { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: break-word; }
+.place-grp-name .params { color: var(--muted); font-weight: 400; }
+.place-where { color: var(--muted); font-weight: 400; font-size: var(--fs-xs); margin-left: 6px; }
+.place-row { display: grid; grid-template-columns: 7.5em minmax(0, 1fr) minmax(0, 1fr) 4.5em; gap: 2px 12px; align-items: baseline;
+  padding: 4px 12px; border-top: 1px dashed var(--border); font-size: var(--fs-s); cursor: pointer; }
+.place-row:hover, .place-row[aria-expanded="true"] { background: var(--surface-2); }
+.place-row > * { min-width: 0; overflow-wrap: anywhere; }
+.place-sz { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.place-bar { flex: none; width: 3em; height: 6px; border-radius: 3px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border-strong); overflow: hidden; }
+.place-bar > i { display: block; height: 100%; background: var(--faint); }
+.place-row.v-SMALLER .place-bar > i { background: var(--error); }
+.place-row.v-SMALLER .place-n { color: var(--error); font-weight: 600; }
+.place-row.v-CALLER_DECIDES .place-n, .place-row.v-UNKNOWN .place-n { color: var(--warning); font-weight: 600; }
+.place-row.v-FITS .place-bar > i { background: var(--ok); }
+.place-row.v-FOLLOWS .place-n { color: var(--ok); font-family: var(--mono); font-size: var(--fs-xs); }
+.place-how { color: var(--muted); }
+.place-fn { font-size: var(--fs-xs); background: var(--surface-2); border-radius: 4px; padding: 0 4px; color: var(--fg); }
+.place-mark { font-size: var(--fs-xs); white-space: nowrap; border: 1px solid var(--border-strong); border-radius: 999px; padding: 0 6px; }
+.place-at { text-align: right; white-space: nowrap; font-size: var(--fs-xs); }
+.place-detail { display: grid; gap: 2px; min-width: 0; padding: 4px 12px 8px calc(7.5em + 24px); background: var(--surface-2); font-size: var(--fs-s);
+  overflow-wrap: anywhere; }
+.place-detail[hidden] { display: none; }
+.place-detail > div { min-width: 0; }
+/* A word with a hint as its tooltip (where an unwritten unit came from). */
+abbr.hint { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
+@media (max-width: 700px) {
+  .sec .tools.place-filters .filter { flex: 1 1 100%; }
+  /* The routine's name on its own line, the package under it, then the counts. */
+  .place-grp-h { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 8px; }
+  .place-grp-h::before { grid-row: 1; }
+  .place-grp-h .grp-n { grid-column: 2; }
+  .place-grp-h .place-where { display: block; margin-left: 0; }
+  .place-grp-h .place-sep, .place-grp-h .place-file { display: none; }
+  .place-row { grid-template-columns: 8.5em minmax(0, 1fr) auto; padding: 6px 8px 6px 12px; }
+  .place-row .place-sz { grid-column: 1; grid-row: 1; }
+  .place-row .place-target { grid-column: 2; grid-row: 1; }
+  .place-row .place-at { grid-column: 3; grid-row: 1; }
+  .place-row .place-how { grid-column: 2 / -1; grid-row: 2; }
+  .place-detail { padding-left: 12px; }
+}
 /* A name that breaks only between its parts (partBreaksHtml), even inside a cell that breaks anywhere. */
 .parts { overflow-wrap: break-word; word-break: normal; }
 /* What the declaration says: the code as written, wrapping anywhere so a long value never widens the page. */
@@ -542,7 +604,7 @@ table.impact tr.path p { margin: 0 0 4px; }
 table.impact ol.hops { margin: 0; padding-left: 20px; }
 table.impact ol.hops li { padding: 2px 0; }
 /*
- * A table that stacks on a phone (`table.stack`): the parameters, the triggers, the keys, the values, a column's places and the impact nodes. Below 700px the header
+ * A table that stacks on a phone (`table.stack`): the parameters, the triggers, the keys, the values and the impact nodes. Below 700px the header
  * row goes away and each row becomes a wrapping line of its cells, a cell's `data-label` before its value where the
  * value alone does not say what it is (`depth 1`); a long name, event or value wraps in place.
  */
@@ -561,11 +623,6 @@ table.impact ol.hops li { padding: 2px 0; }
   table.stack td:empty { display: none; }
   table.impact.stack tr.path { padding: 0; border: 0; }
   table.impact.stack tr.path td.whole { padding: 6px 8px; }
-  /* A place: the class, the target, the declared type, the type source, each on a line of its own at the same indent; then the statement kind and the line. */
-  table.places.stack td.pclass, table.places.stack td.ptarget, table.places.stack td.pdecl, table.places.stack td.pwhy { flex: 1 1 100%; }
-  table.places.stack td.psource { flex: 0 0 auto; }
-  /* The file and line beside the statement kind, or on a line of their own when the file name would not fit whole. */
-  table.places.stack td.pline { flex: 1 1 auto; overflow-wrap: break-word; }
 }
 button.more-rows { margin-top: 6px; }
 

@@ -51,7 +51,12 @@ data class IndexOptions(
      */
     val conditionalCompilation: ConditionalCompilationSettings = ConditionalCompilationSettings.NONE,
     /** Where [conditionalCompilation]'s database version comes from; null without one. */
-    val databaseVersionOrigin: DatabaseVersionOrigin? = null
+    val databaseVersionOrigin: DatabaseVersionOrigin? = null,
+    /**
+     * `BYTE` or `CHAR`: the unit of a PL/SQL length written without one when the dictionary does not say how the unit
+     * declaring it was compiled.
+     */
+    val nlsLengthSemantics: String = "BYTE"
 ) {
     companion object {
         /** The default of zpa-cli `--extensions`. */
@@ -198,7 +203,7 @@ class Indexer internal constructor(
                     "and ALL_CONSTRAINTS lists only the constraints of the tables it owns or was granted a privilege on: " +
                     "the foreign keys referencing a key may be more than those recorded")
         }
-        val (places, placesLeftOut) = columnPlaces(facts, globalEntities, resolved)
+        val (places, placesLeftOut) = columnPlaces(facts, globalEntities, resolved, dictionary, options.nlsLengthSemantics)
 
         val texts = sources.associate { it.relativePath to it.text }
         val phase: (String) -> Unit = { phases?.start(it) }
@@ -217,6 +222,7 @@ class Indexer internal constructor(
                         databaseVersion = options.conditionalCompilation.databaseVersion?.let { ConditionalCompilationText.version(it) },
                         databaseVersionOrigin = options.databaseVersionOrigin?.takeIf { options.conditionalCompilation.databaseVersion != null }?.name,
                         ccflags = ConditionalCompilationText.flags(options.conditionalCompilation.flags),
+                        nlsLengthSemantics = options.nlsLengthSemantics,
                         startedAt = startedAt.toString(),
                         finishedAt = clock().toString()
                     ),
@@ -364,13 +370,14 @@ class Indexer internal constructor(
      * uses (the entity kinds, the declared shapes by key) is let go before the index is written.
      */
     private fun columnPlaces(
-        facts: List<FileFacts>, globalEntities: List<EntityFact>, resolved: Map<String, ProjectExternalRelation>
+        facts: List<FileFacts>, globalEntities: List<EntityFact>, resolved: Map<String, ProjectExternalRelation>, dictionary: AtlasDictionary,
+        lengthSemantics: String
     ): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
         val kinds = HashMap<String, EntityKind>()
         for (entity in globalEntities) kinds.putIfAbsent(entity.key, entity.kind)
         for (file in facts) for (entity in file.entities) kinds.putIfAbsent(entity.key, entity.kind)
         val relationColumns = resolved.mapValues { (key, relation) -> relation.rowFields.sortedBy { it.position.asInt }.map { "$key.${it.name.exact()}" } }
-        val columnPlaces = ColumnPlaces(facts, kinds, relationColumns)
+        val columnPlaces = ColumnPlaces(facts, kinds, relationColumns, dictionary.lengthSemantics, lengthSemantics)
         val places = HashMap<String, List<ColumnPlaceFact>>()
         val placesLeftOut = HashMap<String, Map<String, Int>>()
         for (file in facts) {

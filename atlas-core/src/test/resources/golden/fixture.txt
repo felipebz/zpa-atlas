@@ -6850,11 +6850,19 @@ db:HR.IT_IU_INS(P_ID IN NUMBER).P_ID	number	-	0
 db:HR.IT_IU_UPD(P_ID IN NUMBER).P_ID	number	-	0
 db:HR.IT_MERGE(P_ID IN NUMBER,P_STATUS IN VARCHAR2).P_ID	number	-	0
 db:HR.IT_MERGE(P_ID IN NUMBER,P_STATUS IN VARCHAR2).P_STATUS	varchar2	-	0
+db:HR.IT_ORDERS.AMOUNT	number	-	0
+db:HR.IT_ORDERS.ID	number	-	0
+db:HR.IT_ORDERS.NOTE	varchar2(100)	-	0
+db:HR.IT_ORDERS.STATUS	varchar2(10)	-	0
 db:HR.IT_P(P_ID IN NUMBER).P_ID	number	-	0
+db:HR.IT_PING.ID	number	-	0
+db:HR.IT_PONG.ID	number	-	0
 db:HR.IT_SET_AMOUNT(P_ID IN NUMBER).P_ID	number	-	0
 db:HR.IT_SET_ROW(R IN IT_ORDERS%ROWTYPE).R	it_orders%rowtype	-	0
 db:HR.IT_SET_STATUS(P_ID IN NUMBER).P_ID	number	-	0
+db:HR.IT_STAGE.ID	number	-	0
 db:HR.IT_STAGE_LOAD(P_ID IN NUMBER).P_ID	number	-	0
+db:HR.IT_UNWRITTEN.ID	number	-	0
 db:HR.IT_WRITE_CALC(P_ID IN NUMBER).P_ID	number	-	0
 db:HR.IT_WRITE_SYN(P_ID IN NUMBER).P_ID	number	-	0
 db:HR.IT_WRITE_VIEW(P_ID IN NUMBER).P_ID	number	-	0
@@ -7220,6 +7228,9 @@ db:HR.PROC_XMLSEQ(P_DOC IN XMLTYPE).P_DOC	xmltype	-	0
 db:HR.REMOTE_CALLS().V	number	-	0
 db:HR.REMOTE_NAMES().B	boolean	-	0
 db:HR.REMOTE_NAMES().V	number	-	0
+db:HR.SHAPE_HOLDER.ID	number	-	0
+db:HR.SHAPE_HOLDER.S	ref ty_shape	-	0
+db:HR.SHAPE_HOLDER.X	number	-	0
 db:HR.TEXT_TAGS.BUILD()@BODY.V	varchar2(200)	-	0
 db:HR.TRG_COMPANY_FORMS.V_NAME	varchar2(100)	-	0
 db:HR.TRG_COMPANY_VALUES.V	number	-	0
@@ -7298,11 +7309,11 @@ hr/pack_inline.sql	14:24	db:HR.COMPANY.ID	FETCH	0	v	db:HR.PACK_INLINE.GO()@BODY.
 hr/pack_process.pkb	4:123	db:HR.SEND_QUEUE.ID	SELECT_INTO	0	g_counter	db:HR.PACK_PROCESS.G_COUNTER	-	NO_SIZE	number	-	-	-	-	-	-	-	-	-	-
 hr/pack_process.pkb	19:72	db:HR.SEND_QUEUE.ID	FETCH	0	v_pending	db:HR.PACK_PROCESS.RUN_JOB(P_A IN NUMBER,P_B IN VARCHAR2,P_C IN NUMBER,P_D IN DATE)@BODY.V_PENDING	ID	ANCHORED_TO_COLUMN	c_pending%rowtype	-	-	-	db:HR.SEND_QUEUE.ID	-	-	-	-	-	-
 hr/pack_types.pkb	26:29	db:HR.COMPANY.COMPANY_NAME	SELECT_INTO	0	v_name	db:HR.PACK_TYPES.NAME_OF(P_ID IN COMPANY.ID%TYPE)@BODY.V_NAME	-	ANCHORED_TO_COLUMN	s_company_name	-	-	-	db:HR.COMPANY.COMPANY_NAME	-	-	-	-	-	-
-hr/proc_columns.prc	18:72	db:HR.EVENT_LOG.MSG	RETURNING	0	company_name	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).COMPANY_NAME	-	FIXED_SIZE	varchar2(100)	100	NLS_LENGTH_SEMANTICS	-	-	-	-	-	-	-	-
+hr/proc_columns.prc	18:72	db:HR.EVENT_LOG.MSG	RETURNING	0	company_name	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2).COMPANY_NAME	-	FIXED_SIZE	varchar2(100)	100	BYTE	-	-	-	-	-	-	-	-
 hr/proc_mview.prc	3:33	db:HR.MV_COMPANY_LOG.COMPANY_LABEL	SELECT_INTO	0	o	db:HR.PROC_MVIEW(O OUT VARCHAR2).O	-	CALLER_DECIDES	varchar2	-	-	-	-	-	OUT	MAX	-	-	-
 hr/proc_synonyms.prc	7:23	db:SYS.USER_TABLES.NUM_ROWS	SELECT_INTO	0	n	db:HR.PROC_SYNONYMS().N	-	NO_SIZE	number	-	-	-	-	-	-	-	-	-	-
-hr/proc_view_chain.prc	4:20	db:HR.V_CHAIN2.LABEL	SELECT_INTO	0	l	db:HR.PROC_VIEW_CHAIN().L	-	FIXED_SIZE	varchar2(100)	100	NLS_LENGTH_SEMANTICS	-	-	-	-	-	-	-	-
-hr/proc_view_chain.prc	5:18	db:HR.V_LIN_JOIN.MSG	SELECT_INTO	0	l	db:HR.PROC_VIEW_CHAIN().L	-	FIXED_SIZE	varchar2(100)	100	NLS_LENGTH_SEMANTICS	-	-	-	-	-	-	-	-
-hr/proc_view_chain.prc	6:27	db:HR.V_LIN_JOIN.COMPANY_NAME	SELECT_INTO	0	l	db:HR.PROC_VIEW_CHAIN().L	-	FIXED_SIZE	varchar2(100)	100	NLS_LENGTH_SEMANTICS	-	-	-	-	-	-	-	-
+hr/proc_view_chain.prc	4:20	db:HR.V_CHAIN2.LABEL	SELECT_INTO	0	l	db:HR.PROC_VIEW_CHAIN().L	-	FIXED_SIZE	varchar2(100)	100	BYTE	-	-	-	-	-	-	-	-
+hr/proc_view_chain.prc	5:18	db:HR.V_LIN_JOIN.MSG	SELECT_INTO	0	l	db:HR.PROC_VIEW_CHAIN().L	-	FIXED_SIZE	varchar2(100)	100	BYTE	-	-	-	-	-	-	-	-
+hr/proc_view_chain.prc	6:27	db:HR.V_LIN_JOIN.COMPANY_NAME	SELECT_INTO	0	l	db:HR.PROC_VIEW_CHAIN().L	-	FIXED_SIZE	varchar2(100)	100	BYTE	-	-	-	-	-	-	-	-
 hr/trg_forms.trg	12:27	db:HR.COMPANY.COMPANY_NAME	SELECT_INTO	0	:n.company_name	-	-	UNKNOWN	-	-	-	-	-	TARGET_NOT_A_NAME	-	-	-	-	-
 hr/trg_forms.trg	14:15	db:HR.COMPANY.COMPANY_NAME	FETCH	0	:n.company_name	-	-	UNKNOWN	-	-	-	-	-	TARGET_NOT_A_NAME	-	-	-	-	-

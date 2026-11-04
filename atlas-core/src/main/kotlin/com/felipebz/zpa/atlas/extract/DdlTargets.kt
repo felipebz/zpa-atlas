@@ -20,7 +20,8 @@ import com.felipebz.zpa.atlas.model.*
  * [DdlObject]. Each statement in scope gets a `DDL` statement row and its target one occurrence with the role of the
  * action. Oracle resolves a DDL name without synonyms, so the target is the object of the statement's type in the
  * schema written (else the unit's): a name of another kind is `WRONG_KIND`, without entity. Every other DDL, and the
- * names inside a statement (columns, constraints, the object of `CREATE SYNONYM … FOR`), give nothing here.
+ * names inside a statement (columns, constraints, the object of `CREATE SYNONYM … FOR`), give nothing here; a
+ * `CREATE TABLE` gives the datatype each of its columns writes ([FileState.columnTypes]).
  */
 internal class DdlTargets(
     private val path: String,
@@ -50,8 +51,18 @@ internal class DdlTargets(
         val written = identifiers.map { it.tokenOriginalValue }
         val schema = if (written.size == 2) normalizeIdentifier(written[0]) else if (objectType == DdlObject.PUBLIC_SYNONYM) AtlasDictionary.PUBLIC else context.schema
         val outcome = resolve(objectType, written, schema, context)
+        if (action == Role.DDL_CREATE && objectType == DdlObject.TABLE && context.dynamic == null) outcome.entityKey?.let { columnTypes(node, it) }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, id, spanOf(name.first(), name.last()),
             name.joinToString("") { writtenText(it) }, outcome.entityKey, setOf(action), status(outcome.status, context.partial), context.origin, outcome.reason)
+    }
+
+    /** The datatype each column of the `CREATE TABLE` [node] of the table [key] writes, as written (`varchar2(10)`). */
+    private fun columnTypes(node: AstNode, key: String) {
+        for (column in node.getDescendants(DdlGrammar.TABLE_COLUMN_DEFINITION, DdlGrammar.VIRTUAL_COLUMN_DEFINITION)) {
+            val name = column.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
+            val datatype = column.getFirstChildOrNull(PlSqlGrammar.DATATYPE) ?: continue
+            state.columnTypes += DeclaredTextFact("$key.${normalizeIdentifier(name.tokenOriginalValue)}", DeclaredTexts.text(tokensOf(datatype)), null, false)
+        }
     }
 
     /** The action, the object type and the name nodes of a statement in scope; null for anything else. */

@@ -12,7 +12,7 @@ import java.sql.PreparedStatement
 /** The rows that belong to the whole run: the run, the entities, the relations and the trigger events. */
 internal class GlobalRows(private val connection: Connection) {
     fun insertRun(run: RunInfo) {
-        prepare("INSERT INTO run(id, schema_version, atlas_version, zpa_version, sources_root, source_encoding, metadata_origin, compilation_schema, database_version, database_version_origin, ccflags, started_at, finished_at) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?)").use {
+        prepare("INSERT INTO run(id, schema_version, atlas_version, zpa_version, sources_root, source_encoding, metadata_origin, compilation_schema, database_version, database_version_origin, ccflags, nls_length_semantics, started_at, finished_at) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?)").use {
             it.setInt(1, AtlasWriter.SCHEMA_VERSION)
             it.setString(2, run.atlasVersion)
             it.setString(3, run.zpaVersion)
@@ -23,8 +23,9 @@ internal class GlobalRows(private val connection: Connection) {
             it.setNullableString(8, run.databaseVersion)
             it.setNullableString(9, run.databaseVersionOrigin)
             it.setNullableString(10, run.ccflags)
-            it.setString(11, run.startedAt)
-            it.setString(12, run.finishedAt)
+            it.setString(11, run.nlsLengthSemantics)
+            it.setString(12, run.startedAt)
+            it.setString(13, run.finishedAt)
             it.executeUpdate()
         }
     }
@@ -95,7 +96,8 @@ internal class GlobalRows(private val connection: Connection) {
      * body), the first file in path order that has a type gives it, and the first that has a value gives it.
      */
     fun insertDeclaredTexts(facts: List<DeclaredTextFact>, ids: Map<String, Long>) {
-        val byEntity = facts.groupBy { ids.getValue(it.entityKey) }.toSortedMap()
+        // A column of a `CREATE TABLE` the run never mentioned has no entity: its datatype is left out.
+        val byEntity = facts.filter { it.entityKey in ids }.groupBy { ids.getValue(it.entityKey) }.toSortedMap()
         prepare("INSERT INTO declared_text(entity_id, datatype, value, value_cut) VALUES (?,?,?,?)").use { insert ->
             val batches = Batches(insert)
             for ((id, same) in byEntity) {

@@ -625,39 +625,44 @@ class McpServerTest {
         return output
     }
 
-    /** A page's total, its counts by class, the totals of both groups and the next offset, on one line. */
-    private fun pageLine(page: JsonObject): String {
-        val byClass = page["byClass"]!!.jsonArray.joinToString(",") { "${it.jsonObject["value"]!!.jsonPrimitive.content} ${it.jsonObject["count"]!!.jsonPrimitive.content}" }
-        return "total ${page["total"]!!.jsonPrimitive.content} [$byClass] rows ${page["rows"]!!.jsonArray.size} " +
-            "direct ${page["directTotal"]!!.jsonPrimitive.content} concatenated ${page["concatenatedTotal"]!!.jsonPrimitive.content} " +
+    /** An answer's counts by verdict, the places it lists, the concatenated places and the next offset, on one line. */
+    private fun pageLine(page: JsonObject, listed: String = "total"): String {
+        val counts = page["counts"]!!.jsonArray.joinToString(",") { "${it.jsonObject["name"]!!.jsonPrimitive.content} ${it.jsonObject["count"]!!.jsonPrimitive.content}" }
+        return "[$counts] $listed ${page[listed]!!.jsonPrimitive.content} concatenated ${page["concatenatedCount"]!!.jsonPrimitive.content} " +
             "next ${page["nextOffset"]?.jsonPrimitive?.contentOrNull ?: "-"}"
     }
 
     @Test
-    fun `a column's places where its value lands alone are apart from those where it is one part of a concatenation`() {
+    fun `a column's places where its value is one part of a concatenation are listed when asked, and always counted`() {
         val output = messagePlaces()
         mcp(AtlasIndex(output, output.parent.resolve("src"))) { client ->
             val note = "db:SHOP.ORDERS.NOTE"
-            suspend fun places(query: String) = Json.parseToJsonElement(this.client.get("/api/places?key=$note&limit=100$query").bodyAsText()).jsonObject["result"]!!.jsonObject
-            val direct = places("&concatenated=false")
+            suspend fun places(query: String) =
+                Json.parseToJsonElement(this.client.get("/api/places?key=$note&verdicts=SMALLER,CALLER_DECIDES,UNKNOWN,FITS,FOLLOWS$query").bodyAsText()).jsonObject["result"]!!.jsonObject
+            // NOTE counts 200 characters: 40 bytes are smaller, and the 149 messages of 200 bytes may or may not hold it.
+            val direct = places("")
+            assertThat(pageLine(direct, "places")).isEqualTo("[SMALLER 1,CALLER_DECIDES 0,UNKNOWN 0,FITS 0,FOLLOWS 2] places 3 concatenated 150 next -")
             val joined = places("&concatenated=true")
-            val all = places("")
-            assertThat(pageLine(direct)).isEqualTo("total 3 [FIXED_SIZE 1,ANCHORED_TO_COLUMN 2] rows 3 direct 3 concatenated 150 next -")
-            assertThat(pageLine(joined)).isEqualTo("total 150 [FIXED_SIZE 149,CALLER_DECIDES 1] rows 100 direct 3 concatenated 150 next 100")
-            assertThat(pageLine(places("&concatenated=true&offset=100"))).isEqualTo("total 150 [FIXED_SIZE 149,CALLER_DECIDES 1] rows 50 direct 3 concatenated 150 next -")
-            assertThat(pageLine(all)).isEqualTo("total 153 [FIXED_SIZE 150,CALLER_DECIDES 1,ANCHORED_TO_COLUMN 2] rows 100 direct 3 concatenated 150 next 100")
-            assertThat(direct["rows"]!!.jsonArray).allSatisfy { assertThat(it.jsonObject["concatenated"]!!.jsonPrimitive.content).isEqualTo("false") }
-            assertThat(joined["rows"]!!.jsonArray).allSatisfy { assertThat(it.jsonObject["concatenated"]!!.jsonPrimitive.content).isEqualTo("true") }
-            // The MCP lists the direct places by default, and always says how many concatenated places there are and how to ask.
+            assertThat(pageLine(joined, "places")).isEqualTo("[SMALLER 1,CALLER_DECIDES 1,UNKNOWN 149,FITS 0,FOLLOWS 2] places 153 concatenated 150 next -")
+            assertThat(direct["groups"]!!.jsonArray.flatMap { it.jsonObject["rows"]!!.jsonArray }).allSatisfy {
+                assertThat(it.jsonObject["concatenated"]!!.jsonPrimitive.content).isEqualTo("false")
+            }
+            // The MCP lists the direct places but FOLLOWS by default, and always says how many concatenated places there are and how to ask.
             val byDefault = client.call("find_column_places", args { put("key", note) }).json().jsonObject["result"]!!.jsonObject
-            assertThat(pageLine(byDefault)).isEqualTo("total 3 [FIXED_SIZE 1,ANCHORED_TO_COLUMN 2] rows 3 direct 3 concatenated 150 next -")
+            assertThat(pageLine(byDefault)).isEqualTo("[SMALLER 1,CALLER_DECIDES 0,UNKNOWN 0,FITS 0,FOLLOWS 2] total 1 concatenated 150 next -")
             assertThat(byDefault["otherPlaces"]!!.jsonPrimitive.content)
                 .isEqualTo("150 place(s) where the value is one part of a concatenation: ask again with concatenated true")
             val asked = client.call("find_column_places", args { put("key", note); put("concatenated", true) }).json().jsonObject["result"]!!.jsonObject
             // Cut for size: the next page goes on right after the last row kept.
             val kept = asked["rows"]!!.jsonArray.size
-            assertThat(pageLine(asked)).isEqualTo("total 150 [FIXED_SIZE 149,CALLER_DECIDES 1] rows $kept direct 3 concatenated 150 next $kept")
-            assertThat(asked["otherPlaces"]!!.jsonPrimitive.content).isEqualTo("3 place(s) where the value lands alone: ask again with concatenated false")
+            assertThat(pageLine(asked)).isEqualTo("[SMALLER 1,CALLER_DECIDES 1,UNKNOWN 149,FITS 0,FOLLOWS 2] total 151 concatenated 150 next $kept")
+            assertThat(asked).doesNotContainKey("otherPlaces")
+            // A size given, and the verdicts asked for: 250 characters are more than the 200 bytes of the messages too.
+            val wider = client.call("find_column_places", args {
+                put("key", note); put("concatenated", true); put("size", 250); putJsonArray("verdicts") { add("SMALLER") }
+            }).json().jsonObject["result"]!!.jsonObject
+            assertThat(pageLine(wider)).startsWith("[SMALLER 150,CALLER_DECIDES 1,UNKNOWN 0,FITS 0,FOLLOWS 2] total 150")
+            assertThat(wider["size"]!!.jsonPrimitive.content).isEqualTo("250")
             // get_entity: the direct places by class, and the concatenated ones as a total.
             val entity = client.call("get_entity", args { put("key", note) }).json().jsonObject["result"]!!.jsonObject
             assertThat(entity["placesByClass"]!!.jsonArray.map { "${it.jsonObject["value"]!!.jsonPrimitive.content} ${it.jsonObject["count"]!!.jsonPrimitive.content}" })
@@ -667,7 +672,7 @@ class McpServerTest {
     }
 
     @Test
-    fun `find_column_places reaches every place of a column, past what one answer holds, by class`() {
+    fun `find_column_places reaches every place of a column, past what one answer holds, by verdict`() {
         // The places project, and a procedure that reads the column into 300 fixed-size variables.
         val folder = temp.resolve("places")
         PlacesFixture.write(folder.resolve("src"))
@@ -679,7 +684,10 @@ class McpServerTest {
             val pages = ArrayList<JsonObject>()
             var offset: Int? = 0
             while (offset != null) {
-                val page = client.call("find_column_places", args { put("key", "db:SHOP.ORDERS.CODE"); put("offset", offset!!) }).json().jsonObject
+                val page = client.call("find_column_places", args {
+                    put("key", "db:SHOP.ORDERS.CODE"); put("offset", offset!!); put("concatenated", true)
+                    putJsonArray("verdicts") { listOf("SMALLER", "CALLER_DECIDES", "UNKNOWN", "FITS", "FOLLOWS").forEach { add(it) } }
+                }).json().jsonObject
                 pages += page
                 offset = page["result"]!!.jsonObject["nextOffset"]?.jsonPrimitive?.content?.toInt()
             }
@@ -689,13 +697,16 @@ class McpServerTest {
             assertThat(rows.map { "${it["path"]!!.jsonPrimitive.content}:${it["line"]!!.jsonPrimitive.content}:${it["targetWritten"]!!.jsonPrimitive.content}" })
                 .hasSize(320).doesNotHaveDuplicates()
             assertThat(pages.first()["result"]!!.jsonObject["total"]!!.jsonPrimitive.content).isEqualTo("320")
-            // By class: the 311 fixed sizes lead.
-            assertThat(rows.take(311).map { it["placeClass"]!!.jsonPrimitive.content }).containsOnly("FIXED_SIZE")
+            // By verdict: the order of the counts.
+            val order = listOf("SMALLER", "CALLER_DECIDES", "UNKNOWN", "FITS", "FOLLOWS")
+            assertThat(rows.map { order.indexOf(it["verdict"]!!.jsonPrimitive.content) }).isSorted()
+            // Twelve bytes, its unit not written and the index's default, as the column's twelve bytes: it fits.
             val fixed = rows.first { it["targetWritten"]!!.jsonPrimitive.content == "l_x" }
-            assertThat(listOf("length", "unit", "declaredType").map { fixed[it]!!.jsonPrimitive.content }).containsExactly("12", "NLS_LENGTH_SEMANTICS", "varchar2(12)")
+            assertThat(listOf("length", "unit", "unitSource", "declaredType", "verdict").map { fixed[it]!!.jsonPrimitive.content })
+                .containsExactly("12", "BYTE", "OPTION", "varchar2(12)", "FITS")
             // An OUT parameter target: its callers' arguments decide the size, the row says which mode.
             val caller = rows.single { it["targetWritten"]!!.jsonPrimitive.content == "p_code" }
-            assertThat(listOf("placeClass", "parameterMode").map { caller[it]!!.jsonPrimitive.content }).containsExactly("CALLER_DECIDES", "OUT")
+            assertThat(listOf("placeClass", "parameterMode", "verdict").map { caller[it]!!.jsonPrimitive.content }).containsExactly("CALLER_DECIDES", "OUT", "CALLER_DECIDES")
             // get_entity of the column counts them by class.
             val entity = client.call("get_entity", args { put("key", "db:SHOP.ORDERS.CODE") }).json().jsonObject["result"]!!.jsonObject
             assertThat(entity["placesByClass"]!!.jsonArray.map { "${it.jsonObject["value"]!!.jsonPrimitive.content} ${it.jsonObject["count"]!!.jsonPrimitive.content}" })

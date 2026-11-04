@@ -32,8 +32,9 @@ internal class FileRows(private val connection: Connection) {
         val docInsert = prepare("INSERT INTO doc_comment(entity_id, file_id, in_body, shape, start_line, text, text_cut) VALUES (?,?,?,?,?,?,?)")
         val placeInsert = prepare("""INSERT INTO column_place(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line,
             end_col, column_id, source, bulk, target_entity_id, target_written, field, class, declared_type, length, length_unit, type_source_id, reason,
-            scale, parameter_mode, functions, argument_parameter_id, argument_routine_id, call_count, call_path, call_line, concatenated)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
+            scale, parameter_mode, functions, argument_parameter_id, argument_routine_id, call_count, call_path, call_line, concatenated,
+            unit_source, unit_compiled_owner, unit_compiled_name, unit_compiled_type)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
         val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert,
             docInsert, placeInsert)
         var placeId = 0L
@@ -164,6 +165,10 @@ internal class FileRows(private val connection: Connection) {
                 placeInsert.setNullableString(28, place.callPath)
                 placeInsert.setNullableLong(29, place.callLine?.toLong())
                 placeInsert.setInt(30, if (CONCATENATED in place.functions) 1 else 0)
+                placeInsert.setNullableString(31, place.unitSource?.name)
+                placeInsert.setNullableString(32, place.unitCompiledIn?.owner)
+                placeInsert.setNullableString(33, place.unitCompiledIn?.name)
+                placeInsert.setNullableString(34, place.unitCompiledIn?.type)
                 batches.add(placeInsert)
             }
             // At a file boundary, so that the rows of one file go out together.

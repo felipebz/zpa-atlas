@@ -8,6 +8,7 @@ package com.felipebz.zpa.atlas.dictionary
 import com.felipebz.zpa.api.project.ProjectExternalMetadata
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.atlas.extract.exact
+import com.felipebz.zpa.atlas.model.CompiledUnit
 import com.felipebz.zpa.atlas.model.EntityKind
 import com.felipebz.zpa.atlas.model.KeyKind
 
@@ -78,7 +79,12 @@ class AtlasDictionary(
      * to a user granted a privilege on it, and to a user with one of [EVERY_TABLE_PRIVILEGES]. When false, the foreign
      * keys of the tables it cannot see are not in [keys]: a key's referencing foreign keys may be more.
      */
-    val seesEveryTable: Boolean = true
+    val seesEveryTable: Boolean = true,
+    /**
+     * The `NLS_LENGTH_SEMANTICS` (`BYTE` or `CHAR`) each PL/SQL unit of the requested schemas was compiled with
+     * (`ALL_PLSQL_OBJECT_SETTINGS`): it decides the unit of a length its declarations write without one.
+     */
+    val lengthSemantics: Map<CompiledUnit, String> = emptyMap()
 ) {
     private val kinds = relations.associate { (it.relation.schema to it.relation.name) to it.kind }
     private val synonymsByName = synonyms.associateBy { it.owner to it.name }
@@ -163,14 +169,15 @@ class AtlasDictionary(
             objects: Map<String, Map<String, String>> = emptyMap(),
             keys: List<DictionaryKey> = emptyList(),
             notNull: Map<Pair<String, String>, Set<String>> = emptyMap(),
-            seesEveryTable: Boolean = true
+            seesEveryTable: Boolean = true,
+            lengthSemantics: Map<CompiledUnit, String> = emptyMap()
         ): AtlasDictionary {
             val builder = ProjectExternalMetadata.builder(origin)
             completeSchemas.forEach { builder.completeSchema(it) }
             relations.forEach { builder.relation(it.relation) }
             val schemas = completeSchemas.toSet() + relations.map { it.relation.schema.originalSpelling.removeSurrounding("\"") }
             return AtlasDictionary(builder.build(), relations, enumerable = true, schemas = schemas, synonyms = synonyms, objects = objects,
-                keys = keys, notNull = notNull, seesEveryTable = seesEveryTable)
+                keys = keys, notNull = notNull, seesEveryTable = seesEveryTable, lengthSemantics = lengthSemantics)
         }
 
         /** An acquired dictionary for the requested [schemas]: lookups only, no enumeration. */
@@ -181,8 +188,9 @@ class AtlasDictionary(
             objects: Map<String, Map<String, String>> = emptyMap(),
             keys: List<DictionaryKey> = emptyList(),
             notNull: Map<Pair<String, String>, Set<String>> = emptyMap(),
-            seesEveryTable: Boolean = true
+            seesEveryTable: Boolean = true,
+            lengthSemantics: Map<CompiledUnit, String> = emptyMap()
         ): AtlasDictionary = AtlasDictionary(metadata, emptyList(), enumerable = false, schemas = schemas, synonyms = synonyms, objects = objects,
-            keys = keys, notNull = notNull, seesEveryTable = seesEveryTable)
+            keys = keys, notNull = notNull, seesEveryTable = seesEveryTable, lengthSemantics = lengthSemantics)
     }
 }

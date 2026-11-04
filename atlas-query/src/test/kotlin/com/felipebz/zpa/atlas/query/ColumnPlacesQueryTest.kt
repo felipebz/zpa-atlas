@@ -32,22 +32,23 @@ class ColumnPlacesQueryTest {
 
     private val code = "db:SHOP.ORDERS.CODE"
 
+    private val every = PlaceFilter(verdicts = Verdict.entries.toSet(), concatenated = true)
+
     @Test
-    fun `a column's places come by class, with the reads through a view`() {
-        val page = index.columnPlaces(code).result!!
-        assertThat(page.byClass.map { "${it.value} ${it.count}" })
-            .containsExactly("FIXED_SIZE 11", "UNKNOWN 1", "CALLER_DECIDES 1", "ANCHORED_ELSEWHERE 1", "ANCHORED_TO_COLUMN 6")
+    fun `a column's places come by verdict, with the reads through a view`() {
+        val page = index.columnPlaces(code, every).result!!
         assertThat(page.total).isEqualTo(20)
-        assertThat(page.rows.map { it.placeClass }.distinct()).containsExactly("FIXED_SIZE", "UNKNOWN", "CALLER_DECIDES", "ANCHORED_ELSEWHERE", "ANCHORED_TO_COLUMN")
+        assertThat(page.counts.sumOf { it.count }).isEqualTo(20)
+        assertThat(page.rows.map { Verdict.valueOf(it.verdict).ordinal }).isSorted()
         // The read of the view's column is a place of the base column, through the view.
         val viewed = page.rows.single { it.viaView }
-        assertThat(listOf(viewed.read.key, viewed.targetWritten, viewed.line.toString(), viewed.length.toString(), viewed.unit))
-            .containsExactly("db:SHOP.V_ORDERS.CODE", "l_code", "32", "12", "NLS_LENGTH_SEMANTICS")
+        assertThat(listOf(viewed.read.key, viewed.targetWritten, viewed.line.toString(), viewed.length.toString(), viewed.unit, viewed.verdict))
+            .containsExactly("db:SHOP.V_ORDERS.CODE", "l_code", "32", "12", "BYTE", "FITS")
         val sub = page.rows.single { it.targetWritten == "l_sub" }
         assertThat(listOf(sub.declaredType, sub.length.toString(), sub.unit, sub.typeSource?.key)).containsExactly("t_code", "12", "CHAR", "db:SHOP.PK_ORD.T_CODE")
         // Pages follow each other without repeating a place.
-        val first = index.columnPlaces(code, 0, 10).result!!
-        val second = index.columnPlaces(code, first.nextOffset!!, 10).result!!
+        val first = index.columnPlaces(code, every, 0, 10).result!!
+        val second = index.columnPlaces(code, every, first.nextOffset!!, 10).result!!
         assertThat(second.nextOffset).isNull()
         assertThat(first.rows + second.rows).isEqualTo(page.rows)
     }

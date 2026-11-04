@@ -84,15 +84,26 @@ class AtlasIndex(
     }
 
     /**
-     * A page of the places the value of the column [key] is read into in PL/SQL ([ColumnPlace]), its own and those of
-     * the view columns computed from it: by class, then by file and line, [limit] from
-     * [offset]; with [concatenated], only those the value lands in alone (false) or as a part of a concatenation
-     * (true). Null when there is no such entity.
+     * The places the value of the column [key] is read into in PL/SQL ([ColumnPlace]), its own and those of the view
+     * columns computed from it, each with its [Verdict] against the size [filter] asks for, those [filter] lists grouped
+     * by routine: [limit] groups from [offset]. Null when there is no such entity.
      */
-    fun columnPlaces(key: String, offset: Int = 0, limit: Int = 100, concatenated: Boolean? = null): Answer<ColumnPlacePage?> {
+    fun columnPlaceGroups(key: String, filter: PlaceFilter = PlaceFilter(), offset: Int = 0, limit: Int = 15): Answer<PlaceGroupsPage?> {
+        checkPage(filter, offset, limit)
+        return read { connection, _ -> PlaceReader(connection).groups(key, filter, offset, limit) }
+    }
+
+    /** As [columnPlaceGroups], as rows: by verdict, then by file and line, [limit] from [offset]. */
+    fun columnPlaces(key: String, filter: PlaceFilter = PlaceFilter(), offset: Int = 0, limit: Int = 100): Answer<ColumnPlacePage?> {
+        checkPage(filter, offset, limit)
+        return read { connection, _ -> PlaceReader(connection).rows(key, filter, offset, limit) }
+    }
+
+    private fun checkPage(filter: PlaceFilter, offset: Int, limit: Int) {
         if (offset < 0) throw InvalidQueryException("offset must not be negative")
         if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
-        return read { connection, _ -> PlaceReader(connection).page(key, offset, limit, concatenated) }
+        if (filter.size != null && filter.size < 1) throw InvalidQueryException("size must be at least 1")
+        if (filter.source != null && filter.source !in PLACE_SOURCES) throw InvalidQueryException("source must be one of ${PLACE_SOURCES.joinToString(", ")}")
     }
 
     /**
@@ -365,7 +376,10 @@ class AtlasIndex(
         val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 24
+        const val SCHEMA_VERSION = 25
+
+        /** How a place's value arrives ([ColumnPlace.source]), the values [PlaceFilter.source] takes. */
+        val PLACE_SOURCES = listOf("SELECT_INTO", "FETCH", "RETURNING", "ASSIGNMENT", "IN_ARGUMENT", "OUT_ARGUMENT", "RETURNED")
 
         /** The fewest characters a text search takes: one trigram. */
         const val MIN_TEXT = 3

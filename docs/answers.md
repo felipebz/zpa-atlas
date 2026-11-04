@@ -53,8 +53,13 @@ This answers more than one question:
 - **Where the value travels**, such as a column with personal data: the places are the variables and parameters that
   hold it, routine by routine.
 
-Places where the value is only part of a longer text (`'Order ' || code`) are shown apart: the target there holds
-more than the column. The other way round, a variable's page lists the columns whose value it receives.
+Each place is compared with the column's size, or with one you type, to answer "what breaks if the column becomes
+40?": a target *smaller* than that size, one whose *caller decides*, one *not known*, one that *fits*, one that
+*follows the column*. A click on a row shows its declaration and the call the value comes through.
+
+Places where the value is only part of a longer text (`'Order ' || code`) are left out until you ask for them: the
+target there holds more than the column, and the row says how much room is left. The other way round, a variable's
+page lists the columns whose value it receives.
 
 The list is as complete as Atlas can make it, not a proof: what Atlas could not follow is recorded as
 [coverage notes](concepts.md#coverage-notes).

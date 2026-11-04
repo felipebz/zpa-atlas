@@ -192,7 +192,7 @@ internal class IncrementalRun private constructor(
 
         /**
          * A checksum of everything [dictionary] holds, its acquisition time aside: what it was built from (the metadata,
-         * its relations, synonyms, schemas, object names, keys and `NOT NULL` columns), not the maps it derives from them. Each part is rendered on
+         * its relations, synonyms, schemas, object names, keys, `NOT NULL` columns and units' length semantics), not the maps it derives from them. Each part is rendered on
          * its own and fed to the checksum, so no text of the whole dictionary is ever built.
          */
         internal fun fingerprint(dictionary: AtlasDictionary): String {
@@ -228,6 +228,8 @@ internal class IncrementalRun private constructor(
             add("not null ${dictionary.notNull.size}")
             dictionary.notNull.entries.map { "${it.key.first}.${it.key.second} ${it.value.sorted()}" }.sorted().forEach(::add)
             add("sees every table ${dictionary.seesEveryTable}")
+            add("length semantics ${dictionary.lengthSemantics.size}")
+            dictionary.lengthSemantics.entries.map { "${it.key.owner}.${it.key.name} ${it.key.type} ${it.value}" }.sorted().forEach(::add)
             return HexFormat.of().formatHex(digest.digest())
         }
 

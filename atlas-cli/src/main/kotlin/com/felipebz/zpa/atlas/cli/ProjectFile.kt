@@ -60,6 +60,7 @@ class ProjectFile(
             "compilationSchema" to "--compilation-schema",
             "databaseVersion" to "--database-version",
             "ccflags" to "--ccflags",
+            "nlsLengthSemantics" to "--nls-length-semantics",
             "oracle.url" to "--oracle-url",
             "oracle.user" to "--oracle-user",
             "oracle.passwordEnv" to "--oracle-password-env",

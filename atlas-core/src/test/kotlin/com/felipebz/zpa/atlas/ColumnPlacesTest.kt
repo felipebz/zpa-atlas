@@ -8,12 +8,14 @@ package com.felipebz.zpa.atlas
 import com.felipebz.zpa.api.project.ProjectExternalColumn
 import com.felipebz.zpa.api.project.ProjectExternalDatatype
 import com.felipebz.zpa.api.project.ProjectExternalDatatype.LengthSemantics
+import com.felipebz.zpa.api.project.ProjectExternalMetadata
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionaryRelation
 import com.felipebz.zpa.atlas.dictionary.DictionaryRelationKind
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.model.CompiledUnit
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -40,13 +42,47 @@ class ColumnPlacesTest {
         FROM column_place p JOIN entity c ON c.id = p.column_id LEFT JOIN entity s ON s.id = p.type_source_id
         JOIN source_file f ON f.id = p.file_id ${if (path == null) "" else "WHERE f.path = '$path'"} ORDER BY p.id""")
 
+    /** Each sized place's target, its length, unit and where the unit comes from (with the unit compiled so). */
+    private fun units(db: Path) = Fixture.query(db, """
+        SELECT p.target_written || ' ' || p.length || ' ' || p.length_unit || ' ' || coalesce(p.unit_source, '-') ||
+               coalesce(' ' || p.unit_compiled_type || ' ' || p.unit_compiled_owner || '.' || p.unit_compiled_name, '')
+        FROM column_place p WHERE p.length IS NOT NULL ORDER BY p.id""")
+
+    @Test
+    fun `a length written without a unit counts as the unit declaring it was compiled, else in the index's unit`() {
+        val more = mapOf("read_other.prc" to "create or replace procedure read_other is\n  v varchar2(5);\nbegin\n  select code into v from orders;\nend;\n/\n")
+        // The spec was compiled with CHAR, the body with BYTE; the dictionary has no row for the procedure.
+        // No relation: the table is the one the sources create, as without a dictionary.
+        val dictionary = AtlasDictionary(ProjectExternalMetadata.none(), emptyList(), enumerable = false, lengthSemantics = mapOf(
+            CompiledUnit("SHOP", "PK_LV", "PACKAGE") to "CHAR", CompiledUnit("SHOP", "PK_LV", "PACKAGE BODY") to "BYTE"))
+        val db = SizesFixture.index(temp, "CHAR", more, dictionary)
+        assertThat(units(db)).containsExactly(
+            "c1 5 BYTE COMPILED PACKAGE BODY SHOP.PK_LV",
+            "c2 10 BYTE COMPILED PACKAGE BODY SHOP.PK_LV",
+            "c3 10 CHAR WRITTEN",
+            "c4 30 BYTE COMPILED PACKAGE BODY SHOP.PK_LV",
+            // A field of a record type of the spec, read in the body: the spec's setting.
+            "r.code 8 CHAR COMPILED PACKAGE SHOP.PK_LV",
+            "n1 10 BYTE WRITTEN",
+            "n2 4 BYTE COMPILED PACKAGE BODY SHOP.PK_LV",
+            "n3 40 BYTE WRITTEN",
+            "a1 4 DIGITS -",
+            "a2 8 DIGITS -",
+            "v 5 CHAR OPTION"
+        )
+        // The columns of a CREATE TABLE of the sources have the datatype it writes, unit or not.
+        assertThat(Fixture.query(db, "SELECT e.name || ' ' || d.datatype FROM declared_text d JOIN entity e ON e.id = d.entity_id WHERE e.key LIKE 'db:SHOP.ORDERS.%' ORDER BY e.name"))
+            .containsExactly("AMOUNT number(8,2)", "CODE varchar2(10 byte)", "LABEL varchar2(10)", "NOTE varchar2(10 char)", "ORDER_ID number(10)")
+        assertThat(Fixture.query(db, "SELECT nls_length_semantics FROM run")).containsExactly("CHAR")
+    }
+
     @Test
     fun `each INTO target is classified by how it is declared, its anchors and types followed`() {
         assertThat(places(PlacesFixture.index(temp))).containsExactly(
             // Fixed sizes, a length written without unit, with CHAR through a subtype, with BYTE in RETURNING INTO.
-            "19 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "19 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
             "20 ORDERS.CODE SELECT_INTO l_code2 ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
-            "21 ORDERS.CODE SELECT_INTO l_any FIXED_SIZE varchar2(4000) 4000 NLS_LENGTH_SEMANTICS - -",
+            "21 ORDERS.CODE SELECT_INTO l_any FIXED_SIZE varchar2(4000) 4000 BYTE - -",
             "22 ORDERS.CODE SELECT_INTO l_sub FIXED_SIZE t_code 12 CHAR PK_ORD.T_CODE -",
             // An anchor to a variable anchored to the column.
             "23 ORDERS.CODE SELECT_INTO l_via ANCHORED_TO_COLUMN l_code2%type - ORDERS.CODE -",
@@ -64,21 +100,21 @@ class ColumnPlacesTest {
             "29 ORDERS.NOTE SELECT_INTO r_ord.NOTE ANCHORED_TO_COLUMN orders%rowtype - ORDERS.NOTE -",
             "29 ORDERS.ORDER_ID SELECT_INTO r_ord.ORDER_ID ANCHORED_TO_COLUMN orders%rowtype - ORDERS.ORDER_ID -",
             // BULK COLLECT into a collection of a fixed-size VARCHAR2: its element type holds the value.
-            "30 ORDERS.CODE SELECT_INTO BULK l_codes FIXED_SIZE t_codes 12 NLS_LENGTH_SEMANTICS PK_ORD.T_CODES -",
+            "30 ORDERS.CODE SELECT_INTO BULK l_codes FIXED_SIZE t_codes 12 BYTE PK_ORD.T_CODES -",
             // Line 31 reads the column through UPPER. Line 32 reads the view's column.
-            "31 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via UPPER",
-            "32 V_ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "31 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER",
+            "32 V_ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
             "33 ORDERS.CODE RETURNING l_ret FIXED_SIZE varchar2(20 byte) 20 BYTE - -",
             // A FETCH from the spec's cursor: its third item reads the column through UPPER.
             "35 ORDERS.ORDER_ID FETCH l_num NO_SIZE number - - -",
-            "35 ORDERS.CODE FETCH l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
-            "35 ORDERS.CODE FETCH l_any FIXED_SIZE varchar2(4000) 4000 NLS_LENGTH_SEMANTICS - - via UPPER",
+            "35 ORDERS.CODE FETCH l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
+            "35 ORDERS.CODE FETCH l_any FIXED_SIZE varchar2(4000) 4000 BYTE - - via UPPER",
             // A variable of a package the sources do not declare: zpa binds it to nothing of the project.
             "37 ORDERS.CODE SELECT_INTO ext_pkg.g_code UNKNOWN - - - TARGET_UNDECIDED",
             // A field of a cursor loop record assigned to a variable.
-            "40 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "40 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
             // An anonymous block's variable has no entity: its own declaration says its type.
-            "4 ORDERS.CODE SELECT_INTO l_short FIXED_SIZE varchar2(5) 5 NLS_LENGTH_SEMANTICS - -"
+            "4 ORDERS.CODE SELECT_INTO l_short FIXED_SIZE varchar2(5) 5 BYTE - -"
         )
     }
 
@@ -147,7 +183,7 @@ class ColumnPlacesTest {
             "29 ORDERS.AMOUNT SELECT_INTO l_data(2).amount ANCHORED_TO_COLUMN orders.amount%type - ORDERS.AMOUNT -",
             // Through an element and a record field, and an element of a field that is a collection.
             "30 ORDERS.CODE SELECT_INTO l_deep(1).acc.code ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
-            "31 ORDERS.CODE SELECT_INTO l_deep(1).names(2) FIXED_SIZE t_names 30 NLS_LENGTH_SEMANTICS PK_ACC.T_NAMES -",
+            "31 ORDERS.CODE SELECT_INTO l_deep(1).names(2) FIXED_SIZE t_names 30 BYTE PK_ACC.T_NAMES -",
             // A number: the digits before the point (p - s) and the scale.
             "40 ORDERS.ORDER_ID SELECT_INTO l_fixed FIXED_SIZE number(10,2) 8 DIGITS scale 2 - -",
             "41 ORDERS.ORDER_ID SELECT_INTO l_left FIXED_SIZE number(5,-2) 7 DIGITS scale -2 - -",
@@ -216,16 +252,16 @@ class ColumnPlacesTest {
         val proc = "db:SHOP.ASSIGN_CODES(P_OUT OUT VARCHAR2)."
         assertThat(places(db, "assign.sql").map { it.replace(proc, "") }).containsExactly(
             // The record of a loop over a query, of a loop over a cursor, and a %ROWTYPE variable.
-            "10 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "10 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
             "13 ORDERS.CODE ASSIGNMENT l_any ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
             "15 ORDERS.AMOUNT SELECT_INTO r_ord.AMOUNT ANCHORED_TO_COLUMN orders%rowtype - ORDERS.AMOUNT -",
             "15 ORDERS.CODE SELECT_INTO r_ord.CODE ANCHORED_TO_COLUMN orders%rowtype - ORDERS.CODE -",
             "15 ORDERS.NOTE SELECT_INTO r_ord.NOTE ANCHORED_TO_COLUMN orders%rowtype - ORDERS.NOTE -",
             "15 ORDERS.ORDER_ID SELECT_INTO r_ord.ORDER_ID ANCHORED_TO_COLUMN orders%rowtype - ORDERS.ORDER_ID -",
-            "16 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "16 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
             // Line 17 assigns the field through UPPER, line 19 a cursor field that is upper(code).
-            "17 ORDERS.CODE ASSIGNMENT l_up FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via UPPER",
-            "19 ORDERS.CODE ASSIGNMENT l_up FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via UPPER",
+            "17 ORDERS.CODE ASSIGNMENT l_up FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER",
+            "19 ORDERS.CODE ASSIGNMENT l_up FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER",
             "21 ORDERS.CODE ASSIGNMENT p_out CALLER_DECIDES varchar2 - - - OUT"
         )
         assertThat(Fixture.query(db, """SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id
@@ -270,7 +306,7 @@ class ColumnPlacesTest {
             // Without a dictionary `select *` names no column; the field of the %ROWTYPE variable still does.
             "17 CODE ASSIGNMENT l(1).code ANCHORED_TO_COLUMN tab_row - CODE -",
             // An element of a record type: its field's own declaration, as before.
-            "18 CODE SELECT_INTO l(1).cd FIXED_SIZE varchar2(5) 5 NLS_LENGTH_SEMANTICS - -"
+            "18 CODE SELECT_INTO l(1).cd FIXED_SIZE varchar2(5) 5 BYTE - -"
         )
     }
 
@@ -306,13 +342,13 @@ class ColumnPlacesTest {
         val db = temp.resolve("places.db")
         Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
         assertThat(places(db, "funcs.sql")).containsExactly(
-            "7 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via NVL",
-            "8 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via MAX",
+            "7 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - - via NVL",
+            "8 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - - via MAX",
             "9 ORDERS.AMOUNT SELECT_INTO l_amt FIXED_SIZE number(5) 5 DIGITS scale 0 - - via NVL",
-            "11 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via UPPER,TRIM",
+            "11 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER,TRIM",
             // Lines 13 (NVL2's first argument), 14 (two columns) and 15 (SUBSTR inside NVL) are not places.
-            "17 ORDERS.CODE FETCH l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via MAX",
-            "20 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - - via UPPER"
+            "17 ORDERS.CODE FETCH l_code FIXED_SIZE varchar2(12) 12 BYTE - - via MAX",
+            "20 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER"
         )
         assertThat(Fixture.query(db, """SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id
             WHERE c.kind = 'COLUMN_VALUE_NOT_FOLLOWED' AND f.path = 'funcs.sql' ORDER BY 1""").map { it.substringBefore(" ") })
@@ -369,15 +405,15 @@ class ColumnPlacesTest {
             "11 ORDERS.CODE SELECT_INTO o_code CALLER_DECIDES varchar2 - - - OUT",
             // relay passes its own OUT parameter: its callers are followed in turn.
             "15 ORDERS.CODE OUT_ARGUMENT o_code CALLER_DECIDES varchar2 - - - OUT",
-            "28 ORDERS.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
-            "29 ORDERS.CODE OUT_ARGUMENT l_wide FIXED_SIZE varchar2(30) 30 NLS_LENGTH_SEMANTICS - -",
+            "28 ORDERS.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
+            "29 ORDERS.CODE OUT_ARGUMENT l_wide FIXED_SIZE varchar2(30) 30 BYTE - -",
             // A named argument.
-            "30 ORDERS.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "30 ORDERS.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
             "31 ORDERS.CODE OUT_ARGUMENT l_any ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
-            "32 ORDERS.CODE OUT_ARGUMENT r.c FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
-            "33 ORDERS.CODE OUT_ARGUMENT a(1) FIXED_SIZE a_t 12 NLS_LENGTH_SEMANTICS SHOW_CODE().A_T -",
+            "32 ORDERS.CODE OUT_ARGUMENT r.c FIXED_SIZE varchar2(12) 12 BYTE - -",
+            "33 ORDERS.CODE OUT_ARGUMENT a(1) FIXED_SIZE a_t 12 BYTE SHOW_CODE().A_T -",
             // Through relay's o_code.
-            "34 ORDERS.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -"
+            "34 ORDERS.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - -"
         )
         // Line 35 passes an expression: counted.
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'").map { it.substringBefore(" ") })
@@ -416,8 +452,8 @@ class ColumnPlacesTest {
             "8 ORD_X.CODE SELECT_INTO o_i CALLER_DECIDES varchar2 - - - OUT",
             // outer passes its own OUT parameter: outer's callers are followed in turn.
             "12 ORD_X.CODE OUT_ARGUMENT o_o CALLER_DECIDES varchar2 - - - OUT",
-            "15 ORD_X.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
-            "16 ORD_X.CODE OUT_ARGUMENT l_wide FIXED_SIZE varchar2(30) 30 NLS_LENGTH_SEMANTICS - -"
+            "15 ORD_X.CODE OUT_ARGUMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
+            "16 ORD_X.CODE OUT_ARGUMENT l_wide FIXED_SIZE varchar2(30) 30 BYTE - -"
         )
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'")).isEmpty()
     }
@@ -1529,15 +1565,15 @@ class ColumnPlacesTest {
             SELECT p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || ' ' || p.class || coalesce(' ' || p.length, '') ||
                    coalesce(' via ' || p.functions, '')
             FROM column_place p JOIN entity c ON c.id = p.column_id
-            WHERE p.target_written <> 'l' AND p.source IN ('RETURNED', 'IN_ARGUMENT', 'OUT_ARGUMENT') ORDER BY p.target_written, c.key""")).containsExactly(
+            WHERE p.target_written <> 'l' AND p.source IN ('RETURNED', 'IN_ARGUMENT', 'OUT_ARGUMENT', 'ASSIGNMENT') ORDER BY p.target_written, c.key""")).containsExactly(
             // Each call's target: the column that call passed in, through the function its routine applies.
             "h1 CODE RETURNED FIXED_SIZE 5 via UPPER", "h12 NOTE RETURNED FIXED_SIZE 5 via LOWER", "h13 CODE RETURNED FIXED_SIZE 5 via RTRIM",
             "h2 NOTE RETURNED FIXED_SIZE 5 via UPPER", "h3 NOTE RETURNED FIXED_SIZE 5 via NVL", "h4 CODE RETURNED FIXED_SIZE 5 via TRIM",
             "h5 CODE RETURNED FIXED_SIZE 5 via UPPER", "h6 CODE OUT_ARGUMENT FIXED_SIZE 5 via UPPER", "h7 NOTE OUT_ARGUMENT FIXED_SIZE 5 via UPPER",
             // A column read in the routine itself: for every caller, through RETURN or an OUT parameter.
             "h8 CODE OUT_ARGUMENT FIXED_SIZE 5", "h9 CODE RETURNED FIXED_SIZE 5",
-            // Inside the routines: what their OUT parameters are given.
-            "p_res CODE IN_ARGUMENT CALLER_DECIDES via UPPER", "p_res CODE IN_ARGUMENT CALLER_DECIDES", "p_res NOTE IN_ARGUMENT CALLER_DECIDES via UPPER"
+            // Inside the routines: what their OUT parameters are given, from a call, or assigned what the routine read itself.
+            "p_res CODE IN_ARGUMENT CALLER_DECIDES via UPPER", "p_res CODE ASSIGNMENT CALLER_DECIDES", "p_res NOTE IN_ARGUMENT CALLER_DECIDES via UPPER"
         )
         // Within substr, given to an OUT parameter (h10) or returned (h11): not followed, counted where the routine writes it.
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
@@ -1862,7 +1898,7 @@ class ColumnPlacesTest {
             "l CODE SELECT_INTO FIXED_SIZE 20 -", "l CODE SELECT_INTO FIXED_SIZE 20 -", "l CODE SELECT_INTO FIXED_SIZE 20 -",
             "l1 CODE IN_ARGUMENT FIXED_SIZE 5 REPLACE",                     // strip's, from f4's code_of result
             "l CODE SELECT_INTO FIXED_SIZE 20 -",
-            "p_out CODE IN_ARGUMENT CALLER_DECIDES REPLACE",
+            "p_out CODE ASSIGNMENT CALLER_DECIDES REPLACE",                 // held by l, read in out_code itself: no call
             "s1 CODE SELECT_INTO FIXED_SIZE 5 REPLACE", "s2 CODE SELECT_INTO FIXED_SIZE 5 REPLACE",
             "s3 CODE SELECT_INTO FIXED_SIZE 5 REPLACE concatenated",        // the column is the replacement
             "s4 NOTE SELECT_INTO FIXED_SIZE 5 REPLACE",                     // code is the search text: no place
@@ -1952,7 +1988,7 @@ class ColumnPlacesTest {
     fun `without a dictionary the columns the code names still have their places`() {
         val rows = places(PlacesFixture.index(temp, AtlasDictionary.NONE))
         assertThat(rows).contains(
-            "19 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 NLS_LENGTH_SEMANTICS - -",
+            "19 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
             "20 ORDERS.CODE SELECT_INTO l_code2 ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -"
         )
         // A `*` without the dictionary's columns names none.

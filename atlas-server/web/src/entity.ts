@@ -1,7 +1,6 @@
 import type {
     Answer,
     ColumnPlace,
-    ColumnPlacePage,
     Documentation,
     EntityDetail,
     EntitySummary,
@@ -9,10 +8,14 @@ import type {
     Member,
     OccurrencePage,
     Overload,
+    PlaceGroup,
+    PlaceGroupsPage,
+    PlaceSource,
     TableKey,
-    ValueGroup
+    ValueGroup,
+    Verdict
 } from "./api";
-import {api, ApiFailure, columnPlaces, errorMessage} from "./api";
+import {api, ApiFailure, columnPlaceGroups, errorMessage} from "./api";
 import type {DeclaredFact} from "./declared-view";
 import {declaredFacts, memberType, parameterDefaults, returnType} from "./declared-view";
 import {docFromKey, docPlaceKey, docSummary} from "./doc-view";
@@ -60,20 +63,25 @@ import {
 } from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {
-    callsText,
-    classCounts,
-    classLabel,
-    classTitle,
-    concatenatedText,
+    compareNote,
+    compareUnitText,
+    DEFAULT_VERDICTS,
+    type DetailPart,
+    fileName,
+    functionsCode,
     functionsText,
-    needsAttention,
-    parameterText,
+    groupCountsText,
+    howText,
+    moreText,
+    optionSizedText,
+    PLACE_SOURCES,
+    placeDetail,
     placesTotal,
-    reasonText,
-    sizeNote,
-    sizeText,
-    sourceText,
-    typeSourcePhrase,
+    rowAt,
+    shownText,
+    sizeShown,
+    verdictButtons,
+    VERDICTS,
     viewOf
 } from "./places-view";
 import {displayParts, parentKeyOf} from "./names";
@@ -503,12 +511,11 @@ function renderEntity(entity: EntityDetail) {
   // What a parameter is passed and what a column is written: the same groups, from different rows.
   const valuesTitle = entity.kind === "PARAMETER" ? "values.title.passed" : entity.kind === "COLUMN" ? "values.title.written" : null;
   if (valuesTitle) loadValues(valuesTitle);
-  // Where a column's value is read into in PL/SQL, and how each target is declared.
-  // The places the value lands in alone count for the section; those where it is one part of a concatenation are a
-  // group of their own, closed.
+  // Where a column's value is read into in PL/SQL, compared with the column's size: the places where it lands alone
+  // count for the section, those where it is one part of a concatenation join the list when the reader asks.
   const placeCount = entity.kind === "COLUMN" ? placesTotal(entity.placesByClass) : 0;
   const joinedCount = entity.kind === "COLUMN" ? entity.concatenatedPlaces : 0;
-  if (placeCount + joinedCount > 0) loadPlaces(placeCount, joinedCount);
+  if (placeCount + joinedCount > 0) setupPlaces(placeCount === 0);
 
   // The list leads to every section of the content column; the usage count becomes the scope's total once it loads,
   // and values have no count until they load.
@@ -652,16 +659,24 @@ async function loadValueSites(group: ValueGroup, block: UsesBlock, row: Element,
 
 // ---- the places a column's value is read into ------------------------------------------------------------------------
 
-const PLACES_PAGE = 100;
+/** Routines per page of places. */
+const PLACE_GROUPS = 15;
+/** How long a keystroke in the size or the words waits for the next before the places are asked again, in milliseconds. */
+const PLACES_TYPING = 300;
 
-/** A class as a badge, its meaning as the tooltip; FIXED_SIZE and UNKNOWN stand out. */
-function placeClassBadge(placeClass: string, text = classLabel(t, placeClass)) {
-  const attention = needsAttention(placeClass) ? " attention" : "";
-  return `<span class="badge pc-${esc(placeClass)}${attention}" title="${esc(classTitle(t, placeClass))}">${esc(text)}</span>`;
-}
-
-/** The names on a place's row break only between their parts, never inside an identifier (a phone's narrow column). */
-const PARTS = { partBreaks: true };
+/**
+ * What the places are asked for (the verdicts listed, the size compared, null for the column's, the words, how the
+ * value arrives, and whether concatenated places join), and what the list shows: the first page of the last answer
+ * (the size compared and the column's unit), each row's place by its `data-place`, the next page's offset. [asked]
+ * counts the questions, so that an answer to an older one is dropped.
+ */
+const placeState: {
+  verdicts: Set<Verdict>; size: number | null; text: string; source: PlaceSource | null; concatenated: boolean;
+  page: PlaceGroupsPage | null; rows: ColumnPlace[]; next: number | null; asked: number; typing: number;
+} = {
+  verdicts: new Set(DEFAULT_VERDICTS), size: null, text: "", source: null, concatenated: false,
+  page: null, rows: [], next: null, asked: 0, typing: 0
+};
 
 /** A view column read in place of the page's column: the view (a link when its key is known) and the column, linked. */
 function throughViewHtml(read: EntitySummary) {
@@ -674,105 +689,247 @@ function throughViewHtml(read: EntitySummary) {
 }
 
 /**
- * One place: its class; the target as written in the code (a link when it has an entity) with the field that takes the
- * column, the routine it is in and, when read through a view, which; its declared type and, for a fixed size, the size
- * (a number's digits before the point and scale); the declaration that decides the type when another, what an OUT
- * parameter leaves to its callers, or why the index could not tell; how the value is read; and its line in the file.
- * Each cell has its class (`pclass` … `pline`), so that on a phone each part starts its own line (app.css).
+ * The section's frame, filled once: the verdict buttons, the note on sizes without a written unit, the size compared,
+ * the filters (words, how the value arrives, the concatenated places), the line of counts, the groups and "more".
  */
-function placeRowHtml(p: ColumnPlace) {
-  const written = `<span class="mono">${codeBreaksHtml(p.targetWritten)}</span>`;
-  const target = (p.target ? `<a href="${entityHref(p.target.key)}" title="${esc(p.target.display)}">${written}</a>` : written) +
-    (p.field ? `<span class="mono">.${nameBreaksHtml(p.field)}</span>` : "");
-  const container = p.container ? `<div class="muted">${fillHtml("places.in", { container: entityLink(p.container, PARTS) })}</div>` : "";
-  const through = p.viaView ? `<div class="muted">${throughViewHtml(p.read)}</div>` : "";
-  const size = sizeText(t, p);
-  const note = sizeNote(t, p);
-  const declared = (p.declaredType ? `<span class="mono">${codeBreaksHtml(p.declaredType)}</span>` : "") +
-    (size === null ? "" : ` <strong${p.scale === null ? ` class="nobr"` : ""}>${esc(size)}</strong>`) +
-    (note === null ? "" : ` <span class="muted">(${esc(note)})</span>`);
-  const source = typeSourcePhrase(p);
-  const parameter = parameterText(t, p);
-  const functions = functionsText(t, p);
-  const concatenated = concatenatedText(t, p);
-  const calls = callsText(t, p);
-  const why = (source === null ? "" : `<div>${fillHtml(source.key, { source: entityLink(source.entity, PARTS) })}</div>`) +
-    (concatenated === null ? "" : `<div>${esc(concatenated)}</div>`) +
-    (functions === null ? "" : `<div>${esc(functions)}</div>`) +
-    (p.source === "RETURNED" && p.routine !== null ? `<div>${fillHtml("places.returnedBy", { routine: entityLink(p.routine, PARTS) })}</div>` : "") +
-    (p.argumentOf === null || p.routine === null ? "" :
-      `<div>${fillHtml(p.source === "IN_ARGUMENT" ? "places.passedTo" : "places.argumentOf", {
-        parameter: `<a class="mono parts" href="${entityHref(p.argumentOf.key)}">${partBreaksHtml(p.argumentOf.name)}</a>`,
-        routine: entityLink(p.routine, PARTS)
-      })}</div>`) +
-    (calls === null || p.callPath === null || p.callLine === null ? "" :
-      `<div class="muted">${esc(calls)} ${placeHtml({ half: null, path: p.callPath, line: p.callLine, col: 0, partner: null, file: true }, p.read, null)}</div>`) +
-    (parameter === null ? "" : `<div class="uses-gap">${esc(parameter)}</div>`) +
-    (p.reason === null ? "" : `<div class="uses-gap" title="${esc(p.reason)}">${esc(reasonText(t, p.reason))}</div>`);
-  const line = placeHtml({ half: null, path: p.path, line: p.line, col: p.column, partner: null, file: true }, p.target ?? p.read, null);
-  return `<tr><td class="pclass">${placeClassBadge(p.placeClass)}</td><td class="grow ptarget">${target}${container}${through}</td>` +
-    stackCell(declared, p.declaredType ? t("places.declaredType") : null, "pdecl") + `<td class="grow pwhy">${why}</td>` +
-    `<td class="mono nobr psource">${esc(sourceText(t, p))}</td><td class="pline">${line}</td></tr>`;
+function placesFrameHtml() {
+  const sources = [`<option value="">${esc(t("places.source.any"))}</option>`,
+    ...PLACE_SOURCES.map(s => `<option value="${s}">${esc(t("places.source." + s))}</option>`)].join("");
+  return sectionHead(t("places.title"), t("places.line")) +
+    `<div class="place-verdicts" role="group" aria-label="${esc(t("places.verdicts"))}"></div>` +
+    `<p class="place-option muted" hidden></p>` +
+    `<div class="place-compare"><label>${esc(t("places.compare"))} <input type="number" class="place-size" min="1" step="1" inputmode="numeric"></label>` +
+    ` <span class="place-unit"></span> <span class="place-note muted"></span></div>` +
+    `<div class="tools place-filters"><input type="search" class="filter place-text" placeholder="${esc(t("places.filter.text"))}" aria-label="${esc(t("places.filter.text"))}">` +
+    `<select class="place-source" aria-label="${esc(t("places.filter.source"))}">${sources}</select>` +
+    `<label class="place-joined"><input type="checkbox"> <span></span></label></div>` +
+    `<p class="place-shown muted"></p><div class="place-groups"></div>` +
+    `<button type="button" class="more-rows place-more" hidden></button>`;
+}
+
+/** The verdict buttons, each with its count, the ones listed pressed; SMALLER, CALLER_DECIDES and UNKNOWN in their colors. */
+function verdictButtonsHtml(page: PlaceGroupsPage) {
+  return verdictButtons(t, page.counts, page.size).map(b =>
+    `<button type="button" class="v-${esc(b.verdict)}" data-verdict="${esc(b.verdict)}" aria-pressed="${placeState.verdicts.has(b.verdict)}" ` +
+    `title="${esc(b.title)}">${esc(b.label)} <span class="count">${esc(formatNumber(b.count))}</span></button>`).join("");
+}
+
+/** What the answer says above the list: the verdict counts, the default unit's note, the size compared, the concatenated count and the line of counts. */
+function renderPlacesHead(holder: HTMLElement, page: PlaceGroupsPage) {
+  const verdicts = holder.querySelector<HTMLElement>(".place-verdicts")!;
+  // A pressed button keeps the focus across the new answer.
+  const focused = (document.activeElement as HTMLElement | null)?.dataset?.verdict;
+  verdicts.innerHTML = verdictButtonsHtml(page);
+  if (focused) verdicts.querySelector<HTMLElement>(`button[data-verdict="${focused}"]`)?.focus();
+  const option = holder.querySelector<HTMLElement>(".place-option")!;
+  const optionText = optionSizedText(t, page);
+  option.hidden = optionText === null;
+  option.textContent = optionText ?? "";
+  holder.querySelector<HTMLInputElement>(".place-size")!.placeholder = page.column.length === null ? "" : String(page.column.length);
+  holder.querySelector(".place-unit")!.textContent = compareUnitText(t, page.column.unit);
+  const note = compareNote(t, page);
+  holder.querySelector(".place-note")!.innerHTML = esc(note.text) +
+    (note.back === null ? "" : ` <button type="button" class="place-back">${esc(note.back)}</button>`);
+  holder.querySelector(".place-joined span")!.textContent = t("places.filter.concatenated", { count: page.concatenatedCount });
+  holder.querySelector(".place-shown")!.textContent = shownText(t, page);
 }
 
 /**
- * The places the page's column is read into: first those its value lands in alone ([direct] of them), then, in a group
- * closed until opened, those where it is one part of a concatenation ([joined]), which a message built from many
- * columns may give by the thousand. Each lists its counts by class, then a row per place in the backend's order (by
- * class, then file and line), and "more" while there are more.
+ * One place, in four parts: its size against the size compared (a bar, the number, and the unit when it is not the
+ * column's; `%TYPE`, the parameter's mode or `?` for the verdicts that have none); the target as written (a link when
+ * it has an entity) with its field; how the value arrives, with the functions it goes through, "+ other text" and
+ * "via view"; and its line, linking to the file (for a parameter, the call that passes the column). Focusable: its detail opens under it.
  */
-async function loadPlaces(direct: number, joined: number) {
-  const target = document.getElementById("places")!;
-  const head = sectionHead(t("places.title"), t("places.line"));
-  const total = joined > 0 ? t("places.totalWith", { count: direct, joined }) : t("places.total", { count: direct });
-  const group = joined === 0 ? "" : `<details class="place-group"><summary>${esc(t("places.joined.title", { count: joined }))}</summary>` +
-    `<p class="muted">${esc(t("places.joined.why"))}</p><div class="place-list"></div></details>`;
-  target.innerHTML = head + `<p class="muted place-total">${esc(total)}</p><div class="place-list"></div>` + group;
-  const lists = target.querySelectorAll<HTMLElement>(".place-list");
-  if (direct > 0) await fillPlaces(lists[0], false);
-  if (joined > 0) {
-    const details = target.querySelector<HTMLDetailsElement>("details.place-group")!;
-    details.addEventListener("toggle", () => {
-      if (details.open && !details.dataset.loaded) {
-        details.dataset.loaded = "true";
-        fillPlaces(lists[1], true);
-      }
-    });
-  }
+function placeRowHtml(p: ColumnPlace, index: number, page: PlaceGroupsPage, groupPath: string) {
+  const shown = sizeShown(t, p, page.size, page.column.unit);
+  const bar = shown.fill === null ? "" : `<span class="place-bar"><i style="width:${Math.round(shown.fill * 100)}%"></i></span>`;
+  const size = `<span class="place-sz">${bar}<span class="place-n">${esc(shown.text)}</span></span>`;
+  const written = `<span class="mono">${codeBreaksHtml(p.targetWritten)}</span>`;
+  const target = (p.target ? `<a href="${entityHref(p.target.key)}" title="${esc(p.target.display)}">${written}</a>` : written) +
+    (p.field ? `<span class="mono">.${nameBreaksHtml(p.field)}</span>` : "");
+  const functions = functionsCode(p);
+  const how = esc(howText(t, p)) +
+    (functions === null ? "" : ` <code class="place-fn" title="${esc(functionsText(t, p))}">${esc(functions)}</code>`) +
+    (p.concatenated ? ` <span class="place-mark">${esc(t("places.otherText"))}</span>` : "") +
+    (p.viaView ? ` <span class="place-mark">${esc(t("places.viaView"))}</span>` : "");
+  // A parameter's line is the call that passes the column; the target's is in the detail.
+  const line = rowAt(t, p, groupPath);
+  const at = `<a href="file.html?path=${encodeURIComponent(line.path)}&line=${line.line}${langSuffix()}#L${line.line}" title="${esc(line.path)}">` +
+    `${esc(line.text)}</a>`;
+  return `<div class="place-row v-${esc(p.verdict)}" data-place="${index}" tabindex="0" aria-expanded="false" aria-controls="place-detail-${index}">` +
+    `${size}<span class="place-target">${target}</span><span class="place-how">${how}</span><span class="place-at">${at}</span></div>`;
 }
 
-/** The places of one group ([concatenated] or not) in [holder]: its counts by class, its rows, and "more" while there are more. */
-async function fillPlaces(holder: HTMLElement, concatenated: boolean) {
-  let page: ColumnPlacePage;
+/** What a place's row leaves out, under it when opened ([placeDetail]): each line's parts as HTML. */
+function placeDetailHtml(p: ColumnPlace, index: number) {
+  const part = (piece: DetailPart): string => {
+    if ("text" in piece) return esc(piece.text);
+    if ("code" in piece) return `<code class="decl">${codeBreaksHtml(piece.code)}</code>`;
+    if ("hint" in piece) return `<abbr class="hint" title="${esc(piece.title)}">${esc(piece.hint)}</abbr>`;
+    if ("entity" in piece) return `<a class="mono" href="${entityHref(piece.entity.key)}" title="${esc(piece.entity.display)}">${partBreaksHtml(piece.label)}</a>`;
+    if ("view" in piece) return throughViewHtml(piece.view);
+    return placeHtml({ half: null, path: piece.path, line: piece.line, col: 0, partner: null, file: true }, p.target ?? p.read, null);
+  };
+  const lines = placeDetail(t, p).map(line => `<div${line.className ? ` class="${line.className}"` : ""}${line.title ? ` title="${esc(line.title)}"` : ""}>` +
+    line.parts.map(part).join("") + `</div>`);
+  return `<div class="place-detail" id="place-detail-${index}">${lines.join("")}</div>`;
+}
+
+/**
+ * One routine's places: a header that folds them (the routine's short name with its parameters when overloads need
+ * them, then quiet its package and its file; the full name and the path as the tooltip; its counts on the right), and
+ * a row per place in line order.
+ */
+function placeGroupHtml(g: PlaceGroup, page: PlaceGroupsPage) {
+  const rows = g.rows.map(p => placeRowHtml(p, placeState.rows.push(p) - 1, page, g.path)).join("");
+  const title = g.container === null ? g.path : `${g.container.display}\n${g.path}`;
+  const params = g.parameters === null ? "" : `<span class="params">${partBreaksHtml(g.parameters)}</span>`;
+  // An anonymous block or a script is named by its file already.
+  const file = g.container === null ? "" : `<span class="place-file">${esc(fileName(g.path))}</span>`;
+  const pack = g.packageName === null ? "" : `<span class="place-pkg">${nameBreaksHtml(g.packageName)}</span>`;
+  const where = pack + (pack && file ? `<span class="place-sep" aria-hidden="true"> · </span>` : "") + file;
+  return `<div class="place-grp"><div class="place-grp-h" role="button" tabindex="0" aria-expanded="true" title="${esc(title)}">` +
+    `<span class="place-grp-name"><span class="mono">${nameBreaksHtml(g.routine)}</span>${params}` +
+    (where ? ` <span class="place-where">${where}</span>` : "") + `</span>` +
+    `<span class="grp-n muted">${esc(groupCountsText(t, g))}</span></div><div class="place-rows">${rows}</div></div>`;
+}
+
+/**
+ * Asks for the places with what the reader chose and shows them: from the start ([more] false: the head and the first
+ * groups, replacing the list), or the next groups after those shown. An answer to an older question is dropped.
+ */
+async function loadPlaceGroups(more: boolean) {
+  const holder = document.getElementById("places")!;
+  const groups = holder.querySelector<HTMLElement>(".place-groups")!;
+  const moreButton = holder.querySelector<HTMLButtonElement>(".place-more")!;
+  const ask = more ? placeState.asked : ++placeState.asked;
+  moreButton.disabled = true;
+  let page: PlaceGroupsPage | null;
   try {
-    page = await columnPlaces(key, 0, concatenated, PLACES_PAGE);
+    page = await columnPlaceGroups(key, {
+      size: placeState.size, verdicts: VERDICTS.filter(v => placeState.verdicts.has(v)), text: placeState.text, source: placeState.source,
+      concatenated: placeState.concatenated, offset: more ? placeState.next ?? 0 : 0, limit: PLACE_GROUPS
+    });
   } catch (e) {
-    holder.innerHTML = `<p class="muted">${esc(t("error.message", { error: errorMessage(e) }))}</p>`;
+    if (ask !== placeState.asked) return;
+    const message = `<p class="muted">${esc(t("error.message", { error: errorMessage(e) }))}</p>`;
+    if (more) groups.insertAdjacentHTML("beforeend", message);
+    else groups.innerHTML = message;
+    moreButton.disabled = false;
     return;
   }
-  if (page.rows.length === 0) {
-    holder.innerHTML = `<p class="muted">${esc(t("places.none"))}</p>`;
+  if (ask !== placeState.asked) return;
+  moreButton.disabled = false;
+  if (page === null) {
+    groups.innerHTML = `<p class="muted">${esc(t("places.none"))}</p>`;
+    moreButton.hidden = true;
     return;
   }
-  const counts = classCounts(t, page.byClass).map(c => placeClassBadge(c.value, c.text)).join("");
-  holder.innerHTML = `<p class="place-classes">${counts}</p>` +
-    scrollTable(`<tbody>${page.rows.map(placeRowHtml).join("")}</tbody>`, "compact stack places") +
-    `<button type="button" class="more-rows"${page.nextOffset === null ? " hidden" : ""}>${esc(t("usage.more"))}</button>`;
-  const rows = holder.querySelector("tbody")!;
-  const more = holder.querySelector<HTMLButtonElement>("button.more-rows")!;
-  let next = page.nextOffset;
-  more.addEventListener("click", async () => {
-    if (next === null) return;
-    more.disabled = true;
-    try {
-      const following = await columnPlaces(key, next, concatenated, PLACES_PAGE);
-      rows.insertAdjacentHTML("beforeend", following.rows.map(placeRowHtml).join(""));
-      next = following.nextOffset;
-    } finally {
-      more.disabled = false;
-      more.hidden = next === null;
+  if (!more) {
+    placeState.page = page;
+    placeState.rows = [];
+    renderPlacesHead(holder, page);
+    groups.innerHTML = page.groups.length === 0 ? `<p class="muted">${esc(t("places.empty"))}</p>` : "";
+  }
+  groups.insertAdjacentHTML("beforeend", page.groups.map(g => placeGroupHtml(g, placeState.page!)).join(""));
+  placeState.next = page.nextOffset;
+  moreButton.hidden = page.nextOffset === null;
+  moreButton.textContent = moreText(t, page.groupsLeft, PLACE_GROUPS);
+}
+
+/** Asks for the places again after a pause in the typing. */
+function loadPlacesSoon() {
+  window.clearTimeout(placeState.typing);
+  placeState.typing = window.setTimeout(() => loadPlaceGroups(false), PLACES_TYPING);
+}
+
+/** Opens or closes a place's detail, made the first time it opens. */
+function togglePlace(row: HTMLElement) {
+  const open = row.getAttribute("aria-expanded") !== "true";
+  row.setAttribute("aria-expanded", String(open));
+  const index = Number(row.dataset.place);
+  const detail = document.getElementById("place-detail-" + index);
+  if (detail) detail.hidden = !open;
+  else row.insertAdjacentHTML("afterend", placeDetailHtml(placeState.rows[index], index));
+}
+
+/** Folds or unfolds a routine's places. */
+function toggleGroup(head: HTMLElement) {
+  head.setAttribute("aria-expanded", String(head.getAttribute("aria-expanded") !== "true"));
+}
+
+/**
+ * The places the page's column is read into, compared with a size: the frame once, its controls each asking again
+ * (the size and the words after a pause in the typing), then the first groups. A column whose value is only ever
+ * one part of a concatenation ([joinedOnly]) lists those places from the start.
+ */
+function setupPlaces(joinedOnly: boolean) {
+  const holder = document.getElementById("places")!;
+  holder.innerHTML = placesFrameHtml();
+  placeState.concatenated = joinedOnly;
+  holder.querySelector<HTMLInputElement>(".place-joined input")!.checked = joinedOnly;
+  holder.addEventListener("click", e => {
+    const target = e.target as Element;
+    const verdict = target.closest<HTMLButtonElement>("button[data-verdict]");
+    if (verdict) {
+      const name = verdict.dataset.verdict as Verdict;
+      const shown = (placeState.page?.counts ?? []).map(c => c.name);
+      // At least one of the verdicts shown stays listed: an empty list asks for nothing.
+      if (placeState.verdicts.has(name) && !shown.some(v => v !== name && placeState.verdicts.has(v))) return;
+      if (!placeState.verdicts.delete(name)) placeState.verdicts.add(name);
+      verdict.setAttribute("aria-pressed", String(placeState.verdicts.has(name)));
+      loadPlaceGroups(false);
+      return;
+    }
+    if (target.closest("button.place-back")) {
+      window.clearTimeout(placeState.typing);
+      holder.querySelector<HTMLInputElement>(".place-size")!.value = "";
+      placeState.size = null;
+      loadPlaceGroups(false);
+      return;
+    }
+    if (target.closest("button.place-more")) {
+      loadPlaceGroups(true);
+      return;
+    }
+    if (target.closest("a, button, input, select, label")) return;
+    const head = target.closest<HTMLElement>(".place-grp-h");
+    if (head) {
+      toggleGroup(head);
+      return;
+    }
+    const row = target.closest<HTMLElement>(".place-row");
+    if (row) togglePlace(row);
+  });
+  holder.addEventListener("keydown", e => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const target = e.target as HTMLElement;
+    if (target.matches(".place-row")) togglePlace(target);
+    else if (target.matches(".place-grp-h")) toggleGroup(target);
+    else return;
+    e.preventDefault();
+  });
+  holder.addEventListener("input", e => {
+    const target = e.target as HTMLInputElement;
+    if (target.matches(".place-size")) {
+      const text = target.value.trim();
+      const size = Number(text);
+      if (text !== "" && !(Number.isInteger(size) && size > 0)) return;
+      placeState.size = text === "" ? null : size;
+      loadPlacesSoon();
+    } else if (target.matches(".place-text")) {
+      placeState.text = target.value.trim();
+      loadPlacesSoon();
     }
   });
+  holder.addEventListener("change", e => {
+    const target = e.target as HTMLInputElement | HTMLSelectElement;
+    if (target.matches(".place-source")) placeState.source = (target.value || null) as PlaceSource | null;
+    else if (target.matches(".place-joined input")) placeState.concatenated = (target as HTMLInputElement).checked;
+    else return;
+    loadPlaceGroups(false);
+  });
+  loadPlaceGroups(false);
 }
 
 // ---- "who uses" filters and pages ---------------------------------------------------------------------------------

@@ -15,6 +15,7 @@ zpa-atlas stats atlas.db
 | `--extensions` | The files to read. Default: `sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps`. |
 | `--encoding` | `auto` (default: each file read as UTF-8, else windows-1252), or one charset for every file. |
 | `--database-version`, `--ccflags` | The values conditional compilation (`$IF`) sees, as on the database. The version defaults to the one of `--oracle-url`. |
+| `--nls-length-semantics` | `BYTE` (default) or `CHAR`: how a length written without a unit (`varchar2(10)`) counts, as your code is compiled. With `--oracle-…`, the dictionary tells it for each unit. |
 | `--oracle-…` | Read the Oracle dictionary: see [Using the Oracle dictionary](#using-the-oracle-dictionary). |
 | `--project` | Take the options from a project file: see [Project files](#project-files). |
 | `--incremental` | Walk only the files a change can affect: see [Incremental indexing](#incremental-indexing). |
@@ -59,6 +60,7 @@ encoding: auto
 compilationSchema: HR
 databaseVersion: "19"
 ccflags: "debug:TRUE, level:2"
+nlsLengthSemantics: BYTE
 oracle:                         # optional
   url: jdbc:oracle:thin:@//db.example.com:1521/orcl
   user: atlas_reader

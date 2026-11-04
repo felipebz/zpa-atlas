@@ -288,12 +288,24 @@ export interface ValueGroup {
 /** How a place's target is declared, in the order the backend sorts places in. */
 export type PlaceClass = "FIXED_SIZE" | "UNKNOWN" | "CALLER_DECIDES" | "ANCHORED_ELSEWHERE" | "NO_SIZE" | "ANCHORED_TO_COLUMN";
 
+/**
+ * What a place's target means for a size S of the column: smaller than S, decided by each caller (an `OUT` parameter),
+ * not known, holds S, follows the column (`%TYPE`), or a size of its own when S is not known.
+ */
+export type Verdict = "SMALLER" | "CALLER_DECIDES" | "UNKNOWN" | "FITS" | "FOLLOWS" | "OWN_SIZE";
+
+/** What a size counts: bytes, characters, or a number's digits before the point. */
+export type SizeUnit = "BYTE" | "CHAR" | "DIGITS";
+
+/** How a column's value arrives in a place. */
+export type PlaceSource = "SELECT_INTO" | "FETCH" | "RETURNING" | "ASSIGNMENT" | "IN_ARGUMENT" | "OUT_ARGUMENT" | "RETURNED";
+
 /** A place a column's value is read into in PL/SQL (`SELECT … INTO`, `FETCH … INTO`, `RETURNING … INTO`) and how its target is declared. */
 export interface ColumnPlace {
   /** The column read: the page's column, or a view column computed from it ([viaView]). */
   read: EntitySummary;
   viaView: boolean;
-  source: "SELECT_INTO" | "FETCH" | "RETURNING" | "ASSIGNMENT" | "OUT_ARGUMENT" | "IN_ARGUMENT" | "RETURNED";
+  source: PlaceSource;
   /** `BULK COLLECT INTO`. */
   bulk: boolean;
   /** Where the target is written: the file relative to the sources, one-based line, zero-based column. */
@@ -313,8 +325,8 @@ export interface ColumnPlace {
   declaredType: string | null;
   /** For FIXED_SIZE, when known; for a number, the digits it holds before the point. */
   length: number | null;
-  /** `CHAR`, `BYTE`, `DIGITS`, or `NLS_LENGTH_SEMANTICS` when no unit is written (the compile-time setting decides). */
-  unit: string | null;
+  /** The unit of [length], resolved when none is written ([unitSource] says from where). */
+  unit: SizeUnit | null;
   /** A number's scale: with [length], what to compare with the column's `NUMBER(p,s)`. */
   scale: number | null;
   /** The entity whose declaration decides the type: the column an anchor ends at, or the variable, field or type that writes the size. */
@@ -337,21 +349,83 @@ export interface ColumnPlace {
   concatenated: boolean;
   /** For UNKNOWN, why: TARGET_UNDECIDED, DECLARATION_UNKNOWN, ANCHOR_UNRESOLVED, … */
   reason: string | null;
+  /** What the target means for the size compared. */
+  verdict: Verdict;
+  /** Why the verdict is UNKNOWN when the target's declaration is known: a unit, a length or a kind that does not compare. */
+  verdictReason: "UNIT_MISMATCH" | "OTHER_COLUMN_UNKNOWN" | "NO_LENGTH" | "OTHER_KIND" | null;
+  /** The size compared: the target's own, or the other column's for ANCHORED_ELSEWHERE. */
+  size: number | null;
+  sizeUnit: SizeUnit | null;
+  /** Where an unwritten unit came from: the setting a unit was compiled with, or the index's default; null for numbers and sizeless targets. */
+  unitSource: "WRITTEN" | "COMPILED" | "OPTION" | null;
+  /** For COMPILED: the unit whose setting gave it (`type` such as `PACKAGE BODY`, `PACKAGE`, `PROCEDURE`). */
+  unitCompiledIn: { owner: string; name: string; type: string } | null;
+  /** For a concatenated place that fits: the size less S, room left for the other text. */
+  room: number | null;
+}
+
+/** A verdict and how many places have it. */
+export interface VerdictCount {
+  name: Verdict;
+  count: number;
+}
+
+/** The places of one routine (or, for an anonymous block or a script, one file), in line order. */
+export interface PlaceGroup {
+  /** The routine; null for an anonymous block or a script. */
+  container: EntitySummary | null;
+  /** The routine's short name (no schema, no parameters), or the file name when [container] is null. */
+  routine: string;
+  packageName: string | null;
+  /** The parameter names (`(P_ID, P_OUT)`), only for overloads of one package with the same name. */
+  parameters: string | null;
+  /** The file, relative to the sources. */
+  path: string;
+  /** In this group, under all filters. */
+  smaller: number;
+  places: number;
+  rows: ColumnPlace[];
 }
 
 /**
- * A page of a column's places (`api/places`): [byClass] counts those it lists (the direct ones, the concatenated ones,
- * or all), [directTotal] and [concatenatedTotal] each group; [nextOffset] is null on the last page.
+ * A page of a column's places grouped by routine (`api/places`), compared with a size S: [size] is the S used (null when
+ * the column's is not known and none was given). [counts] count by verdict under every filter but the verdict one
+ * ([totalPlaces] and [totalRoutines] too); [places] and [routines], with every filter. [nextOffset] is null on the last page.
  */
-export interface ColumnPlacePage {
-  total: number;
-  byClass: Count[];
-  concatenated: boolean | null;
-  directTotal: number;
-  concatenatedTotal: number;
+export interface PlaceGroupsPage {
+  column: { datatype: string | null; length: number | null; unit: SizeUnit | null; scale: number | null };
+  size: number | null;
+  sizeGiven: boolean;
+  counts: VerdictCount[];
+  verdicts: Verdict[];
+  places: number;
+  routines: number;
+  totalPlaces: number;
+  totalRoutines: number;
+  /** The places where the value is one part of a concatenation, under the words and the source filters. */
+  concatenatedCount: number;
+  /** The unit a size written without one counts in by default, and how many places (under all filters but the verdict one) took it. */
+  optionUnit: "BYTE" | "CHAR";
+  optionSized: number;
   offset: number;
-  rows: ColumnPlace[];
+  groups: PlaceGroup[];
   nextOffset: number | null;
+  groupsLeft: number;
+}
+
+/**
+ * What the places of a column are asked for: the size S to compare with (null for the column's), the verdicts listed,
+ * words that must all appear in the target, routine, package or file, how the value arrives (null for any), whether
+ * the places where it is one part of a concatenation are included, and the page, in groups.
+ */
+export interface PlaceQuery {
+  size: number | null;
+  verdicts: Verdict[];
+  text: string;
+  source: PlaceSource | null;
+  concatenated: boolean;
+  offset: number;
+  limit: number;
 }
 
 export interface OccurrenceRow {
@@ -557,10 +631,8 @@ export function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
 
-/**
- * One page of the places the column [key]'s value is read into, from [offset]: those it lands in alone ([concatenated]
- * false) or those it is one part of a concatenation in (true).
- */
-export async function columnPlaces(key: string, offset: number, concatenated: boolean, limit = 100): Promise<ColumnPlacePage> {
-  return (await api<Answer<ColumnPlacePage>>("api/places", { key, offset, limit, concatenated })).result;
+/** One page of the places the column [key]'s value is read into, grouped by routine; null when the server has none to give. */
+export async function columnPlaceGroups(key: string, query: PlaceQuery): Promise<PlaceGroupsPage | null> {
+  const { size, verdicts, text, source, concatenated, offset, limit } = query;
+  return (await api<Answer<PlaceGroupsPage | null>>("api/places", { key, size, verdicts: verdicts.join(","), text, source, concatenated, offset, limit })).result;
 }
