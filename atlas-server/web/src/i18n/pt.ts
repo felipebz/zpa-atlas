@@ -234,6 +234,8 @@ export default {
   "places.concatenated": "concatenado a outro texto: o destino recebe mais que o valor da coluna",
   "places.functions": "por {functions}",
   "places.functionsOther": "por {functions}: pode ser lido outro argumento no lugar",
+  "places.functionsLength": "por {functions}: o valor pode mudar de tamanho",
+  "places.functionsOtherLength": "por {functions}: pode ser lido outro argumento no lugar, e o valor pode mudar de tamanho",
   "places.parameter": "parâmetro {mode}: o argumento de cada chamada decide o tipo e o tamanho",
   "places.size.NONE": "{length}",
   "places.size.nlsNote": "unidade não escrita: NLS_LENGTH_SEMANTICS decide",

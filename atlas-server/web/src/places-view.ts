@@ -64,9 +64,12 @@ export function concatenatedText(say: Say, place: Pick<ColumnPlace, "concatenate
 export function functionsText(say: Say, place: Pick<ColumnPlace, "functions">): string | null {
   if (place.functions.length === 0) return null;
   const functions = place.functions.map(f => f + "(").join("") + "…" + ")".repeat(place.functions.length);
-  // NVL, NVL2 and COALESCE may give back another argument; the others give back the column's value, or it trimmed or in another case.
+  // NVL, NVL2 and COALESCE may give back another argument; REPLACE and REGEXP_REPLACE take text out or put it in; the
+  // others give back the column's value, or it trimmed or in another case.
   const other = place.functions.some(f => f === "NVL" || f === "NVL2" || f === "COALESCE");
-  return say(other ? "places.functionsOther" : "places.functions", { functions });
+  const length = place.functions.some(f => f === "REPLACE" || f === "REGEXP_REPLACE");
+  const key = other ? (length ? "places.functionsOtherLength" : "places.functionsOther") : (length ? "places.functionsLength" : "places.functions");
+  return say(key, { functions });
 }
 
 /** How many calls pass a column to a parameter, before the one shown (`by 3 calls, one at`); null for other sources. */

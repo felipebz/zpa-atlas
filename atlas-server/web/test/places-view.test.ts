@@ -82,6 +82,17 @@ describe("functionsText", () => {
     expect(functionsText(sayPt, { functions: ["UPPER", "TRIM"] })).toBe("por UPPER(TRIM(…))");
   });
 
+  it("says the value may change length through REPLACE or REGEXP_REPLACE, with or without another argument", () => {
+    expect(functionsText(say, { functions: ["REPLACE"] })).toBe("through REPLACE(…): the value may change length");
+    expect(functionsText(sayPt, { functions: ["REPLACE"] })).toBe("por REPLACE(…): o valor pode mudar de tamanho");
+    expect(functionsText(say, { functions: ["NVL", "REPLACE"] }))
+      .toBe("through NVL(REPLACE(…)): another argument may be read instead, and the value may change length");
+    expect(functionsText(sayPt, { functions: ["NVL", "REPLACE"] }))
+      .toBe("por NVL(REPLACE(…)): pode ser lido outro argumento no lugar, e o valor pode mudar de tamanho");
+    expect(functionsText(say, { functions: ["UPPER", "REGEXP_REPLACE"] })).toBe("through UPPER(REGEXP_REPLACE(…)): the value may change length");
+    expect(functionsText(sayPt, { functions: ["UPPER", "REGEXP_REPLACE"] })).toBe("por UPPER(REGEXP_REPLACE(…)): o valor pode mudar de tamanho");
+  });
+
   it("says another argument may be read when NVL, NVL2 or COALESCE is in the chain", () => {
     expect(functionsText(say, { functions: ["NVL"] })).toBe("through NVL(…): another argument may be read instead");
     expect(functionsText(sayPt, { functions: ["NVL"] })).toBe("por NVL(…): pode ser lido outro argumento no lugar");

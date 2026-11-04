@@ -795,7 +795,6 @@ class ColumnPlacesTest {
             "ARGUMENT_COLUMN_NOT_KNOWN_STAR: 1",                        // s.code, select * from a table not known
             "ARGUMENT_EXPRESSION_CASE: 1",
             "ARGUMENT_EXPRESSION_LENGTH: 1",
-            "ARGUMENT_EXPRESSION_OTHER_REPLACE: 1",                     // replace(p_code, …)
             "ARGUMENT_EXPRESSION_SUBSTR: 1",
             "ARGUMENT_EXPRESSION_TO_CHAR: 1"
         )
@@ -886,6 +885,7 @@ class ColumnPlacesTest {
             "27 l8 CODE SELECT_INTO FIXED_SIZE 5 UPPER 0",          // v7
             "28 l9 CODE SELECT_INTO FIXED_SIZE 5 NVL 0",
             "29 l10 CODE SELECT_INTO FIXED_SIZE 5 - 1",
+            "30 l11 CODE SELECT_INTO FIXED_SIZE 5 REPLACE 0",           // replace(v.code, …), through the view
             "31 r_all.CODE CODE SELECT_INTO ANCHORED_TO_COLUMN - - 0", // v9 * of the view into orders%rowtype
             "31 r_all.NOTE NOTE SELECT_INTO ANCHORED_TO_COLUMN - - 0",
             "31 r_all.ORDER_ID ORDER_ID SELECT_INTO ANCHORED_TO_COLUMN - - 0",
@@ -902,15 +902,16 @@ class ColumnPlacesTest {
             "l8 CODE SELECT_INTO FIXED_SIZE 5 UPPER 0",
             "l9 CODE SELECT_INTO FIXED_SIZE 5 NVL 0",
             "l10 CODE SELECT_INTO FIXED_SIZE 5 - 1",
+            "l11 CODE SELECT_INTO FIXED_SIZE 5 REPLACE 0",
             "r_all.CODE CODE SELECT_INTO ANCHORED_TO_COLUMN - - 0",
             "r_all.NOTE NOTE SELECT_INTO ANCHORED_TO_COLUMN - - 0",
             "r_all.ORDER_ID ORDER_ID SELECT_INTO ANCHORED_TO_COLUMN - - 0",
             "r_iv.CODE CODE FETCH ANCHORED_TO_COLUMN - - 0"
         )
-        // v8 is counted under the shape a direct replace(code, …) has, in both procedures; v11 under _NO_COLUMN.
+        // v8, replace(code, …), is a place as a direct read is; v11 is counted under _NO_COLUMN.
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
             .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") })
-            .containsExactly("EXPRESSION_OTHER_REPLACE: 2", "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1")
+            .containsExactly("RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1")
     }
 
     @Test
@@ -1760,6 +1761,183 @@ class ColumnPlacesTest {
             "FETCH_CURSOR_NOT_KNOWN_TEXT_HOLE: 1",  // x7, the table is a hole
             "FETCH_CURSOR_STAR_NOT_KNOWN: 5"        // x8a and x8b, r1, n1, and r2 from an explicit cursor
         )
+    }
+
+    @Test
+    fun `a column's value read through REPLACE or REGEXP_REPLACE is the value, or text put into another when it is the replacement`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("replace.sql"), """
+            create or replace package pk_rp as
+              function code_of(p_id number) return varchar2;
+              function clean(p_id number) return varchar2;
+              function with_code(p_id number) return varchar2;
+              function strip(p_v varchar2) return varchar2;
+              procedure out_code(p_id number, p_out out varchar2);
+              procedure show_rp(p_id number);
+            end;
+            /
+            create or replace package body pk_rp as
+              function code_of(p_id number) return varchar2 is
+                l varchar2(20);
+              begin
+                select code into l from orders where order_id = p_id;
+                return l;
+              end;
+
+              function clean(p_id number) return varchar2 is
+                l varchar2(20);
+              begin
+                select code into l from orders where order_id = p_id;
+                return replace(l, ' ', '_');
+              end;
+
+              function with_code(p_id number) return varchar2 is
+                l varchar2(20);
+              begin
+                select code into l from orders where order_id = p_id;
+                return replace('Code: #', '#', l);
+              end;
+
+              function strip(p_v varchar2) return varchar2 is
+                l1 varchar2(5);
+              begin
+                l1 := replace(p_v, ' ');
+                return l1;
+              end;
+
+              procedure out_code(p_id number, p_out out varchar2) is
+                l varchar2(20);
+              begin
+                select code into l from orders where order_id = p_id;
+                p_out := replace(l, '''', '''''');
+              end;
+
+              procedure show_rp(p_id number) is
+                s1 varchar2(5); s2 varchar2(5); s3 varchar2(5); s4 varchar2(5); s5 varchar2(5);
+                s6 varchar2(5); s7 varchar2(5); s8 varchar2(5); s9 varchar2(5);
+                a1 varchar2(5); a2 varchar2(5);
+                f1 varchar2(5); f2 varchar2(5); f3 varchar2(5); f4 varchar2(5);
+                o1 varchar2(5);
+                k1 varchar2(5);
+                g1 varchar2(5); g2 varchar2(5);
+                type t_codes is table of varchar2(5);
+                codes t_codes;
+                cursor c_rp is select replace(code, '-') v from orders;
+              begin
+                select replace(code, ' ', '_') into s1 from orders where order_id = p_id;
+                select replace(code, ' ') into s2 from orders where order_id = p_id;
+                select replace('Code: #', '#', code) into s3 from orders where order_id = p_id;
+                select replace(note, code) into s4 from orders where order_id = p_id;
+                select replace(code, 'x', note) into s5 from orders where order_id = p_id;
+                select upper(replace(trim(code), ' ')) into s6 from orders where order_id = p_id;
+                select 'x' || replace(code, ' ') into s7 from orders where order_id = p_id;
+                select nvl(replace(code, ' '), 'none') into s8 from orders where order_id = p_id;
+                select replace(code || note, ' ') into s9 from orders where order_id = p_id;
+                select regexp_replace(code, '[0-9]') into g1 from orders where order_id = p_id;
+                select regexp_replace(code, '(.)', '\1\1') into g2 from orders where order_id = p_id;
+                select replace(code, ' ') bulk collect into codes from orders;
+                open c_rp;
+                fetch c_rp into k1;
+                close c_rp;
+                for r in (select code, note from orders) loop
+                  a1 := replace(r.code, ' ');
+                  a2 := replace('[#]', '#', r.note);
+                end loop;
+                f1 := replace(code_of(p_id), ' ');
+                f2 := clean(p_id);
+                f3 := with_code(p_id);
+                f4 := strip(code_of(p_id));
+                out_code(p_id, o1);
+              end;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("replace.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
+        assertThat(Fixture.query(db, """
+            SELECT p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || (CASE WHEN p.bulk = 1 THEN ' BULK' ELSE '' END) || ' ' ||
+                   p.class || coalesce(' ' || p.length, '') || ' ' || coalesce(p.functions, '-') || (CASE WHEN p.concatenated = 1 THEN ' concatenated' ELSE '' END)
+            FROM column_place p JOIN entity c ON c.id = p.column_id ORDER BY p.start_line, p.target_written, c.key""")).containsExactly(
+            "l CODE SELECT_INTO FIXED_SIZE 20 -", "l CODE SELECT_INTO FIXED_SIZE 20 -", "l CODE SELECT_INTO FIXED_SIZE 20 -",
+            "l1 CODE IN_ARGUMENT FIXED_SIZE 5 REPLACE",                     // strip's, from f4's code_of result
+            "l CODE SELECT_INTO FIXED_SIZE 20 -",
+            "p_out CODE IN_ARGUMENT CALLER_DECIDES REPLACE",
+            "s1 CODE SELECT_INTO FIXED_SIZE 5 REPLACE", "s2 CODE SELECT_INTO FIXED_SIZE 5 REPLACE",
+            "s3 CODE SELECT_INTO FIXED_SIZE 5 REPLACE concatenated",        // the column is the replacement
+            "s4 NOTE SELECT_INTO FIXED_SIZE 5 REPLACE",                     // code is the search text: no place
+            "s5 CODE SELECT_INTO FIXED_SIZE 5 REPLACE", "s5 NOTE SELECT_INTO FIXED_SIZE 5 REPLACE concatenated",
+            "s6 CODE SELECT_INTO FIXED_SIZE 5 UPPER,REPLACE,TRIM",
+            "s7 CODE SELECT_INTO FIXED_SIZE 5 REPLACE concatenated",
+            "s8 CODE SELECT_INTO FIXED_SIZE 5 NVL,REPLACE",
+            "s9 CODE SELECT_INTO FIXED_SIZE 5 REPLACE concatenated", "s9 NOTE SELECT_INTO FIXED_SIZE 5 REPLACE concatenated",
+            "g1 CODE SELECT_INTO FIXED_SIZE 5 REGEXP_REPLACE", "g2 CODE SELECT_INTO FIXED_SIZE 5 REGEXP_REPLACE",
+            "codes CODE SELECT_INTO BULK FIXED_SIZE 5 REPLACE",
+            "k1 CODE FETCH FIXED_SIZE 5 REPLACE",
+            "a1 CODE ASSIGNMENT FIXED_SIZE 5 REPLACE", "a2 NOTE ASSIGNMENT FIXED_SIZE 5 REPLACE concatenated",
+            "f1 CODE RETURNED FIXED_SIZE 5 REPLACE", "f2 CODE RETURNED FIXED_SIZE 5 REPLACE", "f3 CODE RETURNED FIXED_SIZE 5 REPLACE concatenated",
+            "f4 CODE RETURNED FIXED_SIZE 5 REPLACE",
+            "o1 CODE OUT_ARGUMENT FIXED_SIZE 5 REPLACE"
+        )
+        // Nothing of the forms above is counted any more.
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'")).isEmpty()
+    }
+
+    @Test
+    fun `in PL SQL too, a field or a local in the search text of a REPLACE is not read, and the others are as in SQL`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("replace_plsql.sql"), """
+            create or replace package pk_rq as
+              procedure put_in(p_v varchar2);
+              function f_both(p_id number) return varchar2;
+              function f_lit(p_id number) return varchar2;
+              procedure show_rq;
+            end;
+            /
+            create or replace package body pk_rq as
+              procedure put_in(p_v varchar2) is l2 varchar2(5); begin l2 := p_v; end;
+              function f_both(p_id number) return varchar2 is l_note varchar2(40); l_code varchar2(20);
+              begin select note, code into l_note, l_code from orders where order_id = p_id; return replace(l_note, l_code); end;
+              function f_lit(p_id number) return varchar2 is l_code varchar2(20);
+              begin select code into l_code from orders where order_id = p_id; return replace('abc', l_code); end;
+              procedure show_rq is
+                a3 varchar2(5); a4 varchar2(5); a5 varchar2(5); a6 varchar2(5); a7 varchar2(5); a8 varchar2(5);
+                b1 varchar2(5); b2 varchar2(5);
+              begin
+                for r in (select code, note from orders) loop
+                  a3 := replace(r.note, r.code);
+                  a4 := replace(r.code, 'x', r.note);
+                  a5 := regexp_replace(r.code, '[a-z]', r.note);
+                  a6 := regexp_replace(r.code, r.note);
+                  a7 := replace('abc', r.code);
+                  a8 := replace(r.note, 'x', r.code) || r.code;
+                  put_in(replace(r.note, r.code));
+                end loop;
+                b1 := f_both(1);
+                b2 := f_lit(1);
+              end;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("replace_plsql.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
+        assertThat(Fixture.query(db, """
+            SELECT p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || ' ' || p.class || coalesce(' ' || p.length, '') ||
+                   ' ' || coalesce(p.functions, '-') || (CASE WHEN p.concatenated = 1 THEN ' concatenated' ELSE '' END)
+            FROM column_place p JOIN entity c ON c.id = p.column_id ORDER BY p.start_line, p.target_written, c.key, p.functions """)).containsExactly(
+            "l2 NOTE IN_ARGUMENT FIXED_SIZE 5 REPLACE",                     // put_in(replace(r.note, r.code)): the field searched is not passed
+            "l_code CODE SELECT_INTO FIXED_SIZE 20 -", "l_note NOTE SELECT_INTO FIXED_SIZE 40 -", "l_code CODE SELECT_INTO FIXED_SIZE 20 -",
+            "a3 NOTE ASSIGNMENT FIXED_SIZE 5 REPLACE",                      // r.code is the search text
+            "a4 CODE ASSIGNMENT FIXED_SIZE 5 REPLACE", "a4 NOTE ASSIGNMENT FIXED_SIZE 5 REPLACE concatenated",
+            "a5 CODE ASSIGNMENT FIXED_SIZE 5 REGEXP_REPLACE", "a5 NOTE ASSIGNMENT FIXED_SIZE 5 REGEXP_REPLACE concatenated",
+            "a6 CODE ASSIGNMENT FIXED_SIZE 5 REGEXP_REPLACE",               // r.note is the pattern
+            // a7, replace('abc', r.code): nothing, the field is only searched for.
+            "a8 CODE ASSIGNMENT FIXED_SIZE 5 - concatenated", "a8 CODE ASSIGNMENT FIXED_SIZE 5 REPLACE concatenated",
+            "a8 NOTE ASSIGNMENT FIXED_SIZE 5 REPLACE concatenated",
+            "b1 NOTE RETURNED FIXED_SIZE 5 REPLACE"                         // return replace(l_note, l_code); f_lit's l_code gives nothing
+        )
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'")).isEmpty()
     }
 
     @Test

@@ -756,23 +756,24 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "$PATHS $KEYS"
 
         const val PLACES = "Every PL/SQL variable, parameter or field a column's value is read into, and how each is " +
-            "declared. source: SELECT_INTO, FETCH (explicit cursor), RETURNING (with bulk); ASSIGNMENT (target := r.f, " +
+            "declared. source: SELECT_INTO, FETCH, RETURNING (with bulk); ASSIGNMENT (target := r.f, " +
             "r a cursor FOR loop or %ROWTYPE record; line of the :=); OUT_ARGUMENT (a call's argument for an OUT " +
-            "parameter below; argumentOf, routine); IN_ARGUMENT (a target inside routine, written from its IN parameter " +
-            "argumentOf the column is passed to; callCount calls pass it, one at callPath, callLine); RETURNED (a target " +
+            "parameter below; argumentOf, routine); IN_ARGUMENT (a target inside a routine, written from the IN parameter " +
+            "argumentOf; callCount calls pass it, one at callPath, callLine); RETURNED (a target " +
             "routine's result, a function returning the column, is written into; callCount calls). One row per column " +
-            "and target, by class then file and line, paged (nextOffset as offset; absent on the last); view columns " +
+            "and target, by class, file, line; paged (nextOffset; absent on the last); view columns " +
             "computed from it too (viaView, read is the view column). Each row: the column read, source, path, line, " +
             "container, targetWritten, target (absent for a block's variable), field (of a record), functions: " +
-            "value functions read through, outer first (NVL, NVL2, COALESCE, MAX, MIN, TRIM and kin, UPPER, LOWER; NVL " +
-            "may give its other argument); concatenated: the value is one part of a || or CONCAT, with other text. " +
+            "value functions read through, outer first (NVL, NVL2, COALESCE, MAX, MIN, TRIM and kin, UPPER, LOWER, " +
+            "REPLACE and REGEXP_REPLACE (may change its length); NVL may give its other argument); " +
+            "concatenated: the value is one part of a || or CONCAT, or REPLACE's replacement text, with other text. " +
             "placeClass: FIXED_SIZE (its own length or precision: length, unit CHAR, BYTE, DIGITS, or " +
-            "NLS_LENGTH_SEMANTICS when none is written; for a number, length is the digits before the point, p-s, scale " +
-            "is s: compare both with the column's NUMBER(p,s)), UNKNOWN (reason), CALLER_DECIDES (an OUT or IN OUT " +
+            "NLS_LENGTH_SEMANTICS when none is written; a number's length is its digits before the point, p-s, and " +
+            "scale s, as the column's NUMBER(p,s)), UNKNOWN (reason), CALLER_DECIDES (an OUT or IN OUT " +
             "parameter, parameterMode: each caller's argument decides its size and is a row), ANCHORED_ELSEWHERE (to " +
             "another column, typeSource), NO_SIZE (NUMBER, FLOAT, CLOB, DATE), ANCHORED_TO_COLUMN (%TYPE, %ROWTYPE or a " +
-            "cursor record over the column, or anchored so). declaredType is as written; typeSource decides the " +
-            "type. Lists where the value lands alone; concatenated true, where it is one part. total, byClass: those " +
+            "cursor record over the column, or anchored so). declaredType as written; typeSource decides " +
+            "it. Lists where the value lands alone; concatenated true, where it is one part. total, byClass: those " +
             "listed; directTotal, concatenatedTotal: each group; otherPlaces: how to ask for the other. $PATHS"
 
         const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column " +

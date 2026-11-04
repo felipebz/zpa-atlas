@@ -328,12 +328,15 @@ internal class IntoClauses(
         if (at <= 0) return
         val value = node.children.getOrNull(at + 1) ?: return
         valueWrites += ValueWrite(value, spanOf(node.children[at]), node.firstChild, context)
-        val fields = if (isFieldOfName(value)) listOf(value) else value.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).filter(::isFieldOfName)
+        // A field only in an argument that never lands in the value (the search text of a REPLACE) is not assigned.
+        val fields = (if (isFieldOfName(value)) listOf(value) else value.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).filter(::isFieldOfName))
+            .filter { !inDroppedArgument(value, it) }
         val field = fields.singleOrNull()
         if (field == null) {
-            // Several fields: followed when each is a part of a concatenation (`r.code || r.note`), a place for each.
+            // Several fields, each a part of a concatenation (`r.code || r.note`), or one the value and the others text put
+            // into it (the replacement of a REPLACE): a place for each.
             val chains = fields.map { f -> valueChain(value) { it === f } }
-            if (fields.isEmpty() || chains.any { it == null || CONCATENATED !in it }) return
+            if (fields.isEmpty() || chains.any { it == null } || chains.count { CONCATENATED !in it!! } > 1) return
             for ((f, chain) in fields.zip(chains)) assignments += Assignment(node.firstChild, spanOf(node.children[at]), f, null, chain!!, context)
             return
         }
@@ -460,7 +463,8 @@ internal class IntoClauses(
      */
     private fun passedValue(argument: AstNode, parameter: String?, reason: String?, context: Context, call: SourceSpan) {
         callArguments += CallArgument(argument, parameter, reason, context, call)
-        val field = if (isFieldOfName(argument)) argument else argument.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).singleOrNull(::isFieldOfName)
+        val field = if (isFieldOfName(argument)) argument
+            else argument.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).filter { isFieldOfName(it) && !inDroppedArgument(argument, it) }.singleOrNull()
         if (field != null) {
             valueChain(argument) { it === field }?.let { passes += Pass(argument, null, field, it, parameter, reason, context, null, call) }
             return
@@ -528,6 +532,7 @@ internal class IntoClauses(
     ) {
         if (target == null && passedTo == null && reason == null) return
         for ((call, result) in resultCalls(value, called)) {
+            if (inDroppedArgument(value, call)) continue
             val chain = valueChain(value) { it === call }
             val of = spanOf(call)
             flows += when {
@@ -580,6 +585,7 @@ internal class IntoClauses(
             .filter { (it.type == PlSqlGrammar.VARIABLE_NAME || it.type == PlSqlGrammar.MEMBER_EXPRESSION) && plsql.isValueName(it) && plsql.nameSegments(it) != null }
             .filter { name -> parameters.none { it === name } && generateSequence(name.parentOrNull) { it.parentOrNull }.takeWhile { it !== write.value.parentOrNull }
                 .none { it.type == PlSqlGrammar.METHOD_CALL && (it in localFunctions || spanOf(it.firstChild) in routineCalls) } }
+            .filter { !inDroppedArgument(write.value, it) }
             .toList()
         for (name in names) {
             val held = target(name, bySpan, shapes).takeIf { it.entityKey != null && !it.element } ?: continue
@@ -761,16 +767,20 @@ internal class IntoClauses(
             return QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
         }
         viewExpression(statement, expression, name)?.let { return it }
-        val columns = HashSet<String>()
+        val reads = HashMap<String, MutableList<AstNode>>()
         fun visit(node: AstNode) {
-            statement.columnReads[node]?.let { reads -> reads.mapNotNullTo(columns) { it.entityKey } }
+            statement.columnReads[node]?.forEach { read -> read.entityKey?.let { reads.getOrPut(it) { ArrayList() } += node } }
             node.children.forEach(::visit)
         }
         visit(expression)
+        // A column read only where it never lands in the value (the search text of a REPLACE) is not read into the target.
+        val columns = reads.filterValues { nodes -> nodes.any { !inDroppedArgument(expression, it) } }.keys
+        if (columns.isEmpty() && reads.isNotEmpty()) return QueryItem(name, null, null, notColumn = "NO_COLUMN")
         if (columns.size > 1) {
-            // A concatenation of several columns, each a part of it: the item is each of them.
+            // Several columns, each a part of a concatenation, or one the value and the others text put into it (the
+            // replacement of a REPLACE): the item is each of them.
             val chains = columns.sorted().map { key -> key to valueChain(expression) { node -> plsql.nameSegments(node) != null && column(node) == key } }
-            if (chains.all { it.second != null && CONCATENATED in it.second!! }) {
+            if (chains.all { it.second != null } && chains.count { CONCATENATED !in it.second!! } <= 1) {
                 val (first, chain) = chains.first()
                 return QueryItem(name, first, null, functions = chain!!, parts = chains.drop(1).map { (key, f) -> QueryItem(name, key, null, functions = f!!) })
             }
@@ -864,8 +874,11 @@ internal class IntoClauses(
      * The value functions [expression] reads one value through, outer first, down to the node [isValue] accepts; null
      * when it is anything else. A value function gives back one of its arguments, or that argument trimmed or in
      * another case: `NVL(a, b)` and `COALESCE(a, b, …)` (any argument), `NVL2(e1, e2, e3)` (`e2` or `e3`), `MAX(x)` and
-     * `MIN(x)` (with `DISTINCT`, `ALL`, `KEEP (…)`, `OVER (…)`), `TRIM`, `LTRIM`, `RTRIM`, `UPPER`, `LOWER` (`x`). Exactly
-     * one of the arguments that may be the value must lead to the node.
+     * `MIN(x)` (with `DISTINCT`, `ALL`, `KEEP (…)`, `OVER (…)`), `TRIM`, `LTRIM`, `RTRIM`, `UPPER`, `LOWER` (`x`). `REPLACE`
+     * and `REGEXP_REPLACE` give back their first argument with text taken out or put in, and put their replacement text
+     * (the third) into other text, as a concatenation does; their search text or pattern, and the position, occurrence
+     * and match arguments of `REGEXP_REPLACE`, never land in the value ([inDroppedArgument]). Exactly one of the
+     * arguments that may be the value must lead to the node.
      */
     private fun valueChain(expression: AstNode, isValue: (AstNode) -> Boolean): List<String>? {
         var node = expression
@@ -899,6 +912,12 @@ internal class IntoClauses(
                 }
                 val arguments = node.getChildren(PlSqlGrammar.ARGUMENTS).singleOrNull()?.getChildren(PlSqlGrammar.ARGUMENT)?.map { it.lastChild }
                     ?: return null
+                if (function in REPLACES) {
+                    if (arguments.size !in REPLACES.getValue(function)) return null
+                    val value = valueChain(arguments[0], isValue)?.let { listOf(function) + it }
+                    val put = arguments.getOrNull(2)?.let { valueChain(it, isValue) }?.let { listOf(function, CONCATENATED) + it }
+                    return listOfNotNull(value, put).singleOrNull()
+                }
                 val candidates = when (function) {
                     "NVL" -> arguments.takeIf { it.size == 2 }
                     "COALESCE" -> arguments.takeIf { it.size >= 2 }
@@ -927,6 +946,21 @@ internal class IntoClauses(
         val bare = plsql.nameSegments(expression)?.singleOrNull()?.let { normalizeIdentifier(it) }
         val unresolved = bare != null && bare !in SQL_PSEUDOCOLUMNS && (nameBinding(expression) as? NameBinding.NothingLocal)?.sqlColumnPossible == true
         return if (unresolved) "COLUMN_UNRESOLVED" else "NO_COLUMN"
+    }
+
+    /**
+     * Whether [node], inside [expression], is in an argument whose value never lands in the result: the search text or
+     * pattern of `REPLACE` or `REGEXP_REPLACE`, or the position, occurrence and match arguments of `REGEXP_REPLACE`.
+     */
+    private fun inDroppedArgument(expression: AstNode, node: AstNode): Boolean {
+        for (argument in generateSequence(node) { it.parentOrNull }.takeWhile { it !== expression }) {
+            if (argument.type != PlSqlGrammar.ARGUMENT) continue
+            val call = argument.parentOrNull?.parentOrNull?.takeIf { it.type == PlSqlGrammar.METHOD_CALL } ?: continue
+            if (plsql.nameSegments(call.firstChild)?.singleOrNull()?.uppercase() !in REPLACES) continue
+            val index = argument.parent.getChildren(PlSqlGrammar.ARGUMENT).indexOfFirst { it === argument }
+            if (index == 1 || index > 2) return true
+        }
+        return false
     }
 
     /** [node] and every node under it. */
@@ -1119,7 +1153,7 @@ internal class IntoClauses(
             if (write.sql) continue
             // A parameter passed to a routine inside the value is that call's argument ([call]).
             val names = parameterNames(write.value).filter { name ->
-                generateSequence(name.parentOrNull) { it.parentOrNull }.takeWhile { it !== write.value.parentOrNull }
+                !inDroppedArgument(write.value, name) && generateSequence(name.parentOrNull) { it.parentOrNull }.takeWhile { it !== write.value.parentOrNull }
                     .none { it.type == PlSqlGrammar.METHOD_CALL && spanOf(it.firstChild) in routineCalls }
             }
             for ((name, functions) in parameterChains(write.value, names)) {
@@ -1349,6 +1383,9 @@ internal class IntoClauses(
 
         /** After [FETCH_CURSOR_NOT_KNOWN]: a text whose hole in the `FROM` hides the column an item reads. */
         const val TEXT_HOLE = "TEXT_HOLE"
+
+        /** The functions that give back their first argument with text taken out or put in, by the number of arguments they take. */
+        private val REPLACES = mapOf("REPLACE" to 2..3, "REGEXP_REPLACE" to 2..6)
 
         /** The end of the reason of a dynamic text parsed only once its holes were left out: it may be partial. */
         private const val HOLES_DROPPED = "HOLES_DROPPED"
