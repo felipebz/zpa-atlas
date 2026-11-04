@@ -142,7 +142,20 @@ internal class ColumnPlaces(
             for (items in branches) {
                 // A `*` whose columns are not known: no position can be told after it.
                 val known = items.takeWhile { !it.opaque }
-                val record = into.targets.size == 1 && (items.size > 1 || known.size < items.size || isRow(into.targets[0], into.bulk))
+                // From a cursor variable, a single target takes several items only when it is a record.
+                val record = into.targets.size == 1 &&
+                    if (into.cursorKind != null) isRow(into.targets[0], into.bulk) else items.size > 1 || known.size < items.size || isRow(into.targets[0], into.bulk)
+                // A `*` over a relation or collection whose columns are not known: the positions after it cannot be told,
+                // those before it only for a record.
+                if (into.source == PlaceSource.FETCH && known.size < items.size) {
+                    leftOut.merge(FETCH_CURSOR_STAR_NOT_KNOWN, into.targets.size, Int::plus)
+                    if (known.isEmpty() || !record) continue
+                }
+                // A cursor variable's query its targets do not match: Oracle raises at the FETCH, or the query is another one.
+                if (into.cursorKind != null && !record && into.targets.size != known.size) {
+                    leftOut.merge(FETCH_CURSOR_ITEMS_NOT_MATCHED, into.targets.size, Int::plus)
+                    continue
+                }
                 for ((index, item) in known.withIndex()) {
                     val target = if (record) into.targets[0] else into.targets.getOrNull(index) ?: break
                     if (item.expression != null) leftOut.merge("EXPRESSION_${item.expression}", 1, Int::plus)
@@ -785,6 +798,12 @@ internal class ColumnPlaces(
         private const val CURSOR_VARIABLE = "CURSOR_VARIABLE"
         private const val STRONG = "STRONG"
         private const val RETURN = IntoClauses.RETURN_SUFFIX
+
+        /** The shape of a `FETCH` from a cursor variable whose targets do not match the items of a query it reads. */
+        private const val FETCH_CURSOR_ITEMS_NOT_MATCHED = "FETCH_CURSOR_ITEMS_NOT_MATCHED"
+
+        /** The shape of a `FETCH` whose query's `*` is over a relation or collection whose columns are not known. */
+        private const val FETCH_CURSOR_STAR_NOT_KNOWN = "FETCH_CURSOR_STAR_NOT_KNOWN"
 
         /** The prefix of a nested subprogram's parameter key, as the extraction writes it. */
         private const val LOCAL_PARAMETER = "local:"

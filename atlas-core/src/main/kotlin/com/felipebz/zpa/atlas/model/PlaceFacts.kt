@@ -154,7 +154,8 @@ data class IntoFact(
     /**
      * For a [PlaceSource.FETCH] from a cursor variable: `STRONG` when its type is a `REF CURSOR` type of this file with
      * `RETURN`, `OPENED_STATIC` or `OPENED_DYNAMIC` when the routine opens it `FOR` static queries only or `FOR` a
-     * string, `PARAMETER` when it comes in as a parameter the routine does not open; else null.
+     * string, `PARAMETER` when it comes in as a parameter the routine does not open; else null. With [branches], they
+     * are the queries of the `OPEN`s that may run last before the `FETCH`, the variable's kind still told.
      */
     val cursorKind: String? = null,
     /** For a [PlaceSource.FETCH] from a cursor variable: the entity of its type, when it names one (a `REF CURSOR` type). */

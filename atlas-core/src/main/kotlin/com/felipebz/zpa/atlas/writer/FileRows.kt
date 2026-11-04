@@ -194,6 +194,8 @@ internal class FileRows(private val connection: Connection) {
             shape.startsWith("RECORD_ASSIGNMENT_EXPRESSION_") -> LEFT_OUT.getValue("RECORD_ASSIGNMENT_EXPRESSION")
             shape.startsWith(ARGUMENT_NOT_KNOWN) -> "field(s) of ${fieldOf(shape.removePrefix(ARGUMENT_NOT_KNOWN))}, passed to a routine: not followed"
             shape.startsWith(ASSIGNMENT_NOT_KNOWN) -> "assignment(s) of a field of ${fieldOf(shape.removePrefix(ASSIGNMENT_NOT_KNOWN))}: not followed"
+            shape.startsWith(FETCH_NOT_KNOWN + OPENED_FOR_TEXT) ->
+                "target(s) of a FETCH from a cursor variable the routine opens FOR a string whose text is not followed (${shape.removePrefix(FETCH_NOT_KNOWN + OPENED_FOR_TEXT)}): not followed"
             shape.startsWith(FETCH_NOT_KNOWN) ->
                 "target(s) of a FETCH from ${FETCH_FROM[shape.removePrefix(FETCH_NOT_KNOWN)] ?: "a cursor"}, whose query is not known: not followed"
             else -> LEFT_OUT[shape]
@@ -226,11 +228,16 @@ internal class FileRows(private val connection: Connection) {
             "OUT_ARGUMENT_NOT_FOLLOWED" to "argument(s) for an OUT parameter a column's value is read into, not a name, field or element the index binds: not followed",
             "OUT_PARAMETER_NOT_FOLLOWED" to "OUT parameter(s) a column's value is read into whose callers the index cannot tell: not followed",
             "OUT_CALL_NOT_DECIDED" to "call(s) whose routine is not decided, among routines with an OUT parameter a column's value is read into: not followed",
+            "FETCH_CURSOR_ITEMS_NOT_MATCHED" to "target(s) of a FETCH from a cursor variable that do not match the items of a query it reads: not followed",
+            "FETCH_CURSOR_STAR_NOT_KNOWN" to "target(s) of a FETCH whose query's * is over a relation or collection whose columns are not known: not followed",
         )
 
         private const val ARGUMENT_NOT_KNOWN = "ARGUMENT_COLUMN_NOT_KNOWN_"
         private const val ASSIGNMENT_NOT_KNOWN = "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_"
         private const val FETCH_NOT_KNOWN = "FETCH_CURSOR_NOT_KNOWN_"
+
+        /** After [FETCH_NOT_KNOWN]: a string's text not followed, the reason of its `DYNAMIC` occurrence after it. */
+        private const val OPENED_FOR_TEXT = "OPENED_DYNAMIC_"
 
         /** The record a field whose column is not known is of, by why. */
         private val NOT_KNOWN = mapOf(
@@ -250,7 +257,8 @@ internal class FileRows(private val connection: Connection) {
             "STRONG" to "a cursor variable of a REF CURSOR type with RETURN",
             "OPENED_STATIC" to "a cursor variable the routine opens FOR a static query",
             "OPENED_DYNAMIC" to "a cursor variable the routine opens FOR a string",
-            "PARAMETER" to "a cursor variable that comes in as a parameter"
+            "PARAMETER" to "a cursor variable that comes in as a parameter",
+            "TEXT_HOLE" to "a cursor variable the routine opens FOR a string whose hole in the FROM hides the column an item reads"
         )
     }
 }

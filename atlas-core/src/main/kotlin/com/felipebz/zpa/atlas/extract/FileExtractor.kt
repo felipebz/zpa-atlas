@@ -8,6 +8,7 @@ package com.felipebz.zpa.atlas.extract
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.*
 import com.felipebz.zpa.api.checks.PlSqlCheck
+import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
 import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectSnapshot
@@ -57,7 +58,7 @@ class FileExtractor(
     /** The dynamic statements whose text is a variable, decided once the whole file is walked (every call's modes known). */
     private val variableStatements = ArrayList<VariableStatement>()
 
-    private class VariableStatement(val occurrence: Int, val variable: AstNode, val context: Context)
+    private class VariableStatement(val occurrence: Int, val variable: AstNode, val context: Context, val node: AstNode)
 
     /** The text nodes of the file's dynamic statements. */
     private val dynamicTexts: MutableSet<AstNode> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
@@ -167,8 +168,9 @@ class FileExtractor(
     private fun variableTexts() {
         if (variableStatements.isEmpty()) return
         val texts = VariableSqlTexts(this.context, state, dynamicTexts)
-        // The nodes a text was read from: AstNode compares by identity, so equal lists are the same value.
-        val walked = HashSet<List<AstNode>>()
+        // The nodes a text was read from, and the text walked for them: AstNode compares by identity, so equal lists are
+        // the same value.
+        val walked = HashMap<List<AstNode>, DynamicSqlText>()
         for (statement in variableStatements.sortedWith(compareBy({ it.variable.token.line }, { it.variable.token.column }))) {
             val outcome = texts.outcome(statement.variable)
             state.occurrences[statement.occurrence] = state.occurrences[statement.occurrence].copy(reason = outcome.reason)
@@ -177,7 +179,13 @@ class FileExtractor(
                 state.coverage += CoverageFact(read.note, "Dynamic statement at line ${at.line}, column ${at.column}: its text is ${read.description}")
             }
             val text = outcome.text ?: continue
-            if (walked.add(outcome.value!!)) walk(text.root, statement.context.dynamicText(text))
+            val value = outcome.value!!
+            val known = walked[value]
+            if (known == null) {
+                walked[value] = text
+                walk(text.root, statement.context.dynamicText(text))
+            }
+            if (statement.node.type == PlSqlGrammar.OPEN_FOR_STATEMENT) places.openText(statement.node, known ?: text, statement.occurrence)
         }
     }
 
@@ -490,12 +498,15 @@ class FileExtractor(
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, id, spanOf(sql ?: node), written, null, emptySet(),
             status(Status.DYNAMIC, context.partial), context.origin, reason)
+        val occurrence = state.occurrences.size - 1
         if (text != null) walk(text.root, context.dynamicText(text))
         if (sql != null && context.dynamic == null) dynamicTexts += sql
+        // The text a cursor variable is opened for: the query a FETCH of it reads (a variable's, once the file is walked).
+        if (node.type == PlSqlGrammar.OPEN_FOR_STATEMENT && context.dynamic == null) places.openText(node, text, occurrence)
         val variable = if (text == null && sql != null && context.dynamic == null) VariableSqlTexts.variable(sql) else null
         if (variable != null) {
             dynamicTexts += variable
-            variableStatements += VariableStatement(state.occurrences.size - 1, variable, context)
+            variableStatements += VariableStatement(occurrence, variable, context, node)
         }
     }
 

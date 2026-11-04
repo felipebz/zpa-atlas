@@ -5,6 +5,7 @@
 
 package com.felipebz.zpa.atlas.extract
 
+import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.*
 import com.felipebz.zpa.api.project.ProjectParameterMode
@@ -43,8 +44,26 @@ internal class IntoClauses(
     /** The select items of [statement]'s cursor query, its `INTO` or `RETURNING INTO`, and the columns it passes to routines. */
     fun statement(statement: Statement) {
         val root = statement.root
-        if (statement.context.dynamic != null) return
-        if (root.parentOrNull?.type == PlSqlGrammar.CURSOR_DECLARATION || isLoopQuery(root)) {
+        if (statement.context.dynamic != null) {
+            // The main query of a text a cursor variable may be opened for: what a FETCH of it reads, unless an item is a hole.
+            if (root.type == DmlGrammar.SELECT_EXPRESSION && generateSequence(root.parentOrNull) { it.parentOrNull }.none { it.type == DmlGrammar.SELECT_EXPRESSION }) {
+                val block = branches(root).firstOrNull()?.takeIf { block -> block.getChildren(DmlGrammar.SELECT_COLUMN).none { statement.context.hasHoles(it) } }
+                if (block != null) {
+                    val items = selectItems(statement, block)
+                    state.cursorItems[root] = items
+                    // A hole in the FROM: a name in an item that reads no column of what is known there may be a column of what
+                    // the hole names.
+                    if (block.getFirstChildOrNull(DmlGrammar.FROM_CLAUSE)?.let(statement.context::hasHoles) == true &&
+                        block.getChildren(DmlGrammar.SELECT_COLUMN).any { column ->
+                            val value = column.firstChild
+                            (sequenceOf(value) + value.getDescendants(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION).asSequence())
+                                .any { plsql.nameSegments(it) != null && statement.columnReads[it].isNullOrEmpty() }
+                        }) hiddenByHoles += root
+                }
+            }
+            return
+        }
+        if (root.parentOrNull?.type == PlSqlGrammar.CURSOR_DECLARATION || root.parentOrNull?.type == PlSqlGrammar.OPEN_FOR_STATEMENT || isLoopQuery(root)) {
             branches(root).firstOrNull()?.let { state.cursorItems[root] = selectItems(statement, it) }
         }
         when (root.type) {
@@ -170,6 +189,117 @@ internal class IntoClauses(
             opens.all { it.hasDirectChildren(DmlGrammar.SELECT_EXPRESSION) } -> "OPENED_STATIC"
             else -> "OPENED_DYNAMIC"
         } to type
+    }
+
+    /** The text an `OPEN … FOR` a string opens its cursor variable for, and its `DYNAMIC` occurrence, which says what became of it. */
+    private class OpenText(val text: DynamicSqlText?, val occurrence: Int)
+
+    private val openTexts = IdentityHashMap<AstNode, OpenText>()
+
+    /** The queries of texts whose hole in the `FROM` hides the column an item reads. */
+    private val hiddenByHoles: MutableSet<AstNode> = Collections.newSetFromMap(IdentityHashMap())
+
+    /** `OPEN cv FOR <string>` ([open]): its [text] when zpa parsed it (null when not), and its `DYNAMIC` occurrence's position. */
+    fun openText(open: AstNode, text: DynamicSqlText?, occurrence: Int) {
+        openTexts[open] = OpenText(text, occurrence)
+    }
+
+    /** What a FETCH reads of an `OPEN`: its query's items, or why they are not followed (a shape after [FETCH_CURSOR_NOT_KNOWN]). */
+    private sealed interface Opened {
+        class Items(val items: List<QueryItem>) : Opened
+        class NotFollowed(val shape: String) : Opened
+    }
+
+    /**
+     * The items of the query [open] opens its cursor variable for: a static query's, or those of a string's text zpa
+     * parsed, read as the same static query would be. A text not parsed, one an item of which is a hole, or one that may
+     * be partial, is not followed: by the reason of the `OPEN`'s `DYNAMIC` occurrence.
+     */
+    private fun opened(open: AstNode): Opened {
+        open.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION)?.let { query ->
+            return state.cursorItems[query]?.let { Opened.Items(it) } ?: Opened.NotFollowed("OPENED_STATIC")
+        }
+        val opened = openTexts[open] ?: return Opened.NotFollowed("OPENED_DYNAMIC")
+        val reason = state.occurrences[opened.occurrence].reason ?: "EXPRESSION"
+        val root = opened.text?.root
+        val query = root?.let { if (it.type == DmlGrammar.SELECT_EXPRESSION) it else it.getFirstDescendantOrNull(DmlGrammar.SELECT_EXPRESSION) }
+        if (query != null && query in hiddenByHoles) return Opened.NotFollowed(TEXT_HOLE)
+        val items = query?.takeIf { !reason.endsWith(HOLES_DROPPED) }?.let { state.cursorItems[it] }
+        return if (items != null) Opened.Items(items) else Opened.NotFollowed("OPENED_DYNAMIC_$reason")
+    }
+
+    /**
+     * The `OPEN`s of the cursor variable [declaration] that may run last before the `FETCH` [fetch]: the one just before
+     * it in straight code; in an `IF` or `CASE` before it, the last one of each branch, with those before the `IF` or
+     * `CASE` when a branch (or a missing `ELSE`) opens none; in a block with no exception handler, as in straight code;
+     * in a loop or a block with one before it, the last ones of its body, with those before it, as the body may not run
+     * them. In a loop around the `FETCH`, also those after it, from the
+     * turn before; in an exception handler, any of the block's body. Empty when none is found up to the routine or
+     * block that declares the variable.
+     */
+    private fun reachingOpens(fetch: AstNode, declaration: AstNode): List<AstNode> {
+        val scope = declaration.parentOrNull?.parentOrNull ?: return emptyList()
+        fun isOpen(node: AstNode) = node.type == PlSqlGrammar.OPEN_FOR_STATEMENT &&
+            node.children.firstOrNull { it.type == PlSqlGrammar.MEMBER_EXPRESSION || it.type == PlSqlGrammar.VARIABLE_NAME }?.let(::cursorDeclaration) === declaration
+        fun unwrapped(statement: AstNode) = if (statement.type == PlSqlGrammar.STATEMENT && statement.numberOfChildren == 1) statement.firstChild else statement
+        val found = ArrayList<AstNode>()
+        // The OPENs among [statements] that may run last, last first; true when one always runs.
+        lateinit var last: (List<AstNode>) -> Boolean
+        fun lastIn(statement: AstNode): Pair<List<AstNode>, Boolean> {
+            val node = unwrapped(statement)
+            val lists = node.getChildren(PlSqlGrammar.STATEMENTS)
+            return when {
+                isOpen(node) -> listOf(node) to true
+                node.type == PlSqlGrammar.IF_STATEMENT || node.type == PlSqlGrammar.CASE_STATEMENT -> {
+                    val branches = lists + node.getChildren(PlSqlGrammar.ELSIF_CLAUSE, PlSqlGrammar.ELSE_CLAUSE).flatMap { it.getChildren(PlSqlGrammar.STATEMENTS) }
+                    val opens = ArrayList<AstNode>()
+                    var always = node.hasDirectChildren(PlSqlGrammar.ELSE_CLAUSE)
+                    for (branch in branches) {
+                        val before = found.size
+                        val definite = last(branch.children)
+                        opens += found.subList(before, found.size)
+                        found.subList(before, found.size).clear()
+                        always = always && definite
+                    }
+                    opens to always
+                }
+                node.type == PlSqlGrammar.BLOCK_STATEMENT && node.getFirstChildOrNull(PlSqlGrammar.STATEMENTS_SECTION)?.hasDirectChildren(PlSqlGrammar.EXCEPTION_HANDLERS) == false -> {
+                    val before = found.size
+                    val always = last(node.getFirstChild(PlSqlGrammar.STATEMENTS_SECTION).getFirstChild(PlSqlGrammar.STATEMENTS).children)
+                    val opens = ArrayList(found.subList(before, found.size))
+                    found.subList(before, found.size).clear()
+                    opens to always
+                }
+                else -> node.getDescendants(PlSqlGrammar.OPEN_FOR_STATEMENT).filter(::isOpen) to false
+            }
+        }
+        last = { statements ->
+            var always = false
+            for (statement in statements.asReversed()) {
+                val (opens, definite) = lastIn(statement)
+                found += opens
+                if (definite) {
+                    always = true
+                    break
+                }
+            }
+            always
+        }
+        var current: AstNode = generateSequence(fetch) { it.parentOrNull }.firstOrNull { it.parentOrNull?.type == PlSqlGrammar.STATEMENTS } ?: return emptyList()
+        while (true) {
+            val list = current.parent
+            val at = list.children.indexOfFirst { it === current }
+            if (last(list.children.subList(0, at))) return found
+            var owner = list.parent
+            if (owner.type in LOOPS) found += list.children.subList(at + 1, list.children.size).flatMap { lastIn(it).first }
+            if (owner.type == PlSqlGrammar.EXCEPTION_HANDLER) {
+                val section = generateSequence(owner) { it.parentOrNull }.first { it.type == PlSqlGrammar.STATEMENTS_SECTION }
+                found += section.getChildren(PlSqlGrammar.STATEMENTS).flatMap { body -> body.getDescendants(PlSqlGrammar.OPEN_FOR_STATEMENT).filter(::isOpen) }
+                owner = section
+            }
+            if (owner.type == PlSqlGrammar.STATEMENTS_SECTION && owner.parentOrNull === scope) return found
+            current = generateSequence(owner) { it.parentOrNull }.firstOrNull { it.parentOrNull?.type == PlSqlGrammar.STATEMENTS } ?: return found
+        }
     }
 
     /** The variable or parameter declaration of the simple name [cursor] nearest it, in the blocks and routines around it. */
@@ -914,6 +1044,19 @@ internal class IntoClauses(
             val targets = into.targets.map { target(it, bySpan, shapes) }
             var cursorKey: String? = null
             var branches = into.branches
+            // A cursor variable: the queries of the OPENs that may run last before the FETCH, when there are some.
+            val variable = into.cursor?.let(::cursorDeclaration)
+            val opens = variable?.let { reachingOpens(into.fetch!!, it) }.orEmpty()
+            if (opens.isNotEmpty()) {
+                val (kind, type) = cursorKind(into.fetch!!, into.cursor!!, shapes)
+                val read = opens.map(::opened)
+                // One of them not followed: the FETCH's targets counted once, by the first such.
+                read.firstNotNullOfOrNull { it as? Opened.NotFollowed }?.let { state.leftOut(FETCH_CURSOR_NOT_KNOWN + it.shape, into.targets.size) }
+                val queries = read.mapNotNull { (it as? Opened.Items)?.items }
+                if (queries.isEmpty()) return@mapNotNullTo null
+                return@mapNotNullTo IntoFact(into.source, into.bulk, into.context.unitIndex, into.context.container, into.statementId, queries, null, targets,
+                    cursorKind = kind ?: "OPENED", cursorType = type)
+            }
             if (into.cursor != null) {
                 val cursor = into.cursor
                 cursorKey = bySpan[spanOf(cursor)]?.firstOrNull()?.entityKey
@@ -1203,6 +1346,14 @@ internal class IntoClauses(
         const val ARGUMENT_INTO_NOT_FOLLOWED = "ARGUMENT_INTO_NOT_FOLLOWED"
         /** The prefix of the shape of a `FETCH` from a cursor whose query is not known, by the cursor it is. */
         const val FETCH_CURSOR_NOT_KNOWN = "FETCH_CURSOR_NOT_KNOWN_"
+
+        /** After [FETCH_CURSOR_NOT_KNOWN]: a text whose hole in the `FROM` hides the column an item reads. */
+        const val TEXT_HOLE = "TEXT_HOLE"
+
+        /** The end of the reason of a dynamic text parsed only once its holes were left out: it may be partial. */
+        private const val HOLES_DROPPED = "HOLES_DROPPED"
+
+        private val LOOPS = setOf(PlSqlGrammar.LOOP_STATEMENT, PlSqlGrammar.FOR_STATEMENT, PlSqlGrammar.WHILE_STATEMENT)
         private val ARITHMETIC = setOf(
             PlSqlGrammar.ADDITIVE_EXPRESSION, PlSqlGrammar.MULTIPLICATIVE_EXPRESSION, PlSqlGrammar.UNARY_EXPRESSION, PlSqlGrammar.EXPONENTIATION_EXPRESSION
         )
