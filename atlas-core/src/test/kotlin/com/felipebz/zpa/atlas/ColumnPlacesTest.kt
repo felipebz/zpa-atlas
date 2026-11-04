@@ -1041,6 +1041,116 @@ class ColumnPlacesTest {
 
     @Test
     @Timeout(60)
+    fun `a value that goes round through OUT parameters, concatenated on each turn, is followed once`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        // p_a gives its OUT parameter a column and passes it to p_b, which writes into it what p_a gives it, concatenated.
+        Files.writeString(sources.resolve("msg.sql"), """
+            create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
+
+            create or replace package pk_msg as
+              procedure p_a(o_msg out varchar2);
+              procedure p_b(o_msg in out varchar2);
+            end;
+            /
+            create or replace package body pk_msg as
+              procedure p_a(o_msg out varchar2) is
+              begin
+                select code into o_msg from orders where rownum = 1;
+                p_b(o_msg);
+              end;
+              procedure p_b(o_msg in out varchar2) is
+                l varchar2(100);
+              begin
+                p_a(l);
+                o_msg := upper(o_msg) || l;
+              end;
+            end;
+            /
+            create or replace procedure show_msg is
+              l varchar2(5);
+            begin
+              pk_msg.p_a(l);
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("msg.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
+        // The caller's l takes the column as is and concatenated, each once: going round again adds nothing.
+        assertThat(Fixture.query(db, """
+            SELECT p.start_line || ' ' || p.target_written || ' ' || p.source || ' ' || p.class || ' ' || coalesce(p.functions, '-') || ' ' || p.concatenated
+            FROM column_place p WHERE p.start_line = 25 ORDER BY 1""")).containsExactly(
+            "25 l OUT_ARGUMENT FIXED_SIZE - 0",
+            "25 l OUT_ARGUMENT FIXED_SIZE - 1",
+            "25 l OUT_ARGUMENT FIXED_SIZE UPPER 1"
+        )
+    }
+
+    @Test
+    @Timeout(60)
+    fun `a cycle that mixes value functions and concatenations writes each place once`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("mix.sql"), """
+            create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
+
+            create or replace package pk_c as
+              procedure p1(o out varchar2);
+              procedure p2(o in out varchar2);
+              procedure p3(o in out varchar2);
+            end;
+            /
+            create or replace package body pk_c as
+              procedure p1(o out varchar2) is
+                l varchar2(100);
+              begin
+                select note into o from orders where rownum = 1;
+                p2(o);
+                p1(l);
+                o := o || l;
+              end;
+              procedure p2(o in out varchar2) is
+              begin
+                o := upper(o);
+                p3(o);
+              end;
+              procedure p3(o in out varchar2) is
+                l varchar2(100);
+              begin
+                o := trim(o);
+                p1(l);
+                o := lower(l) || o;
+              end;
+            end;
+            /
+            create or replace procedure show_c is
+              y varchar2(5);
+            begin
+              pk_c.p1(y);
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("mix.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_ITEMS, threads = 1))
+        // TRIM,LOWER is reached with the concatenation at two points of the chain: one row.
+        assertThat(Fixture.query(db, """
+            SELECT p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || ' ' || p.class || ' ' ||
+                   coalesce(p.functions, '-') || ' ' || p.concatenated
+            FROM column_place p JOIN entity c ON c.id = p.column_id WHERE p.target_written = 'y' ORDER BY 1""")).containsExactly(
+            "y NOTE OUT_ARGUMENT FIXED_SIZE - 0",
+            "y NOTE OUT_ARGUMENT FIXED_SIZE - 1",
+            "y NOTE OUT_ARGUMENT FIXED_SIZE LOWER 1",
+            "y NOTE OUT_ARGUMENT FIXED_SIZE LOWER,TRIM 1",
+            "y NOTE OUT_ARGUMENT FIXED_SIZE TRIM,LOWER 1"
+        )
+        // No place row, the two l locals' included, is written twice.
+        assertThat(Fixture.query(db, """
+            SELECT count(*) FROM column_place GROUP BY file_id, start_line, start_col, end_line, end_col, column_id, source, target_entity_id,
+                field, class, functions, concatenated, argument_parameter_id, call_path, call_line HAVING count(*) > 1""")).isEmpty()
+    }
+
+    @Test
+    @Timeout(60)
     fun `a cycle that wraps the value in a function on each turn is followed once`() {
         val sources = temp.resolve("src")
         Files.createDirectories(sources)

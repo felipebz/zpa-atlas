@@ -9,6 +9,51 @@ import com.felipebz.zpa.atlas.extract.IntoClauses
 import com.felipebz.zpa.atlas.model.*
 import java.util.Collections
 import java.util.IdentityHashMap
+import kotlin.collections.ArrayDeque
+import kotlin.collections.ArrayList
+import kotlin.collections.Collection
+import kotlin.collections.HashMap
+import kotlin.collections.HashSet
+import kotlin.collections.LinkedHashMap
+import kotlin.collections.LinkedHashSet
+import kotlin.collections.List
+import kotlin.collections.Map
+import kotlin.collections.MutableList
+import kotlin.collections.MutableMap
+import kotlin.collections.MutableSet
+import kotlin.collections.any
+import kotlin.collections.component1
+import kotlin.collections.component2
+import kotlin.collections.contains
+import kotlin.collections.distinct
+import kotlin.collections.distinctBy
+import kotlin.collections.emptyList
+import kotlin.collections.filter
+import kotlin.collections.firstOrNull
+import kotlin.collections.flatMapTo
+import kotlin.collections.getOrNull
+import kotlin.collections.getOrPut
+import kotlin.collections.getValue
+import kotlin.collections.hashSetOf
+import kotlin.collections.indexOfFirst
+import kotlin.collections.isNotEmpty
+import kotlin.collections.iterator
+import kotlin.collections.listOf
+import kotlin.collections.listOfNotNull
+import kotlin.collections.map
+import kotlin.collections.mapNotNull
+import kotlin.collections.mapTo
+import kotlin.collections.orEmpty
+import kotlin.collections.plus
+import kotlin.collections.plusAssign
+import kotlin.collections.set
+import kotlin.collections.setOf
+import kotlin.collections.single
+import kotlin.collections.singleOrNull
+import kotlin.collections.sortedWith
+import kotlin.collections.takeWhile
+import kotlin.collections.toList
+import kotlin.collections.withIndex
 
 /**
  * The places column values are read into ([ColumnPlaceFact]), decided once every file is scanned, since a target, its
@@ -107,7 +152,9 @@ internal class ColumnPlaces(
                 }
             }
         }
-        return places to leftOut
+        // The same column at the same target more than once (two branches of a compound query reading it, a field
+        // concatenated twice): one place.
+        return places.distinctBy { it.copy(functions = rowFunctions(it.functions)) } to leftOut
     }
 
     /**
@@ -172,7 +219,17 @@ internal class ColumnPlaces(
     /** A value an `OUT` parameter ([parameter]) is given: [column] through [functions], come into its routine at [entry]. */
     private data class OutValue(val parameter: String, val column: String, val functions: List<String>, val entry: Entry?)
 
-    private fun placeKey(path: String, place: ColumnPlaceFact) = listOf(path, place.span, place.columnKey, place.functions)
+    private fun placeKey(path: String, place: ColumnPlaceFact) = listOf(path, place.span, place.columnKey, written(place.functions))
+
+    /**
+     * The functions as a place row tells them: those a value went through, outer first, without the concatenations,
+     * and whether there was one. Chains that differ only in where a concatenation is (`||,TRIM` and `TRIM,||`, after a
+     * cycle that mixes them) are the same row.
+     */
+    private fun written(functions: List<String>) = functions.filter { it != CONCATENATED } to (CONCATENATED in functions)
+
+    /** [functions] as the row tells them ([written]), as a list: the concatenation, if any, last. */
+    private fun rowFunctions(functions: List<String>) = written(functions).let { (named, concatenated) -> if (concatenated) named + CONCATENATED else named }
 
     /** Whether the call site [path]/[call] is one of [incoming]'s calls: one the extraction did not tie is everyone's (not expected). */
     private fun isCall(incoming: Incoming, path: String, call: SourceSpan?) = incoming.path == path && (call == null || incoming.call == null || incoming.call == call)
@@ -336,7 +393,11 @@ internal class ColumnPlaces(
          */
         fun along(path: String, flow: IntoFact, reached: Reached, entry: Entry?, previous: Reached) {
             val returns = reached.parameter.endsWith(".$RETURN")
-            val functions = flow.functions + reached.functions
+            // A function the value already went through adds nothing when it comes again (`||` of a value already
+            // concatenated, `upper` of an upper-cased one): kept once, so that a value that goes round through an `OUT`
+            // parameter it is written back into (`o_msg := o_msg || …`) reaches a node already seen instead of a new one
+            // on every turn.
+            val functions = (flow.functions + reached.functions).distinct()
             val site = flow.targets.single().span
             when {
                 flow.expression != null -> if (counted.add(listOf(path, site, reached.column))) count(path, flow.expression)
@@ -363,7 +424,7 @@ internal class ColumnPlaces(
                     }
                 }
                 else -> {
-                    val key = listOf(path, site, reached.column, functions)
+                    val key = listOf(path, site, reached.column, written(functions))
                     if (!returns && key in direct) return
                     val earlier = placed[key]
                     val place = if (earlier != null) {
@@ -430,7 +491,7 @@ internal class ColumnPlaces(
                     continue
                 }
                 if (target.entityKey == null && target.local == null) {
-                    if (notFollowed.add(listOf(path, target.span, column, functions))) count(path, "OUT_ARGUMENT_NOT_FOLLOWED")
+                    if (notFollowed.add(listOf(path, target.span, column, written(functions)))) count(path, "OUT_ARGUMENT_NOT_FOLLOWED")
                     continue
                 }
                 val place = place(into, target, null, column, functions)
