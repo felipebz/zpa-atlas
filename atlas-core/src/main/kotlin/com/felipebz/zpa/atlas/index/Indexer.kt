@@ -164,91 +164,15 @@ class Indexer internal constructor(
         val (root, sources, textIndex) = Triple(read.root, read.sources, read.textIndex)
         val startedAt = read.startedAt
         val started = read.started
-        phases?.start(PhaseTimes.PREPARATION)
-
-        val prepared = ProjectAnalysisContext.prepared(
-            ProjectIndexPreparation(ProjectDeclarationExtractor(PlSqlConfiguration(StandardCharsets.UTF_8, true, options.conditionalCompilation)))
-                .prepare(sources.map { source -> ProjectSource(FileId(source.relativePath), ProjectSourceReader { source.text }) })
-        )
-        val compilationSchema = options.compilationSchema?.let { ProjectIdentifier.fromSource("\"$it\"") }
-        val context = if (!options.dictionary.isAvailable && compilationSchema == null) prepared
-        else prepared.withExternalContext(ProjectExternalContext.of(options.dictionary.metadata, compilationSchema))
-
-        val scanner = AstScanner(emptyList(), null, true, StandardCharsets.UTF_8, context, options.conditionalCompilation)
-        val planCatalog = if (incremental) IncrementalRun.catalog(options, context, sources.map { it.relativePath }, phases) else null
-        // The members of the object types, read before any type body is walked.
-        val typeMembers = ObjectTypeMembers()
-        phases?.start(PhaseTimes.TYPE_MEMBERS)
-        for (source in sources) {
-            if (ObjectTypeMembers.MAY_SPECIFY_OBJECT.containsMatchIn(source.text)) {
-                scanner.scanFile(source, listOf(typeMembers.collector(options.compilationSchema)), source.relativePath)
-            }
-        }
-        val hashes = sources.associate { it.relativePath to it.sha256 }
-        val run = if (!incremental) null else {
-            val current = sources.map { IncrementalRule.Current(it.relativePath, hashes.getValue(it.relativePath), it.text) }
-            IncrementalRun.plan(options, typeMembers, current, pending!!, inputs!!, planCatalog!!, phases)
-        }
-        val toWalk = if (run == null) sources else sources.filter { it.relativePath in run.walk }
-        phases?.start(PhaseTimes.FILE_WALKS)
-        phases?.walkThreads = options.threads.coerceAtLeast(1)
-        val catalogHolder = CatalogHolder(options.compilationSchema)
-        val strings = FactStrings()
-        val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
-        fun extractor(source: Source) = FileExtractor(
-            source.relativePath, source.sha256, source.size, source.charset.name(), source.lineCount,
-            options.dictionary, options.compilationSchema, catalogHolder::get,
-            jsonBuiltIn = (options.conditionalCompilation.databaseVersion?.version ?: 0) >= JSON_BUILT_IN_VERSION,
-            typeMembers = typeMembers, strings = strings
-        )
-        val walked: List<Result<FileFacts>> = try {
-            toWalk.map { source ->
-                executor.submit<Result<FileFacts>> {
-                    try {
-                        val taskStarted = System.nanoTime()
-                        val extractor = extractor(source)
-                        val walkStart = WalkStart()
-                        scanner.scanFile(source, listOf(walkStart) + visitors(source.relativePath, extractor), source.relativePath)
-                        val walked = System.nanoTime()
-                        val facts = extractor.facts()
-                        if (phases != null) {
-                            phases.files += PhaseTimes.FileTime(source.relativePath, source.lineCount, walkStart.at - taskStarted, walked - walkStart.at,
-                                System.nanoTime() - walked)
-                        }
-                        Result.success(facts)
-                    } catch (e: Exception) {
-                        Result.failure(e)
-                    }
-                }
-            }.map { it.get() }
-        } finally {
-            executor.shutdown()
-        }
-        // Built after every walk, from the run's catalog: a failed walk may have died before or after creating it.
-        val walkedFacts = toWalk.zip(walked).associate { (source, result) ->
-            source.relativePath to result.getOrElse { e ->
-                val message = e.message?.lineSequence()?.firstOrNull().orEmpty()
-                extractor(source).failedFacts(catalogHolder.catalog, CoverageFact(EXTRACTION_FAILED, "${e.javaClass.name}: $message"))
-            }
-        }
-        val facts = sources.map { walkedFacts[it.relativePath] ?: run!!.cachedFacts(it.relativePath) }
-        val failedFiles = walked.count { it.isFailure } +
-            facts.count { it.path !in walkedFacts && it.coverage.any { coverage -> coverage.kind == EXTRACTION_FAILED } }
+        val walked = walkSources(options, phases, incremental, pending, inputs, sources)
+        val (facts, run) = walked.facts to walked.run
+        val failedFiles = walked.failedFiles
         val parsed = System.nanoTime()
 
         phases?.start(PhaseTimes.GLOBAL_FACTS)
-        val globalEntities = ArrayList<EntityFact>()
-        val globalRelations = ArrayList<RelationFact>()
-        val globalCoverage = ArrayList<CoverageFact>()
-        // A run that walks nothing has no catalog of its own walks: the plan's, built from the same declarations, is the same.
-        (catalogHolder.catalog ?: run?.catalog)?.let {
-            globalEntities += it.entities
-            globalRelations += it.relations
-            globalCoverage += it.coverage
-        }
-        (catalogHolder.snapshot ?: run?.snapshot)?.failures?.forEach {
-            globalCoverage += CoverageFact("PREPARATION_FAILED", "Project index preparation failed for ${it.fileId}")
-        }
+        val globalEntities = walked.globalEntities
+        val globalRelations = walked.globalRelations
+        val globalCoverage = walked.globalCoverage
         globalCoverage += CoverageFact("CALL_SCOPE_LEGACY",
             "Calls named like a local value, type or nested subprogram are recognized through the legacy symbol table, a heuristic rather than proof of lexical scope")
         val dictionary = options.dictionary
@@ -274,26 +198,7 @@ class Indexer internal constructor(
                     "and ALL_CONSTRAINTS lists only the constraints of the tables it owns or was granted a privilege on: " +
                     "the foreign keys referencing a key may be more than those recorded")
         }
-        // Where column values are read into PL/SQL, now that every target, type and cursor of every file is known.
-        val kinds = HashMap<String, EntityKind>()
-        for (entity in globalEntities) kinds.putIfAbsent(entity.key, entity.kind)
-        for (file in facts) for (entity in file.entities) kinds.putIfAbsent(entity.key, entity.kind)
-        val relationColumns = resolved.mapValues { (key, relation) -> relation.rowFields.sortedBy { it.position.asInt }.map { "$key.${it.name.exact()}" } }
-        val columnPlaces = ColumnPlaces(facts, kinds, relationColumns)
-        val places = HashMap<String, List<ColumnPlaceFact>>()
-        val placesLeftOut = HashMap<String, Map<String, Int>>()
-        for (file in facts) {
-            val (found, expressions) = columnPlaces.of(file)
-            if (found.isNotEmpty()) places[file.path] = found
-            val counts = TreeMap(file.placesLeftOut)
-            expressions.forEach { (shape, count) -> counts.merge(shape, count, Int::plus) }
-            if (counts.isNotEmpty()) placesLeftOut[file.path] = counts
-        }
-        // Through routines, across files: the targets inside them of the columns passed to their IN parameters, and what
-        // comes back out of them through RETURN and OUT parameters to their callers.
-        val (followed, followedLeftOut) = columnPlaces.followed(facts, places)
-        for ((path, found) in followed) places[path] = places[path].orEmpty() + found
-        for ((path, counts) in followedLeftOut) placesLeftOut[path] = TreeMap(placesLeftOut[path].orEmpty()).apply { counts.forEach { (k, v) -> merge(k, v, Int::plus) } }
+        val (places, placesLeftOut) = columnPlaces(facts, globalEntities, resolved)
 
         val texts = sources.associate { it.relativePath to it.text }
         val phase: (String) -> Unit = { phases?.start(it) }
@@ -335,6 +240,152 @@ class Indexer internal constructor(
         phases?.stop()
         val finished = System.nanoTime()
         return IndexSummary(sources.size, failedFiles, (parsed - started) / 1_000_000, (finished - parsed) / 1_000_000, (finished - started) / 1_000_000, run?.report, read.outsideRoot)
+    }
+
+    /**
+     * What the walks leave for the rest of the run: every file's facts, in path order, how many files failed, the
+     * incremental plan, and the entities, relations and notes of the run's declarations.
+     */
+    private class Walked(
+        val facts: List<FileFacts>, val failedFiles: Int, val run: IncrementalRun?,
+        val globalEntities: ArrayList<EntityFact>, val globalRelations: ArrayList<RelationFact>, val globalCoverage: ArrayList<CoverageFact>
+    )
+
+    /**
+     * Prepares the project, reads the object types' members and walks the files. Its own function, so that what only
+     * the walks use (zpa's project analysis and scanner, the run's declaration catalog) is let go once they end: the
+     * frame of [index] keeps its locals until it returns.
+     */
+    private fun walkSources(
+        options: IndexOptions, phases: PhaseTimes?, incremental: Boolean, pending: PendingFactsCache?, inputs: CompletableFuture<Map<String, String>>?,
+        sources: List<Source>
+    ): Walked {
+        phases?.start(PhaseTimes.PREPARATION)
+
+        val prepared = ProjectAnalysisContext.prepared(
+            ProjectIndexPreparation(ProjectDeclarationExtractor(PlSqlConfiguration(StandardCharsets.UTF_8, true, options.conditionalCompilation)))
+                .prepare(sources.map { source -> ProjectSource(FileId(source.relativePath), ProjectSourceReader { source.text }) })
+        )
+        val compilationSchema = options.compilationSchema?.let { ProjectIdentifier.fromSource("\"$it\"") }
+        val context = if (!options.dictionary.isAvailable && compilationSchema == null) prepared
+        else prepared.withExternalContext(ProjectExternalContext.of(options.dictionary.metadata, compilationSchema))
+
+        val scanner = AstScanner(emptyList(), null, true, StandardCharsets.UTF_8, context, options.conditionalCompilation)
+        val planCatalog = if (incremental) IncrementalRun.catalog(options, context, sources.map { it.relativePath }, phases) else null
+        // The members of the object types, read before any type body is walked.
+        val typeMembers = ObjectTypeMembers()
+        phases?.start(PhaseTimes.TYPE_MEMBERS)
+        for (source in sources) {
+            if (ObjectTypeMembers.MAY_SPECIFY_OBJECT.containsMatchIn(source.text)) {
+                scanner.scanFile(source, listOf(typeMembers.collector(options.compilationSchema)), source.relativePath)
+            }
+        }
+        val hashes = sources.associate { it.relativePath to it.sha256 }
+        val run = if (!incremental) null else {
+            val current = sources.map { IncrementalRule.Current(it.relativePath, hashes.getValue(it.relativePath), it.text) }
+            IncrementalRun.plan(options, typeMembers, current, pending!!, inputs!!, planCatalog!!, phases)
+        }
+        val toWalk = if (run == null) sources else sources.filter { it.relativePath in run.walk }
+        phases?.start(PhaseTimes.FILE_WALKS)
+        phases?.walkThreads = options.threads.coerceAtLeast(1)
+        val catalogHolder = CatalogHolder(options.compilationSchema)
+        val (walkedFacts, failedWalks) = walk(options, phases, scanner, typeMembers, catalogHolder, toWalk)
+        val facts = sources.map { walkedFacts[it.relativePath] ?: run!!.cachedFacts(it.relativePath) }
+        val failedFiles = failedWalks +
+            facts.count { it.path !in walkedFacts && it.coverage.any { coverage -> coverage.kind == EXTRACTION_FAILED } }
+        val globalEntities = ArrayList<EntityFact>()
+        val globalRelations = ArrayList<RelationFact>()
+        val globalCoverage = ArrayList<CoverageFact>()
+        // A run that walks nothing has no catalog of its own walks: the plan's, built from the same declarations, is the same.
+        (catalogHolder.catalog ?: run?.catalog)?.let {
+            globalEntities += it.entities
+            globalRelations += it.relations
+            globalCoverage += it.coverage
+        }
+        (catalogHolder.snapshot ?: run?.snapshot)?.failures?.forEach {
+            globalCoverage += CoverageFact("PREPARATION_FAILED", "Project index preparation failed for ${it.fileId}")
+        }
+        return Walked(facts, failedFiles, run, globalEntities, globalRelations, globalCoverage)
+    }
+
+    /**
+     * Walks [toWalk] on the run's threads: each file's facts by path, and how many walks failed (their facts say so). Its
+     * own function, so that what only the walks use (the shared strings of the facts, the extractors) is let go once
+     * they end, not kept until the index is written.
+     */
+    private fun walk(
+        options: IndexOptions, phases: PhaseTimes?, scanner: AstScanner, typeMembers: ObjectTypeMembers, catalogHolder: CatalogHolder,
+        toWalk: List<Source>
+    ): Pair<Map<String, FileFacts>, Int> {
+        val strings = FactStrings()
+        val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
+        fun extractor(source: Source) = FileExtractor(
+            source.relativePath, source.sha256, source.size, source.charset.name(), source.lineCount,
+            options.dictionary, options.compilationSchema, catalogHolder::get,
+            jsonBuiltIn = (options.conditionalCompilation.databaseVersion?.version ?: 0) >= JSON_BUILT_IN_VERSION,
+            typeMembers = typeMembers, strings = strings
+        )
+        val walked: List<Result<FileFacts>> = try {
+            toWalk.map { source ->
+                executor.submit<Result<FileFacts>> {
+                    try {
+                        val taskStarted = System.nanoTime()
+                        val extractor = extractor(source)
+                        val walkStart = WalkStart()
+                        scanner.scanFile(source, listOf(walkStart) + visitors(source.relativePath, extractor), source.relativePath)
+                        val walked = System.nanoTime()
+                        val facts = extractor.facts()
+                        if (phases != null) {
+                            phases.files += PhaseTimes.FileTime(source.relativePath, source.lineCount, walkStart.at - taskStarted, walked - walkStart.at,
+                                System.nanoTime() - walked)
+                        }
+                        Result.success(facts)
+                    } catch (e: Exception) {
+                        Result.failure(e)
+                    }
+                }
+            }.map { it.get() }
+        } finally {
+            executor.shutdown()
+        }
+        // Built after every walk, from the run's catalog: a failed walk may have died before or after creating it.
+        val walkedFacts = toWalk.zip(walked).associate { (source, result) ->
+            source.relativePath to result.getOrElse { e ->
+                val message = e.message?.lineSequence()?.firstOrNull().orEmpty()
+                extractor(source).failedFacts(catalogHolder.catalog, CoverageFact(EXTRACTION_FAILED, "${e.javaClass.name}: $message"))
+            }
+        }
+        return walkedFacts to walked.count { it.isFailure }
+    }
+
+    /**
+     * Where column values are read into PL/SQL, now that every target, type and cursor of every file is known: the places
+     * by file path, and what is not followed, by file path and shape. Its own function, so that what only the following
+     * uses (the entity kinds, the declared shapes by key) is let go before the index is written.
+     */
+    private fun columnPlaces(
+        facts: List<FileFacts>, globalEntities: List<EntityFact>, resolved: Map<String, ProjectExternalRelation>
+    ): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
+        val kinds = HashMap<String, EntityKind>()
+        for (entity in globalEntities) kinds.putIfAbsent(entity.key, entity.kind)
+        for (file in facts) for (entity in file.entities) kinds.putIfAbsent(entity.key, entity.kind)
+        val relationColumns = resolved.mapValues { (key, relation) -> relation.rowFields.sortedBy { it.position.asInt }.map { "$key.${it.name.exact()}" } }
+        val columnPlaces = ColumnPlaces(facts, kinds, relationColumns)
+        val places = HashMap<String, List<ColumnPlaceFact>>()
+        val placesLeftOut = HashMap<String, Map<String, Int>>()
+        for (file in facts) {
+            val (found, expressions) = columnPlaces.of(file)
+            if (found.isNotEmpty()) places[file.path] = found
+            val counts = TreeMap(file.placesLeftOut)
+            expressions.forEach { (shape, count) -> counts.merge(shape, count, Int::plus) }
+            if (counts.isNotEmpty()) placesLeftOut[file.path] = counts
+        }
+        // Through routines, across files: the targets inside them of the columns passed to their IN parameters, and what
+        // comes back out of them through RETURN and OUT parameters to their callers.
+        val (followed, followedLeftOut) = columnPlaces.followed(facts, places)
+        for ((path, found) in followed) places[path] = places[path].orEmpty() + found
+        for ((path, counts) in followedLeftOut) placesLeftOut[path] = TreeMap(placesLeftOut[path].orEmpty()).apply { counts.forEach { (k, v) -> merge(k, v, Int::plus) } }
+        return places to placesLeftOut
     }
 
     /**

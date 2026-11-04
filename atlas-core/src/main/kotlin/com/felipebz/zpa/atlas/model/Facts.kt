@@ -20,18 +20,33 @@ data class SourceSpan(val startLine: Int, val startCol: Int, val endLine: Int, v
     }
 }
 
-/** Entities are referenced by [key] until the writer assigns ids. */
-data class EntityFact(
+/**
+ * Entities are referenced by [key] until the writer assigns ids. [display] is almost always the key without its `db:`
+ * prefix: then it is not kept apart from the key, which on a large project saves a string for every entity of every file.
+ */
+@ConsistentCopyVisibility
+data class EntityFact private constructor(
     val key: String,
     val kind: EntityKind,
     val schemaName: String?,
     val name: String,
     val parentKey: String?,
-    val display: String,
+    /** [display] when it is not [key] without its prefix; else null. */
+    private val ownDisplay: String?,
     val external: Boolean,
     /** Lower wins when several files produce the same key (a declaration beats a name only mentioned). */
     val precedence: Int
-)
+) {
+    val display: String get() = ownDisplay ?: key.removePrefix(KEY_PREFIX)
+
+    companion object {
+        private const val KEY_PREFIX = "db:"
+
+        operator fun invoke(
+            key: String, kind: EntityKind, schemaName: String?, name: String, parentKey: String?, display: String, external: Boolean, precedence: Int
+        ) = EntityFact(key, kind, schemaName, name, parentKey, display.takeUnless { it == key.removePrefix(KEY_PREFIX) }, external, precedence)
+    }
+}
 
 data class RelationFact(val fromKey: String, val kind: RelationKind, val toKey: String)
 
