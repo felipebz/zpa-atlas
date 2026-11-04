@@ -45,7 +45,9 @@ internal class PlaceReader(private val connection: Connection) {
         val ordered = groups.map { if (it in overloaded) it.copy(parameters = parameters(it.container!!.display, it.routine)) else it }
             .sortedWith(compareByDescending<PlaceGroup> { it.smaller }.thenBy { it.routine }.thenBy { it.packageName.orEmpty() }
                 .thenBy { it.path }.thenBy { it.container?.key.orEmpty() })
-        val page = ordered.drop(offset).take(limit)
+        val groupsShown = ordered.drop(offset).take(limit)
+        val shown = shown(groupsShown.flatMap { it.rows })
+        val page = groupsShown.map { group -> group.copy(rows = group.rows.map { it.copy(shown = shown[it]) }) }
         val next = (offset + page.size).takeIf { it < ordered.size }
         return PlaceGroupsPage(
             read.column, read.size, filter.size != null, read.counts, read.verdicts, read.listed.size, groups.size, read.filtered.size,
@@ -58,10 +60,95 @@ internal class PlaceReader(private val connection: Connection) {
     fun rows(key: String, filter: PlaceFilter, offset: Int, limit: Int): ColumnPlacePage? {
         val read = read(key, filter) ?: return null
         val sorted = read.listed.sortedWith(compareBy({ Verdict.valueOf(it.place.verdict).ordinal }, { it.place.path }, { it.place.line }, { it.place.column }, { it.id }))
-        val page = sorted.drop(offset).take(limit).map { it.place }
+        val rows = sorted.drop(offset).take(limit).map { it.place }
+        val shown = shown(rows)
+        val page = rows.map { it.copy(shown = shown[it]) }
         return ColumnPlacePage(read.column, read.size, filter.size != null, read.counts, read.verdicts, sorted.size, read.concatenatedCount,
             read.optionUnit, read.optionSized, offset, page, (offset + page.size).takeIf { it < sorted.size })
     }
+
+    /**
+     * The line each of [places] shows, read in one statement: for a value passed to a parameter, the argument of the
+     * call that passes it; else the read of the column (the view column of a place read through a view) in the place's
+     * own statement that gives this target its value ([itemRead]); else the target, marked as written.
+     */
+    private fun shown(places: List<ColumnPlace>): Map<ColumnPlace, PlaceLine> {
+        val ids = places.mapNotNull { placeIds[it] }
+        if (ids.isEmpty()) return emptyMap()
+        fun span(text: String?) = text?.split(',')?.map { it.toInt() }
+        val lines = HashMap<Long, PlaceLine>()
+        for (chunk in ids.chunked(500)) loadStatements(chunk)
+        for (chunk in ids.chunked(500)) connection.query(
+            """SELECT p.id, f.path, p.start_line, p.start_col, p.end_line, p.end_col, p.call_path, p.call_line,
+                      (SELECT a.start_line || ',' || a.start_col || ',' || a.end_line || ',' || a.end_col FROM call_argument a
+                       JOIN occurrence c ON c.id = a.occurrence_id JOIN source_file cf ON cf.id = c.file_id
+                       WHERE p.source = 'IN_ARGUMENT' AND cf.path = p.call_path AND a.start_line = p.call_line AND a.parameter_entity_id = p.argument_parameter_id
+                       ORDER BY a.start_col LIMIT 1),
+                      p.statement_id, p.source, p.column_id, p.target_written
+               FROM column_place p JOIN source_file f ON f.id = p.file_id WHERE p.id IN (${chunk.joinToString(",") { "?" }})""",
+            chunk
+        ) { rs ->
+            val argument = span(rs.getString(9))
+            val statement = (rs.getObject(10) as Number?)?.toLong()
+            val target = listOf(rs.getInt(3), rs.getInt(4), rs.getInt(5), rs.getInt(6))
+            val read = statement?.let { itemRead(it, rs.getLong(12), target) }
+            fun at(path: String, span: List<Int>) = PlaceLine(path, span[0], span[1], span[3].takeIf { span[2] == span[0] })
+            val line = when {
+                argument != null -> at(rs.getString(7), argument)
+                // A call whose argument the index did not tie to the parameter: its line, nothing marked.
+                rs.getString(11) == "IN_ARGUMENT" && rs.getString(7) != null && rs.getObject(8) != null -> PlaceLine(rs.getString(7), rs.getInt(8), 0, 0)
+                read != null -> at(rs.getString(2), read)
+                // The place's span is where the value lands (an assignment's `:=`): the target is found on its line as written.
+                else -> at(rs.getString(2), target).copy(target = rs.getString(13))
+            }
+            lines[rs.getLong(1)] = line
+        }
+        return places.mapNotNull { place -> placeIds[place]?.let { id -> lines[id]?.let { place to it } } }.toMap()
+    }
+
+    /**
+     * The read of the column [column] in the statement [statement] that gives the target at [target] its value: the
+     * statement's targets of that column, in order, take the last as many reads of it before the first of them, in
+     * order (the items of a `SELECT` list or a `RETURNING` clause, after a `SET` or a `WHERE` of an `UPDATE` or a
+     * `DELETE`). With fewer reads than targets, the statement's first read; with none, null.
+     */
+    private fun itemRead(statement: Long, column: Long, target: List<Int>): List<Int>? {
+        val reads = statementReads[statement to column].orEmpty().distinct().sortedWith(compareBy({ it[0] }, { it[1] }))
+        if (reads.isEmpty()) return null
+        val targets = statementTargets[statement to column].orEmpty().distinct().sortedWith(compareBy({ it.first }, { it.second }))
+        val index = targets.indexOf(target[0] to target[1])
+        val first = targets.firstOrNull() ?: return reads.first()
+        val before = reads.filter { it[0] < first.first || it[0] == first.first && it[1] < first.second }
+        return if (index >= 0 && before.size >= targets.size) before[before.size - targets.size + index] else reads.first()
+    }
+
+    private val statementReads = HashMap<Pair<Long, Long>, MutableList<List<Int>>>()
+    private val statementTargets = HashMap<Pair<Long, Long>, MutableList<Pair<Int, Int>>>()
+
+    /**
+     * The column reads and the place targets of the statements of the places [ids]: the page's statements and columns
+     * first, by the places' primary key, then the reads by `occurrence_entity_roles` and the targets by
+     * `column_place_column`, each among the page's columns only (what [itemRead] looks up), not a scan of either table.
+     */
+    private fun loadStatements(ids: List<Long>) {
+        val pairs = connection.query(
+            "SELECT DISTINCT statement_id, column_id FROM column_place WHERE statement_id IS NOT NULL AND id IN (${ids.joinToString(",") { "?" }})", ids
+        ) { it.getLong(1) to it.getLong(2) }
+        if (pairs.isEmpty()) return
+        val statements = pairs.map { it.first }.distinct()
+        val columns = pairs.map { it.second }.distinct()
+        val filter = "IN (${columns.joinToString(",") { "?" }}) AND statement_id IN (${statements.joinToString(",") { "?" }})"
+        connection.query(
+            """SELECT statement_id, entity_id, start_line, start_col, end_line, end_col FROM occurrence
+               WHERE entity_id $filter AND (',' || roles || ',') NOT LIKE '%,WRITE,%'""", columns + statements
+        ) { rs -> statementReads.getOrPut(rs.getLong(1) to rs.getLong(2)) { ArrayList() } += listOf(rs.getInt(3), rs.getInt(4), rs.getInt(5), rs.getInt(6)) }
+        connection.query("SELECT statement_id, column_id, start_line, start_col FROM column_place WHERE column_id $filter", columns + statements) { rs ->
+            statementTargets.getOrPut(rs.getLong(1) to rs.getLong(2)) { ArrayList() } += rs.getInt(3) to rs.getInt(4)
+        }
+    }
+
+    /** The `column_place` id of each place read, by identity. */
+    private val placeIds = java.util.IdentityHashMap<ColumnPlace, Long>()
 
     /** A place as read, with what its group and the text filter need. */
     private class Row(val id: Long, val place: ColumnPlace, val packageName: String?) {
@@ -124,7 +211,7 @@ internal class PlaceReader(private val connection: Connection) {
                 int(47), rs.getString(48), int(49), concatenated,
                 decided.verdict.name, decided.reason?.name, shown, shownUnit, unitSource, compiledIn, decided.room
             )
-            Row(rs.getLong(57), place, rs.getString(56))
+            Row(rs.getLong(57), place, rs.getString(56)).also { placeIds[place] = it.id }
         }
         val words = filter.text?.lowercase(Locale.ROOT)?.split(WHITESPACE)?.filter { it.isNotEmpty() }.orEmpty()
         fun matches(row: Row): Boolean {

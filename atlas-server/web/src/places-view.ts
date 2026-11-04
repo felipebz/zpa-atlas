@@ -289,11 +289,16 @@ function declaredLine(say: Say, p: ColumnPlace): DetailLine | null {
   return parts.length === 1 ? null : { parts };
 }
 
-/** Where a row's line link goes: the call that passes the column for a parameter, else the target; with the file when not the group's. */
-export function rowAt(say: Say, p: Pick<ColumnPlace, "source" | "path" | "line" | "callPath" | "callLine">, groupPath: string) {
-  const call = p.source === "IN_ARGUMENT" && p.callPath !== null && p.callLine !== null;
-  const path = call ? p.callPath! : p.path;
-  const line = call ? p.callLine! : p.line;
+/** Whether the line a row shows is another than its target's: then the detail gives the target's. */
+const showsOtherLine = (p: Pick<ColumnPlace, "path" | "line" | "shown">) => p.shown !== null && (p.shown.path !== p.path || p.shown.line !== p.line);
+
+/**
+ * Where a row's line link goes: the line it shows (for a parameter, the call that passes the column; else where its
+ * statement reads the column), else the target's; with the file when not the group's.
+ */
+export function rowAt(say: Say, p: Pick<ColumnPlace, "path" | "line" | "shown">, groupPath: string) {
+  const path = p.shown?.path ?? p.path;
+  const line = p.shown?.line ?? p.line;
   return { path, line, text: path === groupPath ? say("places.at", { line }) : say("places.atFile", { file: fileName(path), line }) };
 }
 
@@ -337,8 +342,8 @@ export function placeDetail(say: Say, p: ColumnPlace): DetailLine[] {
   if (p.reason !== null) lines.push({ parts: [{ text: reasonText(say, p.reason) }], className: "uses-gap", title: p.reason });
   if (p.verdictReason !== null) lines.push({ parts: [{ text: verdictReasonText(say, p.verdictReason) }], className: "uses-gap", title: p.verdictReason });
   if (p.viaView) lines.push({ parts: [{ view: p.read }], className: "muted" });
-  // On a phone the group's header has no file: the target's file and line, the target's when the row's link is the call.
+  // On a phone the group's header has no file: the target's file and line, said to be the target's when the row shows another line.
   const at: DetailPart = { path: p.path, line: p.line };
-  lines.push({ parts: call ? [{ text: say("places.target") + " " }, at] : [at], className: "muted" });
+  lines.push({ parts: showsOtherLine(p) ? [{ text: say("places.target") + " " }, at] : [at], className: "muted" });
   return lines;
 }

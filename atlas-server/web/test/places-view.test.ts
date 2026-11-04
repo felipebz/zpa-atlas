@@ -60,7 +60,7 @@ function place(over: Partial<ColumnPlace>): ColumnPlace {
     container: summary("SHOP.PK_ORD.LOAD", "PROCEDURE"), targetWritten: "l_code", target: L_CODE, field: null,
     placeClass: "FIXED_SIZE", declaredType: "varchar2(12)", length: 12, unit: "CHAR", scale: null, typeSource: L_CODE,
     parameterMode: null, reason: null, functions: [], argumentOf: null, routine: null, callCount: null, callPath: null, callLine: null, concatenated: false,
-    verdict: "FITS", verdictReason: null, size: 12, sizeUnit: "CHAR", unitSource: "WRITTEN", unitCompiledIn: null, room: null, ...over
+    verdict: "FITS", verdictReason: null, size: 12, sizeUnit: "CHAR", unitSource: "WRITTEN", unitCompiledIn: null, room: null, shown: null, ...over
   };
 }
 
@@ -395,7 +395,8 @@ describe("placeDetail", () => {
   it("links a parameter's row to the call that passes the column, and keeps the target's line in the detail", () => {
     const value = place({ targetWritten: "g_macros(v_pos).value", container: ADD_MACRO, path: "mc.sql", line: 17, source: "IN_ARGUMENT",
       declaredType: "varchar2(5)", length: 5, unit: "BYTE", size: 5, sizeUnit: "BYTE", unitSource: "OPTION", typeSource: null,
-      argumentOf: P_VALUE, routine: ADD_MACRO, callCount: 1, callPath: "mc.sql", callLine: 26 });
+      argumentOf: P_VALUE, routine: ADD_MACRO, callCount: 1, callPath: "mc.sql", callLine: 26,
+      shown: { path: "mc.sql", line: 26, from: 40, to: 46, text: null, stale: null, colors: null } });
     expect(rowAt(say, value, "mc.sql")).toEqual({ path: "mc.sql", line: 26, text: "l. 26" });
     expect(rowAt(say, value, "other/mc_spec.sql")).toEqual({ path: "mc.sql", line: 26, text: "mc.sql, l. 26" });
     expect(text(placeDetail(say, value))).toEqual([
@@ -405,6 +406,10 @@ describe("placeDetail", () => {
     expect(text(placeDetail(sayPt, value))[1]).toBe("recebe P_VALUE, a que 1 chamada passa a coluna: mc.sql:26");
     // Any other row's link is its own line.
     expect(rowAt(say, vCode, "mc.sql")).toEqual({ path: "mc.sql", line: 28, text: "l. 28" });
+    // A SELECT over several lines shows the line that reads the column: its link, and the target's line in the detail.
+    const vCode2 = { ...vCode, targetWritten: "v_code2", line: 41, shown: { path: "mc.sql", line: 40, from: 11, to: 15, text: null, stale: null, colors: null } };
+    expect(rowAt(say, vCode2, "mc.sql").text).toBe("l. 40");
+    expect(text(placeDetail(say, vCode2)).at(-1)).toBe("the target: mc.sql:41");
   });
 
   it("names the function a result comes from by its short name, and leaves out its call when it is on the row's line", () => {

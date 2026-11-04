@@ -16,6 +16,8 @@ import type {
     Verdict
 } from "./api";
 import {api, ApiFailure, columnPlaceGroups, errorMessage} from "./api";
+import {codeLineNode} from "./code-line";
+import {shownLine} from "./text-search";
 import type {DeclaredFact} from "./declared-view";
 import {declaredFacts, memberType, parameterDefaults, returnType} from "./declared-view";
 import {docFromKey, docPlaceKey, docSummary} from "./doc-view";
@@ -757,7 +759,8 @@ function placeRowHtml(p: ColumnPlace, index: number, page: PlaceGroupsPage, grou
   const at = `<a href="file.html?path=${encodeURIComponent(line.path)}&line=${line.line}${langSuffix()}#L${line.line}" title="${esc(line.path)}">` +
     `${esc(line.text)}</a>`;
   return `<div class="place-row v-${esc(p.verdict)}" data-place="${index}" tabindex="0" aria-expanded="false" aria-controls="place-detail-${index}">` +
-    `${size}<span class="place-target">${target}</span><span class="place-how">${how}</span><span class="place-at">${at}</span></div>`;
+    `${size}<span class="place-target">${target}</span><span class="place-how">${how}</span><span class="place-at">${at}</span>` +
+    (p.shown?.text ? `<span class="place-code uline"></span>` : "") + `</div>`;
 }
 
 /** What a place's row leaves out, under it when opened ([placeDetail]): each line's parts as HTML. */
@@ -831,7 +834,16 @@ async function loadPlaceGroups(more: boolean) {
     renderPlacesHead(holder, page);
     groups.innerHTML = page.groups.length === 0 ? `<p class="muted">${esc(t("places.empty"))}</p>` : "";
   }
+  const first = placeState.rows.length;
   groups.insertAdjacentHTML("beforeend", page.groups.map(g => placeGroupHtml(g, placeState.page!)).join(""));
+  // Each row's line of code, as "Used by" shows it: colored, the piece it reads marked.
+  for (let index = first; index < placeState.rows.length; index++) {
+    const shown = placeState.rows[index].shown;
+    const holder = groups.querySelector<HTMLElement>(`.place-row[data-place="${index}"] .place-code`);
+    if (!holder || !shown?.text) continue;
+    holder.append(codeLineNode(shownLine(shown.text, [[shown.from, shown.to ?? shown.text.length]], shown.colors)));
+    if (shown.stale) holder.insertAdjacentHTML("beforeend", ` <span class="badge warn-badge">${esc(t("text.stale"))}</span>`);
+  }
   placeState.next = page.nextOffset;
   moreButton.hidden = page.nextOffset === null;
   moreButton.textContent = moreText(t, page.groupsLeft, PLACE_GROUPS);

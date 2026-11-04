@@ -186,7 +186,15 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         val answer = index.columnPlaces(key, filter, offset, args.int("limit", 1..PLACES_MAX) ?: PLACES_DEFAULT)
         val page = answer.result ?: throw unknownEntity(key)
         // The concatenated places are never left unsaid: thousands of them behind "3 places" would mislead.
-        val told = if (concatenated || page.concatenatedCount == 0) toolAnswer(answer) else toolAnswer(answer).withResult("otherPlaces",
+        // Each row's shown line by its number alone: an agent reads the code with get_source.
+        val lined = toolAnswer(answer).let { a ->
+            a.withResult("rows", JsonArray(a.result().getValue("rows").jsonArray.map { row ->
+                val fields = row.jsonObject
+                val shown = fields["shown"]?.jsonObject?.get("line")
+                JsonObject(fields - "shown" + listOfNotNull(shown?.let { "shownLine" to it }))
+            }))
+        }
+        val told = if (concatenated || page.concatenatedCount == 0) lined else lined.withResult("otherPlaces",
             JsonPrimitive("${page.concatenatedCount} place(s) where the value is one part of a concatenation: ask again with concatenated true"))
         // The offset counts rows, so a cut page goes on right after its last row kept.
         return McpAnswers.fitList(told, maxChars, { it.result().getValue("rows").jsonArray }, { a, rows -> a.withResult("rows", rows) }) { a, rows ->
@@ -759,7 +767,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "$PATHS $KEYS"
 
         const val PLACES = "Every PL/SQL variable, parameter or field a column's value is read into, each with its verdict against a size: " +
-            "size, the column's by default (in the column's unit: bytes, characters, or a number's digits before the point). " +
+            "size, the column's by default, in its unit (a number's digits before the point). " +
             "verdict: SMALLER (its own size is less), FITS (as large or larger, or a type without a size: CLOB, NUMBER, DATE), " +
             "CALLER_DECIDES (an OUT or IN OUT parameter: each caller's argument decides, and is a row), UNKNOWN (type not " +
             "known: reason; or verdictReason UNIT_MISMATCH, bytes fewer than 4 per character of a column counting characters; " +
@@ -768,12 +776,12 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "each, under the other arguments. source: SELECT_INTO, FETCH, RETURNING (with bulk); ASSIGNMENT (target := r.f, r a " +
             "cursor FOR loop or %ROWTYPE record); OUT_ARGUMENT (a call's argument for an OUT parameter; argumentOf, routine); " +
             "IN_ARGUMENT (a target inside a routine, written from the IN parameter argumentOf; callCount calls pass it, one at " +
-            "callPath, callLine); RETURNED (a function's result holding the column is written into it; callCount calls). Rows " +
+            "callPath, callLine); RETURNED (a function's result holding the column; callCount calls). Rows " +
             "by verdict, file, line; paged (nextOffset); view columns computed from it too (viaView). Each row: read, source, " +
-            "path, line, container, targetWritten, target, field, declaredType, length, unit (BYTE, CHAR, DIGITS: p-s, with " +
+            "path, line, shownLine (the line to read: the call's for IN_ARGUMENT), container, targetWritten, target, field, declaredType, length, unit (BYTE, CHAR, DIGITS: p-s, with " +
             "scale), unitSource (WRITTEN; COMPILED, as unitCompiledIn was; OPTION, the index's default optionUnit), size and " +
             "sizeUnit compared (the other column's for ANCHORED_ELSEWHERE, typeSource), functions read through, outer first " +
-            "(NVL may give its other argument; REPLACE may change the length), concatenated (one part of a || or CONCAT; room: " +
+            "(NVL may give another value, REPLACE change the length), concatenated (one part of a || or CONCAT; room: " +
             "what the size leaves). Lists where the value lands alone; concatenated true adds those (concatenatedCount). $PATHS"
 
         const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column " +

@@ -381,7 +381,22 @@ data class ColumnPlace(
     val sizeUnit: String? = null,
     val unitSource: String? = null,
     val unitCompiledIn: CompiledIn? = null,
-    val room: Int? = null
+    val room: Int? = null,
+    /** The line of code the row shows, with the piece it marks ([PlaceLine]). */
+    val shown: PlaceLine? = null
+)
+
+/**
+ * The line of code a place's row shows, at [path] and [line], marking [from] to [to] on it: for a value passed to a
+ * parameter, the call's argument; else the column where the place's own statement reads it; else the target ([to]
+ * null: to the end of the line). With
+ * the page's answer, its indexed [text], whether the file changed since ([stale]) and its [colors].
+ */
+@Serializable
+data class PlaceLine(
+    val path: String, val line: Int, val from: Int, val to: Int?, val text: String? = null, val stale: Boolean? = null, val colors: List<List<Int>>? = null,
+    /** The target as written, to find on the line in place of [from] and [to] (an assignment's span is its `:=`). */
+    @kotlinx.serialization.Transient val target: String? = null
 )
 
 /** The PL/SQL unit whose `NLS_LENGTH_SEMANTICS` gave a length its unit: `ALL_PLSQL_OBJECT_SETTINGS`'s [owner], [name] and [type]. */

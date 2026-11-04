@@ -90,7 +90,12 @@ class AtlasIndex(
      */
     fun columnPlaceGroups(key: String, filter: PlaceFilter = PlaceFilter(), offset: Int = 0, limit: Int = 15): Answer<PlaceGroupsPage?> {
         checkPage(filter, offset, limit)
-        return read { connection, _ -> PlaceReader(connection).groups(key, filter, offset, limit) }
+        return read { connection, _ ->
+            val page = PlaceReader(connection).groups(key, filter, offset, limit) ?: return@read null
+            // Each row's line of code, every file read once for the page.
+            val texts = SourceReader(connection, sourcesRoot).placeLines(page.groups.flatMap { g -> g.rows.mapNotNull { it.shown } }.toSet(), colorer)
+            page.copy(groups = page.groups.map { g -> g.copy(rows = g.rows.map { row -> row.copy(shown = row.shown?.let { texts[it] ?: it }) }) })
+        }
     }
 
     /** As [columnPlaceGroups], as rows: by verdict, then by file and line, [limit] from [offset]. */

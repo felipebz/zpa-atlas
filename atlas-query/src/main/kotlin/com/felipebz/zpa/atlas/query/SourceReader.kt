@@ -51,7 +51,41 @@ internal class SourceReader(private val connection: Connection, private val sour
         return ids.mapNotNull { result[it] }
     }
 
+    /**
+     * Where the target [written] is on [text]: at [at] when it starts there, else the last time it is written before
+     * [at] (the target before its `:=`), else the first; null when the line does not have it.
+     */
+    private fun targetOn(text: String, written: String, at: Int): Pair<Int, Int>? {
+        if (written.isEmpty()) return null
+        val starts = generateSequence(text.indexOf(written, ignoreCase = true).takeIf { it >= 0 }) { previous ->
+            text.indexOf(written, previous + 1, ignoreCase = true).takeIf { it >= 0 }
+        }.toList()
+        val start = starts.firstOrNull { it == at } ?: starts.lastOrNull { it < at } ?: starts.firstOrNull() ?: return null
+        return start to start + written.length
+    }
+
     private class OccurrenceAt(val id: Long, val fileId: Long, val path: String, val line: Int)
+
+    /**
+     * [lines] with their indexed text, as [occurrenceLines] reads an occurrence's: each file read once, its changed
+     * flag and, with [colorer], its colors; a mark that runs past its line ends with it. A line the index holds no text
+     * for is left as it was.
+     */
+    fun placeLines(lines: Collection<PlaceLine>, colorer: CodeColorer?): Map<PlaceLine, PlaceLine> {
+        val result = HashMap<PlaceLine, PlaceLine>()
+        for ((path, same) in lines.groupBy { it.path }) {
+            val fileId = connection.query("SELECT id FROM source_file WHERE path = ?", listOf(path)) { it.getLong(1) }.singleOrNull() ?: continue
+            val file = served(path)
+            val texts = indexedLines(fileId, same.mapTo(HashSet()) { it.line })
+            val colors = if (colorer == null || texts.isEmpty()) null else lineColors(colorer, file, texts)
+            for (line in same) {
+                val text = texts[line.line] ?: continue
+                val (from, to) = line.target?.let { targetOn(text, it, line.from) } ?: (line.from to (line.to ?: text.length).coerceAtMost(text.length))
+                result[line] = line.copy(from = from, to = to, text = text, stale = file?.stale, colors = colors?.get(line.line), target = null)
+            }
+        }
+        return result
+    }
 
     /**
      * The indexed text of [lines] of the file [fileId], from `source_line`: its rowids count every line of every file

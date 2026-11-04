@@ -296,6 +296,8 @@ button.place-back:hover:not(:disabled) { text-decoration: underline; }
 .place-row.v-FITS .place-bar > i { background: var(--ok); }
 .place-row.v-FOLLOWS .place-n { color: var(--ok); font-family: var(--mono); font-size: var(--fs-xs); }
 .place-how { color: var(--muted); }
+/* The row's line of code, under its parts, as "Used by" shows it. */
+.place-row .place-code { grid-column: 2 / -1; grid-row: 2; font-size: var(--fs-xs); line-height: 18px; }
 .place-fn { font-size: var(--fs-xs); background: var(--surface-2); border-radius: 4px; padding: 0 4px; color: var(--fg); }
 .place-mark { font-size: var(--fs-xs); white-space: nowrap; border: 1px solid var(--border-strong); border-radius: 999px; padding: 0 6px; }
 .place-at { text-align: right; white-space: nowrap; font-size: var(--fs-xs); }
@@ -318,6 +320,7 @@ abbr.hint { text-decoration: underline dotted; text-underline-offset: 2px; curso
   .place-row .place-target { grid-column: 2; grid-row: 1; }
   .place-row .place-at { grid-column: 3; grid-row: 1; }
   .place-row .place-how { grid-column: 2 / -1; grid-row: 2; }
+  .place-row .place-code { grid-column: 1 / -1; grid-row: 3; }
   .place-detail { padding-left: 12px; }
 }
 /* A name that breaks only between its parts (partBreaksHtml), even inside a cell that breaks anywhere. */

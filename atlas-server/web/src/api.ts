@@ -362,6 +362,19 @@ export interface ColumnPlace {
   unitCompiledIn: { owner: string; name: string; type: string } | null;
   /** For a concatenated place that fits: the size less S, room left for the other text. */
   room: number | null;
+  /** The line of code the row shows (the call's argument for a parameter, else where its statement reads the column, else the target), with the piece to mark. */
+  shown: PlaceLine | null;
+}
+
+/** A row's line of code: where, the columns it marks (`to` null: to the end of the line), and its indexed text and colors when the page asked. */
+export interface PlaceLine {
+  path: string;
+  line: number;
+  from: number;
+  to: number | null;
+  text: string | null;
+  stale: boolean | null;
+  colors: number[][] | null;
 }
 
 /** A verdict and how many places have it. */
