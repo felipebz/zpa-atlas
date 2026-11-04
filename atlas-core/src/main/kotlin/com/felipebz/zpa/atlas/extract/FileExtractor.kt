@@ -88,9 +88,9 @@ class FileExtractor(
     }
 
     /**
-     * The walk, under the scanner's lock, only notes the tree: [facts] extracts it once the scanner returns, so the files
-     * of a run are extracted on every thread at once. What the extraction asks of zpa is per file or fixed for the run,
-     * except `resolveSequenceReference`, asked here for every name that may be a sequence pseudocolumn.
+     * The walk only notes the tree: [facts] extracts it once the scanner returns. What the extraction asks of zpa is per
+     * file or fixed for the run, except `resolveSequenceReference`, asked here for every name that may be a sequence
+     * pseudocolumn: its answer depends on how far zpa's project visitors have walked the file.
      */
     override fun visitFile(node: AstNode) {
         root = node

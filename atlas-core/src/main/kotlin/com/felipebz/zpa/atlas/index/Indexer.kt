@@ -208,11 +208,7 @@ class Indexer internal constructor(
                         val taskStarted = System.nanoTime()
                         val extractor = extractor(source)
                         val walkStart = WalkStart()
-                        try {
-                            scanner.scanFile(source, listOf(walkStart) + visitors(source.relativePath, extractor), source.relativePath)
-                        } finally {
-                            Thread.currentThread().priority = Thread.NORM_PRIORITY
-                        }
+                        scanner.scanFile(source, listOf(walkStart) + visitors(source.relativePath, extractor), source.relativePath)
                         val walked = System.nanoTime()
                         val facts = extractor.facts()
                         if (phases != null) {
@@ -342,17 +338,14 @@ class Indexer internal constructor(
     }
 
     /**
-     * The first check of a file's walk, which [AstScanner] runs under its global lock once the file is parsed: notes when
-     * the walk starts, and raises the thread's priority until the walk ends. Every other thread waits for that lock or
-     * parses and extracts beside it; on fewer cores than threads, the one holding it would otherwise get no more than
-     * its share of them.
+     * The first check of a file's walk, which [AstScanner] runs once the file is parsed: notes when the walk starts. The
+     * scanner has no rule checks, so the walks of the run's files run on every thread at once.
      */
     private class WalkStart : PlSqlCheck() {
         var at = 0L
 
         override fun init() {
             at = System.nanoTime()
-            Thread.currentThread().priority = Thread.MAX_PRIORITY
         }
     }
 

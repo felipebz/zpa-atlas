@@ -7,8 +7,7 @@ package com.felipebz.zpa.atlas.index
 
 import java.lang.management.ManagementFactory
 import java.lang.management.MemoryType
-import java.util.Collections
-import java.util.Locale
+import java.util.*
 
 /**
  * Where a run of `index` spends its time: one phase after another, each with its wall time and the peak heap used during
@@ -23,9 +22,9 @@ class PhaseTimes(private val started: Long = System.nanoTime()) {
     class Phase(val name: String, val nanos: Long, val peakHeapBytes: Long)
 
     /**
-     * One file walk: [beforeWalkNanos] from the walk's task starting to the walk taking the scanner's lock (the
-     * extractor's setup, the parse, the wait for the lock), [walkNanos] under the lock (semantic analysis) until the
-     * scanner returns, [extractNanos] the extraction after it.
+     * One file walk: [beforeWalkNanos] from the walk's task starting to the walk starting (the extractor's setup and the
+     * parse), [walkNanos] the walk (semantic analysis) until the scanner returns, [extractNanos] the extraction after it.
+     * The walks of different files run at the same time, one per thread.
      */
     class FileTime(val path: String, val lines: Int, val beforeWalkNanos: Long, val walkNanos: Long, val extractNanos: Long) {
         val nanos: Long get() = beforeWalkNanos + walkNanos + extractNanos
@@ -81,14 +80,13 @@ class PhaseTimes(private val started: Long = System.nanoTime()) {
         if (walked.isEmpty()) return null
         val wall = phases.firstOrNull { it.name == FILE_WALKS }?.nanos ?: return null
         val before = walked.sumOf { it.beforeWalkNanos }
-        val under = walked.sumOf { it.walkNanos }
+        val walking = walked.sumOf { it.walkNanos }
         val extracting = walked.sumOf { it.extractNanos }
         return buildString {
             append(String.format(Locale.ROOT, "File walks: %d files on %d threads, wall %d ms; the sum of the per-file times is %d ms:%n",
-                walked.size, walkThreads, wall / 1_000_000, (before + under + extracting) / 1_000_000))
-            append(String.format(Locale.ROOT, "  before the walk (the extractor's setup, the parse, the wait for the scanner's lock) %d ms%n", before / 1_000_000))
-            append(String.format(Locale.ROOT, "  the walk, under the scanner's lock (semantic analysis) %d ms: the lock held %.1f%% of the wall time%n",
-                under / 1_000_000, 100.0 * under / wall))
+                walked.size, walkThreads, wall / 1_000_000, (before + walking + extracting) / 1_000_000))
+            append(String.format(Locale.ROOT, "  before the walk (the extractor's setup and the parse) %d ms%n", before / 1_000_000))
+            append(String.format(Locale.ROOT, "  the walk (semantic analysis, one file per thread) %d ms%n", walking / 1_000_000))
             append(String.format(Locale.ROOT, "  the extraction, after the walk %d ms%n", extracting / 1_000_000))
             append(String.format(Locale.ROOT, "Slowest files:%n  %9s %9s %9s %9s %7s  %s%n", "ms", "before", "walk", "extract", "lines", "path"))
             for (file in walked.sortedWith(compareByDescending<FileTime> { it.nanos }.thenBy { it.path }).take(SLOWEST)) {
