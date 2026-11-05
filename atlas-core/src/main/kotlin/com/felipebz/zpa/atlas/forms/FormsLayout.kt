@@ -26,11 +26,12 @@ internal class FormsLayout(
 
     /**
      * One unit of the text: its [kind], [path] and [name], the objects it is on below the module ([owner], a trigger's),
-     * a trigger's [level], a program unit's [programUnitKind], and its lines (the header line first).
+     * a trigger's [level], a program unit's [programUnitKind], its lines (the header line first) and the lines of its own
+     * text ([FormsModuleText.Unit.codeFirstLine]).
      */
     class Unit(
         val kind: Kind, val path: String, val name: String, val owner: List<String>, val level: FormsTriggerLevel?,
-        val programUnitKind: FormsProgramUnitKind?, val firstLine: Int, val lastLine: Int
+        val programUnitKind: FormsProgramUnitKind?, val firstLine: Int, val lastLine: Int, val codeFirstLine: Int, val codeLastLine: Int
     )
 
     /** The unit of the text whose lines hold [line], or null (a blank line between two units). */
@@ -57,9 +58,12 @@ internal class FormsLayout(
             module.libraries.map { it.name.value },
             text.units.map { unit ->
                 when (val code = module.code[unit.codeIndex]) {
-                    is FormsTrigger -> Unit(Kind.TRIGGER, unit.path, code.name.value, code.owner, code.level, null, unit.firstLine, unit.lastLine)
-                    is FormsProgramUnit -> Unit(Kind.PROGRAM_UNIT, unit.path, code.name.value, emptyList(), null, code.kind, unit.firstLine, unit.lastLine)
-                    is FormsRecordGroup -> Unit(Kind.RECORD_GROUP_QUERY, unit.path, code.name.value, emptyList(), null, null, unit.firstLine, unit.lastLine)
+                    is FormsTrigger -> Unit(Kind.TRIGGER, unit.path, code.name.value, code.owner, code.level, null, unit.firstLine, unit.lastLine,
+                        unit.codeFirstLine, unit.codeLastLine)
+                    is FormsProgramUnit -> Unit(Kind.PROGRAM_UNIT, unit.path, code.name.value, emptyList(), null, code.kind, unit.firstLine, unit.lastLine,
+                        unit.codeFirstLine, unit.codeLastLine)
+                    is FormsRecordGroup -> Unit(Kind.RECORD_GROUP_QUERY, unit.path, code.name.value, emptyList(), null, null, unit.firstLine, unit.lastLine,
+                        unit.codeFirstLine, unit.codeLastLine)
                 }
             },
             module.notes

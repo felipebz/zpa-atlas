@@ -3,7 +3,7 @@ import {api, errorMessage} from "./api";
 import {showBanner} from "./banner";
 import {codeLineNode} from "./code-line";
 import {nameHtml} from "./entity-html";
-import {entityHref, esc, langSuffix, lineLink} from "./html";
+import {entityHref, esc, fileHref, lineLink} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {fileTitleParts} from "./project";
 import {entityOf, pick, setupSuggest, suggestBox, unpick} from "./query-suggest";
@@ -60,14 +60,17 @@ function lineNodes(hit: TextHit, text: string): HTMLElement {
 /** A path as HTML that may break only after a slash or an underscore. */
 const breakable = (text: string) => esc(text).replace(/([/_])/g, "$1<wbr>");
 
-/** A file's group: its header (the name, the folder muted, its count of lines, the stale badge) and its rows. */
+/**
+ * A file's group: its header (the name, the folder muted, its count of lines, the stale badge) and its rows. A Forms
+ * module's name leads to the code page of the unit its first row is in.
+ */
 function groupOf(hit: TextHit, lines: number | undefined): HTMLElement {
   const group = document.createElement("section");
   group.className = "tgrp";
   const { name, folder } = fileTitleParts(hit.path);
   const stale = hit.stale ? ` <span class="badge warn-badge">${esc(t("text.stale"))}</span>` : "";
   const count = lines === undefined ? "" : `<span class="grp-n muted" title="${esc(t("text.fileLines", { count: lines }))}">${esc(formatNumber(lines))}</span>`;
-  group.innerHTML = `<div class="tgrp-h"><a href="file.html?path=${encodeURIComponent(hit.path)}${langSuffix()}">` +
+  group.innerHTML = `<div class="tgrp-h"><a href="${fileHref(hit.path, hit.code)}">` +
     (folder ? `<span class="folder">${breakable(folder + "/")}</span>` : "") + `<span class="name">${breakable(name)}</span></a>${stale}${count}</div>`;
   return group;
 }
@@ -85,7 +88,8 @@ function containerOf(entity: EntitySummary): HTMLElement {
 function rowOf(hit: TextHit, text: string): HTMLElement {
   const row = document.createElement("div");
   row.className = "tline";
-  row.innerHTML = lineLink(hit.path, hit.line, t("entity.line", { line: hit.line }));
+  // Inside Forms code the line leads to the code page of its unit at its own line, the number it has there.
+  row.innerHTML = lineLink(hit.path, hit.line, t("entity.line", { line: hit.code?.line ?? hit.line }), hit.code);
   row.append(lineNodes(hit, text));
   return row;
 }

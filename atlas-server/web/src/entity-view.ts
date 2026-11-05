@@ -1,7 +1,7 @@
 // What the entity page shows, worked out from its answer without the browser: the path, the places in the header,
 // the tags of the title, and the routines' filter and order.
 
-import type {EntityDetail, EntitySummary, Location} from "./api";
+import type {CodeAt, EntityDetail, EntitySummary, Location} from "./api";
 
 const ROUTINE_KINDS = ["PROCEDURE", "FUNCTION"];
 /** A package body's own variables, constants and types: always private to the body. */
@@ -72,6 +72,7 @@ export type Half = "spec" | "body";
  * A place of the header: a line of a file, the [half] it is in (null outside a package or type), [partner], the entity
  * whose page this half is when it is not this page (a routine's body seen from its spec, and the other way), and
  * whether it names its [file]: everywhere but inside a package or type, whose file a member's place leaves to its holder.
+ * Inside Forms code, [code] says which piece and the line there, where the place leads: the code page.
  */
 export interface Place {
   half: Half | null;
@@ -80,9 +81,10 @@ export interface Place {
   col: number;
   partner: EntitySummary | null;
   file: boolean;
+  code: CodeAt | null;
 }
 
-export function halfOf(location: Location): Half | null {
+export function halfOf(location: { unitKind?: string | null }): Half | null {
   switch (location.unitKind) {
     case "PACKAGE": case "TYPE": return "spec";
     case "PACKAGE_BODY": case "TYPE_BODY": return "body";
@@ -94,17 +96,18 @@ export function halfOf(location: Location): Half | null {
  * Where [entity] is: its own definitions, then its partners' (a routine's body, or a body's spec), the spec before
  * the body; each partner place names the partner, whose page it is. A package's or a type's places name their files
  * (its spec and body may be two); a member's places do not, its file being its package's or type's. A package body's
- * own type is a member of the package.
+ * own type is a member of the package. A place in Forms code is in the half its code is (a program unit's
+ * specification or body).
  */
 export function places(entity: Pick<EntityDetail, "key" | "kind" | "definitions" | "partners">): Place[] {
   const named = (half: Half | null) => half === null || (entity.kind === "PACKAGE" || entity.kind === "TYPE") && !isBodyOwn(entity);
   const own = entity.definitions.map(d => {
-    const half = halfOf(d);
-    return { half, path: d.path, line: d.span.startLine, col: d.span.startCol, partner: null, file: named(half) };
+    const half = halfOf(d.code ?? d);
+    return { half, path: d.path, line: d.span.startLine, col: d.span.startCol, partner: null, file: named(half), code: d.code ?? null };
   });
   const others = entity.partners.flatMap(p => p.definitions.map(d => {
     const half = halfOf(d) ?? (p.direction === "IN" ? "body" as const : "spec" as const);
-    return { half, path: d.path, line: d.span.startLine, col: d.span.startCol, partner: p.entity, file: named(half) };
+    return { half, path: d.path, line: d.span.startLine, col: d.span.startCol, partner: p.entity, file: named(half), code: d.code ?? null };
   }));
   const rank = (place: Place) => place.half === "spec" ? 0 : place.half === "body" ? 1 : 2;
   return [...own, ...others].sort((a, b) => rank(a) - rank(b));

@@ -11,7 +11,7 @@ import {
     unitKindLabel,
     valueKindLabel
 } from "./entity-html";
-import {esc, langSuffix, literalText, queryHref, scrollTable} from "./html";
+import {esc, fileHref, literalText, queryHref, scrollTable} from "./html";
 import {formatNumber, t} from "./i18n";
 import {parentKeyOf} from "./names";
 import {modeBar} from "./query-mode";
@@ -90,8 +90,9 @@ function groupCell(dimension: string, v: GroupValue, container: EntitySummary | 
   }
 }
 
+/** A group's file: a Forms module's leads to its first unit, which the code page finds (a group names no code). */
 function fileLink(path: string) {
-  return `<a class="mono muted" href="file.html?path=${encodeURIComponent(path)}${langSuffix()}">${esc(path)}</a>`;
+  return `<a class="mono muted" href="${fileHref(path)}">${esc(path)}</a>`;
 }
 
 /** List mode for one group: the query with the group's values as filters (a value it has none of adds nothing). */

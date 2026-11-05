@@ -219,6 +219,20 @@ internal fun tableDdl(): List<String> = listOf(
         text_cut INTEGER NOT NULL CHECK (text_cut IN (0, 1))
     )
     """,
+    // The objects of a Forms module in the order of its file: its blocks, items, code and libraries; for code (a trigger,
+    // a program unit's specification or body, a record group query) the lines of the module text that are its own text,
+    // which the Form Builder numbers from 1, and code_kind PACKAGE or PACKAGE_BODY for a package's halves.
+    """
+    CREATE TABLE forms_object (
+        file_id INTEGER NOT NULL REFERENCES source_file(id),
+        position INTEGER NOT NULL,
+        entity_id INTEGER NOT NULL REFERENCES entity(id),
+        code_first_line INTEGER NULL,
+        code_last_line INTEGER NULL,
+        code_kind TEXT NULL,
+        PRIMARY KEY (file_id, position)
+    )
+    """,
     // The body globals whose recorded uses may be incomplete, one row per entity: reasons lists, comma-separated, what
     // zpa says may hold the uses it could not decide (CONDITIONAL_COMPILATION, ...). An entity without a row has none.
     """
@@ -353,6 +367,7 @@ internal fun indexDdl(): List<String> = listOf(
     "CREATE INDEX trigger_event_trigger ON trigger_event(trigger_id)",
     "CREATE INDEX trigger_event_column ON trigger_event(column_id)",
     "CREATE INDEX doc_comment_entity ON doc_comment(entity_id)",
+    "CREATE INDEX forms_object_entity ON forms_object(entity_id)",
     "CREATE INDEX dictionary_key_relation ON dictionary_key(relation_id)",
     "CREATE INDEX dictionary_key_referenced ON dictionary_key(referenced_id)",
     "CREATE INDEX dictionary_key_column_column ON dictionary_key_column(column_id)",

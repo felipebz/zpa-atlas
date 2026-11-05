@@ -252,7 +252,8 @@ class FileExtractor internal constructor(
         return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, defaultSchema, state.units, state.statements, state.occurrences,
             LinkedHashSet(state.entities).toList(), LinkedHashSet(state.relations).toList(), state.coverage, resolver.dictionaryRelations.toList(),
             synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts + state.columnTypes, docComments, usesGaps, membersGaps,
-            declaredShapes, intos, state.placesLeftOut.toMap(), if (forms == null) FileKind.DB_SOURCE else FileKind.FORMS_MODULE)
+            declaredShapes, intos, state.placesLeftOut.toMap(), if (forms == null) FileKind.DB_SOURCE else FileKind.FORMS_MODULE,
+            formsEntities?.objects.orEmpty())
     }
 
     /** The types the file's declarations with an entity write ([TypeShapes]); none for a file that was not walked. */

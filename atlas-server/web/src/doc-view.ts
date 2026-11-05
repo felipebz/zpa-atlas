@@ -3,13 +3,17 @@ import type {Documentation} from "./api";
 /** How many lines of a documentation show before "more". */
 export const DOC_FOLD_LINES = 6;
 
-/** The catalog key of the words saying where a documentation comment is, by its shape. */
-export function docPlaceKey(doc: Documentation): string {
+/**
+ * The words saying where a documentation comment is, by its shape: their catalog key and the line they name, inside
+ * Forms code the unit's own line.
+ */
+export function docPlace(doc: Documentation): { key: string; line: number } {
+  const line = doc.code?.line ?? doc.line;
   switch (doc.shape) {
-    case "AFTER_IS": return "doc.place.afterIs";
-    case "AFTER_BEGIN": return "doc.place.afterBegin";
-    case "END_OF_LINE": return "doc.place.endOfLine";
-    default: return "doc.place.above";
+    case "AFTER_IS": return { key: "doc.place.afterIs", line };
+    case "AFTER_BEGIN": return { key: "doc.place.afterBegin", line };
+    case "END_OF_LINE": return { key: "doc.place.endOfLine", line };
+    default: return { key: "doc.place.above", line };
   }
 }
 

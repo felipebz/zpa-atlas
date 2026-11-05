@@ -1,7 +1,9 @@
 import type {EntitySummary} from "./api";
 import type {Place} from "./entity-view";
+import type {FormsName} from "./forms-view";
+import {codeUnitName} from "./forms-view";
 import {isBodyOwn} from "./entity-view";
-import {entityHref, esc, fillMarks, langSuffix, partBreaksHtml, qualifierHtml} from "./html";
+import {entityHref, esc, fillMarks, lineHref, lineTitle, nameBreaksHtml, partBreaksHtml, qualifierHtml} from "./html";
 import {t} from "./i18n";
 import {kindMark} from "./kinds";
 import type {NameShape} from "./names";
@@ -66,6 +68,15 @@ export function entityLink(entity: EntitySummary | null | undefined, options?: N
   return `<a${parts} href="${entityHref(entity.key)}">${nameHtml(entity, options)}</a>${ext}`;
 }
 
+/**
+ * A link to a Forms object as a page inside its module names it ([FormsName]): its own name (`ID1`), the full path
+ * (`DEMO0004/V$LOCK/ID1`) as its tooltip, leading to [href] (its page unless told). The name may break after an
+ * underscore or a dot, never inside a word.
+ */
+export function formsNameLink(name: FormsName, href = entityHref(name.key)) {
+  return `<a href="${href}"><span class="ename" title="${esc(name.title)}"><span class="name">${nameBreaksHtml(name.label)}</span></span></a>`;
+}
+
 /** A catalog label (`<prefix>.<NAME>`) when the catalog has one, else the stored name. */
 function storedLabel(prefix: string, name: string) {
   const key = prefix + "." + name;
@@ -109,18 +120,20 @@ export function fillHtml(key: string, html: Record<string, string>) {
 }
 
 /** Kinds whose body holds code: their body place reads "implemented". */
-const CODE_KINDS = ["PROCEDURE", "FUNCTION", "PACKAGE", "TYPE", "TRIGGER"];
+const CODE_KINDS = ["PROCEDURE", "FUNCTION", "PACKAGE", "TYPE", "TRIGGER", "FORMS_PROGRAM_UNIT"];
 
 /**
  * A place of an entity as HTML: the half it is in (a link to the other half's page) and its line, linking to the file
- * (`Declared in the spec, pkg/a.pks, line 1`); with [status] other than resolved, its badge. A package body's own type
- * is declared there, like its variables, not implemented.
+ * (`Declared in the spec, pkg/a.pks, line 1`), or inside Forms code to the code page of its unit at its own line, named
+ * by the unit (`Implemented in the body, PK_ACCORDION, line 1`); with [status] other than resolved, its badge. A
+ * package body's own type is declared there, like its variables, not implemented.
  */
 export function placeHtml(place: Place, entity: Pick<EntitySummary, "key" | "kind">, status: string | null) {
-  const lineLink = `<a href="file.html?path=${encodeURIComponent(place.path)}&line=${place.line}${langSuffix()}#L${place.line}" ` +
-    `title="${esc(`${place.path}:${place.line}:${place.col}`)}">${esc(t("entity.line", { line: place.line }))}</a>`;
-  // A path may break after each slash, so a long one wraps on a phone.
-  const line = place.file ? fillHtml("entity.where.file", { path: `<span class="mono">${esc(place.path).replace(/\//g, "/<wbr>")}</span>`, line: lineLink }) : lineLink;
+  const lineLink = `<a href="${lineHref(place.path, place.line, place.code)}" ` +
+    `title="${esc(`${lineTitle(place.path, place.line, place.code)}:${place.col}`)}">${esc(t("entity.line", { line: place.code?.line ?? place.line }))}</a>`;
+  // A path may break after each slash, so a long one wraps on a phone; a unit's name after an underscore or a dot.
+  const where = place.code ? nameBreaksHtml(codeUnitName(place.code.key)) : place.file ? esc(place.path).replace(/\//g, "/<wbr>") : null;
+  const line = where !== null ? fillHtml("entity.where.file", { path: `<span class="mono">${where}</span>`, line: lineLink }) : lineLink;
   const badge = status && status !== "RESOLVED" ? " " + statusBadge(status) : "";
   if (place.half === null) return line + badge;
   const word = esc(t(place.half === "spec" ? "entity.where.theSpec" : "entity.where.theBody"));

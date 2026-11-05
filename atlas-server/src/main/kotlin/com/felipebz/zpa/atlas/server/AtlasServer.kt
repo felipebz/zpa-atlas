@@ -244,6 +244,16 @@ internal fun Route.indexApi(index: AtlasIndex, tabWidth: Int) {
             call.optional("containerName"), call.long("after"), call.int("limit") ?: 100,
             colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false))
     }
+    // A Forms module's, block's or item's objects, as the module page shows them.
+    get("/forms-tree") {
+        call.respondEntityAnswer(index.formsTree(call.required("key")))
+    }
+    // The code page of a Forms module: its tree and one piece of its code, numbered from 1.
+    get("/forms-file") {
+        val answer = index.formsFile(call.required("path"), call.optional("key"), call.optional("unitKind"),
+            colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false)
+        if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
+    }
     get("/file") {
         // The page asks for the colors; other readers of the answer do not pay for them.
         val answer = index.file(call.required("path"), colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false)

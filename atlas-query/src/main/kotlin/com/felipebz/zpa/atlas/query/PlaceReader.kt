@@ -14,6 +14,7 @@ import java.util.Locale
  * [Verdict] against the size asked for is decided here, as it is read ([PlaceVerdicts]).
  */
 internal class PlaceReader(private val connection: Connection) {
+    private val forms = FormsLines(connection)
     /**
      * The class of each place, in the order of [CLASS_ORDER]: with [concatenated], only the places where the value lands
      * alone (false) or as a part of a concatenation (true).
@@ -47,7 +48,7 @@ internal class PlaceReader(private val connection: Connection) {
                 .thenBy { it.path }.thenBy { it.container?.key.orEmpty() })
         val groupsShown = ordered.drop(offset).take(limit)
         val shown = shown(groupsShown.flatMap { it.rows })
-        val page = groupsShown.map { group -> group.copy(rows = group.rows.map { it.copy(shown = shown[it]) }) }
+        val page = groupsShown.map { group -> group.copy(rows = group.rows.map { located(it, shown[it]) }) }
         val next = (offset + page.size).takeIf { it < ordered.size }
         return PlaceGroupsPage(
             read.column, read.size, filter.size != null, read.counts, read.verdicts, read.listed.size, groups.size, read.filtered.size,
@@ -62,10 +63,16 @@ internal class PlaceReader(private val connection: Connection) {
         val sorted = read.listed.sortedWith(compareBy({ Verdict.valueOf(it.place.verdict).ordinal }, { it.place.path }, { it.place.line }, { it.place.column }, { it.id }))
         val rows = sorted.drop(offset).take(limit).map { it.place }
         val shown = shown(rows)
-        val page = rows.map { it.copy(shown = shown[it]) }
+        val page = rows.map { located(it, shown[it]) }
         return ColumnPlacePage(read.column, read.size, filter.size != null, read.counts, read.verdicts, sorted.size, read.concatenatedCount,
             read.optionUnit, read.optionSized, offset, page, (offset + page.size).takeIf { it < sorted.size })
     }
+
+    /** [place] with the line it [shows], and in a Forms module the code its lines are in. */
+    private fun located(place: ColumnPlace, shows: PlaceLine?) = place.copy(
+        shown = shows, code = forms.codeAt(place.path, place.line),
+        callCode = place.callPath?.let { path -> place.callLine?.let { forms.codeAt(path, it) } }
+    )
 
     /**
      * The line each of [places] shows, read in one statement: for a value passed to a parameter, the argument of the
@@ -101,7 +108,7 @@ internal class PlaceReader(private val connection: Connection) {
                 // The place's span is where the value lands (an assignment's `:=`): the target is found on its line as written.
                 else -> at(rs.getString(2), target).copy(target = rs.getString(13))
             }
-            lines[rs.getLong(1)] = line
+            lines[rs.getLong(1)] = line.copy(code = forms.codeAt(line.path, line.line))
         }
         return places.mapNotNull { place -> placeIds[place]?.let { id -> lines[id]?.let { place to it } } }.toMap()
     }

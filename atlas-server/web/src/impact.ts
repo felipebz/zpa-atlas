@@ -3,7 +3,7 @@ import {api, ApiFailure, errorMessage} from "./api";
 import {showBanner} from "./banner";
 import type {NameOptions} from "./entity-html";
 import {entityLink, kindBadge, kindLabel, listNameOptions, nameHtml, statusBadge} from "./entity-html";
-import {entityHref, esc, langSuffix, scrollTable, stackCell} from "./html";
+import {entityHref, esc, lineHref, scrollTable, stackCell} from "./html";
 import {formatList, formatNumber, initI18n, t} from "./i18n";
 import type {Phrase} from "./impact-words";
 import {distanceText, nameShape, pathEnd, pathLine, reachPhrase, summaryPhrase, triggerNote} from "./impact-words";
@@ -13,6 +13,8 @@ import {
     csvText,
     groupByDepth,
     groupByOwner,
+    hopOf,
+    hopPlace,
     MAX_DEPTH,
     nodeText,
     pathOf,
@@ -328,15 +330,11 @@ function buildRows(details: HTMLDetailsElement) {
   }
 }
 
-function fileHref(path: string, line: number) {
-  return `file.html?path=${encodeURIComponent(path)}&line=${line}${langSuffix()}#L${line}`;
-}
-
 function nodeNameHtml(view: ImpactView, index: number, options?: NameOptions) {
   const node = view.nodes[index];
   if (node.entity !== null) return entityLink(view.entities[node.entity], options);
   const path = view.paths[node.path!];
-  return `<a class="mono" href="${fileHref(path, node.firstLine!)}">${esc(path)}</a>`;
+  return `<a class="mono" href="${lineHref(path, node.firstLine!)}">${esc(path)}</a>`;
 }
 
 /** A trigger's note as the CSV writes it: its codes and the table's full name, for tools. */
@@ -379,7 +377,7 @@ function togglePath(button: HTMLButtonElement) {
   const lines = hops.map(hop => {
     const line = pathLine(t, view, hop);
     const name = line.entity ? entityLink(line.entity, nameShape(line.entity)) : `<span class="mono">${esc(line.name)}</span>`;
-    const notes = [`<a href="${fileHref(line.path, line.line)}" title="${esc(line.path)}">${esc(line.place)}</a>`,
+    const notes = [`<a href="${lineHref(line.path, line.line, line.code)}" title="${esc(line.path)}">${esc(line.place)}</a>`,
       `<span class="muted mono">${esc(line.path)}</span>`];
     if (line.fires) notes.push(esc(line.fires));
     if (line.status) notes.push(statusBadge(hop.status));
@@ -436,12 +434,12 @@ function treeLineHtml(item: TreeItem, level: number) {
     return `${kindBadge(entity.kind, true)} ${entityLink(entity, nameShape(entity, within))}${below}`;
   }
   const node = view.nodes[item.node];
-  const hop = { node: item.node, path: view.paths[node.via.path], line: node.via.line, status: node.via.status, fires: node.via.fires };
+  const hop = hopOf(view, item.node);
   const words = pathLine(t, view, hop);
   const name = node.entity !== null
     ? `${kindBadge(node.kind, true)} ${entityLink(view.entities[node.entity], treeNaming(view.entities[node.entity]))}`
     : `<span class="badge">${esc(t("impact.kind.FILE"))}</span> ${nodeNameHtml(view, item.node)}`;
-  const notes = [`<a href="${fileHref(words.path, words.line)}" title="${esc(words.path)}">${esc(words.place)}</a>`];
+  const notes = [`<a href="${lineHref(words.path, words.line, words.code)}" title="${esc(words.path)}">${esc(words.place)}</a>`];
   if (words.status) notes.push(statusBadge(hop.status));
   else if (!node.certain) notes.push(`<span class="badge uncertain" title="${esc(t("impact.notCertainHint"))}">${esc(t("impact.notCertain"))}</span>`);
   if (words.fires) notes.push(esc(words.fires));
@@ -496,7 +494,7 @@ function downloadCsv() {
   const shown = shownNodes(view, state);
   const fires = (events: string) => t("impact.fires", { events });
   const header = [t("impact.column.name"), t("impact.column.key"), t("impact.column.kind"), t("impact.column.depth"), t("impact.column.stop"),
-    t("impact.column.certain"), t("impact.column.trigger"), t("impact.column.path")];
+    t("impact.column.certain"), t("impact.column.trigger"), t("impact.column.file"), t("impact.column.line"), t("impact.column.unit"), t("impact.column.path")];
   const groupOf = new Map<number, string>();
   if (state.tab === "entries") {
     header.unshift(t("impact.column.group"));
@@ -508,9 +506,12 @@ function downloadCsv() {
   const order = state.tab === "entries" ? [...groupOf.keys()] : shown;
   const rows = order.map(index => {
     const node = view.nodes[index];
+    // Where the node uses what reached it: inside Forms code, the unit and its own line.
+    const place = hopPlace(hopOf(view, index));
     const row = [nodeText(view, index), node.entity !== null ? view.entities[node.entity].key : "",
       node.kind === "FILE" ? t("impact.kind.FILE") : kindLabel(node.kind), node.depth, t("impact.stopShort." + node.stop),
-      t(node.certain ? "impact.yes" : "impact.no"), node.trigger ? triggerText(node.trigger) : "", pathText(view, index, fires)];
+      t(node.certain ? "impact.yes" : "impact.no"), node.trigger ? triggerText(node.trigger) : "", place.file, place.line, place.unit,
+      pathText(view, index, fires)];
     if (state.tab === "entries") row.unshift(groupOf.get(index)!);
     return row;
   });

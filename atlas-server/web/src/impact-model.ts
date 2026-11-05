@@ -1,7 +1,7 @@
 // What the impact page computes from a graph, without the DOM: the answer's types, the page state in its URL, the
 // path of a node, the groups of nodes, the tree of first uses and the CSV.
 
-import type { Count, EntitySummary } from "./api";
+import type { CodeAt, Count, EntitySummary } from "./api";
 
 /** One event of a trigger node: as `TriggerEvent` without the trigger. */
 export interface ImpactTriggerEvent {
@@ -19,7 +19,8 @@ export interface ImpactTrigger {
 
 /**
  * One use on a shortest path to a node: [node] the node it uses (an index into the nodes), null on the first hop,
- * where [uses] (an index into the entities) is the entity asked for or what the first hop matched.
+ * where [uses] (an index into the entities) is the entity asked for or what the first hop matched; inside Forms code,
+ * [code] the unit [line] is in and its line there.
  */
 export interface ImpactViewVia {
   node: number | null;
@@ -28,6 +29,7 @@ export interface ImpactViewVia {
   line: number;
   status: string;
   fires: string | null;
+  code?: CodeAt | null;
 }
 
 /** A node: [entity] an index into the entities, or for a file node [path] into the paths. */
@@ -166,13 +168,20 @@ export function shownNodes(view: ImpactView, state: ImpactState) {
 
 // ---- the path of a node -------------------------------------------------------------------------------------------
 
-/** One hop of a path: [node] (an index) uses the next hop's node, or the target, at [path] line [line]. */
+/** One hop of a path: [node] (an index) uses the next hop's node, or the target, at [path] line [line] (inside Forms code, [code]'s line). */
 export interface Hop {
   node: number;
   path: string;
   line: number;
+  code: CodeAt | null;
   status: string;
   fires: string | null;
+}
+
+/** The hop of node [index]: where it uses the node it was reached through, or the target. */
+export function hopOf(view: ImpactView, index: number): Hop {
+  const via = view.nodes[index].via;
+  return { node: index, path: view.paths[via.path], line: via.line, code: via.code ?? null, status: via.status, fires: via.fires };
 }
 
 /**
@@ -187,7 +196,7 @@ export function pathOf(view: ImpactView, index: number): { hops: Hop[]; target: 
   while (at !== null && !seen.has(at)) {
     seen.add(at);
     last = view.nodes[at];
-    hops.push({ node: at, path: view.paths[last.via.path], line: last.via.line, status: last.via.status, fires: last.via.fires });
+    hops.push(hopOf(view, at));
     at = last.via.node;
   }
   return { hops, target: view.entities[last.via.uses] };
@@ -199,11 +208,24 @@ export function nodeText(view: ImpactView, index: number) {
   return node.entity !== null ? view.entities[node.entity].display : view.paths[node.path!];
 }
 
-/** [pathOf] as one line of text, the hops joined by " < ": `name (file:line, fires INSERT, UNVERIFIED) < … < target`. */
+/**
+ * Where a hop is, as the CSV writes it: the file, the line (inside Forms code, the unit's own) and the unit's key, a
+ * package's half after it (`forms:DEMO0004/PK_ACCORDION PACKAGE_BODY`); no unit outside Forms code.
+ */
+export function hopPlace(hop: Hop): { file: string; line: number; unit: string } {
+  const code = hop.code;
+  return { file: hop.path, line: code?.line ?? hop.line, unit: code ? code.key + (code.unitKind ? " " + code.unitKind : "") : "" };
+}
+
+/**
+ * [pathOf] as one line of text, the hops joined by " < ": `name (file:line, fires INSERT, UNVERIFIED) < … < target`;
+ * inside Forms code the unit stands for the file (`name (forms:DEMO0004/PK_ACCORDION PACKAGE_BODY:12)`).
+ */
 export function pathText(view: ImpactView, index: number, fires: (events: string) => string) {
   const { hops, target } = pathOf(view, index);
   const parts = hops.map(hop => {
-    const notes = [`${hop.path}:${hop.line}`];
+    const place = hopPlace(hop);
+    const notes = [`${place.unit || place.file}:${place.line}`];
     if (hop.fires) notes.push(fires(hop.fires));
     if (hop.status !== "RESOLVED") notes.push(hop.status);
     return `${nodeText(view, hop.node)} (${notes.join(", ")})`;

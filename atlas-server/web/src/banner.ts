@@ -5,7 +5,7 @@ import {shownLine} from "./text-search";
 import type {UseMark} from "./uses-view";
 import {parseLabel} from "./entity-html";
 import {setupGoto} from "./goto";
-import {esc, langSuffix} from "./html";
+import {esc, fileHref} from "./html";
 import {formatDate, formatShortDate, t} from "./i18n";
 import type {ProjectList} from "./project";
 import {
@@ -77,7 +77,7 @@ function showParseNote(date: HTMLElement, summary: RunSummary) {
   const rest = total - summary.parseProblems.length;
   panel(note, `<b>${esc(note.title)}</b><div class="muted">${esc(t("banner.parseHint"))}</div>
     <ul class="parse-files">${summary.parseProblems.map(f =>
-      `<li><a class="mono" href="file.html?path=${encodeURIComponent(f.path)}${langSuffix()}">${esc(f.path)}</a> <span class="badge parse-${esc(f.parseStatus)}" title="${esc(f.parseStatus)}">${esc(parseLabel(f.parseStatus))}</span></li>`).join("")}</ul>` +
+      `<li><a class="mono" href="${fileHref(f.path)}">${esc(f.path)}</a> <span class="badge parse-${esc(f.parseStatus)}" title="${esc(f.parseStatus)}">${esc(parseLabel(f.parseStatus))}</span></li>`).join("")}</ul>` +
     (rest > 0 ? `<div class="muted">${esc(t("banner.parseMore", { count: rest }))}</div>` : ""));
 }
 
@@ -177,7 +177,8 @@ export async function sourceLine(path: string, line: number, target: HTMLElement
     const lines = pre.appendChild(Object.assign(document.createElement("span"), { className: "src-lines" }));
     s.lines.forEach((l, i) => {
       const row = lines.appendChild(Object.assign(document.createElement("span"), { className: l.number === line ? "sl hl" : "sl" }));
-      row.appendChild(Object.assign(document.createElement("span"), { className: "n", textContent: String(l.number) }));
+      // Inside Forms code, the line's number in its unit, as the code page numbers it.
+      row.appendChild(Object.assign(document.createElement("span"), { className: "n", textContent: String(l.code?.line ?? l.number) }));
       const code = row.appendChild(Object.assign(document.createElement("span"), { className: "c" }));
       const marks = l.number === line && mark && !s.stale ? mark(l.text) : null;
       appendPieces(code, shownLine(l.text, marks, s.colors?.[i], true));

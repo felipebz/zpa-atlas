@@ -10,6 +10,7 @@ import java.sql.ResultSet
 
 /** Entity search and the entity page, over one open connection. */
 internal class EntityReader(private val connection: Connection) {
+    private val forms = FormsLines(connection)
 
     /** [AtlasIndex.searchEntities] after its checks: [text] trimmed, split into [segments]. */
     fun searchEntities(text: String, segments: List<String>, kind: String?, includeExternal: Boolean, limit: Int): List<SearchHit> {
@@ -106,7 +107,8 @@ internal class EntityReader(private val connection: Connection) {
             referencedByIncomplete(ownKeys),
             if (row.kind == "COLUMN") PlaceReader(connection).counts(row.id, concatenated = false) else emptyList(),
             if (row.kind == "COLUMN") PlaceReader(connection).total(row.id, concatenated = true) else 0,
-            PlaceReader(connection).receives(row.id)
+            PlaceReader(connection).receives(row.id),
+            if (row.key.startsWith("forms:")) FormsReader(connection).info(row.id) else null
         )
     }
 
@@ -133,6 +135,7 @@ internal class EntityReader(private val connection: Connection) {
                ORDER BY h.id, f.path, d.start_line""",
             listOf(keys.keys.joinToString(",", "[", "]"))
         ) { it.getLong(1) to ((it.getInt(2) == 1) to Documentation(it.getString(4), it.getInt(5) == 1, it.getString(3), it.getString(6), it.getInt(7), null)) }
+            .map { (id, doc) -> id to (doc.first to doc.second.copy(code = forms.codeAt(doc.second.path, doc.second.line))) }
         // A body routine's parameter is on the body's side too.
         fun onBody(key: String) = isBody(key) || isBody(key.substringBeforeLast('.'))
         return rows.groupBy({ it.first }, { it.second }).mapValues { (id, docs) ->
@@ -181,10 +184,11 @@ internal class EntityReader(private val connection: Connection) {
     fun definitions(key: String): List<Location> = definitions("o.entity_id = (SELECT id FROM entity WHERE key = ?)", key)
 
     private fun definitions(entity: String, parameter: Any): List<Location> = connection.query(
-        """SELECT f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.roles, o.status, o.written, u.kind
+        """SELECT f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.roles, o.status, o.written, u.kind,
+                  ${FormsReader.codeAtSql("o.file_id", "o.start_line")}
            FROM occurrence o JOIN source_file f ON f.id = o.file_id LEFT JOIN unit u ON u.id = o.unit_id
            WHERE $entity AND o.roles IN ('DEFINITION', 'DECLARATION') ORDER BY o.id""", listOf(parameter)
-    ) { Location(it.getString(1), span(it, 2), roles(it.getString(6)), it.getString(7), it.getString(8), it.getString(9)) }
+    ) { Location(it.getString(1), span(it, 2), roles(it.getString(6)), it.getString(7), it.getString(8), it.getString(9), FormsReader.codeAt(it.getString(10))) }
 
     private class Entity(val id: Long, val key: String, val kind: String, val schema: String?, val name: String, val display: String,
                          val external: Boolean, val parentId: Number?)

@@ -1,7 +1,8 @@
 // A column's places (where PL/SQL reads its value into a target) in words, without the DOM. Each function that says
 // something takes the translator ([Say]) so that it reads the same from the page and from a test.
 
-import type {ColumnPlace, Count, EntitySummary, PlaceGroup, PlaceGroupsPage, PlaceSource, SizeUnit, Verdict, VerdictCount} from "./api";
+import type {CodeAt, ColumnPlace, Count, EntitySummary, PlaceGroup, PlaceGroupsPage, PlaceSource, SizeUnit, Verdict, VerdictCount} from "./api";
+import {codeUnitName} from "./forms-view";
 import type {Params, Say} from "./i18n-format";
 
 /** The verdicts in the order the page shows their buttons (OWN_SIZE only comes when the size compared is not known). */
@@ -226,13 +227,16 @@ export function viewOf(read: EntitySummary): { view: string; viewKey: string | n
 /** How many places the counts add up to. */
 export const placesTotal = (byClass: Count[]) => byClass.reduce((sum, c) => sum + c.count, 0);
 
-/** A piece of a row detail's line: text, code, a word with a hint as its tooltip, a short link to an entity, a file's line, a view. */
+/**
+ * A piece of a row detail's line: text, code, a word with a hint as its tooltip, a short link to an entity, a file's
+ * line (inside Forms code, [codeAt] the unit and its own line), a view.
+ */
 export type DetailPart =
   | { text: string }
   | { code: string }
   | { hint: string; title: string }
   | { entity: EntitySummary; label: string }
-  | { path: string; line: number }
+  | { path: string; line: number; codeAt: CodeAt | null }
   | { view: EntitySummary };
 
 /** A line of a row's detail, with its class (`muted`, `uses-gap`) and the code it says, for a tooltip. */
@@ -294,12 +298,18 @@ const showsOtherLine = (p: Pick<ColumnPlace, "path" | "line" | "shown">) => p.sh
 
 /**
  * Where a row's line link goes: the line it shows (for a parameter, the call that passes the column; else where its
- * statement reads the column), else the target's; with the file when not the group's.
+ * statement reads the column), else the target's; with the file when not the group's. Inside Forms code ([code]),
+ * the unit's own line, with the unit's name when it is another than the target's (a call elsewhere in the module).
  */
-export function rowAt(say: Say, p: Pick<ColumnPlace, "path" | "line" | "shown">, groupPath: string) {
+export function rowAt(say: Say, p: Pick<ColumnPlace, "path" | "line" | "shown" | "code">, groupPath: string) {
   const path = p.shown?.path ?? p.path;
   const line = p.shown?.line ?? p.line;
-  return { path, line, text: path === groupPath ? say("places.at", { line }) : say("places.atFile", { file: fileName(path), line }) };
+  const code = (p.shown !== null ? p.shown.code : p.code) ?? null;
+  const shownLine = code?.line ?? line;
+  const elsewhere = path !== groupPath || (code !== null && code.key !== p.code?.key);
+  const text = !elsewhere ? say("places.at", { line: shownLine })
+    : say("places.atFile", { file: code ? codeUnitName(code.key) : fileName(path), line: shownLine });
+  return { path, line, code, text };
 }
 
 /**
@@ -325,7 +335,7 @@ export function placeDetail(say: Say, p: ColumnPlace): DetailLine[] {
     lines.push({ parts: fill(say, "places.returnedBy", { routine: link(p.routine) }) });
     // The call on the row's own line says nothing more.
     if (p.callCount !== null && p.callPath !== null && p.callLine !== null && !(p.callPath === p.path && p.callLine === p.line)) {
-      lines.push({ parts: [{ text: callsText(say, p)! + " " }, { path: p.callPath, line: p.callLine }], className: "muted" });
+      lines.push({ parts: [{ text: callsText(say, p)! + " " }, { path: p.callPath, line: p.callLine, codeAt: p.callCode ?? null }], className: "muted" });
     }
   }
   if (p.source === "OUT_ARGUMENT" && p.argumentOf !== null && p.routine !== null) {
@@ -335,7 +345,7 @@ export function placeDetail(say: Say, p: ColumnPlace): DetailLine[] {
   if (p.source === "IN_ARGUMENT" && p.argumentOf !== null) {
     const parameter: DetailPart = { entity: p.argumentOf, label: p.argumentOf.name };
     lines.push({ parts: p.callCount === null || !call ? fill(say, "places.receivesParameter", { parameter })
-      : [...fill(say, "places.receives", { parameter }, { count: p.callCount }), { text: " " }, { path: p.callPath!, line: p.callLine! }] });
+      : [...fill(say, "places.receives", { parameter }, { count: p.callCount }), { text: " " }, { path: p.callPath!, line: p.callLine!, codeAt: p.callCode ?? null }] });
   }
   const mode = parameterText(say, p);
   if (mode !== null) lines.push({ parts: [{ text: mode }], className: "uses-gap" });
@@ -343,7 +353,7 @@ export function placeDetail(say: Say, p: ColumnPlace): DetailLine[] {
   if (p.verdictReason !== null) lines.push({ parts: [{ text: verdictReasonText(say, p.verdictReason) }], className: "uses-gap", title: p.verdictReason });
   if (p.viaView) lines.push({ parts: [{ view: p.read }], className: "muted" });
   // On a phone the group's header has no file: the target's file and line, said to be the target's when the row shows another line.
-  const at: DetailPart = { path: p.path, line: p.line };
+  const at: DetailPart = { path: p.path, line: p.line, codeAt: p.code ?? null };
   lines.push({ parts: showsOtherLine(p) ? [{ text: say("places.target") + " " }, at] : [at], className: "muted" });
   return lines;
 }

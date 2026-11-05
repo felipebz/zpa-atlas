@@ -186,12 +186,12 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         val answer = index.columnPlaces(key, filter, offset, args.int("limit", 1..PLACES_MAX) ?: PLACES_DEFAULT)
         val page = answer.result ?: throw unknownEntity(key)
         // The concatenated places are never left unsaid: thousands of them behind "3 places" would mislead.
-        // Each row's shown line by its number alone: an agent reads the code with get_source.
+        // Each row's shown line by its number alone (and in Forms code, the code it is in): an agent reads the code with get_source.
         val lined = toolAnswer(answer).let { a ->
             a.withResult("rows", JsonArray(a.result().getValue("rows").jsonArray.map { row ->
                 val fields = row.jsonObject
-                val shown = fields["shown"]?.jsonObject?.get("line")
-                JsonObject(fields - "shown" + listOfNotNull(shown?.let { "shownLine" to it }))
+                val shown = fields["shown"]?.jsonObject
+                JsonObject(fields - "shown" + listOfNotNull(shown?.get("line")?.let { "shownLine" to it }, shown?.get("code")?.let { "shownCode" to it }))
             }))
         }
         val told = if (concatenated || page.concatenatedCount == 0) lined else lined.withResult("otherPlaces",

@@ -4,6 +4,7 @@ import type {
     Documentation,
     EntityDetail,
     EntitySummary,
+    FormsInfo,
     KeyColumn,
     Member,
     OccurrencePage,
@@ -20,12 +21,13 @@ import {codeLineNode} from "./code-line";
 import {shownLine} from "./text-search";
 import type {DeclaredFact} from "./declared-view";
 import {declaredFacts, memberType, parameterDefaults, returnType} from "./declared-view";
-import {docFromKey, docPlaceKey, docSummary} from "./doc-view";
+import {docFromKey, docPlace, docSummary} from "./doc-view";
 import {showBanner} from "./banner";
 import {loadCodes, usageRoles} from "./codes";
 import {
     entityLink,
     fillHtml,
+    formsNameLink,
     kindBadge,
     kindLabel,
     listNameOptions,
@@ -48,14 +50,18 @@ import {
     usesGapKey
 } from "./entity-view";
 import {columnPlace, referencedColumn, referencingColumn, shownDeleteRule} from "./keys-view";
+import {showFormsTree} from "./forms";
+import {FORMS_TREE_KINDS, firstUnit, formsCrumbs, formsName} from "./forms-view";
 import {kindOrder} from "./kinds";
 import {
     codeBreaksHtml,
     entityHref,
     esc,
+    fileHref,
     getOrPut,
     impactHref,
-    langSuffix,
+    lineHref,
+    lineTitle,
     literalText,
     nameBreaksHtml,
     partBreaksHtml,
@@ -158,7 +164,7 @@ function declaredFactHtml(fact: DeclaredFact, entity: EntityDetail) {
   const definition = entity.definitions[0];
   if (fact.cut) {
     html += definition && !fact.fromSpec
-      ? ` <a href="file.html?path=${encodeURIComponent(definition.path)}&line=${definition.span.startLine}${langSuffix()}#L${definition.span.startLine}" ` +
+      ? ` <a href="${lineHref(definition.path, definition.span.startLine, definition.code)}" ` +
         `title="${esc(t("entity.declared.cutTitle"))}">${esc(t("entity.declared.whole"))}</a>`
       : ` <span class="muted" title="${esc(t("entity.declared.cutTitle"))}">${esc(t("entity.declared.cut"))}</span>`;
   }
@@ -173,18 +179,24 @@ function declaredFactHtml(fact: DeclaredFact, entity: EntityDetail) {
 /**
  * The header: the path from the schema, the title with its kind and tags, a routine's parameter names and a function's
  * return type, what a declaration says (type, default or initial value), where it is (the spec and the body, each half
- * linking to its page when it is another), its uses, and the actions.
+ * linking to its page when it is another; inside Forms code, the code page at the line), its uses, and the actions. A
+ * Forms object reads as in the Form Builder: its own name, under its module's title and the objects that hold it, the
+ * full path as the tooltip; a module by its title, its file (its code a link away) the first fact.
  */
 function headerHtml(entity: EntityDetail, direct: number) {
   const path = entityPath(entity);
+  const forms = entity.forms;
   // A Forms object's path starts at its module: it has no schema.
   const crumbs = [
-    ...(entity.key.startsWith("forms:") ? [] : [`<span>${esc(t("entity.schema", { schema: path.schema ?? t("entity.schemaUnknown") }))}</span>`]),
-    // A holder shows its name only: the link already leads to the right overload.
-    ...path.ancestors.map(a => `<a href="${entityHref(a.key)}" title="${esc(a.display)}">${esc(a.name)}</a>`),
-    `<span aria-current="page">${esc(path.name)}</span>`
+    ...(forms !== null ? formsCrumbs(entity).map(name => formsNameLink(name)) : [
+      `<span>${esc(t("entity.schema", { schema: path.schema ?? t("entity.schemaUnknown") }))}</span>`,
+      // A holder shows its name only: the link already leads to the right overload.
+      ...path.ancestors.map(a => `<a href="${entityHref(a.key)}" title="${esc(a.display)}">${esc(a.name)}</a>`)
+    ]),
+    `<span aria-current="page">${esc(forms !== null ? formsName(entity, forms).label : path.name)}</span>`
   ];
   const parts = displayParts(entity.display, entity.name);
+  const title = forms !== null ? formsName(entity, forms).label : parts.base;
   const tags = entityTags(entity).map(tag => tag === "external"
     ? `<span class="badge external">${esc(t("entity.external"))}</span>`
     : tag === "private" ? `<span class="badge">${esc(t("entity.tag.private"))}</span>` : `<span class="badge">${esc(t("entity.overload.body"))}</span>`);
@@ -195,6 +207,12 @@ function headerHtml(entity: EntityDetail, direct: number) {
   const statusOf = (p: Place) => p.partner ? null : entity.definitions.find(d => d.path === p.path && d.span.startLine === p.line)?.status ?? null;
   // The uses become the "Used by" section's total once it loads (with a package's members, or a routine's other half).
   const facts = [...places(entity).map(p => placeHtml(p, entity, statusOf(p))), `<span id="ent-uses">${esc(t("search.usages", { count: direct }))}</span>`];
+  // A Forms module's file, whose code the file page shows: its first piece of code once the tree says which.
+  if (forms !== null && entity.kind === "FORMS_MODULE") {
+    facts.unshift(fillHtml("forms.file", {
+      path: `<a class="mono" id="formsFile" href="${fileHref(forms.path)}">${esc(forms.path).replace(/\//g, "/<wbr>")}</a>`
+    }));
+  }
   // A body's own variable, constant or type is not part of the package's interface: said in words, first.
   if (isBodyOwn(entity)) facts.unshift(`<span class="private-note">${esc(t("entity.privateBody"))}</span>`);
   // A routine's own variable or constant: whose it is, first.
@@ -207,7 +225,7 @@ function headerHtml(entity: EntityDetail, direct: number) {
   const members = membersGapKey(entity.membersIncomplete);
   if (members !== null) facts.push(`<span class="uses-gap">${esc(t(members))}</span>`);
   return `<nav class="crumbs" aria-label="${esc(t("entity.path"))}">${crumbs.join(`<span class="sep" aria-hidden="true">›</span>`)}</nav>
-    <div class="ent-title"><h1><span class="ename" title="${esc(entity.display)}"><span class="name">${nameBreaksHtml(parts.base)}</span></span></h1>${kindBadge(entity.kind)}${tags.join("")}</div>
+    <div class="ent-title"><h1><span class="ename" title="${esc(entity.display)}"><span class="name">${nameBreaksHtml(title)}</span></span></h1>${kindBadge(entity.kind)}${tags.join("")}</div>
     ${signature}
     ${declared.length ? `<div class="ent-decl">${declared.join("")}</div>` : ""}
     <div class="ent-facts">${facts.map(f => `<span>${f}</span>`).join("")}</div>
@@ -218,13 +236,15 @@ function headerHtml(entity: EntityDetail, direct: number) {
 
 /**
  * The documentation under the header: each comment as written (its line breaks and indentation kept), what it is (the
- * other half's is marked) and a link to its line; a long one folds, with "more".
+ * other half's is marked) and a link to its line (inside Forms code, its unit's own line on the code page); a long one
+ * folds, with "more".
  */
 function documentationHtml(docs: Documentation[]) {
   return docs.map(doc => {
     const from = docFromKey(doc);
-    const place = `<a href="file.html?path=${encodeURIComponent(doc.path)}&line=${doc.line}${langSuffix()}#L${doc.line}" title="${esc(`${doc.path}:${doc.line}`)}">` +
-      `${esc(t(docPlaceKey(doc), { line: doc.line }))}</a>`;
+    const said = docPlace(doc);
+    const place = `<a href="${lineHref(doc.path, doc.line, doc.code)}" title="${esc(lineTitle(doc.path, doc.line, doc.code))}">` +
+      `${esc(t(said.key, { line: said.line }))}</a>`;
     return `<div class="doc"><div class="doc-src">${from ? `<b>${esc(t(from))}</b> · ` : ""}${place}</div>` +
       `<pre class="doc-text folded">${esc(doc.text)}</pre><button type="button" class="doc-more quiet" aria-expanded="false" hidden>${esc(t("doc.more"))}</button></div>`;
   }).join("");
@@ -309,8 +329,11 @@ function routineTableRows() {
   return shown.length === 0 ? `<tr><td colspan="3" class="muted">${esc(t("entity.routines.none"))}</td></tr>` : shown.map(r => r.html).join("");
 }
 
-/** The member tables: routines (procedures and functions together) with a filter and an order, then one table per other kind. */
-function contentsSections(members: Member[]): { html: string; entries: SectionEntry[] } {
+/**
+ * The member tables: routines (procedures and functions together) with a filter and an order, then one table per other
+ * kind; a Forms object of the module [forms] by its own name.
+ */
+function contentsSections(members: Member[], forms: FormsInfo | null): { html: string; entries: SectionEntry[] } {
   const byKind = new Map<string, Member[]>();
   for (const member of members) getOrPut(byKind, member.entity.kind, () => []).push(member);
   const uses = (n: number) => `<td class="num">${esc(formatNumber(n))}</td>`;
@@ -347,9 +370,10 @@ function contentsSections(members: Member[]): { html: string; entries: SectionEn
         // A package variable's or constant's type, or a column's datatype, follows its name, wrapping under it on a phone.
         const type = memberType(m);
         // A body's own variable, constant or type: marked private, never the "body" badge of a spec member's other half.
+        // A Forms object, inside its module: its own name.
         const name = isBodyOwn(m.entity)
           ? `${entityLink(m.entity, { ...options(m.entity), noBodyBadge: true })} <span class="badge">${esc(t("entity.tag.private"))}</span>`
-          : entityLink(m.entity, options(m.entity));
+          : m.entity.kind.startsWith("FORMS_") ? formsNameLink(formsName(m.entity, forms)) : entityLink(m.entity, options(m.entity));
         const gap = usesGapKey(m.usesIncomplete);
         const gapBadge = gap === null ? "" : ` <span class="badge gap" title="${esc(t(gap))}">${esc(t("entity.tag.usesIncomplete"))}</span>`;
         return `<tr><td>${name}${gapBadge}${type === null ? "" : ` <span class="mono mtype">${esc(type)}</span>`}</td>${uses(m.usages)}</tr>`;
@@ -453,7 +477,7 @@ function referencedByHtml(entity: EntityDetail, own: string | null) {
 }
 
 function renderEntity(entity: EntityDetail) {
-  setPageTitle(t("page.entity.titleWith", { name: entity.name }));
+  setPageTitle(t("page.entity.titleWith", { name: formsName(entity, entity.forms).label }));
   recordOpened(browserStorage(), currentProject(), entity);
   const set = (id: string, html: string) => { document.getElementById(id)!.innerHTML = html; };
   const u = entity.usage;
@@ -466,12 +490,25 @@ function renderEntity(entity: EntityDetail) {
   set("parameters", params === null ? "" : parametersHtml(entity, params));
   const overloads = specBodyGroups(entity.overloads, o => o.entity.key);
   set("overloads", overloadsHtml(overloads));
-  // A subprogram's parameters are in its parameter table, not repeated under its contents.
-  const members = params === null ? entity.children : entity.children.filter(m => m.entity.kind !== "PARAMETER");
-  const contents = contentsSections(members);
+  // A subprogram's parameters are in its parameter table, not repeated under its contents; a Forms module's, block's
+  // or item's objects are in its tree.
+  const tree = FORMS_TREE_KINDS.includes(entity.kind);
+  const members = params !== null ? entity.children.filter(m => m.entity.kind !== "PARAMETER")
+    : tree ? entity.children.filter(m => !m.entity.kind.startsWith("FORMS_")) : entity.children;
+  const contents = contentsSections(members, entity.forms);
   set("contents", contents.html);
+  // The objects of a Forms module, block or item; a module's file then leads to its first piece of code.
+  if (tree) {
+    void showFormsTree(document.getElementById("forms")!, entity.key).then(shown => {
+      const file = document.getElementById("formsFile") as HTMLAnchorElement | null;
+      const unit = shown && firstUnit(shown);
+      if (file && unit && entity.forms) file.href = fileHref(entity.forms.path, unit);
+    });
+  }
+  // Inside its module a Forms object is named by its own name, the full path as the tooltip.
+  const inModule = (e: EntitySummary) => entity.forms !== null && e.key.startsWith(entity.forms.module.key + "/");
   set("relations", linkList(t("entity.relations"), t("entity.relations.line"), entity.relations.map(r =>
-    `${esc(r.kind)} ${r.direction === "OUT" ? "→" : "←"} ${entityLink(r.entity)}`)));
+    `${esc(r.kind)} ${r.direction === "OUT" ? "→" : "←"} ${inModule(r.entity) ? formsNameLink(formsName(r.entity, entity.forms)) : entityLink(r.entity)}`)));
   // A trigger lists its events; a relation or a column, the triggers that fire on it.
   const own = entity.kind === "TRIGGER";
   set("triggers", triggersHtml(entity, own));
@@ -523,6 +560,7 @@ function renderEntity(entity: EntityDetail) {
   // The list leads to every section of the content column; the usage count becomes the scope's total once it loads,
   // and values have no count until they load.
   const sections: SectionEntry[] = [
+    { id: "forms", label: t("forms.objects"), count: tree ? null : -1 },
     ...contents.entries,
     { id: "parameters", label: t("entity.parameters"), count: params?.length ?? -1 },
     { id: "overloads", label: t("entity.overloads"), count: overloads.length >= 2 ? overloads.length : -1 },
@@ -757,8 +795,7 @@ function placeRowHtml(p: ColumnPlace, index: number, page: PlaceGroupsPage, grou
     (p.viaView ? ` <span class="place-mark">${esc(t("places.viaView"))}</span>` : "");
   // A parameter's line is the call that passes the column; the target's is in the detail.
   const line = rowAt(t, p, groupPath);
-  const at = `<a href="file.html?path=${encodeURIComponent(line.path)}&line=${line.line}${langSuffix()}#L${line.line}" title="${esc(line.path)}">` +
-    `${esc(line.text)}</a>`;
+  const at = `<a href="${lineHref(line.path, line.line, line.code)}" title="${esc(line.path)}">${esc(line.text)}</a>`;
   return `<div class="place-row v-${esc(p.verdict)}" data-place="${index}" tabindex="0" aria-expanded="false" aria-controls="place-detail-${index}">` +
     `${size}<span class="place-target">${target}</span><span class="place-how">${how}</span><span class="place-at">${at}</span>` +
     (p.shown?.text ? `<span class="place-code uline"></span>` : "") + `</div>`;
@@ -772,7 +809,7 @@ function placeDetailHtml(p: ColumnPlace, index: number) {
     if ("hint" in piece) return `<abbr class="hint" title="${esc(piece.title)}">${esc(piece.hint)}</abbr>`;
     if ("entity" in piece) return `<a class="mono" href="${entityHref(piece.entity.key)}" title="${esc(piece.entity.display)}">${partBreaksHtml(piece.label)}</a>`;
     if ("view" in piece) return throughViewHtml(piece.view);
-    return placeHtml({ half: null, path: piece.path, line: piece.line, col: 0, partner: null, file: true }, p.target ?? p.read, null);
+    return placeHtml({ half: null, path: piece.path, line: piece.line, col: 0, partner: null, file: true, code: piece.codeAt }, p.target ?? p.read, null);
   };
   const lines = placeDetail(t, p).map(line => `<div${line.className ? ` class="${line.className}"` : ""}${line.title ? ` title="${esc(line.title)}"` : ""}>` +
     line.parts.map(part).join("") + `</div>`);

@@ -1,0 +1,8 @@
+<?xml version = '1.0' encoding = 'UTF-8'?>
+<Module version="122010300" Dump="All" xmlns:ORDER_READ_default="http://xmlns.oracle.com/Forms"
+        xmlns:ORDER_READ_overridden="http://xmlns.oracle.com/Forms" xmlns="http://xmlns.oracle.com/Forms">
+   <FormModule ORDER_READ_overridden:Name="ORDER_READ" ORDER_READ_default:Comment="">
+      <Trigger ORDER_READ_overridden:Name="WHEN-NEW-FORM-INSTANCE" ORDER_READ_overridden:TriggerText="p_read(1);"/>
+      <ProgramUnit ORDER_READ_overridden:Name="P_READ" ORDER_READ_overridden:ProgramUnitText="/** Reads the status of an order. */&amp;#10;PROCEDURE p_read(p_id number) IS&amp;#10;  v varchar2(10);&amp;#10;BEGIN&amp;#10;  SELECT status INTO v FROM orders WHERE id = p_id;&amp;#10;END;"/>
+   </FormModule>
+</Module>

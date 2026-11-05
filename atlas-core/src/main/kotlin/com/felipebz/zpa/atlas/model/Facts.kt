@@ -162,6 +162,13 @@ data class UsesGapFact(val entityKey: String, val reasons: List<String>)
  */
 data class MembersGapFact(val entityKey: String, val reasons: List<String>)
 
+/**
+ * An object of a Forms module, in the order of its file: [entityKey], and for code (a trigger, a program unit's
+ * specification or body, a record group query) the lines of the module text that are its own text, and [unitKind]
+ * `PACKAGE` or `PACKAGE_BODY` for a package's halves.
+ */
+data class FormsObjectFact(val entityKey: String, val codeFirstLine: Int? = null, val codeLastLine: Int? = null, val unitKind: UnitKind? = null)
+
 /** Everything one file contributes, produced off the writer thread. */
 class FileFacts(
     val path: String,
@@ -194,5 +201,7 @@ class FileFacts(
     /** What reads a column's value into PL/SQL without being followed, by shape: counted ([ColumnPlaceFact]). */
     val placesLeftOut: Map<String, Int> = emptyMap(),
     /** A database source, or a Forms module whose text is the module text built from the file ([com.felipebz.zpa.atlas.forms.FormsModuleText]). */
-    val kind: FileKind = FileKind.DB_SOURCE
+    val kind: FileKind = FileKind.DB_SOURCE,
+    /** For a Forms module, its objects in the order of its file. */
+    val formsObjects: List<FormsObjectFact> = emptyList()
 )

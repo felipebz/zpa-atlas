@@ -1,0 +1,272 @@
+// What the pages of Forms objects show, without the DOM: names and paths as a Forms developer knows them, the module's
+// objects as a tree that opens, closes and filters by name, as the Form Builder's Object Navigator does, and which
+// piece of code the code page shows.
+
+import type {CodeAt, EntityDetail, EntitySummary, FormsGroup, FormsGroupKind, FormsInfo, FormsNode, FormsTree} from "./api";
+
+/** The kinds whose page shows their objects as a tree (`api/forms-tree`). */
+export const FORMS_TREE_KINDS = ["FORMS_MODULE", "FORMS_BLOCK", "FORMS_ITEM"];
+/** The kinds that are code, which the code page shows (`api/forms-file`): a trigger, a program unit, a record group's query. */
+export const FORMS_CODE_KINDS = ["FORMS_TRIGGER", "FORMS_PROGRAM_UNIT", "FORMS_RECORD_GROUP"];
+
+/** A Forms object as a page inside its module names it: the page it links to, the name it shows, its tooltip. */
+export interface FormsName {
+  key: string;
+  label: string;
+  title: string;
+}
+
+/**
+ * How a page inside the module [forms] names a Forms object: by its own name (`ID1`), the module by its title (its
+ * internal name, `RELEASE_LOCKS`); the full path (`DEMO0004/V$LOCK/ID1`) is the tooltip.
+ */
+export function formsName(entity: Pick<EntitySummary, "key" | "name" | "display">, forms: FormsInfo | null): FormsName {
+  return { key: entity.key, label: forms !== null && forms.module.key === entity.key ? forms.title : entity.name, title: entity.display };
+}
+
+/**
+ * The crumbs above a Forms object's title: the module by its title, then the other objects that hold it, each by its
+ * own name, outermost first; nothing for the module itself.
+ */
+export function formsCrumbs(entity: Pick<EntityDetail, "ancestors" | "forms">): FormsName[] {
+  return entity.ancestors.map(a => formsName(a, entity.forms));
+}
+
+/** The own name of the Forms code unit [key] (`forms:DEMO0004/STEUERBLOCK/POST-QUERY#2` → `POST-QUERY`), as a place names it. */
+export function codeUnitName(key: string) {
+  return key.slice(key.lastIndexOf("/") + 1).replace(/#\d+$/, "");
+}
+
+// ---- the code page -------------------------------------------------------------------------------------------------
+
+/** A piece of Forms code as the code page names it: its entity's key and, for a package's half, its kind. */
+export type CodeUnit = Pick<CodeAt, "key" | "unitKind">;
+
+/** Whether [a] and [b] are the same piece of code (a package's specification is not its body). */
+export function sameUnit(a: CodeUnit, b: CodeUnit) {
+  return a.key === b.key && (a.unitKind ?? null) === (b.unitKind ?? null);
+}
+
+/** The piece of code [node] is; null for an object that is not code (the module, a block, an item, a library). */
+export function nodeUnit(node: FormsNode): CodeUnit | null {
+  return FORMS_CODE_KINDS.includes(node.entity.kind) ? { key: node.entity.key, unitKind: node.unitKind ?? null } : null;
+}
+
+/** The first node of [groups] [keep] keeps, in the tree's order: depth first, each node before the groups under it. */
+function firstNode(groups: FormsGroup[], keep: (node: FormsNode) => boolean): FormsNode | null {
+  for (const group of groups) {
+    for (const node of group.nodes) {
+      if (keep(node)) return node;
+      const under = firstNode(node.groups, keep);
+      if (under !== null) return under;
+    }
+  }
+  return null;
+}
+
+/** The node of [tree] that is the piece of code [unit] (a package's half, its own node); null when the tree has none. */
+export function unitNode(tree: FormsTree, unit: CodeUnit): FormsNode | null {
+  return firstNode(tree.groups, node => {
+    const own = nodeUnit(node);
+    return own !== null && sameUnit(own, unit);
+  });
+}
+
+/**
+ * The first piece of code of [tree], in the order the server opens a module's code page in (a trigger, a program
+ * unit's half, a record group); null when the module has no code.
+ */
+export function firstUnit(tree: FormsTree): CodeUnit | null {
+  const node = firstNode(tree.groups, node => nodeUnit(node) !== null);
+  return node === null ? null : nodeUnit(node);
+}
+
+/** The catalog key of the word after a package's half (`spec`, `body`), which tells its two nodes apart; null for other code. */
+export function unitKindWord(unitKind: string | null | undefined) {
+  return unitKind === "PACKAGE" ? "entity.overload.spec" : unitKind === "PACKAGE_BODY" ? "entity.overload.body" : null;
+}
+
+/**
+ * What the code page's address asks for: the piece of code `unit` and `unitKind` name (null: the module's first) and
+ * the line to mark, `#L5` before `line=5` (null: none). A line without a unit is the module text's, which the page no
+ * longer shows: none is marked.
+ */
+export function wantedCode(search: string, hash: string): { unit: CodeUnit | null; line: number | null } {
+  const params = new URLSearchParams(search);
+  const key = params.get("unit");
+  if (!key) return { unit: null, line: null };
+  const marked = /^#L(\d+)$/.exec(hash);
+  return { unit: { key, unitKind: params.get("unitKind") || null }, line: marked ? Number(marked[1]) : Number(params.get("line")) || null };
+}
+
+/**
+ * Where the code page's address should say it is once it shows [shown], asked for [wanted]: null when the address
+ * already names it; else [shown], the line kept when its unit is the one asked for (a package's other half, asked
+ * without its kind), none when the server showed the first piece of code instead.
+ */
+export function settledCode(wanted: { unit: CodeUnit | null; line: number | null }, shown: CodeUnit): { unit: CodeUnit; line: number | null } | null {
+  if (wanted.unit !== null && sameUnit(wanted.unit, shown)) return null;
+  return { unit: shown, line: wanted.unit !== null && wanted.unit.key === shown.key ? wanted.line : null };
+}
+
+/** A request of the code page: the API asked and its parameters. */
+export interface CodePageAsk {
+  api: "api/forms-file" | "api/file";
+  params: Record<string, string | boolean | null | undefined>;
+}
+
+/**
+ * What the code page of [path] asks, so that no request fails: with [unit] named, or once `api/file` said the file is
+ * a Forms module ([fileKind]), the module's code page (`api/forms-file`, its first unit without [unit]); else the
+ * file itself (`api/file`).
+ */
+export function codePageAsk(path: string, unit: CodeUnit | null, fileKind?: string): CodePageAsk {
+  return unit !== null || fileKind === "FORMS_MODULE"
+    ? { api: "api/forms-file", params: { path, key: unit?.key, unitKind: unit?.unitKind, colors: true } }
+    : { api: "api/file", params: { path, colors: true } };
+}
+
+// ---- the tree ------------------------------------------------------------------------------------------------------
+
+/** The id of the group [kind] under the node (or root) [parent], as the tree's open state names it. */
+export function groupId(parent: string, kind: FormsGroupKind) {
+  return `${parent}|${kind}`;
+}
+
+/** The id of the object [key] (a package's half [unitKind]), as the tree's open state names it: a package's two nodes have two. */
+export function nodeId(key: string, unitKind?: string | null) {
+  return unitKind ? `${key}|${unitKind}` : key;
+}
+
+/** A line of the tree as shown: a group heading, or an object (which opens when it holds groups). */
+export type FormsRow =
+  | { type: "group"; id: string; depth: number; kind: FormsGroupKind; count: number; open: boolean }
+  | { type: "node"; id: string; depth: number; entity: EntitySummary; unitKind: string | null; openable: boolean; open: boolean };
+
+/** What a filter keeps: the groups and objects shown (by id), and those it opens. */
+export interface FormsFilter {
+  shown: Set<string>;
+  open: Set<string>;
+}
+
+/** A group or a node with the groups under it, walked the same way whichever it is. */
+interface Branch {
+  key: string;
+  groups: FormsTree["groups"];
+}
+
+/** Calls [visit] for every group and node under [branch], outermost first, in the tree's order. */
+function walk(branch: Branch, visit: (id: string, parent: string | null, groupKind: FormsGroupKind | null, entity: EntitySummary | null) => void) {
+  for (const group of branch.groups) {
+    const id = groupId(branch.key, group.kind);
+    visit(id, branch.key, group.kind, null);
+    for (const node of group.nodes) {
+      const key = nodeId(node.entity.key, node.unitKind);
+      visit(key, id, null, node.entity);
+      walk({ key, groups: node.groups }, visit);
+    }
+  }
+}
+
+const rootOf = (tree: FormsTree): Branch => ({ key: tree.root.key, groups: tree.groups });
+
+/** Every group and every object that holds groups: what opens and closes, in the tree's order. */
+export function openableIds(tree: FormsTree): string[] {
+  const ids: string[] = [];
+  const holders = new Set<string>();
+  walk(rootOf(tree), (id, parent, kind) => {
+    if (kind !== null) {
+      ids.push(id);
+      if (parent !== null) holders.add(parent);
+    }
+  });
+  // An object opens when a group hangs under it: its groups' parents, in the tree's order.
+  walk(rootOf(tree), (id, _, kind) => { if (kind === null && holders.has(id)) ids.push(id); });
+  return ids;
+}
+
+/** The first open state: every group open, every object (a block, an item with triggers) closed. */
+export function initialOpen(tree: FormsTree): Set<string> {
+  const open = new Set<string>();
+  walk(rootOf(tree), (id, _, kind) => { if (kind !== null) open.add(id); });
+  return open;
+}
+
+/** "Expand all": every group and object open. */
+export function allOpen(tree: FormsTree): Set<string> {
+  return new Set(openableIds(tree));
+}
+
+/** The group or object that holds each group and object of [tree], by id; null for the root's groups. */
+function parentsOf(tree: FormsTree) {
+  const parents = new Map<string, string | null>();
+  walk(rootOf(tree), (id, parent) => parents.set(id, parent === tree.root.key ? null : parent));
+  return parents;
+}
+
+/** [open] with the groups and objects that hold [id] opened too, so that it shows. */
+export function openTo(tree: FormsTree, open: Set<string>, id: string): Set<string> {
+  const parents = parentsOf(tree);
+  const opened = new Set(open);
+  for (let up = parents.get(id) ?? null; up !== null; up = parents.get(up) ?? null) opened.add(up);
+  return opened;
+}
+
+/**
+ * What a filter by [text] keeps: each object whose name contains it (ignoring case), the groups and objects leading to
+ * it (opened, so it shows) and what it holds (shown, its objects closed and its groups open, as at first); null for a
+ * blank text, which filters nothing.
+ */
+export function filterTree(tree: FormsTree, text: string): FormsFilter | null {
+  const wanted = text.trim().toLowerCase();
+  if (wanted === "") return null;
+  const parents = parentsOf(tree);
+  const matches: string[] = [];
+  walk(rootOf(tree), (id, _, __, entity) => {
+    if (entity !== null && entity.name.toLowerCase().includes(wanted)) matches.push(id);
+  });
+  const shown = new Set<string>();
+  const open = new Set<string>();
+  for (const match of matches) {
+    shown.add(match);
+    for (let up = parents.get(match) ?? null; up !== null; up = parents.get(up) ?? null) {
+      shown.add(up);
+      open.add(up);
+    }
+  }
+  // What a kept object holds stays reachable: its groups and objects show once it is opened, its groups open.
+  const under = new Set(matches);
+  walk(rootOf(tree), (id, parent, kind) => {
+    if (parent === null || !under.has(parent)) return;
+    under.add(id);
+    shown.add(id);
+    if (kind !== null) open.add(id);
+  });
+  return { shown, open };
+}
+
+/**
+ * The lines shown, in order: each group and object under an open one (the root's groups always), with [filter] only
+ * those it keeps.
+ */
+export function visibleRows(tree: FormsTree, open: Set<string>, filter: FormsFilter | null): FormsRow[] {
+  const rows: FormsRow[] = [];
+  const kept = (id: string) => filter === null || filter.shown.has(id);
+  const add = (branch: Branch, depth: number) => {
+    for (const group of branch.groups) {
+      const id = groupId(branch.key, group.kind);
+      if (!kept(id)) continue;
+      rows.push({ type: "group", id, depth, kind: group.kind, count: group.nodes.length, open: open.has(id) });
+      if (!open.has(id)) continue;
+      for (const node of group.nodes) {
+        const key = nodeId(node.entity.key, node.unitKind);
+        if (!kept(key)) continue;
+        const openable = node.groups.length > 0;
+        rows.push({ type: "node", id: key, depth: depth + 1, entity: node.entity, unitKind: node.unitKind ?? null, openable, open: openable && open.has(key) });
+        if (openable && open.has(key)) add({ key, groups: node.groups }, depth + 2);
+      }
+    }
+  };
+  add(rootOf(tree), 0);
+  return rows;
+}

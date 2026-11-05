@@ -1,4 +1,5 @@
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
+import {lineHref} from "../src/html";
 import type {ColumnPlace, EntitySummary, PlaceGroupsPage} from "../src/api";
 import type {DetailLine} from "../src/places-view";
 import en from "../src/i18n/en";
@@ -397,15 +398,15 @@ describe("placeDetail", () => {
       declaredType: "varchar2(5)", length: 5, unit: "BYTE", size: 5, sizeUnit: "BYTE", unitSource: "OPTION", typeSource: null,
       argumentOf: P_VALUE, routine: ADD_MACRO, callCount: 1, callPath: "mc.sql", callLine: 26,
       shown: { path: "mc.sql", line: 26, from: 40, to: 46, text: null, stale: null, colors: null } });
-    expect(rowAt(say, value, "mc.sql")).toEqual({ path: "mc.sql", line: 26, text: "l. 26" });
-    expect(rowAt(say, value, "other/mc_spec.sql")).toEqual({ path: "mc.sql", line: 26, text: "mc.sql, l. 26" });
+    expect(rowAt(say, value, "mc.sql")).toEqual({ path: "mc.sql", line: 26, code: null, text: "l. 26" });
+    expect(rowAt(say, value, "other/mc_spec.sql")).toEqual({ path: "mc.sql", line: 26, code: null, text: "mc.sql, l. 26" });
     expect(text(placeDetail(say, value))).toEqual([
       "declared `varchar2(5)` · [BYTE | no unit written: BYTE, the index's default]",
       "receives P_VALUE, which 1 call passes the column to: mc.sql:26",
       "the target: mc.sql:17"]);
     expect(text(placeDetail(sayPt, value))[1]).toBe("recebe P_VALUE, a que 1 chamada passa a coluna: mc.sql:26");
     // Any other row's link is its own line.
-    expect(rowAt(say, vCode, "mc.sql")).toEqual({ path: "mc.sql", line: 28, text: "l. 28" });
+    expect(rowAt(say, vCode, "mc.sql")).toEqual({ path: "mc.sql", line: 28, code: null, text: "l. 28" });
     // A SELECT over several lines shows the line that reads the column: its link, and the target's line in the detail.
     const vCode2 = { ...vCode, targetWritten: "v_code2", line: 41, shown: { path: "mc.sql", line: 40, from: 11, to: 15, text: null, stale: null, colors: null } };
     expect(rowAt(say, vCode2, "mc.sql").text).toBe("l. 40");
@@ -424,5 +425,37 @@ describe("placeDetail", () => {
       "mc.sql:26"]);
     // A call on another line is told.
     expect(text(placeDetail(say, { ...vText, line: 30 }))).toContain("by 1 call: mc.sql:26");
+  });
+
+  describe("in Forms code", () => {
+    vi.stubGlobal("location", { search: "" });
+    // Doag corpus names: PK_ACCORDION's body reads the column into l_code at line 640 of the module's text, its own
+    // line 12; the trigger WHEN-BUTTON-PRESSED passes it to the package at line 412, its own line 3.
+    const pk = { key: "forms:DEMO0004/PK_ACCORDION", line: 12, unitKind: "PACKAGE_BODY" };
+    const pressed = { key: "forms:DEMO0004/STEUERBLOCK/PB_EXIT/WHEN-BUTTON-PRESSED", line: 3, unitKind: null };
+    const module = "demo0004_fmb.xml";
+    const own = place({ path: module, line: 640, code: pk });
+    const passed = place({ path: module, line: 640, code: pk, source: "IN_ARGUMENT", argumentOf: P_VALUE, routine: ADD_MACRO, callCount: 1,
+      callPath: module, callLine: 412, callCode: pressed, shown: { path: module, line: 412, from: 4, to: 10, text: null, stale: null, colors: null, code: pressed } });
+    /** Each detail part's file line as the page links it, the unit and its own line inside Forms code. */
+    const links = (lines: DetailLine[]) => lines.flatMap(line => line.parts.flatMap(p => "path" in p ? [lineHref(p.path, p.line, p.codeAt)] : []));
+
+    it("says the unit's own line on the row and leads it there", () => {
+      const at = rowAt(say, own, module);
+      expect(at).toEqual({ path: module, line: 640, code: pk, text: "l. 12" });
+      expect(lineHref(at.path, at.line, at.code)).toBe("file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE_BODY&line=12#L12");
+    });
+
+    it("names the unit of a call elsewhere in the module, and leads the call line and the target's line to their units", () => {
+      expect(rowAt(say, passed, module).text).toBe("WHEN-BUTTON-PRESSED, l. 3");
+      expect(links(placeDetail(say, passed))).toEqual([
+        "file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FSTEUERBLOCK%2FPB_EXIT%2FWHEN-BUTTON-PRESSED&line=3#L3",
+        "file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE_BODY&line=12#L12"
+      ]);
+    });
+
+    it("leaves a database row's lines to its file", () => {
+      expect(links(placeDetail(say, vCode))).toEqual(["file.html?path=mc.sql&line=28#L28"]);
+    });
   });
 });

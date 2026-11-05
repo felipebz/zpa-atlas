@@ -36,8 +36,9 @@ internal class FileRows(private val connection: Connection) {
             scale, parameter_mode, functions, argument_parameter_id, argument_routine_id, call_count, call_path, call_line, concatenated,
             unit_source, unit_compiled_owner, unit_compiled_name, unit_compiled_type)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
+        val formsInsert = prepare("INSERT INTO forms_object(file_id, position, entity_id, code_first_line, code_last_line, code_kind) VALUES (?,?,?,?,?,?)")
         val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert,
-            docInsert, placeInsert)
+            docInsert, placeInsert, formsInsert)
         var placeId = 0L
 
         var unitId = 0L
@@ -125,6 +126,15 @@ internal class FileRows(private val connection: Connection) {
                     writtenValueInsert.setSpan(5, written.span)
                     batches.add(writtenValueInsert)
                 }
+            }
+            for ((position, formsObject) in file.formsObjects.withIndex()) {
+                formsInsert.setLong(1, fileId)
+                formsInsert.setInt(2, position)
+                formsInsert.setLong(3, entityIds.getValue(formsObject.entityKey))
+                formsInsert.setNullableLong(4, formsObject.codeFirstLine?.toLong())
+                formsInsert.setNullableLong(5, formsObject.codeLastLine?.toLong())
+                formsInsert.setNullableString(6, formsObject.unitKind?.name)
+                batches.add(formsInsert)
             }
             for (doc in file.docComments.sortedWith(compareBy({ it.line }, { it.entityKey }))) {
                 docInsert.setLong(1, entityIds.getValue(doc.entityKey))

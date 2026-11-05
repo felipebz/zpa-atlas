@@ -424,18 +424,51 @@ ul.cols { columns: 22em; column-gap: 24px; }
 ul.cols li { break-inside: avoid; }
 
 /*
+ * A Forms module's objects as the Object Navigator shows them: each group a heading that opens and closes, each
+ * object its kind's square and its own name, an object with objects under it a triangle before them. Each level is
+ * indented a little, so six levels fit a phone; a long name breaks after an underscore or a dot.
+ */
+ul.ftree, ul.ftree ul { list-style: none; margin: 0; padding: 0; }
+ul.ftree ul { padding-left: 14px; }
+ul.ftree li { min-width: 0; }
+ul.ftree button.ftoggle { border: 0; background: none; padding: 2px 4px; font: inherit; color: var(--muted); }
+ul.ftree button.ftoggle::before { content: "▸"; display: inline-block; width: 1em; text-align: center; transition: transform .1s; }
+ul.ftree button.ftoggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+ul.ftree button.fhead { display: flex; align-items: baseline; gap: 4px; width: 100%; text-align: left; color: var(--fg); font-weight: 600; font-size: var(--fs-s); }
+ul.ftree button.fhead .count { color: var(--muted); font-weight: 400; font-size: var(--fs-xs); }
+ul.ftree button.fhead:hover:not(:disabled) { background: var(--surface-2); }
+ul.ftree .fline { display: flex; align-items: baseline; gap: 2px; padding: 1px 0; min-width: 0; }
+ul.ftree .fline > a { min-width: 0; font-family: var(--mono); overflow-wrap: break-word; }
+ul.ftree .fline .kind { flex: none; }
+ul.ftree .fgap { flex: none; display: inline-block; width: calc(1em + 8px); }
+/* A package's half, after its name: its two nodes told apart. */
+ul.ftree .funit { flex: none; margin-left: 4px; font-size: var(--fs-xs); }
+/* The piece of code the code page shows. */
+ul.ftree .fline:has(> a[aria-current]) { background: var(--surface); box-shadow: inset 2px 0 var(--accent); border-radius: 0 var(--radius) var(--radius) 0; }
+ul.ftree .fline > a[aria-current] { font-weight: 600; }
+.fnone { margin: 4px 0; }
+
+/*
  * File: the title, the objects of the file beside the code, the code colored as the analyzer reads it, and the
  * popover over a name. The code box scrolls sideways inside itself; its line numbers stay in view while it does.
  */
 .file-title { margin: 0 0 2px; font-size: var(--fs-2xl); line-height: 1.2; overflow-wrap: anywhere; }
 .file-title .folder { color: var(--muted); font-weight: 400; font-size: var(--fs-l); margin-right: 2px; }
 .file-page .facts { margin: 0 0 var(--gap); font-size: var(--fs-s); }
+/* On a Forms module's page, the piece of code shown: its kind, its own name, a package's half. */
+.file-page .file-unit { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 2px 0 4px; font-size: var(--fs-l); }
+.file-page .file-unit a { font-family: var(--mono); font-weight: 600; overflow-wrap: anywhere; }
 .file-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: var(--gap); align-items: start; }
 .file-layout:has(> .outline[hidden]) { grid-template-columns: minmax(0, 1fr); }
 .outline { position: sticky; top: calc(var(--stick-top) + var(--gap)); font-size: var(--fs-s); }
 .outline > summary { display: none; }
 .outline ol { list-style: none; margin: 0; padding: 0; max-height: calc(100vh - var(--stick-top) - 2 * var(--gap)); overflow-y: auto; }
-.outline li { display: flex; align-items: center; gap: 2px; }
+.outline ol li { display: flex; align-items: center; gap: 2px; }
+/* A Forms module's objects as the outline: the filter and the buttons above the tree, which scrolls on its own. */
+.outline .fpane { display: flex; flex-direction: column; max-height: calc(100vh - var(--stick-top) - 2 * var(--gap)); }
+.outline .fpane .tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+.outline .fpane .tools .filter { flex: 1 1 100%; min-width: 0; padding: 4px 8px; font-size: var(--fs-s); }
+.outline .fpane ul.ftree { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .outline li.d1 { padding-left: 14px; }
 .outline a.go { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 2px 6px; border-left: 2px solid transparent;
   border-radius: 0 var(--radius) var(--radius) 0; color: inherit; text-decoration: none; }
@@ -472,6 +505,7 @@ ul.cols li { break-inside: avoid; }
   .outline { position: static; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
   .outline > summary { display: list-item; padding: 6px 10px; cursor: pointer; font-weight: 600; }
   .outline ol { max-height: 50vh; padding: 0 4px 6px; }
+  .outline .fpane { max-height: 50vh; padding: 0 4px 6px; }
 }
 .popover { position: absolute; z-index: 10; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-popover); padding: 8px 10px; max-width: 560px; font-size: var(--fs-s); }
 .popover .occurrence + .occurrence { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }

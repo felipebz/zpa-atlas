@@ -22,13 +22,15 @@ internal fun displayOf(key: String): String = key.removePrefix("db:").removePref
 /**
  * The entities of a Forms module ([FormsLayout]) and their keys: `forms:` and the object's path, unique in the module
  * (a path two objects share, a block and a program unit of the same name, numbers the later one `#2`). The module,
- * its blocks, their items, the triggers, the program units (a package's specification and body are one) and the
- * attached libraries; each contained in the object it is on (a trigger on an event is the module's), a library
- * attached to the module.
+ * its blocks, their items, the triggers, the program units (a package's specification and body are one), the record
+ * groups with a query and the attached libraries; each contained in the object it is on (a trigger on an event is the
+ * module's), a library attached to the module. [objects] lists them in the order of the file, each piece of code with
+ * the lines of its own text.
  */
 internal class FormsEntities(private val layout: FormsLayout) {
     val entities = ArrayList<EntityFact>()
     val relations = ArrayList<RelationFact>()
+    val objects = ArrayList<FormsObjectFact>()
 
     /** The module's internal name, when it is not the name it is known by: what its page says it declares. */
     val declaredTexts = if (layout.internalName.equals(layout.name, ignoreCase = true)) emptyList()
@@ -41,16 +43,19 @@ internal class FormsEntities(private val layout: FormsLayout) {
     val moduleKey: String = entity(EntityKind.FORMS_MODULE, layout.name, layout.name, null)
 
     init {
+        objects += FormsObjectFact(moduleKey)
         for (block in layout.blocks) {
             val blockKey = entity(EntityKind.FORMS_BLOCK, "${layout.name}/${block.name}", block.name, moduleKey)
             owners.putIfAbsent(listOf(block.name), blockKey)
+            objects += FormsObjectFact(blockKey)
             for (item in block.items) {
                 val itemKey = entity(EntityKind.FORMS_ITEM, "${layout.name}/${block.name}/$item", item, blockKey)
                 owners.putIfAbsent(listOf(block.name, item), itemKey)
+                objects += FormsObjectFact(itemKey)
             }
         }
         for (unit in layout.units) {
-            unitKeys[unit] = when (unit.kind) {
+            val key = when (unit.kind) {
                 FormsLayout.Kind.TRIGGER -> {
                     val owner = if (unit.level == FormsTriggerLevel.EVENT) moduleKey else owners[unit.owner] ?: moduleKey
                     entity(EntityKind.FORMS_TRIGGER, unit.path, unit.name, owner)
@@ -58,16 +63,24 @@ internal class FormsEntities(private val layout: FormsLayout) {
                 FormsLayout.Kind.PROGRAM_UNIT -> programUnits.getOrPut(normalizeIdentifier(unit.name)) {
                     entity(EntityKind.FORMS_PROGRAM_UNIT, unit.path, unit.name, moduleKey)
                 }
-                FormsLayout.Kind.RECORD_GROUP_QUERY -> continue
+                FormsLayout.Kind.RECORD_GROUP_QUERY -> entity(EntityKind.FORMS_RECORD_GROUP, unit.path, unit.name, moduleKey)
             }
+            unitKeys[unit] = key
+            val unitKind = when (unit.programUnitKind) {
+                FormsProgramUnitKind.PACKAGE -> UnitKind.PACKAGE
+                FormsProgramUnitKind.PACKAGE_BODY -> UnitKind.PACKAGE_BODY
+                else -> null
+            }
+            objects += FormsObjectFact(key, unit.codeFirstLine, unit.codeLastLine, unitKind)
         }
         for (library in layout.libraries) {
             val key = entity(EntityKind.FORMS_LIBRARY, "${layout.name}/$library", library, moduleKey, contained = false)
             relations += RelationFact(moduleKey, RelationKind.FORMS_ATTACHED_LIBRARY, key)
+            objects += FormsObjectFact(key)
         }
     }
 
-    /** The entity of [unit], a trigger or a program unit; null for a record group query. */
+    /** The entity of [unit]: a trigger, a program unit or a record group. */
     fun keyOf(unit: FormsLayout.Unit): String? = unitKeys[unit]
 
     /**

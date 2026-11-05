@@ -26,7 +26,8 @@ internal class SourceReader(private val connection: Connection, private val sour
         val last = (line + context).coerceAtMost(text.lines.size)
         val numbers = first..last
         val colors = colorer?.let { lineColors(it, text, numbers.associateWith { number -> text.lines[number - 1] }) }
-        return SourceSnippet(path, numbers.map { SourceLine(it, text.lines[it - 1]) }, text.stale, colors?.let { byLine -> numbers.map { byLine[it].orEmpty() } })
+        val forms = FormsLines(connection)
+        return SourceSnippet(path, numbers.map { SourceLine(it, text.lines[it - 1], forms.codeAt(path, it)) }, text.stale, colors?.let { byLine -> numbers.map { byLine[it].orEmpty() } })
     }
 
     /**
@@ -152,7 +153,7 @@ internal class SourceReader(private val connection: Connection, private val sour
         val text = readSource(file) ?: return null
         // The colors are of the text served, stale or not: they come from reading it now, not from the index.
         val colors = colorer?.let { colorsOf(it, text.text) }
-        if (text.stale) return FileView(path, true, text.lines, emptyList(), emptyList(), file.parseStatus, emptyList(), colors)
+        if (text.stale) return FileView(path, true, text.lines, emptyList(), emptyList(), file.parseStatus, emptyList(), colors, file.kind)
         val entityIndexes = LinkedHashMap<Long, Int>()
         fun indexOf(id: Long) = entityIndexes.getOrPut(id) { entityIndexes.size }
         val candidates = connection.query(
@@ -176,7 +177,7 @@ internal class SourceReader(private val connection: Connection, private val sour
                 it.getLong(1) to EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1, it.getString(6))
             }.forEach { summaries[it.first] = it.second }
         }
-        return FileView(path, false, text.lines, entityIndexes.keys.map { summaries.getValue(it) }, occurrences, file.parseStatus, objects(file), colors)
+        return FileView(path, false, text.lines, entityIndexes.keys.map { summaries.getValue(it) }, occurrences, file.parseStatus, objects(file), colors, file.kind)
     }
 
     /** The colors of [text] with the run's conditional compilation; none when the colorer fails on it. */

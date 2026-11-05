@@ -72,7 +72,7 @@ class FormsIndexTest {
             "FORMS_PROGRAM_UNIT ORDER_DESK/FN_LABEL 38-43 forms:ORDER_DESK/FN_LABEL",
             "FORMS_PROGRAM_UNIT ORDER_DESK/ORDER_UTIL 46-49 forms:ORDER_DESK/ORDER_UTIL",
             "FORMS_PROGRAM_UNIT ORDER_DESK/ORDER_UTIL 52-60 forms:ORDER_DESK/ORDER_UTIL",
-            "SQL_STATEMENT ORDER_DESK/COMPANY_LOV 63-66 -"
+            "SQL_STATEMENT ORDER_DESK/COMPANY_LOV 63-66 forms:ORDER_DESK/COMPANY_LOV"
         )
         assertThat(query("""
             SELECT e.kind || ' ' || e.key || ' ' || e.display || ' ' || coalesce(p.key, '-') FROM entity e LEFT JOIN entity p ON p.id = e.parent_id
@@ -85,6 +85,7 @@ class FormsIndexTest {
             "FORMS_TRIGGER forms:ORDER_DESK/COMPANY/KEY-EXIT ORDER_DESK/COMPANY/KEY-EXIT forms:ORDER_DESK/COMPANY",
             "FORMS_ITEM forms:ORDER_DESK/COMPANY/LABEL ORDER_DESK/COMPANY/LABEL forms:ORDER_DESK/COMPANY",
             "FORMS_TRIGGER forms:ORDER_DESK/COMPANY/POST-QUERY ORDER_DESK/COMPANY/POST-QUERY forms:ORDER_DESK/COMPANY",
+            "FORMS_RECORD_GROUP forms:ORDER_DESK/COMPANY_LOV ORDER_DESK/COMPANY_LOV forms:ORDER_DESK",
             "FORMS_PROGRAM_UNIT forms:ORDER_DESK/FN_LABEL ORDER_DESK/FN_LABEL forms:ORDER_DESK",
             "FORMS_LIBRARY forms:ORDER_DESK/ORDER_LIB ORDER_DESK/ORDER_LIB forms:ORDER_DESK",
             "FORMS_PROGRAM_UNIT forms:ORDER_DESK/ORDER_UTIL ORDER_DESK/ORDER_UTIL forms:ORDER_DESK",
@@ -95,6 +96,7 @@ class FormsIndexTest {
             SELECT f.key || ' ' || r.kind || ' ' || t.key FROM relation r JOIN entity f ON f.id = r.from_id JOIN entity t ON t.id = r.to_id
             WHERE f.key LIKE 'forms:ORDER_DESK%' AND f.kind LIKE 'FORMS%' AND t.kind LIKE 'FORMS%' ORDER BY 1""")).containsExactly(
             "forms:ORDER_DESK CONTAINS forms:ORDER_DESK/COMPANY",
+            "forms:ORDER_DESK CONTAINS forms:ORDER_DESK/COMPANY_LOV",
             "forms:ORDER_DESK CONTAINS forms:ORDER_DESK/FN_LABEL",
             "forms:ORDER_DESK CONTAINS forms:ORDER_DESK/ORDER_UTIL",
             "forms:ORDER_DESK CONTAINS forms:ORDER_DESK/PROC_STANDALONE",

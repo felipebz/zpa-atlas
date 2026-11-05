@@ -9,6 +9,7 @@ import java.sql.Connection
 
 /** The transitive impact of an entity, over one open connection: see [AtlasIndex.impact]. */
 internal class ImpactReader(private val connection: Connection) {
+    private val forms = FormsLines(connection)
 
     /**
      * [AtlasIndex.impact] after its checks: [roleFilter] and [statuses] filter the first hop only. With [followTriggers],
@@ -222,7 +223,8 @@ internal class ImpactReader(private val connection: Connection) {
                         uses = if (node.id == null) uses.map { it.occurrence }.distinct().size else null,
                         firstLine = if (node.id == null) uses.minOf { it.line } else null,
                         depth = node.depth,
-                        via = ImpactVia(via.from?.let { byId.getValue(it).entity!!.key } ?: via.matched ?: root.key, via.occurrence, via.path, via.line, via.status, via.fires),
+                        via = ImpactVia(via.from?.let { byId.getValue(it).entity!!.key } ?: via.matched ?: root.key, via.occurrence, via.path, via.line, via.status, via.fires,
+                            forms.codeAt(via.path, via.line)),
                         certain = node in certain,
                         stop = stops.getValue(node).name,
                         trigger = node.id?.let { triggers[it] }

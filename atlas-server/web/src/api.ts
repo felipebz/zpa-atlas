@@ -88,6 +88,72 @@ export interface Location {
   written: string;
   /** The kind of the unit it sits in: `PACKAGE` (a spec), `PACKAGE_BODY`, `TYPE`, `TYPE_BODY`…; null outside any unit. */
   unitKind: string | null;
+  /** In a Forms module, the code the location is in and its line there; null elsewhere. */
+  code: CodeAt | null;
+}
+
+/**
+ * Where a line of a Forms module's text is in the code it belongs to (a trigger, a program unit, a record group query):
+ * the code's entity [key], [unitKind] `PACKAGE` or `PACKAGE_BODY` for a package's halves (else absent or null), and
+ * the [line] in the code's own text, numbered from 1.
+ */
+export interface CodeAt {
+  key: string;
+  line: number;
+  unitKind?: string | null;
+}
+
+/** The Forms module an object belongs to: the module, its title (its internal name, else its file's name) and its file. */
+export interface FormsInfo {
+  module: EntitySummary;
+  title: string;
+  path: string;
+}
+
+/** The groups of a [FormsTree], as the Form Builder's Object Navigator has them. */
+export type FormsGroupKind = "TRIGGERS" | "LIBRARIES" | "BLOCKS" | "ITEMS" | "PROGRAM_UNITS" | "RECORD_GROUPS";
+
+/**
+ * A Forms object in a [FormsTree], with the objects under it by group (a block's triggers and items, an item's
+ * triggers). A package is two nodes, its specification and its body, told apart by [unitKind] as in [CodeAt].
+ */
+export interface FormsNode {
+  entity: EntitySummary;
+  groups: FormsGroup[];
+  unitKind?: string | null;
+}
+
+/** The objects of a group of a [FormsTree], in the order of the module file. */
+export interface FormsGroup {
+  kind: FormsGroupKind;
+  nodes: FormsNode[];
+}
+
+/** The objects of a Forms module, block or item (`api/forms-tree`); groups without objects are left out. */
+export interface FormsTree {
+  root: EntitySummary;
+  groups: FormsGroup[];
+}
+
+/**
+ * One piece of code of a Forms module (a trigger, a program unit's specification or body, a record group query):
+ * entity [key], [unitKind] as in [CodeAt], and [view], its own text numbered from 1 with its occurrences, entities and
+ * colors as `api/file` gives a whole file's.
+ */
+export interface FormsCode {
+  key: string;
+  unitKind: string | null;
+  view: FileView;
+}
+
+/**
+ * The code page of a Forms module file (`api/forms-file`): the module, its objects, and the piece of code asked for,
+ * else the first in the tree's order; [code] null when the module has none.
+ */
+export interface FormsFile {
+  forms: FormsInfo;
+  tree: FormsTree;
+  code: FormsCode | null;
 }
 
 /** A routine's other half: its body (`IN`) or, for a body, its spec (`OUT`), with its definitions. */
@@ -131,6 +197,8 @@ export interface Documentation {
   path: string;
   line: number;
   from: string | null;
+  /** In a Forms module, the code [line] is in and its line there; null elsewhere. */
+  code?: CodeAt | null;
 }
 
 /** A declaration's type and value as the index keeps them: written, not resolved or evaluated. */
@@ -259,6 +327,8 @@ export interface EntityDetail {
   concatenatedPlaces: number;
   /** For a variable, parameter, field or other PL/SQL target: the columns whose value is read into it, by key. */
   receives: EntitySummary[];
+  /** For an object of a Forms module (the module included), the module; null otherwise. */
+  forms: FormsInfo | null;
 }
 
 /** The unit an occurrence is in; [entity] is its package, routine, view, trigger or type, null for a script. */
@@ -364,6 +434,10 @@ export interface ColumnPlace {
   room: number | null;
   /** The line of code the row shows (the call's argument for a parameter, else where its statement reads the column, else the target), with the piece to mark. */
   shown: PlaceLine | null;
+  /** In a Forms module, the code [line] is in and its line there; null elsewhere. */
+  code?: CodeAt | null;
+  /** Likewise for [callLine]. */
+  callCode?: CodeAt | null;
 }
 
 /** A row's line of code: where, the columns it marks (`to` null: to the end of the line), and its indexed text and colors when the page asked. */
@@ -375,6 +449,8 @@ export interface PlaceLine {
   text: string | null;
   stale: boolean | null;
   colors: number[][] | null;
+  /** In a Forms module, the code [line] is in and its line there; null elsewhere. */
+  code?: CodeAt | null;
 }
 
 /** A verdict and how many places have it. */
@@ -462,6 +538,8 @@ export interface OccurrenceRow {
   arguments: CallArgument[];
   /** For a column write: the value written, one per row of its statement. */
   values: WrittenValue[];
+  /** In a Forms module, the code the row is in and its line there; null elsewhere. */
+  code: CodeAt | null;
 }
 
 export interface WrittenValue {
@@ -539,6 +617,8 @@ export interface Codes {
 export interface SourceLine {
   number: number;
   text: string;
+  /** In a Forms module, the code the line is in and its line there; null elsewhere. */
+  code?: CodeAt | null;
 }
 
 export interface SourceSnippet {
@@ -580,6 +660,8 @@ export interface FileView {
   objects: FileObject[];
   /** With `colors=true`: `[startLine, startCol, endLine, endCol, color]` (see [CODE_COLORS]); null when not read. */
   colors: number[][] | null;
+  /** `DB_SOURCE`, or `FORMS_MODULE`: a Forms module's page is the code page of its units ([FormsFile]), never its whole text. */
+  kind: "DB_SOURCE" | "FORMS_MODULE";
 }
 
 /** An object the file declares at its top level, with the members it declares directly. */
@@ -603,6 +685,8 @@ export interface TextHit {
   stale: boolean | null;
   /** With `colors=true`: `[startCol, endCol, color]` on the line (see [CODE_COLORS]); null when not read. */
   colors?: number[][] | null;
+  /** In a Forms module, the code the line is in and its line there; null elsewhere. */
+  code: CodeAt | null;
 }
 
 export interface TextPage {

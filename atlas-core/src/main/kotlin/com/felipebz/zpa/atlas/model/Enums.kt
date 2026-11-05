@@ -74,6 +74,7 @@ enum class EntityKind(val reserved: Boolean = false) : StoredEnum {
     FORMS_TRIGGER,
     FORMS_PROGRAM_UNIT,
     FORMS_LIBRARY,
+    FORMS_RECORD_GROUP,
     UNKNOWN_RELATION
 }
 

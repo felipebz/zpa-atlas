@@ -78,7 +78,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 18
+    private const val FORMAT = 20
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -142,7 +142,8 @@ internal object FactsCache {
         return FileFacts(
             facts.path, facts.sha256, facts.sizeBytes, facts.encoding, facts.parseStatus, facts.recoveredRegions, facts.compilationSchema, facts.units,
             facts.statements, facts.occurrences, facts.entities, facts.relations, facts.coverage, relations, facts.dictionarySynonyms, facts.triggerEvents,
-            facts.declaredTexts, facts.docComments, facts.usesGaps, facts.membersGaps, facts.declaredShapes, facts.intos, facts.placesLeftOut, facts.kind
+            facts.declaredTexts, facts.docComments, facts.usesGaps, facts.membersGaps, facts.declaredShapes, facts.intos, facts.placesLeftOut, facts.kind,
+            facts.formsObjects
         )
     }
 
@@ -263,6 +264,7 @@ internal object FactsCache {
                 data.writeBoolean(into.keeps)
             }
             list(facts.placesLeftOut.entries.toList()) { string(it.key); data.writeInt(it.value) }
+            list(facts.formsObjects) { string(it.entityKey); nullableInt(it.codeFirstLine); nullableInt(it.codeLastLine); nullable(it.unitKind?.name) }
         }
 
         fun item(item: QueryItem) {
@@ -414,10 +416,11 @@ internal object FactsCache {
                     if (data.readBoolean()) span() else null, if (data.readBoolean()) span() else null, data.readBoolean())
             }
             val placesLeftOut = list { string() to data.readInt() }.toMap()
+            val formsObjects = list { FormsObjectFact(string(), nullableInt(), nullableInt(), nullable()?.let { enumValueOf<UnitKind>(it) }) }
             return FileFacts(
                 path, sha256, sizeBytes, encoding, parseStatus, recoveredRegions, compilationSchema, units, statements, occurrences, entities,
                 relations, coverage, emptyList(), synonyms, triggerEvents, declaredTexts, docComments, usesGaps, membersGaps, declaredShapes, intos, placesLeftOut,
-                kind
+                kind, formsObjects
             ) to dictionaryRelations
         }
 

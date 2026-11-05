@@ -62,9 +62,10 @@ data class ImpactViewNode(
 /**
  * [ImpactVia] by index: [node] is the node it uses (an index into [ImpactView.nodes]), null on the first hop, where
  * [uses] (an index into [ImpactView.entities]) is the entity asked for or what the first hop matched (a member, a view).
+ * [code] as in [ImpactVia].
  */
 @Serializable
-data class ImpactViewVia(val node: Int?, val uses: Int, val path: Int, val line: Int, val status: String, val fires: String?)
+data class ImpactViewVia(val node: Int?, val uses: Int, val path: Int, val line: Int, val status: String, val fires: String?, val code: CodeAt? = null)
 
 /** Builds an [ImpactView] from a whole [ImpactGraph], reading what the graph does not carry over [connection]. */
 internal class ImpactViewBuilder(private val connection: Connection) {
@@ -102,7 +103,8 @@ internal class ImpactViewBuilder(private val connection: Connection) {
                     path = path(node.via.path),
                     line = node.via.line,
                     status = node.via.status,
-                    fires = node.via.fires
+                    fires = node.via.fires,
+                    code = node.via.code
                 ),
                 trigger = node.trigger
             )

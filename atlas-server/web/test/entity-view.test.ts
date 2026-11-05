@@ -1,6 +1,7 @@
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 import type {EntityDetail, EntitySummary, Location, Partner} from "../src/api";
 import {entityPath, entityTags, localOf, places, routineRows, usesGapKey} from "../src/entity-view";
+import {lineHref} from "../src/html";
 
 // Invented names: a package PACK_ORDERS with a routine SHIP_ORDER in its spec and body, and a private one.
 const pack: EntitySummary = { key: "db:HR.PACK_ORDERS", kind: "PACKAGE", display: "HR.PACK_ORDERS", external: false, name: "PACK_ORDERS" };
@@ -8,7 +9,7 @@ const spec: EntitySummary = { key: "db:HR.PACK_ORDERS.SHIP_ORDER(P_ID IN NUMBER)
 const body: EntitySummary = { ...spec, key: spec.key + "@BODY", display: spec.display + "@BODY" };
 
 function at(path: string, line: number, unitKind: string | null, roles = ["DEFINITION"]): Location {
-  return { path, span: { startLine: line, startCol: 2, endLine: line, endCol: 12 }, roles, status: "RESOLVED", written: "", unitKind };
+  return { path, span: { startLine: line, startCol: 2, endLine: line, endCol: 12 }, roles, status: "RESOLVED", written: "", unitKind, code: null };
 }
 
 function entity(over: Partial<EntityDetail> & Pick<EntityDetail, "key" | "kind">): EntityDetail {
@@ -16,7 +17,7 @@ function entity(over: Partial<EntityDetail> & Pick<EntityDetail, "key" | "kind">
     schema: "HR", name: "X", display: "HR.X", external: false, parent: null, ancestors: [], children: [], relations: [],
     definitions: [], overloads: [], partners: [], usage: { byRole: [], byStatus: [], asCandidate: 0 }, triggerEvents: [], reads: [],
     views: [], baseColumns: [], viewColumns: [], keys: [], referencedBy: [], referencedByIncomplete: null, declared: null, documentation: [], usesIncomplete: null, membersIncomplete: null,
-    placesByClass: [], concatenatedPlaces: 0, receives: [], ...over
+    placesByClass: [], concatenatedPlaces: 0, receives: [], forms: null, ...over
   };
 }
 
@@ -61,6 +62,39 @@ describe("places", () => {
   it("leaves the file out of a package body's own type: a member of the package, not a type with a body", () => {
     const page = entity({ key: "db:HR.PACK_ORDERS.T_LINE@BODY", kind: "TYPE", definitions: [at("pkg/pack_orders.pkb", 7, "PACKAGE_BODY")] });
     expect(places(page).map(p => [p.half, p.file])).toEqual([["body", false]]);
+  });
+
+  describe("in Forms code", () => {
+    vi.stubGlobal("location", { search: "" });
+    const pressed = "forms:DEMO0004/STEUERBLOCK/PB_EXIT/WHEN-BUTTON-PRESSED";
+    const pk = "forms:DEMO0004/PK_ACCORDION";
+    /** Each place's half, and where its line leads, as the header and the popover link it. */
+    const shown = (page: EntityDetail) => places(page).map(p => [p.half, lineHref(p.path, p.line, p.code)]);
+
+    it("leads a trigger's place to the code page at its line 1", () => {
+      const code = { key: pressed, line: 1, unitKind: null };
+      const page = entity({ key: pressed, kind: "FORMS_TRIGGER", definitions: [{ ...at("demo0004_fmb.xml", 412, null), code }] });
+      expect(places(page).map(p => [p.line, p.code])).toEqual([[412, code]]);
+      expect(shown(page)).toEqual([[null, "file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FSTEUERBLOCK%2FPB_EXIT%2FWHEN-BUTTON-PRESSED&line=1#L1"]]);
+    });
+
+    it("places a package's specification, then its body, each at its line 1 on the code page", () => {
+      // The body comes first in the module file; the halves are the code's, whatever the location says.
+      const page = entity({ key: pk, kind: "FORMS_PROGRAM_UNIT", definitions: [
+        { ...at("demo0004_fmb.xml", 300, null), code: { key: pk, line: 1, unitKind: "PACKAGE_BODY" } },
+        { ...at("demo0004_fmb.xml", 120, null), code: { key: pk, line: 1, unitKind: "PACKAGE" } }
+      ] });
+      expect(shown(page)).toEqual([
+        ["spec", "file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE&line=1#L1"],
+        ["body", "file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE_BODY&line=1#L1"]
+      ]);
+    });
+
+    it("leaves a database object's places to its file", () => {
+      const page = entity({ key: pack.key, kind: "PACKAGE", definitions: [at("pkg/pack_orders.pks", 1, "PACKAGE")] });
+      expect(places(page)[0].code).toBeNull();
+      expect(shown(page)).toEqual([["spec", "file.html?path=pkg%2Fpack_orders.pks&line=1#L1"]]);
+    });
   });
 });
 

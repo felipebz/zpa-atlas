@@ -16,13 +16,19 @@ package com.felipebz.zpa.atlas.forms
  * - a program unit: `-- path`, then its text;
  * - a record group query: `-- path`, the query, `;`.
  *
+ * Each unit's own text, as the module file has it and the Form Builder numbers it from 1, is the lines [Unit.codeFirstLine]
+ * to [Unit.codeLastLine]: its header and the lines added around it are not.
+ *
  * A path is the module's name (its file's, [FormsModuleReaders.moduleName]), the names of the objects the code is on and the code's name, joined with `/`:
  * `MODULE/TRIGGER`, `MODULE/BLOCK/TRIGGER`, `MODULE/BLOCK/ITEM/TRIGGER`, `MODULE/EVENT/TRIGGER`, `MODULE/PROGRAM_UNIT`,
  * `MODULE/RECORD_GROUP`. A package's specification and body have the same path. Code with a blank text is left out.
  */
 class FormsModuleText private constructor(val text: String, val units: List<Unit>) {
-    /** Where one unit of [FormsModule.code] (at [codeIndex]) is: [firstLine] is its header line, [lastLine] its last. */
-    class Unit(val codeIndex: Int, val path: String, val firstLine: Int, val lastLine: Int)
+    /**
+     * Where one unit of [FormsModule.code] (at [codeIndex]) is: [firstLine] is its header line, [lastLine] its last;
+     * its own text is [codeFirstLine] to [codeLastLine].
+     */
+    class Unit(val codeIndex: Int, val path: String, val firstLine: Int, val lastLine: Int, val codeFirstLine: Int, val codeLastLine: Int)
 
     companion object {
         /** The text of [module], known as [name]. */
@@ -44,24 +50,36 @@ class FormsModuleText private constructor(val text: String, val units: List<Unit
                 if (body.isBlank()) continue
                 if (units.isNotEmpty()) append("\n")
                 val first = line
+                var codeFirst = first + 1
+                var codeLast: Int
                 when (code) {
-is FormsTrigger -> {
+                    is FormsTrigger -> {
                         append("BEGIN -- $path\n")
                         if (code.isFormula) {
                             // An expression: the value of an assignment to the item, so that it is parsed as one.
                             append(":${code.owner.joinToString(".")} :=\n")
+                            codeFirst = line
                             append(body.trimEnd('\n') + "\n")
+                            codeLast = line - 1
                             append(";\n")
                         } else {
                             append(body)
                             if (!body.endsWith('\n')) append("\n")
+                            codeLast = line - 1
                         }
                         append("END;\n")
                     }
-                    is FormsProgramUnit -> append("-- $path\n" + body.trimEnd('\n') + "\n")
-                    is FormsRecordGroup -> append("-- $path\n" + body.trimEnd('\n') + "\n;\n")
+                    is FormsProgramUnit -> {
+                        append("-- $path\n" + body.trimEnd('\n') + "\n")
+                        codeLast = line - 1
+                    }
+                    is FormsRecordGroup -> {
+                        append("-- $path\n" + body.trimEnd('\n') + "\n")
+                        codeLast = line - 1
+                        append(";\n")
+                    }
                 }
-                units += Unit(index, path, first, line - 1)
+                units += Unit(index, path, first, line - 1, codeFirst, codeLast)
             }
             return FormsModuleText(text.toString(), units)
         }

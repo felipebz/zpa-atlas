@@ -1,9 +1,9 @@
-import type {Answer, CallArgument, Count, EntitySummary, OccurrenceLine, OccurrenceRow} from "./api";
+import type {Answer, CallArgument, CodeAt, Count, EntitySummary, OccurrenceLine, OccurrenceRow} from "./api";
 import {api} from "./api";
 import {sourceLine} from "./banner";
 import {codeLineNode} from "./code-line";
 import {entityLink, kindBadge, nameHtml, roleLabel, statusBadge, unitKindLabel, valueKindLabel} from "./entity-html";
-import {entityHref, esc, langSuffix, lineLink, literalText} from "./html";
+import {entityHref, esc, fileHref, lineLink, literalText} from "./html";
 import {formatNumber, t} from "./i18n";
 import {shownLine} from "./text-search";
 import type {UsesContext, UsesGroup} from "./uses-view";
@@ -44,11 +44,14 @@ export interface UsesBlock {
   append(rows: OccurrenceRow[]): void;
 }
 
-/** One group of a block: its element, its count of rows so far, and the files they are in. */
+/**
+ * One group of a block: its element, its count of rows so far, and the files they are in (a Forms module's by the code
+ * its first row is in, whose code page it opens).
+ */
 interface GroupState {
   element: HTMLElement;
   count: number;
-  paths: string[];
+  files: { path: string; code: CodeAt | null }[];
   /** For a script group: the kinds of its units (a file may hold SQL statements and anonymous blocks). */
   units: string[];
 }
@@ -75,7 +78,7 @@ export function usesBlock(context: UsesContext = {}): UsesBlock {
           holder.className = "grp";
           holder.innerHTML = groupHeaderHtml(group, context);
           element.appendChild(holder);
-          state = { element: holder, count: 0, paths: [], units: [] };
+          state = { element: holder, count: 0, files: [], units: [] };
           groups.set(group.key, state);
         }
         state.element.insertAdjacentHTML("beforeend", useRowHtml(row, context));
@@ -83,9 +86,9 @@ export function usesBlock(context: UsesContext = {}): UsesBlock {
         placed.set(row.id, { row, element: shownRow });
         rowsShown.set(shownRow, row);
         state.count++;
-        if (!state.paths.includes(row.path)) {
-          state.paths.push(row.path);
-          state.element.querySelector(".grp-files")!.innerHTML = state.paths.map(fileLink).join(", ");
+        if (!state.files.some(file => file.path === row.path)) {
+          state.files.push({ path: row.path, code: row.code });
+          state.element.querySelector(".grp-files")!.innerHTML = state.files.map(file => fileLink(file.path, file.code)).join(", ");
         }
         if (!group.program && !state.units.includes(row.unit.kind)) {
           state.units.push(row.unit.kind);
@@ -134,8 +137,8 @@ async function showLines(placed: Map<number, { row: OccurrenceRow; element: HTML
   }
 }
 
-const fileLink = (path: string) =>
-  `<a class="mono" href="file.html?path=${encodeURIComponent(path)}${langSuffix()}">${esc(path).replace(/\//g, "/<wbr>")}</a>`;
+const fileLink = (path: string, code: CodeAt | null) =>
+  `<a class="mono" href="${fileHref(path, code)}">${esc(path).replace(/\//g, "/<wbr>")}</a>`;
 
 /**
  * A program's short name: without its schema, its owner package kept (dropped too when the owner is the page's own
@@ -173,7 +176,9 @@ function useRowHtml(row: OccurrenceRow, context: UsesContext) {
   const statementHtml = statement
     ? ` <span class="muted" title="${esc(statement)}">${esc(t("usage.inStatement." + statement))}</span>` : "";
   const status = row.status === "RESOLVED" ? "" : " " + statusBadge(row.status, row.reason);
-  const at = lineLink(row.path, row.span.startLine, t("usage.at", { line: row.span.startLine, column: row.span.startCol }));
+  // Inside Forms code the line leads to the code page of its unit at its own line, the number it has there.
+  const line = row.code?.line ?? row.span.startLine;
+  const at = lineLink(row.path, row.span.startLine, t("usage.at", { line, column: row.span.startCol }), row.code);
   return `<div class="use" data-path="${esc(row.path)}" data-line="${row.span.startLine}"><span class="at">${at}</span>
     <div class="what"><div class="uline" hidden></div>${head}${argumentsHtml(row.arguments)}${written}${via}${others}</div>
     <span class="how" title="${esc(row.roles.join(", "))}">${esc(row.roles.map(roleLabel).join(", "))}${statementHtml}${status}</span>

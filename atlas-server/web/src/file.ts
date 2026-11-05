@@ -1,8 +1,8 @@
-import type {Answer, EntityDetail, EntitySummary, FileOccurrence, FileView} from "./api";
+import type {Answer, EntityDetail, EntitySummary, FileOccurrence, FileView, FormsFile, FormsNode} from "./api";
 import {api, errorMessage} from "./api";
 import {showBanner} from "./banner";
 import type {NameOptions} from "./entity-html";
-import {kindBadgeNode, listNameOptions, nameNodes, parseLabel, placeHtml, roleLabel, statusBadge} from "./entity-html";
+import {fillHtml, formsNameLink, kindBadgeNode, listNameOptions, nameNodes, parseLabel, placeHtml, roleLabel, statusBadge} from "./entity-html";
 import {places} from "./entity-view";
 import type {OutlineEntry, Segment} from "./file-view";
 import {
@@ -15,15 +15,21 @@ import {
     segmentsByLine
 } from "./file-view";
 import {declaredLine} from "./declared-view";
-import {entityHref, getOrPut, langSuffix} from "./html";
+import type {FormsTreeView} from "./forms";
+import {renderFormsTree} from "./forms";
+import type {CodeUnit} from "./forms-view";
+import {codePageAsk, formsName, nodeId, sameUnit, settledCode, unitKindWord, unitNode, wantedCode} from "./forms-view";
+import {codeHref, entityHref, getOrPut, langSuffix} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {fileTitleParts, setPageTitle} from "./project";
 import {widestLine} from "./tab-width";
 import {onTabWidth, tabWidth, tabWidthControl} from "./tab-width-control";
 
 // The whole of an indexed file, colored the way the analyzer reads it; every indexed name is clickable and opens a
-// popover with its entity, status, places and who uses it. Beside the code, the objects the file declares. File text
-// only ever enters the DOM as text nodes.
+// popover with its entity, status, places and who uses it. Beside the code, the objects the file declares. A Forms
+// module shows one piece of its code at a time (a trigger, a program unit's specification or body, a record group's
+// query), numbered from 1, beside the module's objects, from which another opens in its place. File text only ever
+// enters the DOM as text nodes.
 
 const params = new URLSearchParams(location.search);
 const path = params.get("path");
@@ -92,12 +98,18 @@ function fitWidth(inner: HTMLElement) {
   inner.style.minWidth = `max(100%, calc(${widestLine(view.lines, tabWidth()) + 8}ch + 24px))`;
 }
 
+/** The box of the lines shown, fitted again when the tab width changes. */
+let shownLines: HTMLElement | null = null;
+onTabWidth(() => { if (shownLines) fitWidth(shownLines); });
+
+/** The lines of [view] into the page, in place of any shown before. */
 function renderFile() {
+  piecesOf.clear();
   const segments = segmentsByLine(view.lines, view.occurrences, view.colors);
   const source = el("div", "file-src mono");
   const inner = el("div", "file-lines");
   fitWidth(inner);
-  onTabWidth(() => fitWidth(inner));
+  shownLines = inner;
   for (let start = 0; start < view.lines.length; start += BLOCK) {
     const block = el("div", "block");
     block.style.containIntrinsicHeight = `auto ${Math.min(BLOCK, view.lines.length - start) * LINE_HEIGHT}px`;
@@ -118,23 +130,48 @@ function highlight(line: number) {
 
 // ---- the header ---------------------------------------------------------------------------------------------------
 
-function renderHeader() {
-  const { name, folder } = fileTitleParts(view.path);
+/** The file's path as the page's title: its folder muted, then its name. */
+function fileTitle(filePath: string) {
+  const { name, folder } = fileTitleParts(filePath);
   const title = el("h1", "file-title");
   if (folder) title.appendChild(el("span", "folder", folder + "/"));
   title.appendChild(el("span", "name", name));
-  const facts = el("p", "facts muted", t("file.lines", { count: view.lines.length }));
-  if (view.parseStatus !== "OK") {
+  return title;
+}
+
+/** What the header says of the code shown, into [facts]: its lines, its parse status unless it parsed, and [tabs], the tab width. */
+function codeFacts(facts: HTMLElement, code: FileView, tabs: HTMLElement) {
+  facts.append(t("file.lines", { count: code.lines.length }));
+  if (code.parseStatus !== "OK") {
     facts.append(" · ");
-    const parse = el("span", "badge warn-badge", parseLabel(view.parseStatus));
-    parse.title = view.parseStatus;
+    const parse = el("span", "badge warn-badge", parseLabel(code.parseStatus));
+    parse.title = code.parseStatus;
     facts.appendChild(parse);
   }
-  facts.append(" · ", tabWidthControl());
-  document.getElementById("header")!.replaceChildren(title, facts);
+  facts.append(" · ", tabs);
+}
+
+function renderHeader() {
+  const facts = el("p", "facts muted");
+  codeFacts(facts, view, tabWidthControl());
+  document.getElementById("header")!.replaceChildren(fileTitle(view.path), facts);
+}
+
+/** Says the code shown changed since it was indexed, or nothing when it did not. */
+function showStale(stale: boolean) {
+  const warning = document.getElementById("stale")!;
+  warning.textContent = stale ? t("source.stale") : "";
+  warning.hidden = !stale;
 }
 
 // ---- "In this file" -----------------------------------------------------------------------------------------------
+
+/** The outline open beside the code, and closed above it on a narrow screen. */
+function fitOutline(outline: HTMLDetailsElement) {
+  const fit = () => { outline.open = !NARROW.matches; };
+  fit();
+  NARROW.addEventListener("change", fit);
+}
 
 function renderOutline() {
   const outline = document.getElementById("outline") as HTMLDetailsElement;
@@ -162,9 +199,7 @@ function renderOutline() {
   });
   outline.appendChild(list);
   outline.hidden = false;
-  const fit = () => { outline.open = !NARROW.matches; };
-  fit();
-  NARROW.addEventListener("change", fit);
+  fitOutline(outline);
   list.addEventListener("click", e => {
     const go = (e.target as Element).closest<HTMLAnchorElement>("a.go");
     if (!go) return;
@@ -202,6 +237,106 @@ function markCurrent() {
   const list = outline.querySelector("ol")!;
   const box = next.getBoundingClientRect(), frame = list.getBoundingClientRect();
   if (box.top < frame.top || box.bottom > frame.bottom) list.scrollTop += box.top - frame.top - frame.height / 3;
+}
+
+// ---- a Forms module: one piece of its code beside its objects -------------------------------------------------------
+
+/** A Forms module's page: its module file's path, its tree beside the code, and the piece of code shown (null: none yet, or the module has none). */
+let forms: { path: string; tree: FormsTreeView; shown: CodeUnit | null } | null = null;
+/** The tab width control of a Forms module's header, kept from one piece of code to the next. */
+let formsTabs: HTMLElement | null = null;
+/** How many pieces of code were asked for: only the last one asked shows. */
+let asked = 0;
+
+/** The code page of the Forms module file [filePath] showing [unit] (null: its first piece of code). */
+async function formsFile(filePath: string, unit: CodeUnit | null) {
+  const ask = codePageAsk(filePath, unit, "FORMS_MODULE");
+  return (await api<Answer<FormsFile>>(ask.api, ask.params)).result;
+}
+
+/**
+ * The header of a Forms module's page: the module file's path, the piece of code shown ([node], its kind, its own
+ * name linking to its page, the half of a package), then the module, linking to its page, and what the code says of
+ * its lines.
+ */
+function renderFormsHeader(file: FormsFile, node: FormsNode | null) {
+  const parts: HTMLElement[] = [fileTitle(file.forms.path)];
+  if (node !== null) {
+    const unit = el("p", "file-unit");
+    unit.append(kindBadgeNode(node.entity.kind), html(formsNameLink(formsName(node.entity, file.forms))));
+    const word = unitKindWord(node.unitKind);
+    if (word !== null) unit.appendChild(el("span", "muted", t(word)));
+    parts.push(unit);
+  }
+  const facts = el("p", "facts muted");
+  facts.appendChild(html(fillHtml("file.module", { module: formsNameLink(formsName(file.forms.module, file.forms)) })));
+  if (file.code !== null) {
+    facts.append(" · ");
+    formsTabs ??= tabWidthControl();
+    codeFacts(facts, file.code.view, formsTabs);
+  }
+  parts.push(facts);
+  document.getElementById("header")!.replaceChildren(...parts);
+}
+
+/** The module's objects as the outline, a piece of code linking to its code page and opening in place when chosen. */
+function renderFormsOutline(file: FormsFile): FormsTreeView {
+  const outline = document.getElementById("outline") as HTMLDetailsElement;
+  outline.querySelector("summary")!.textContent = t("forms.objects");
+  const pane = el("div", "fpane");
+  outline.appendChild(pane);
+  const filePath = file.forms.path;
+  const tree = renderFormsTree(pane, file.tree, {
+    href: unit => codeHref(filePath, unit, null),
+    choose: unit => {
+      history.pushState(null, "", codeHref(filePath, unit, null));
+      if (NARROW.matches) outline.open = false;
+      void openCode({ unit, line: null });
+    }
+  });
+  outline.hidden = file.tree.groups.length === 0;
+  fitOutline(outline);
+  return tree;
+}
+
+/**
+ * Shows the piece of code [file] brings, asked for as [wanted]: the header, the code, its node marked and its branch
+ * open, and the line asked for marked (else the top of the page); the address then names the piece shown.
+ */
+function showCode(file: FormsFile, wanted: { unit: CodeUnit | null; line: number | null }) {
+  closePopover();
+  const code = file.code;
+  const shown = code === null ? null : { key: code.key, unitKind: code.unitKind };
+  forms!.shown = shown;
+  const node = shown === null ? null : unitNode(file.tree, shown);
+  const { name } = fileTitleParts(file.forms.path);
+  setPageTitle(node !== null ? t("page.file.titleCode", { unit: node.entity.name, name }) : t("page.file.titleRoot", { name }));
+  renderFormsHeader(file, node);
+  showStale(code?.view.stale ?? false);
+  forms!.tree.mark(shown === null ? null : nodeId(shown.key, shown.unitKind));
+  if (code === null || shown === null) {
+    shownLines = null;
+    document.getElementById("file")!.replaceChildren(el("p", "muted", t("file.noCode")));
+    return;
+  }
+  view = code.view;
+  renderFile();
+  const settled = settledCode(wanted, shown);
+  if (settled !== null) history.replaceState(null, "", codeHref(file.forms.path, settled.unit, settled.line));
+  const line = settled !== null ? settled.line : wanted.line;
+  if (line) highlight(line);
+  else window.scrollTo(0, 0);
+}
+
+/** Asks for the piece of code [wanted] names and shows it, unless another was asked for meanwhile. */
+async function openCode(wanted: { unit: CodeUnit | null; line: number | null }) {
+  const ask = ++asked;
+  try {
+    const file = await formsFile(forms!.path, wanted.unit);
+    if (ask === asked) showCode(file, wanted);
+  } catch (e) {
+    if (ask === asked) document.getElementById("file")!.replaceChildren(el("p", "muted", t("source.unavailable", { error: errorMessage(e) })));
+  }
 }
 
 // ---- popover ------------------------------------------------------------------------------------------------------
@@ -412,6 +547,17 @@ window.addEventListener("hashchange", () => {
   const match = /^#L(\d+)$/.exec(location.hash);
   if (match) highlight(Number(match[1]));
 });
+// Back and forward on a Forms module's page: the piece of code the address names, at its line; a line of the piece
+// shown only marks the line.
+window.addEventListener("popstate", () => {
+  if (forms === null) return;
+  const wanted = wantedCode(location.search, location.hash);
+  if (wanted.unit !== null && forms.shown !== null && sameUnit(wanted.unit, forms.shown)) {
+    if (wanted.line) highlight(wanted.line);
+    return;
+  }
+  void openCode(wanted);
+});
 
 (async () => {
   await initI18n();
@@ -420,18 +566,27 @@ window.addEventListener("hashchange", () => {
   if (!path) { header.textContent = t("file.missingPath"); return; }
   const { name, folder } = fileTitleParts(path);
   setPageTitle(folder ? t("page.file.titleWith", { name, folder }) : t("page.file.titleRoot", { name }));
+  // A Forms module shows one piece of its code, never its whole text: an address naming a unit asks for its module's
+  // code page alone; any other asks for the file, which says when it is a module all the same (a bookmark, an old link).
+  const wanted = wantedCode(location.search, location.hash);
+  let file: FileView | null = null;
+  let module: FormsFile | null = null;
   try {
-    view = (await api<Answer<FileView>>("api/file", { path, colors: true })).result;
+    const ask = codePageAsk(path, wanted.unit);
+    if (ask.api === "api/file") file = (await api<Answer<FileView>>(ask.api, ask.params)).result;
+    if (file === null || file.kind === "FORMS_MODULE") module = await formsFile(path, wanted.unit);
   } catch (e) {
     header.textContent = t("source.unavailable", { error: errorMessage(e) });
     return;
   }
-  renderHeader();
-  if (view.stale) {
-    const stale = document.getElementById("stale")!;
-    stale.textContent = t("source.stale");
-    stale.hidden = false;
+  if (module !== null) {
+    forms = { path: module.forms.path, tree: renderFormsOutline(module), shown: null };
+    showCode(module, wanted);
+    return;
   }
+  view = file!;
+  renderHeader();
+  showStale(view.stale);
   renderFile();
   renderOutline();
   const hash = /^#L(\d+)$/.exec(location.hash);

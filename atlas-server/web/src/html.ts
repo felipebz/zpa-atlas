@@ -1,3 +1,7 @@
+import type {CodeAt} from "./api";
+import type {CodeUnit} from "./forms-view";
+import {codeUnitName} from "./forms-view";
+
 const HTML_ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 
 export function esc(text: unknown) {
@@ -51,9 +55,9 @@ export function partBreaksHtml(text: string) {
   return esc(text).replace(/([.,(])/g, "$1<wbr>");
 }
 
-/** A name as HTML that may break after each underscore, never inside a word. */
+/** A name as HTML that may break after each underscore or dot, never inside a word (`V$LOCK` stays whole). */
 export function nameBreaksHtml(text: string) {
-  return esc(text).replace(/_/g, "_<wbr>");
+  return esc(text).replace(/([_.])/g, "$1<wbr>");
 }
 
 /**
@@ -109,9 +113,41 @@ export function stackCell(inner: string, label?: string | null, className?: stri
   return `<td${attributes}>${inner}</td>`;
 }
 
-/** The line number, linking the whole of [path] at [line]; [title] is its tooltip (the column, in words). */
-export function lineLink(path: string, line: number, title: string) {
-  return `<a class="mono" href="file.html?path=${encodeURIComponent(path)}&line=${line}${langSuffix()}#L${line}" title="${esc(title)}">${line}</a>`;
+/**
+ * The code page of the Forms module file [path] showing [unit] (null: the module's first piece of code), its [line]
+ * marked (null: none): `file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE_BODY&line=78#L78`.
+ */
+export function codeHref(path: string, unit: CodeUnit | null, line: number | null) {
+  let query = `path=${encodeURIComponent(path)}`;
+  if (unit !== null) query += `&unit=${encodeURIComponent(unit.key)}` + (unit.unitKind ? `&unitKind=${encodeURIComponent(unit.unitKind)}` : "");
+  if (line !== null) query += `&line=${line}`;
+  return `file.html?${query}${langSuffix()}${line !== null ? `#L${line}` : ""}`;
+}
+
+/**
+ * The page of the file [path]: for a Forms module, the code page of [unit] (the code a row is in, the module's first);
+ * without one, the whole file, or a Forms module's first unit, which the page finds.
+ */
+export function fileHref(path: string, unit?: CodeUnit | null) {
+  return unit ? codeHref(path, unit, null) : `file.html?path=${encodeURIComponent(path)}${langSuffix()}`;
+}
+
+/** Where a line leads: inside Forms code ([code]), the code page of its unit at its own line; else the whole of [path] at [line]. */
+export function lineHref(path: string, line: number, code?: CodeAt | null) {
+  return code ? codeHref(path, code, code.line) : `file.html?path=${encodeURIComponent(path)}&line=${line}${langSuffix()}#L${line}`;
+}
+
+/** A line's tooltip: its file and number (`pkg/pack_orders.pkb:59`), inside Forms code its file, unit and own line (`demo0004_fmb.xml, PK_ACCORDION:3`). */
+export function lineTitle(path: string, line: number, code?: CodeAt | null) {
+  return code ? `${path}, ${codeUnitName(code.key)}:${code.line}` : `${path}:${line}`;
+}
+
+/**
+ * The line number, linking the whole of [path] at [line], or inside Forms code ([code]) the code page of its unit at
+ * its own line, the number shown; [title] is its tooltip (the column, in words).
+ */
+export function lineLink(path: string, line: number, title: string, code?: CodeAt | null) {
+  return `<a class="mono" href="${lineHref(path, line, code)}" title="${esc(title)}">${code ? code.line : line}</a>`;
 }
 
 /** A literal as it would be written: strings quoted, the others as stored; null for a name, a bind or an expression. */

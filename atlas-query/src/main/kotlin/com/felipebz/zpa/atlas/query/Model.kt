@@ -77,7 +77,66 @@ data class Span(val startLine: Int, val startCol: Int, val endLine: Int, val end
  * for a package spec, `PACKAGE_BODY` for its body, `TYPE` and `TYPE_BODY` likewise; null outside any unit).
  */
 @Serializable
-data class Location(val path: String, val span: Span, val roles: List<String>, val status: String, val written: String, val unitKind: String?)
+data class Location(
+    val path: String, val span: Span, val roles: List<String>, val status: String, val written: String, val unitKind: String?,
+    /** In a Forms module, the code the location is in and its line there ([CodeAt]); null elsewhere. */
+    val code: CodeAt? = null
+)
+
+/**
+ * Where a line of a Forms module's text is in the code it belongs to (a trigger, a program unit, a record group query):
+ * the code's entity [key], its [unitKind] (`PACKAGE` or `PACKAGE_BODY` for a package's halves, else null) and the
+ * [line] in that code's own text, numbered from 1 as the Form Builder numbers it. A line of the header the module text
+ * adds before the code is its line 1.
+ */
+@Serializable
+data class CodeAt(val key: String, val line: Int, val unitKind: String? = null)
+
+/**
+ * The Forms module an object belongs to ([EntityDetail.forms]): the [module], its [title] (its internal name, the one
+ * the Form Builder shows, else the name it is known by) and the [path] of its file.
+ */
+@Serializable
+data class FormsInfo(val module: EntitySummary, val title: String, val path: String)
+
+/**
+ * A Forms object in a [FormsTree], with the objects under it by group (a block's triggers and items, an item's triggers).
+ * A package is two nodes, its specification and its body, told apart by [unitKind] (`PACKAGE`, `PACKAGE_BODY`; null
+ * for any other object).
+ */
+@Serializable
+data class FormsNode(val entity: EntitySummary, val groups: List<FormsGroup> = emptyList(), val unitKind: String? = null)
+
+/**
+ * The objects of a group of a [FormsTree], in the order of the module file: [kind] is `TRIGGERS`, `LIBRARIES`,
+ * `BLOCKS`, `ITEMS`, `PROGRAM_UNITS` or `RECORD_GROUPS`.
+ */
+@Serializable
+data class FormsGroup(val kind: String, val nodes: List<FormsNode>)
+
+/**
+ * The objects of a Forms module, of a block or of an item, as the Form Builder's Object Navigator shows them: a module
+ * has its triggers, attached libraries, blocks (each with its triggers, then its items, each with its triggers),
+ * program units and record groups; a block its triggers and items; an item its triggers. Groups without objects are
+ * left out.
+ */
+@Serializable
+data class FormsTree(val root: EntitySummary, val groups: List<FormsGroup>)
+
+/**
+ * One piece of code of a Forms module: a trigger, a program unit (a package's specification or body, by [unitKind] as in
+ * [CodeAt]) or a record group query, entity [key]. [view] is its own text, without what the module text adds around
+ * it, numbered from 1, with its occurrences and colors on those numbers.
+ */
+@Serializable
+data class FormsCode(val key: String, val unitKind: String?, val view: FileView)
+
+/**
+ * The code page of a Forms module file: the module ([forms]), the [tree] of its objects, and the [code] shown: the one
+ * asked for, else the first in the tree's order; null when the module has none.
+ */
+@Serializable
+data class FormsFile(val forms: FormsInfo, val tree: FormsTree, val code: FormsCode?)
 
 /**
  * The other half of a routine: its body ([direction] `IN`, an `IMPLEMENTS` link coming in; two when the body is in two
@@ -158,7 +217,11 @@ data class DeclaredText(val type: String?, val value: String?, val valueCut: Boo
  * it is the declaration's own.
  */
 @Serializable
-data class Documentation(val text: String, val textCut: Boolean, val shape: String, val path: String, val line: Int, val from: String?) {
+data class Documentation(
+    val text: String, val textCut: Boolean, val shape: String, val path: String, val line: Int, val from: String?,
+    /** In a Forms module, the code the comment is in and its line there ([CodeAt]); null elsewhere. */
+    val code: CodeAt? = null
+) {
     companion object {
         /**
          * What a page of the [body] half (else the spec half) shows from the [spec] and [body] documentation of a
@@ -258,7 +321,9 @@ data class EntityDetail(
     /** For a column, how many places its value is a part of a concatenation in ([ColumnPlace.concatenated]). */
     val concatenatedPlaces: Int = 0,
     /** For a variable, parameter, field or other PL/SQL target, the columns whose value it is read into, by key. */
-    val receives: List<EntitySummary> = emptyList()
+    val receives: List<EntitySummary> = emptyList(),
+    /** For an object of a Forms module, the module ([FormsInfo]); null otherwise. */
+    val forms: FormsInfo? = null
 )
 
 /**
@@ -383,7 +448,11 @@ data class ColumnPlace(
     val unitCompiledIn: CompiledIn? = null,
     val room: Int? = null,
     /** The line of code the row shows, with the piece it marks ([PlaceLine]). */
-    val shown: PlaceLine? = null
+    val shown: PlaceLine? = null,
+    /** In a Forms module, the code [line] is in and its line there ([CodeAt]); null elsewhere. */
+    val code: CodeAt? = null,
+    /** Likewise for [callLine]. */
+    val callCode: CodeAt? = null
 )
 
 /**
@@ -395,6 +464,8 @@ data class ColumnPlace(
 @Serializable
 data class PlaceLine(
     val path: String, val line: Int, val from: Int, val to: Int?, val text: String? = null, val stale: Boolean? = null, val colors: List<List<Int>>? = null,
+    /** In a Forms module, the code [line] is in and its line there ([CodeAt]); null elsewhere. */
+    val code: CodeAt? = null,
     /** The target as written, to find on the line in place of [from] and [to] (an assignment's span is its `:=`). */
     @kotlinx.serialization.Transient val target: String? = null
 )
@@ -542,7 +613,9 @@ data class ImpactVia(
     val path: String,
     val line: Int,
     val status: String,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val fires: String? = null
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val fires: String? = null,
+    /** In a Forms module, the code [line] is in and its line there ([CodeAt]); null elsewhere. */
+    val code: CodeAt? = null
 )
 
 /** One event of a trigger node: as [TriggerEvent] without the trigger. */
@@ -635,7 +708,9 @@ data class OccurrenceRow(
     val candidates: List<EntitySummary>,
     val arguments: List<CallArgument>,
     /** For a column write: the value written, one per row of its statement. */
-    val values: List<WrittenValue>
+    val values: List<WrittenValue>,
+    /** In a Forms module, the code the occurrence is in and its line there ([CodeAt]); null elsewhere. */
+    val code: CodeAt? = null
 )
 
 /** The value a column write writes in [row] of its statement; [value] as for [CallArgument.value]. */
@@ -769,8 +844,9 @@ data class Codes(
     val parseStatuses: List<Code>
 )
 
+/** Line [number] of a file and its [text]; in a Forms module, the code it is in and its line there ([code]). */
 @Serializable
-data class SourceLine(val number: Int, val text: String)
+data class SourceLine(val number: Int, val text: String, val code: CodeAt? = null)
 
 /**
  * Lines of a file around one line. [colors], when asked for, has one list per line of [lines], each span as
@@ -799,6 +875,7 @@ data class FileOccurrence(val at: List<Int>, val roles: List<String>, val status
  * the wrong text), its occurrences, with every entity they refer to listed once in [entities], and its [objects].
  * [parseStatus] is how the indexer's parse went. [colors] are the colored spans of the text when they were asked for
  * and could be read, else null: each `[startLine, startCol, endLine, endCol, color]` with the [CodeColor] ordinal.
+ * [kind] is the file's (`DB_SOURCE`, `FORMS_MODULE`: whose page is the code page of its units, [FormsFile]).
  */
 @Serializable
 data class FileView(
@@ -809,7 +886,8 @@ data class FileView(
     val occurrences: List<FileOccurrence>,
     val parseStatus: String,
     val objects: List<FileObject>,
-    val colors: List<List<Int>>?
+    val colors: List<List<Int>>?,
+    val kind: String
 )
 
 /**
@@ -860,7 +938,9 @@ data class TextHit(
     val text: String,
     val entity: EntitySummary?,
     val stale: Boolean?,
-    val colors: List<List<Int>>? = null
+    val colors: List<List<Int>>? = null,
+    /** In a Forms module, the code the line is in and its line there ([CodeAt]); null elsewhere. */
+    val code: CodeAt? = null
 )
 
 /**

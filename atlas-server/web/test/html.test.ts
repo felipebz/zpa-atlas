@@ -1,9 +1,13 @@
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 import {
     codeBreaksHtml,
+    codeHref,
+    fileHref,
     esc,
     fillMarks,
     getOrPut,
+    lineHref,
+    lineLink,
     literalText,
     nameBreaksHtml,
     qualifierHtml,
@@ -31,8 +35,10 @@ describe("fillMarks", () => {
 });
 
 describe("nameBreaksHtml and codeBreaksHtml", () => {
-  it("lets a name break only after an underscore", () => {
+  it("lets a name break only after an underscore or a dot, never inside a word", () => {
     expect(nameBreaksHtml("P_LINE_HEIGHT")).toBe("P_<wbr>LINE_<wbr>HEIGHT");
+    expect(nameBreaksHtml("V$LOCK")).toBe("V$LOCK");
+    expect(nameBreaksHtml("PK_ACCORDION.INIT")).toBe("PK_<wbr>ACCORDION.<wbr>INIT");
   });
 
   it("lets code break after a comma, a dot, a percent sign or an operator run followed by more code, never inside a word, and escapes it", () => {
@@ -99,5 +105,42 @@ describe("stackCell", () => {
     expect(stackCell("3", "depth", "num")).toBe(`<td class="num" data-label="depth">3</td>`);
     expect(stackCell("12", `"sites" & more`)).toBe(`<td data-label="&quot;sites&quot; &amp; more">12</td>`);
     expect(stackCell(`<span class="badge">string</span>`)).toBe(`<td><span class="badge">string</span></td>`);
+  });
+});
+
+describe("line links", () => {
+  vi.stubGlobal("location", { search: "" });
+  // A line of the trigger WHEN-BUTTON-PRESSED of the item PB_EXIT, at line 412 of the module's text, its line 3.
+  const code = { key: "forms:DEMO0004/STEUERBLOCK/PB_EXIT/WHEN-BUTTON-PRESSED", line: 3, unitKind: null };
+  const pressed = "file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FSTEUERBLOCK%2FPB_EXIT%2FWHEN-BUTTON-PRESSED&line=3#L3";
+
+  it("leads to the code page of a Forms module: the unit, a package's half, the line marked", () => {
+    expect(codeHref("demo0004_fmb.xml", code, 3)).toBe(pressed);
+    expect(codeHref("forms/demo0004_fmb.xml", { key: "forms:DEMO0004/PK_ACCORDION", unitKind: "PACKAGE_BODY" }, 78))
+      .toBe("file.html?path=forms%2Fdemo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE_BODY&line=78#L78");
+    // A node chosen in the tree: its unit, no line marked.
+    expect(codeHref("demo0004_fmb.xml", { key: "forms:DEMO0004/PK_ACCORDION", unitKind: "PACKAGE" }, null))
+      .toBe("file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE");
+    // Without a unit, the page opens the module's first.
+    expect(codeHref("demo0004_fmb.xml", null, null)).toBe("file.html?path=demo0004_fmb.xml");
+  });
+
+  it("keeps the language", () => {
+    vi.stubGlobal("location", { search: "?path=x&lang=pt" });
+    expect(codeHref("demo0004_fmb.xml", code, 3)).toBe(pressed.replace("#L3", "&lang=pt#L3"));
+    vi.stubGlobal("location", { search: "" });
+  });
+
+  it("leads a line of Forms code (a Used by row, a search row) to its unit at its own line, any other line to its file", () => {
+    expect(lineHref("pkg/pack_orders.pkb", 59)).toBe("file.html?path=pkg%2Fpack_orders.pkb&line=59#L59");
+    expect(lineHref("demo0004_fmb.xml", 412, code)).toBe(pressed);
+    expect(lineLink("demo0004_fmb.xml", 412, "line 3", code)).toBe(`<a class="mono" href="${pressed}" title="line 3">3</a>`);
+    expect(lineLink("pkg/pack_orders.pkb", 59, "line 59", null)).toBe(`<a class="mono" href="file.html?path=pkg%2Fpack_orders.pkb&line=59#L59" title="line 59">59</a>`);
+  });
+
+  it("leads a file link of a row in Forms code (a Used by group's file, a search group's header) to the row's unit", () => {
+    expect(fileHref("demo0004_fmb.xml", code)).toBe("file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FSTEUERBLOCK%2FPB_EXIT%2FWHEN-BUTTON-PRESSED");
+    expect(fileHref("pkg/pack_orders.pkb", null)).toBe("file.html?path=pkg%2Fpack_orders.pkb");
+    expect(fileHref("pkg/pack_orders.pkb")).toBe("file.html?path=pkg%2Fpack_orders.pkb");
   });
 });

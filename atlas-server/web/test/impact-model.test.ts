@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { EntitySummary } from "../src/api";
-import { buildTree, csvField, csvText, groupByDepth, groupByOwner, pathOf, pathText, readState, shownNodes, stateSearch, viewOf } from "../src/impact-model";
+import { lineHref } from "../src/html";
+import { buildTree, csvField, csvText, groupByDepth, groupByOwner, hopOf, hopPlace, pathOf, pathText, readState, shownNodes, stateSearch, viewOf } from "../src/impact-model";
 import type { ImpactView, ImpactViewNode, TreeItem } from "../src/impact-model";
 
 const entity = (key: string, kind: string): EntitySummary => ({ key, kind, display: key.slice(3), external: false, name: key.split(".").pop()!.split("(")[0] });
@@ -58,6 +59,44 @@ describe("pathOf", () => {
     expect(pathText(view, 5, events => `fires ${events}`)).toBe(
       "APP.TOP_INS() (app/top_ins.prc:4, fires INSERT) < HR.TRG (hr/trg.trg:5) < HR.PACK_A.MID(P IN NUMBER) (hr/pack_a.pkb:11) < HR.PACK_A.LEAF(P IN NUMBER)");
     expect(pathText(view, 2, events => events)).toContain("HR.PACK_B.TOP() (hr/pack_b.pkb:10, UNVERIFIED)");
+  });
+});
+
+describe("a node in Forms code", () => {
+  vi.stubGlobal("location", { search: "" });
+  // The trigger WHEN-BUTTON-PRESSED calls PK_ACCORDION's body at line 412 of the module's text, its own line 3; the
+  // package body calls the entity at its own line 12.
+  const pressed = "forms:DEMO0004/STEUERBLOCK/PB_EXIT/WHEN-BUTTON-PRESSED";
+  const pk = "forms:DEMO0004/PK_ACCORDION";
+  const formsEntity = (key: string, kind: string): EntitySummary =>
+    ({ key, kind, display: key.slice("forms:".length), external: false, name: key.slice(key.lastIndexOf("/") + 1) });
+  const forms: ImpactView = {
+    ...view,
+    entities: [...entities, formsEntity(pressed, "FORMS_TRIGGER"), formsEntity(pk, "FORMS_PROGRAM_UNIT")],
+    paths: [...view.paths, "demo0004_fmb.xml"],
+    nodes: [
+      ...view.nodes,
+      node({ entity: 9, kind: "FORMS_PROGRAM_UNIT", depth: 1, stop: "FOLLOWED", schema: null,
+        via: { node: null, uses: 0, path: 6, line: 640, status: "RESOLVED", fires: null, code: { key: pk, line: 12, unitKind: "PACKAGE_BODY" } } }),
+      node({ entity: 8, kind: "FORMS_TRIGGER", depth: 2, stop: "ENTRY_POINT", schema: null,
+        via: { node: 6, uses: 9, path: 6, line: 412, status: "RESOLVED", fires: null, code: { key: pressed, line: 3 } } })
+    ]
+  };
+
+  it("links its use to the code page of its unit at the unit's own line", () => {
+    const hop = hopOf(forms, 7);
+    expect(lineHref(hop.path, hop.line, hop.code)).toBe(
+      "file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FSTEUERBLOCK%2FPB_EXIT%2FWHEN-BUTTON-PRESSED&line=3#L3");
+    expect(lineHref(hopOf(forms, 6).path, 640, hopOf(forms, 6).code)).toBe(
+      "file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE_BODY&line=12#L12");
+  });
+
+  it("writes the unit and its own line in the CSV, a database row's file and line with no unit", () => {
+    expect(hopPlace(hopOf(forms, 7))).toEqual({ file: "demo0004_fmb.xml", line: 3, unit: pressed });
+    expect(hopPlace(hopOf(forms, 6))).toEqual({ file: "demo0004_fmb.xml", line: 12, unit: pk + " PACKAGE_BODY" });
+    expect(hopPlace(hopOf(view, 2))).toEqual({ file: "hr/pack_b.pkb", line: 10, unit: "" });
+    expect(pathText(forms, 7, events => events)).toBe("DEMO0004/STEUERBLOCK/PB_EXIT/WHEN-BUTTON-PRESSED (" + pressed + ":3) < " +
+      "DEMO0004/PK_ACCORDION (" + pk + " PACKAGE_BODY:12) < HR.PACK_A.LEAF(P IN NUMBER)");
   });
 });
 

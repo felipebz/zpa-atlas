@@ -75,7 +75,7 @@ class FormsAnswersTest {
         val module = index.entity("forms:ORDER_DESK").result!!
         assertThat(module.children.map { it.entity.key }).containsExactly(
             "forms:ORDER_DESK/COMPANY", "forms:ORDER_DESK/FN_LABEL", "forms:ORDER_DESK/ORDER_UTIL", "forms:ORDER_DESK/PROC_STANDALONE",
-            "forms:ORDER_DESK/WHEN-NEW-FORM-INSTANCE"
+            "forms:ORDER_DESK/COMPANY_LOV", "forms:ORDER_DESK/WHEN-NEW-FORM-INSTANCE"
         )
         assertThat(module.relations.map { "${it.kind} ${it.entity.key}" }).contains("FORMS_ATTACHED_LIBRARY forms:ORDER_DESK/ORDER_LIB")
     }
@@ -95,7 +95,8 @@ class FormsAnswersTest {
             "1 FORMS_TRIGGER forms:ORDER_DESK/COMPANY/ID/WHEN-VALIDATE-ITEM", "10 FORMS_TRIGGER forms:ORDER_DESK/COMPANY/POST-QUERY",
             "20 FORMS_TRIGGER forms:ORDER_DESK/COMPANY/KEY-EXIT", "24 FORMS_TRIGGER forms:ORDER_DESK/WHEN-NEW-FORM-INSTANCE",
             "31 FORMS_PROGRAM_UNIT forms:ORDER_DESK/PROC_STANDALONE", "38 FORMS_PROGRAM_UNIT forms:ORDER_DESK/FN_LABEL",
-            "46 FORMS_PROGRAM_UNIT forms:ORDER_DESK/ORDER_UTIL", "52 FORMS_PROGRAM_UNIT forms:ORDER_DESK/ORDER_UTIL"
+            "46 FORMS_PROGRAM_UNIT forms:ORDER_DESK/ORDER_UTIL", "52 FORMS_PROGRAM_UNIT forms:ORDER_DESK/ORDER_UTIL",
+            "63 SQL_STATEMENT forms:ORDER_DESK/COMPANY_LOV"
         )
         val call = index.occurrences("forms:ORDER_DESK/FN_LABEL").result!!.rows.single()
         assertThat(index.occurrenceLines(listOf(call.id)).result.single().text).isEqualTo("\tv_label := fn_label(:company.id);")

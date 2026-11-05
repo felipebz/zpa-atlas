@@ -315,6 +315,21 @@ class AtlasIndex(
         read { connection, _ -> SourceReader(connection, sourcesRoot, moduleTexts).file(path, colorer.takeIf { colors }) }
 
     /**
+     * The objects of the Forms module, block or item [key] as a tree, in the order of the module's file ([FormsTree]);
+     * null when [key] is none of these.
+     */
+    fun formsTree(key: String): Answer<FormsTree?> = read { connection, _ -> FormsReader(connection).tree(key) }
+
+    /**
+     * The code page of the Forms module file [path] ([FormsFile]): the module's tree and one piece of its code, [key]
+     * ([unitKind] telling a package's halves apart) or else the first in the tree's order, numbered from 1 with its
+     * occurrences; with [colors], its colored spans. Null when [path] is not a Forms module, or its text cannot be read
+     * (no sources).
+     */
+    fun formsFile(path: String, key: String? = null, unitKind: String? = null, colors: Boolean = false): Answer<FormsFile?> =
+        read { connection, _ -> FormsReader(connection).file(path, key, unitKind, SourceReader(connection, sourcesRoot, moduleTexts), colorer.takeIf { colors }) }
+
+    /**
      * The lines of the indexed files that contain [text], a literal piece of text compared without case (`*` and every
      * other character stand for themselves), in file and line order. The text is the one the indexer decoded, whole
      * files with comments, strings and inactive conditional branches; one line at a time, so a text that spans a line
@@ -383,7 +398,7 @@ class AtlasIndex(
         val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 26
+        const val SCHEMA_VERSION = 28
 
         /** How a place's value arrives ([ColumnPlace.source]), the values [PlaceFilter.source] takes. */
         val PLACE_SOURCES = listOf("SELECT_INTO", "FETCH", "RETURNING", "ASSIGNMENT", "IN_ARGUMENT", "OUT_ARGUMENT", "RETURNED")

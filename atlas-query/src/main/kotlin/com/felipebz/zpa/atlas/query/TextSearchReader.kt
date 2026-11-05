@@ -44,14 +44,15 @@ internal class TextSearchReader(private val connection: Connection, private val 
             it.getLong(1) to it.getLong(2)
         }.single()
         val found = connection.query(
-            """${with}SELECT l.rowid, f.path, l.line, l.text, e.key, e.kind, e.display, e.external, e.name, l.file_id
+            """${with}SELECT l.rowid, f.path, l.line, l.text, e.key, e.kind, e.display, e.external, e.name, l.file_id,
+                      ${FormsReader.codeAtSql("l.file_id", "l.line")}
                FROM (SELECT rowid, file_id, line, text, entity_id FROM source_line WHERE $where AND rowid > ? ORDER BY rowid LIMIT ?) l
                JOIN source_file f ON f.id = l.file_id LEFT JOIN entity e ON e.id = l.entity_id
                ORDER BY l.rowid""",
             cteParameters + parameters + listOf(after ?: 0L, limit + 1)
         ) {
             val entity = it.getString(5)?.let { key -> EntitySummary(key, it.getString(6), it.getString(7), it.getInt(8) == 1, it.getString(9)) }
-            it.getLong(10) to TextHit(it.getLong(1), it.getString(2), it.getInt(3), it.getString(4), entity, null)
+            it.getLong(10) to TextHit(it.getLong(1), it.getString(2), it.getInt(3), it.getString(4), entity, null, code = FormsReader.codeAt(it.getString(11)))
         }
         val page = found.take(limit).map { it.second }
         // Each file of the page with its count of lines found, whether or not they are all on this page.
