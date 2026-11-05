@@ -9,8 +9,8 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.flr.api.Token
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlPunctuator
-import com.felipebz.zpa.api.project.SequenceReferenceResolution
 import com.felipebz.zpa.api.project.ProjectCallKind
+import com.felipebz.zpa.api.project.SequenceReferenceResolution
 import com.felipebz.zpa.api.squid.SemanticAstNode
 import com.felipebz.zpa.api.symbols.Symbol
 import com.felipebz.zpa.atlas.model.*
@@ -34,6 +34,8 @@ internal class PlSqlNames(
     private val bound: BoundNames,
     /** The record fields the chains read here name, asked when the file is left. */
     private val fields: FieldUses,
+    /** The names of a Forms module's own program units and the Forms built-ins; null outside a Forms module. */
+    private val forms: FormsNames?,
     /** What zpa's project analysis says of a name that may be a sequence pseudocolumn. */
     sequenceResolution: (AstNode) -> SequenceReferenceResolution
 ) {
@@ -103,6 +105,8 @@ internal class PlSqlNames(
             symbol != null && symbol.kind in NOT_CALLABLE && (isLocalDeclaration(symbol) || symbol.kind == Symbol.Kind.PARAMETER) -> return
             symbol != null && (symbol.kind == Symbol.Kind.PROCEDURE || symbol.kind == Symbol.Kind.FUNCTION) && isLocalSubprogram(symbol) ->
                 CallOutcome.Call(Status.UNRESOLVED, null, "LOCAL_SUBPROGRAM")
+            // In a Forms module, after the code's own declarations: its program units, then the Forms built-ins (nothing).
+            forms != null && formsCall(forms, callee, segments, arguments.map { it.first to it.second }, context, statementId) -> return
             else -> calls.resolve(segments, kind, arguments.map { WrittenArgument(it.first) }, context.schema, context.enclosingPackage)
         }
         var outcome = resolved
@@ -208,6 +212,20 @@ internal class PlSqlNames(
                 else -> if (isLocalDeclaration(symbol)) return
             }
         }
+        if (forms != null) {
+            forms.own(name, segments)?.let { target ->
+                if (!target.known) {
+                    state.valueOccurrence(span, text, context, statementId, Status.UNRESOLVED, null, "UNKNOWN_MEMBER", emptyList(), setOf(Role.READ))
+                } else if (target.subprogram == true && !attribute) {
+                    callOccurrence(name, context, statementId, CallOutcome.Call(Status.RESOLVED, target.key, null))
+                } else {
+                    state.valueOccurrence(span, text, context, statementId, Status.RESOLVED, target.key, null, emptyList(),
+                        if (attribute) setOf(Role.READ) else roles.valueRoles(name, segments))
+                }
+                return
+            }
+            if (!attribute && forms.isBuiltIn(segments)) return
+        }
         if (isOwnBodyMember(segments, context)) return
         val packageName = context.enclosingPackage?.let { qualifiedName(it) }
         val valueReadable = segments.size >= 2 || (packageName != null && (symbol == null || symbol.scope.type == PlSqlGrammar.CREATE_PACKAGE))
@@ -236,6 +254,28 @@ internal class PlSqlNames(
             is SegmentValue.Call -> callOccurrence(name, context, statementId, value.outcome)
             null -> Unit
         }
+    }
+
+    /**
+     * A call in a Forms module whose name is the module's own ([FormsNames.own]): one `CALL` of the program unit, its
+     * actuals bound to no parameter (the module's code is not zpa's project); true when the name is one of the module or a
+     * Forms built-in, which gives nothing.
+     */
+    private fun formsCall(
+        forms: FormsNames, callee: AstNode, segments: List<String>, arguments: List<Pair<String?, AstNode>>, context: Context, statementId: Int?
+    ): Boolean {
+        val target = forms.own(callee, segments) ?: return forms.isBuiltIn(segments)
+        if (!target.known) {
+            state.callOccurrence(callee, context, statementId, CallOutcome.Call(Status.UNRESOLVED, null, "UNKNOWN_MEMBER"))
+            return true
+        }
+        val argumentFacts = arguments.mapIndexed { index, (label, expression) ->
+            val value = ExpressionValues.of(expression, context::hasHoles)
+            CallArgumentFact(index + 1, label?.let { normalizeIdentifier(it) }, null, spanOf(expression), value.kind, value.value)
+        }
+        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), target.key,
+            setOf(Role.CALL), status(Status.RESOLVED, context.partial), context.origin, null, emptyList(), argumentFacts)
+        return true
     }
 
     /** Whether a call outcome is a guess: an external name or a missing member, not a declaration the project found. */

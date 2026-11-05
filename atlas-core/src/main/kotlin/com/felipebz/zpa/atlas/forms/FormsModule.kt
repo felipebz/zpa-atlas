@@ -1,0 +1,119 @@
+//
+// SPDX-FileCopyrightText: 2026 Felipe Zorzo
+// SPDX-License-Identifier: Apache-2.0
+//
+
+package com.felipebz.zpa.atlas.forms
+
+/**
+ * A property of a Forms object as the module file gives it: its [value] and, when the file says so, where the value
+ * comes from ([origin]: the reader's word for it, such as `default`, `overridden`, `inherited`).
+ */
+data class FormsValue(val value: String, val origin: String? = null)
+
+/**
+ * One Oracle Forms module as a [FormsModuleReader] reads it: what the index records of it, whatever format it was
+ * exported in. Everything the index does with a module starts from this model, never from the file.
+ */
+data class FormsModule(
+    /** The module's `Name` property: its internal name. The index knows a module by its file's name instead. */
+    val name: FormsValue,
+    val blocks: List<FormsBlock>,
+    /** The triggers, program units and record groups, in the order of the file: the order of the module text. */
+    val code: List<FormsCode>,
+    val libraries: List<FormsLibrary>,
+    /** What the file lacks for a complete index, each a coverage note of the module's file. */
+    val notes: List<FormsNote> = emptyList()
+) {
+    val triggers: List<FormsTrigger> get() = code.filterIsInstance<FormsTrigger>()
+    val programUnits: List<FormsProgramUnit> get() = code.filterIsInstance<FormsProgramUnit>()
+    val recordGroups: List<FormsRecordGroup> get() = code.filterIsInstance<FormsRecordGroup>()
+}
+
+data class FormsBlock(val name: FormsValue, val items: List<FormsItem>)
+
+data class FormsItem(val name: FormsValue)
+
+/** An object of a module that holds code. */
+sealed interface FormsCode {
+    val name: FormsValue
+}
+
+/** Where a trigger is defined: on the module, a block, an item, or an event of the module. */
+enum class FormsTriggerLevel { MODULE, BLOCK, ITEM, EVENT }
+
+/**
+ * A trigger: its [level], the names of the objects it is on below the module ([owner]: none, the block, the block and
+ * the item, or the event) and its PL/SQL [text], the statements of a block without `BEGIN` and `END`.
+ */
+data class FormsTrigger(val level: FormsTriggerLevel, val owner: List<String>, override val name: FormsValue, val text: FormsValue) : FormsCode
+
+/** A program unit: a procedure, a function, a package specification or a package body, written without `CREATE`. */
+data class FormsProgramUnit(override val name: FormsValue, val text: FormsValue) : FormsCode {
+    /** What the text declares, read from its first words. */
+    val kind: FormsProgramUnitKind get() = FormsProgramUnitKind.of(text.value)
+}
+
+/** A record group built from a query. */
+data class FormsRecordGroup(override val name: FormsValue, val query: FormsValue) : FormsCode
+
+/** A PL/SQL library attached to the module, and where the module looks for it. */
+data class FormsLibrary(val name: FormsValue, val location: FormsValue?)
+
+/** A coverage note about the module's file: its [kind] (a code such as `FORMS_NOT_FULL_DUMP`) and its [message]. */
+data class FormsNote(val kind: String, val message: String)
+
+enum class FormsProgramUnitKind {
+    PROCEDURE, FUNCTION, PACKAGE, PACKAGE_BODY, UNKNOWN;
+
+    companion object {
+        /** The kind [text] declares: its first words, past blanks and comments (`PACKAGE BODY x IS`, `FUNCTION f`). */
+        fun of(text: String): FormsProgramUnitKind {
+            var at = 0
+            fun skip() {
+                while (at < text.length) {
+                    when {
+                        text[at].isWhitespace() -> at++
+                        text.startsWith("--", at) -> at = text.indexOf('\n', at).let { if (it < 0) text.length else it + 1 }
+                        text.startsWith("/*", at) -> at = text.indexOf("*/", at + 2).let { if (it < 0) text.length else it + 2 }
+                        else -> return
+                    }
+                }
+            }
+            fun word(): String {
+                skip()
+                val start = at
+                while (at < text.length && (text[at].isLetterOrDigit() || text[at] == '_')) at++
+                return text.substring(start, at).uppercase()
+            }
+            return when (word()) {
+                "PROCEDURE" -> PROCEDURE
+                "FUNCTION" -> FUNCTION
+                "PACKAGE" -> if (word() == "BODY") PACKAGE_BODY else PACKAGE
+                else -> UNKNOWN
+            }
+        }
+    }
+}
+
+/**
+ * Reads one export format of Forms modules into [FormsModule]. The built-in one reads `frmf2xml` files
+ * ([Frmf2xmlReader]); others come from the JARs of the distribution's `readers` folder, registered for
+ * [java.util.ServiceLoader] under this interface's name ([FormsModuleReaders.load]).
+ */
+interface FormsModuleReader {
+    /** A short name for messages: `frmf2xml`. */
+    val name: String
+
+    /** The endings of the file names this reader reads, case ignored: `_fmb.xml`. */
+    val fileNameEndings: List<String>
+
+    /**
+     * The endings of the file names of this format that hold no module to index, case ignored, with what such a file
+     * is (`_olb.xml` to `object library`): these files are counted in a coverage note, never read.
+     */
+    val skippedFileNameEndings: Map<String, String> get() = emptyMap()
+
+    /** The module [bytes] hold ([fileName] is the file's name, without folders), or null when they hold none. */
+    fun read(fileName: String, bytes: ByteArray): FormsModule?
+}

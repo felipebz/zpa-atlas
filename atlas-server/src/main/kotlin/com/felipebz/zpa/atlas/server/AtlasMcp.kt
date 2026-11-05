@@ -718,19 +718,18 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "file or folder as path, to search only there."
 
         /** What the index does not answer, said by the tools that would otherwise seem to. */
-        private const val NOT_ANSWERED = "Not indexed: Forms, reports and code outside the indexed sources; dynamic SQL is partial. " +
+        private const val NOT_ANSWERED = "Not indexed: reports, Forms menus and object libraries, and code outside the indexed sources; dynamic SQL is partial. " +
             "A status other than RESOLVED means the index is not sure: say so in the answer."
 
         private const val PATHS = "Its paths are on the server, relative to its sources folder: read the text with get_source, not from a local disk."
 
         private const val KEYS =
             "Entity keys: db:SCHEMA.NAME; a member as db:SCHEMA.PACKAGE.MEMBER, a column as db:SCHEMA.TABLE.COLUMN. " +
-                "A procedure or function ends with its parameter list, db:HR.PKG.RUN(P_A IN NUMBER,P_B IN VARCHAR2), " +
-                "and its parameters add .P_A. Its body adds @BODY after the list; #2, #3 tell apart declarations with " +
-                "the same signature. A variable, constant or type a package body declares for itself, private to the " +
-                "body, is db:HR.PKG.G_X@BODY; a field of such a record type adds .F. ~ is the schema when none is known " +
-                "(db:~.DBMS_SQL). An object through a database " +
-                "link is db:SCHEMA.NAME@LINK, or db:NAME@LINK when no schema is written."
+                "A procedure or function ends with its parameter list, db:HR.PKG.RUN(P_A IN NUMBER,P_B IN VARCHAR2); " +
+                "its parameters add .P_A, its body @BODY after the list; #2, #3 tell apart the same signature. " +
+                "What a package body declares for itself is db:HR.PKG.G_X@BODY; a field of its record type adds .F. " +
+                "~ is an unknown schema (db:~.DBMS_SQL). Through a database link: db:SCHEMA.NAME@LINK, or db:NAME@LINK. " +
+                "Forms: forms:ORDERS/BLOCK/ITEM/TRIGGER, forms:ORDERS/PROGRAM_UNIT in orders_fmb.xml (a package with its members)."
 
         private const val STATUSES =
             "status: RESOLVED is proven. The others say why the index is not sure: UNVERIFIED (not checked, no " +

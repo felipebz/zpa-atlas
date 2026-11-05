@@ -8,6 +8,7 @@ command, so `docker run IMAGE index …` and `docker run IMAGE stats …` work, 
 | `/data`               | The index, `/data/atlas.db` by default. A volume, owned by the image's user.                    |
 | `/sources`            | The sources, mounted read-only.                                                                 |
 | `/opt/zpa-atlas/drivers` | The Oracle JDBC driver, for `index` with the dictionary. Not bundled.                        |
+| `/opt/zpa-atlas/readers` | Readers of other Forms export formats, for `index` and `serve`: see [Oracle Forms modules](forms.md#serving). |
 | User                  | `atlas`, UID 10001 and GID 10001.                                                               |
 | Port                  | 8080.                                                                                           |
 

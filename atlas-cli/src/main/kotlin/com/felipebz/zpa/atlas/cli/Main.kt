@@ -11,8 +11,10 @@ import com.felipebz.zpa.atlas.cli.oracle.LoadedMetadata
 import com.felipebz.zpa.atlas.cli.oracle.OracleMetadataLoader
 import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.forms.FormsModuleReaders
 import com.felipebz.zpa.atlas.index.*
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import com.felipebz.zpa.atlas.query.ModuleTexts
 import com.felipebz.zpa.atlas.server.*
 import com.felipebz.zpa.atlas.stats.Stats
 import com.felipebz.zpa.squid.CcValue
@@ -53,20 +55,21 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
         throw CliValidationException(project?.let { inFile(it, taken, e.message.orEmpty()) } ?: e.message.orEmpty())
     }
     val (sources, encoding) = checked
+    val readers = moduleReaders()
     val indexer = Indexer()
     // Read while the dictionary loads: the cache does not need it until the plan.
     val cache = if (args.incremental) indexer.readFactsCache(Path.of(args.out)) else null
     val extensions = args.extensions.split(',').map { it.trim() }
     // The sources first, so that the build of their text index overlaps the dictionary load too.
     phases?.start(PhaseTimes.READING)
-    indexer.readSources(sources, extensions, encoding, Path.of(args.out)).use { read ->
-        return index(args, project, phases, indexer, cache, read, extensions, checked)
+    indexer.readSources(sources, extensions, encoding, Path.of(args.out), readers).use { read ->
+        return index(args, project, phases, indexer, cache, read, extensions, checked, readers)
     }
 }
 
 private fun index(
     args: IndexArguments, project: ProjectFile?, phases: PhaseTimes?, indexer: Indexer, cache: PendingFactsCache?, read: Indexer.ReadSources,
-    extensions: List<String>, checked: CheckedIndex
+    extensions: List<String>, checked: CheckedIndex, readers: FormsModuleReaders
 ): Int {
     val (sources, encoding, explicitVersion, flags, settings, compilationSchema, lengthSemantics) = checked
     val oracle = settings?.let {
@@ -95,7 +98,8 @@ private fun index(
             encoding = encoding,
             conditionalCompilation = conditionalCompilation,
             databaseVersionOrigin = databaseVersionOrigin,
-            nlsLengthSemantics = lengthSemantics
+            nlsLengthSemantics = lengthSemantics,
+            readers = readers
         ),
         phases,
         args.incremental,
@@ -225,14 +229,16 @@ internal class ServeLaunch(
     /** The project an MCP call without `project` reads; null without `--default-project`. */
     val defaultProject: String? = null,
     /** How wide the page of `--db` shows a tab; each project has its own. */
-    val tabWidth: Int = DEFAULT_TAB_WIDTH
+    val tabWidth: Int = DEFAULT_TAB_WIDTH,
+    /** What rebuilds the text of a Forms module of `--db`; each project has its own. */
+    val moduleTexts: ModuleTexts? = null
 )
 
 private fun launch(serve: ServeLaunch) {
     if (serve.projects.isNotEmpty()) {
         serveProjects(serve.projects, serve.host, serve.port, serve.mcp, serve.auth, serve.basePath, serve.defaultProject)
     } else {
-        val index = AtlasIndex(serve.database!!, serve.sources, colorer = ZpaCodeColorer)
+        val index = AtlasIndex(serve.database!!, serve.sources, colorer = ZpaCodeColorer, moduleTexts = serve.moduleTexts)
         com.felipebz.zpa.atlas.server.serve(index, serve.host, serve.port, serve.mcp, serve.auth, serve.basePath, serve.tabWidth)
     }
 }
@@ -275,7 +281,8 @@ private fun serve(args: ServeArguments, environment: (String) -> String?, launch
     if (args.host !in MCP_LOCAL_HOSTS && mcpHosts.isEmpty() && auth == null) {
         System.err.println("Warning: /mcp accepts only local host names; clients on other machines need --mcp-allowed-host with the name they use")
     }
-    launch(ServeLaunch(database, sources, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, tabWidth = tabWidth))
+    val moduleTexts = ReaderModuleTexts(moduleReaders())
+    launch(ServeLaunch(database, sources, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, tabWidth = tabWidth, moduleTexts = moduleTexts))
     return 0
 }
 
@@ -300,11 +307,12 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
     }
     val auth = authSettings(args, environment, basePath)
     val folder = ProjectFolder.read(Path.of(args.projects.trim()))
+    val moduleTexts = ReaderModuleTexts(moduleReaders())
     val projects = folder.projects.map { project ->
         val sources = Path.of(project["sources"]!!)
         ServedProject(
             project.name, Path.of(project["index"]!!), sources.takeIf { Files.isDirectory(it) }, project.title, project.description, ZpaCodeColorer,
-            project.tabWidth ?: tabWidth
+            project.tabWidth ?: tabWidth, moduleTexts
         )
     }
     val defaultProject = args.defaultProject.trim().ifEmpty { null }

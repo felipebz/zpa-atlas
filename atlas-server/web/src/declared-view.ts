@@ -1,7 +1,7 @@
 import type {Declared, Member} from "./api";
 
-/** What a header fact says: a cursor's return type, a type, a parameter's default, or an initial value. */
-export type DeclaredLabel = "returns" | "type" | "default" | "initial";
+/** What a header fact says: a cursor's return type, a type, a parameter's default, an initial value, or a Forms module's internal name. */
+export type DeclaredLabel = "returns" | "type" | "default" | "initial" | "internalName";
 
 /** One fact of a declaration as the page shows it. */
 export interface DeclaredFact {
@@ -33,6 +33,11 @@ export function declaredFacts(kind: string, declared: Declared | null): Declared
   const differs = (own: string | null, other: string | null | undefined) =>
     spec && (own ?? "").toLowerCase() !== (other ?? "").toLowerCase() ? other ?? "" : null;
   const facts: DeclaredFact[] = [];
+  // A Forms module is known by its file's name; its Name property, when another, is said beside it.
+  if (kind === "FORMS_MODULE") {
+    if (declared.value !== null) facts.push({ label: "internalName", text: declared.value, cut: false, fromSpec: false, spec: null });
+    return facts;
+  }
   const typeSpec = differs(declared.type, spec?.type);
   if (ROUTINE_KINDS.includes(kind)) {
     if (typeSpec !== null) facts.push({ label: "returns", text: declared.type ?? "", cut: false, fromSpec: false, spec: typeSpec });

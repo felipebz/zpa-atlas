@@ -27,7 +27,9 @@ internal class TypeReferences(
     private val calls: CallResolver,
     private val plsql: PlSqlNames,
     private val bound: BoundNames,
-    private val jsonBuiltIn: Boolean
+    private val jsonBuiltIn: Boolean,
+    /** The names of a Forms module's own program units and the Forms built-ins; null outside a Forms module. */
+    private val forms: FormsNames? = null
 ) {
     /**
      * One `TYPE_USE` occurrence for the name of an `ANCHORED_DATATYPE` (`name%TYPE`, `name%ROWTYPE`), a
@@ -58,6 +60,16 @@ internal class TypeReferences(
             symbol == null && node.type == PlSqlGrammar.CUSTOM_DATATYPE && segments.size == 1 && isLocalRefCursorType(node, normalizeIdentifier(segments[0]))) {
             state.localTypeReferences++
             return
+        }
+        if (forms != null) {
+            // A type or value of a module package is the package; a Forms built-in type gives nothing.
+            forms.own(name, segments)?.let { target ->
+                state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name),
+                    target.key.takeIf { target.known }, setOf(Role.TYPE_USE), status(if (target.known) Status.RESOLVED else Status.UNRESOLVED, context.partial),
+                    context.origin, if (target.known) null else "UNKNOWN_MEMBER")
+                return
+            }
+            if (node.type != PlSqlGrammar.ANCHORED_DATATYPE && forms.isBuiltInType(segments)) return
         }
         val outcome = if (node.type == PlSqlGrammar.ANCHORED_DATATYPE) {
             val enclosingMember = symbol != null && symbol.scope.type == PlSqlGrammar.CREATE_PACKAGE

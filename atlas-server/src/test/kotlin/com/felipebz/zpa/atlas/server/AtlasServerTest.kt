@@ -508,7 +508,7 @@ class AtlasServerTest {
         assertThat(served("groupDimensions")).isEqualTo(GroupDimension.entries.map { it.name to false })
         assertThat(served("reasons")).isEqualTo(Reason.entries.map { it.name to false })
         assertThat(served("parseStatuses")).isEqualTo(ParseStatus.entries.map { it.name to false })
-        assertThat(served("entityKinds").filter { it.second }.map { it.first }).contains("FORMS_TRIGGER").doesNotContain("SYNONYM")
+        assertThat(served("entityKinds").filter { it.second }.map { it.first }).contains("LABEL").doesNotContain("SYNONYM")
         // Every other endpoint needs the index, which is missing.
         assertThat(client.get("/api/run").status).isNotEqualTo(HttpStatusCode.OK)
     }

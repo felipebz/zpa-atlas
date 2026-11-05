@@ -192,5 +192,7 @@ class FileFacts(
     /** The `INTO`s of the file whose values may be columns. */
     val intos: List<IntoFact> = emptyList(),
     /** What reads a column's value into PL/SQL without being followed, by shape: counted ([ColumnPlaceFact]). */
-    val placesLeftOut: Map<String, Int> = emptyMap()
+    val placesLeftOut: Map<String, Int> = emptyMap(),
+    /** A database source, or a Forms module whose text is the module text built from the file ([com.felipebz.zpa.atlas.forms.FormsModuleText]). */
+    val kind: FileKind = FileKind.DB_SOURCE
 )

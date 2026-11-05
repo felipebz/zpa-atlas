@@ -12,8 +12,11 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import java.sql.Connection
 
-/** Source snippets and the file view, read from [sourcesRoot] over one open connection. */
-internal class SourceReader(private val connection: Connection, private val sourcesRoot: Path?) {
+/**
+ * Source snippets and the file view, read from [sourcesRoot] over one open connection; a Forms module's text is
+ * rebuilt from its file by [moduleTexts].
+ */
+internal class SourceReader(private val connection: Connection, private val sourcesRoot: Path?, private val moduleTexts: ModuleTexts? = null) {
 
     /** [AtlasIndex.source] after its checks; with [colorer], each line's colors. */
     fun source(path: String, line: Int, context: Int, colorer: CodeColorer? = null): SourceSnippet? {
@@ -217,14 +220,14 @@ internal class SourceReader(private val connection: Connection, private val sour
         null
     }
 
-    private class SourceFile(val id: Long, val path: String, val sha256: String, val encoding: String, val parseStatus: String)
+    private class SourceFile(val id: Long, val path: String, val sha256: String, val encoding: String, val parseStatus: String, val kind: String)
 
     /** A file's [text] as decoded, its [lines], and whether it changed since indexing. */
     class SourceText(val text: String, val lines: List<String>, val stale: Boolean)
 
     private fun sourceFile(path: String): SourceFile =
-        connection.query("SELECT id, sha256, encoding, parse_status FROM source_file WHERE path = ?", listOf(path)) {
-            SourceFile(it.getLong(1), path, it.getString(2), it.getString(3), it.getString(4))
+        connection.query("SELECT id, sha256, encoding, parse_status, kind FROM source_file WHERE path = ?", listOf(path)) {
+            SourceFile(it.getLong(1), path, it.getString(2), it.getString(3), it.getString(4), it.getString(5))
         }.singleOrNull() ?: throw InvalidQueryException("Not a file of the index: $path")
 
     private class LeavesRootException(path: String) : InvalidQueryException("Path leaves the sources root: $path")
@@ -232,7 +235,8 @@ internal class SourceReader(private val connection: Connection, private val sour
     /**
      * The lines of [file] under the sources root, or null when there is no root or no such file. The path is checked
      * by its name, then by where it really leads: a symbolic link (of the file or of a folder above it) that leaves the
-     * real sources root is refused, one that stays inside is followed.
+     * real sources root is refused, one that stays inside is followed. A Forms module's lines are its module text,
+     * rebuilt from the file as the indexer built it ([ModuleTexts]); null when no reader reads it now.
      */
     private fun readSource(file: SourceFile): SourceText? {
         val root = sourcesRoot?.toAbsolutePath()?.normalize() ?: return null
@@ -248,14 +252,20 @@ internal class SourceReader(private val connection: Connection, private val sour
         }
         if (!Files.isRegularFile(real, LinkOption.NOFOLLOW_LINKS)) return null
         val bytes = Files.readAllBytes(real)
-        // The charset the indexer decoded this file with, so lines and columns match the stored spans.
-        val text = AtlasIndex.decode(bytes, file.encoding)
+        val text = if (file.kind == FORMS_MODULE) {
+            moduleTexts?.text(resolved.fileName.toString(), bytes) ?: return null
+        } else {
+            // The charset the indexer decoded this file with, so lines and columns match the stored spans.
+            AtlasIndex.decode(bytes, file.encoding)
+        }
         return SourceText(text, text.lines(), sha256(bytes) != file.sha256)
     }
 
     private fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     private companion object {
+        const val FORMS_MODULE = "FORMS_MODULE"
+
         /** What an object's list shows under it: no parameters, fields or local declarations. */
         val MEMBER_KINDS_SQL = listOf("PROCEDURE", "FUNCTION", "TYPE", "CURSOR", "PACKAGE_CONSTANT", "PACKAGE_VARIABLE", "EXCEPTION")
             .joinToString { "'$it'" }

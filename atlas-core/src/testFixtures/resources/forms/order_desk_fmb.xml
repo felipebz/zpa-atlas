@@ -1,0 +1,28 @@
+<?xml version = '1.0' encoding = 'UTF-8'?>
+<Module version="122010300" Dump="All" xmlns:ORDER_DESK_default="http://xmlns.oracle.com/Forms"
+        xmlns:ORDER_DESK_overridden="http://xmlns.oracle.com/Forms"
+        xmlns:REF_LIB_inherited="http://xmlns.oracle.com/Forms"
+        xmlns:ORDER_DESK_inherited_overridden="http://xmlns.oracle.com/Forms" xmlns="http://xmlns.oracle.com/Forms">
+   <FormModule ORDER_DESK_overridden:Name="ORDER_DESK" ORDER_DESK_default:ValidationUnit="Padrão" ORDER_DESK_overridden:Title="Order desk" ORDER_DESK_default:Comment="">
+      <Coordinate CharacterCellWidth="8" RealUnit="Ponto" CharacterCellHeight="16" CoordinateSystem="Real"/>
+      <AttachedLibrary ORDER_DESK_overridden:Name="ORDER_LIB" ORDER_DESK_overridden:LibraryLocation="order_lib" ORDER_DESK_overridden:LibrarySource="Arquivo" ORDER_DESK_default:Comment=""/>
+      <Block ORDER_DESK_overridden:Name="COMPANY" ORDER_DESK_overridden:QueryDataSourceName="COMPANY" ORDER_DESK_default:WhereClause="st_active = 'Y'&amp;#10;AND id &gt; 0" ORDER_DESK_default:Comment="">
+         <Item ORDER_DESK_overridden:Name="ID" ORDER_DESK_overridden:ColumnName="ID" ORDER_DESK_default:Comment="">
+            <Trigger ORDER_DESK_overridden:Name="WHEN-VALIDATE-ITEM" ORDER_DESK_default:TriggerStyle="PL/SQL" ORDER_DESK_overridden:TriggerText="DECLARE&#xD;&amp;#10;  v_count number;&amp;#10;BEGIN&amp;#10;  select count(*) into v_count from company where id = :company.id;&amp;#10;END;&amp;#10;order_util.refresh(:company.id);"/>
+         </Item>
+         <Item ORDER_DESK_overridden:Name="COMPANY_NAME" ORDER_DESK_overridden:ColumnName="COMPANY_NAME"/>
+         <Item ORDER_DESK_overridden:Name="LABEL" ORDER_DESK_default:ColumnName=""/>
+         <Trigger ORDER_DESK_overridden:Name="POST-QUERY" ORDER_DESK_default:TriggerStyle="PL/SQL" ORDER_DESK_overridden:TriggerText="DECLARE&amp;#10;&#x9;v_label varchar2(100);&amp;#10;BEGIN&amp;#10;&#x9;v_label := fn_label(:company.id);&amp;#10;&amp;#10;&#x9;:company.label := v_label;&amp;#10;END;"/>
+         <Trigger ORDER_DESK_inherited_overridden:Name="KEY-EXIT" ORDER_DESK_default:TriggerStyle="PL/SQL" REF_LIB_inherited:TriggerText="exit_form;&amp;#10;" ORDER_DESK_inherited_overridden:ParentModule="REF_LIB" ORDER_DESK_inherited_overridden:ParentModuleType="12" ORDER_DESK_inherited_overridden:ParentName="KEY-EXIT" ORDER_DESK_inherited_overridden:ParentFilename="ref_lib.fmb"/>
+      </Block>
+      <Trigger ORDER_DESK_overridden:Name="WHEN-NEW-FORM-INSTANCE" ORDER_DESK_default:TriggerStyle="PL/SQL" ORDER_DESK_overridden:TriggerText="go_block('COMPANY');&amp;#10;proc_standalone(1);&amp;#10;execute_query;"/>
+      <Canvas ORDER_DESK_overridden:Name="MAIN" ORDER_DESK_default:Comment=""/>
+      <ProgramUnit ORDER_DESK_overridden:Name="PROC_STANDALONE" ORDER_DESK_overridden:ProgramUnitType="Procedimento" ORDER_DESK_overridden:ProgramUnitText="PROCEDURE proc_standalone(p_id number) IS&amp;#10;BEGIN&amp;#10;  message('Company ' || p_id);&amp;#10;  update company set dt_changed = sysdate where id = p_id;&amp;#10;END;"/>
+      <ProgramUnit ORDER_DESK_overridden:Name="FN_LABEL" ORDER_DESK_overridden:ProgramUnitType="Função" ORDER_DESK_overridden:ProgramUnitText="FUNCTION fn_label(p_id number) RETURN varchar2 IS&amp;#10;  v_label company.company_name%TYPE;&amp;#10;BEGIN&amp;#10;  select company_name into v_label from company where id = p_id;&amp;#10;  RETURN v_label;&amp;#10;END;"/>
+      <ProgramUnit ORDER_DESK_overridden:Name="ORDER_UTIL" ORDER_DESK_overridden:ProgramUnitType="Espec. do Pacote" ORDER_DESK_overridden:ProgramUnitText="PACKAGE order_util IS&amp;#10;  g_refreshed number := 0;&amp;#10;  PROCEDURE refresh(p_id number);&amp;#10;END;"/>
+      <ProgramUnit ORDER_DESK_overridden:Name="ORDER_UTIL" ORDER_DESK_overridden:ProgramUnitType="Corpo do Pacote" ORDER_DESK_overridden:ProgramUnitText="PACKAGE BODY order_util IS&amp;#10;  PROCEDURE refresh(p_id number) IS&amp;#10;    v_next number;&amp;#10;  BEGIN&amp;#10;    v_next := pack_process.f_next;&amp;#10;    pack_process.run_job(p_id, 'R', v_next, sysdate);&amp;#10;    g_refreshed := g_refreshed + 1;&amp;#10;  END;&amp;#10;END;"/>
+      <RecordGroup ORDER_DESK_overridden:Name="COMPANY_LOV" ORDER_DESK_overridden:RecordGroupType="Consulta" ORDER_DESK_overridden:RecordGroupQuery="SELECT id, company_name&amp;#10;FROM company&amp;#10;ORDER BY company_name"/>
+      <RecordGroup ORDER_DESK_overridden:Name="STATIC_LOV" ORDER_DESK_overridden:RecordGroupType="Estático" ORDER_DESK_default:RecordGroupQuery=""/>
+      <Window ORDER_DESK_overridden:Name="WINDOW1"/>
+   </FormModule>
+</Module>

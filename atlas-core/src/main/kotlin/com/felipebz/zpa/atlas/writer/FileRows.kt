@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas.writer
 
 import com.felipebz.zpa.atlas.model.*
+import com.felipebz.zpa.atlas.writer.FileRows.Companion.FETCH_NOT_KNOWN
 import java.sql.Connection
 import java.sql.PreparedStatement
 
@@ -48,7 +49,7 @@ internal class FileRows(private val connection: Connection) {
             fileIds[file.path] = fileId
             fileInsert.setLong(1, fileId)
             fileInsert.setString(2, file.path)
-            fileInsert.setString(3, FileKind.DB_SOURCE.name)
+            fileInsert.setString(3, file.kind.name)
             fileInsert.setString(4, file.sha256)
             fileInsert.setLong(5, file.sizeBytes)
             fileInsert.setNullableString(6, file.compilationSchema)

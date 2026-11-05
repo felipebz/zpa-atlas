@@ -181,6 +181,7 @@ internal class IncrementalRun private constructor(
             "--compilation-schema" to options.compilationSchema.orEmpty(),
             "--encoding" to options.encoding,
             "--extensions" to options.extensions.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotEmpty() }.sorted().joinToString(","),
+            "module readers" to options.readers.description,
             "conditional compilation (--database-version, --ccflags)" to Rendering().render(options.conditionalCompilation),
             "dictionary (the Oracle options or what they read)" to try {
                 fingerprint(options.dictionary)

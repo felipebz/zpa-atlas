@@ -5,13 +5,7 @@
 
 package com.felipebz.zpa.atlas.query
 
-import com.felipebz.zpa.atlas.model.EntityKind
-import com.felipebz.zpa.atlas.model.Origin
-import com.felipebz.zpa.atlas.model.Role
-import com.felipebz.zpa.atlas.model.StatementKind
-import com.felipebz.zpa.atlas.model.Status
-import com.felipebz.zpa.atlas.model.UnitKind
-import com.felipebz.zpa.atlas.model.ValueKind
+import com.felipebz.zpa.atlas.model.*
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -33,10 +27,10 @@ class IndexCodesTest {
     @Test
     fun `the reserved codes are the enum values marked reserved`() {
         assertThat(RESERVED_ENTITY_KINDS).containsExactlyInAnyOrderElementsOf(EntityKind.entries.filter { it.reserved }.map { it.name })
-        assertThat(RESERVED_UNIT_KINDS).containsExactlyInAnyOrderElementsOf(UnitKind.entries.filter { it.reserved }.map { it.name })
         assertThat(RESERVED_ORIGINS).containsExactlyInAnyOrderElementsOf(Origin.entries.filter { it.reserved }.map { it.name })
         // The lists served without reserved codes have none in the writer either.
         assertThat(Role.entries.filter { it.reserved }).isEmpty()
+        assertThat(UnitKind.entries.filter { it.reserved }).isEmpty()
         assertThat(Status.entries.filter { it.reserved }).isEmpty()
     }
 

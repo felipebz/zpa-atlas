@@ -19,18 +19,13 @@ class ReservedValuesTest {
 
     @Test
     fun `the reserved values are the ones the later phases need`() {
-        assertThat(EntityKind.entries.filter { it.reserved }.map { it.name }).containsExactly(
-            "SCHEMA", "LABEL", "FORMS_MODULE",
-            "FORMS_BLOCK", "FORMS_ITEM", "FORMS_TRIGGER", "FORMS_PROGRAM_UNIT", "FORMS_LIBRARY"
-        )
-        assertThat(RelationKind.entries.filter { it.reserved }.map { it.name }).containsExactly(
-            "OVERLOAD_OF", "FORMS_BLOCK_TABLE", "FORMS_ITEM_COLUMN", "FORMS_ATTACHED_LIBRARY"
-        )
+        assertThat(EntityKind.entries.filter { it.reserved }.map { it.name }).containsExactly("SCHEMA", "LABEL")
+        assertThat(RelationKind.entries.filter { it.reserved }.map { it.name }).containsExactly("OVERLOAD_OF", "FORMS_BLOCK_TABLE", "FORMS_ITEM_COLUMN")
         assertThat(Role.entries.filter { it.reserved }).isEmpty()
         assertThat(Status.entries.filter { it.reserved }).isEmpty()
         assertThat(Origin.entries.filter { it.reserved }.map { it.name }).containsExactly("FORMS_IMPLICIT", "HEURISTIC")
-        assertThat(UnitKind.entries.filter { it.reserved }.map { it.name }).containsExactly("FORMS_TRIGGER", "FORMS_PROGRAM_UNIT")
-        assertThat(FileKind.entries.filter { it.reserved }.map { it.name }).containsExactly("FORMS_MODULE")
+        assertThat(UnitKind.entries.filter { it.reserved }).isEmpty()
+        assertThat(FileKind.entries.filter { it.reserved }).isEmpty()
     }
 
     @Test

@@ -15,6 +15,9 @@ import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionaryKeys
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.extract.*
+import com.felipebz.zpa.atlas.forms.FormsLayout
+import com.felipebz.zpa.atlas.forms.FormsModuleReaders
+import com.felipebz.zpa.atlas.forms.FormsModuleText
 import com.felipebz.zpa.atlas.model.*
 import com.felipebz.zpa.atlas.writer.AtlasWriter
 import com.felipebz.zpa.atlas.writer.RunInfo
@@ -23,6 +26,7 @@ import com.felipebz.zpa.project.*
 import com.felipebz.zpa.squid.AstScanner
 import com.felipebz.zpa.squid.ConditionalCompilationSettings
 import com.felipebz.zpa.squid.PlSqlConfiguration
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -56,7 +60,9 @@ data class IndexOptions(
      * `BYTE` or `CHAR`: the unit of a PL/SQL length written without one when the dictionary does not say how the unit
      * declaring it was compiled.
      */
-    val nlsLengthSemantics: String = "BYTE"
+    val nlsLengthSemantics: String = "BYTE",
+    /** The readers of Forms modules: a file one of them claims is read by it, whatever [extensions] says. */
+    val readers: FormsModuleReaders = FormsModuleReaders.BUILT_IN
 ) {
     companion object {
         /** The default of zpa-cli `--extensions`. */
@@ -93,24 +99,30 @@ class Indexer internal constructor(
     constructor(clock: () -> Instant = Instant::now) : this(clock, { _, extractor -> listOf(extractor) })
 
     /**
-     * A source decoded with its own charset ([SourceDecoding]). ZPA gets the decoded text, never the bytes: the charset
-     * of `PlSqlConfiguration`/`AstScanner` is only used by the lexer to read files and URLs, so one value for the run is
-     * enough.
+     * A source: a database source decoded with its own charset ([SourceDecoding]), or a Forms module, whose [text] is
+     * its module text ([FormsModuleText]) and whose [forms] says where each unit of it is. ZPA gets the text, never the
+     * bytes: the charset of `PlSqlConfiguration`/`AstScanner` is only used by the lexer to read files and URLs, so one
+     * value for the run is enough. The file's bytes are not kept: only their hash and size are written.
      */
-    internal class Source(val relativePath: String, val absolute: Path, bytes: ByteArray, encoding: String) : PlSqlFile {
-        private val decoded = SourceDecoding.decode(bytes, encoding)
-        val text = decoded.text
-        val charset = decoded.charset
-        /** The file's bytes are not kept: only their hash and size are written. */
-        val sha256 = sha256(bytes)
-        val size = bytes.size.toLong()
+    internal class Source(
+        val relativePath: String, val absolute: Path, val text: String, val charset: Charset, val sha256: String, val size: Long,
+        val forms: FormsLayout? = null
+    ) : PlSqlFile {
         /** `text.lines().size`, counted without making the lines: a line ends at `\r\n`, `\n` or `\r`. */
         val lineCount = lineCount(text)
+        val kind: FileKind get() = if (forms == null) FileKind.DB_SOURCE else FileKind.FORMS_MODULE
         override fun contents(): String = text
         override fun fileName(): String = absolute.fileName.toString()
         override fun type(): PlSqlFile.Type = PlSqlFile.Type.MAIN
         override fun path(): Path = absolute
         override fun toString(): String = relativePath
+
+        companion object {
+            fun database(relativePath: String, absolute: Path, bytes: ByteArray, encoding: String): Source {
+                val decoded = SourceDecoding.decode(bytes, encoding)
+                return Source(relativePath, absolute, decoded.text, decoded.charset, sha256(bytes), bytes.size.toLong())
+            }
+        }
     }
 
     /**
@@ -122,8 +134,11 @@ class Indexer internal constructor(
         internal val extensions: List<String>,
         internal val encoding: String,
         internal val output: Path,
+        internal val readers: FormsModuleReaders,
         internal val sources: List<Source>,
         internal val outsideRoot: List<String>,
+        /** What the reading left out: files of a module format that are not indexed, files that held no module, duplicated module names. */
+        internal val notes: List<CoverageFact>,
         internal val textIndex: SourceTextIndex,
         internal val startedAt: Instant,
         internal val started: Long
@@ -132,14 +147,21 @@ class Indexer internal constructor(
         override fun close() = textIndex.close()
     }
 
-    /** Reads the sources [index] will index with the same folder, extensions and encoding, and starts their text index for [output]. */
-    fun readSources(sources: Path, extensions: List<String>, encoding: String, output: Path): ReadSources {
+    /**
+     * Reads the sources [index] will index with the same folder, extensions, encoding and readers, and starts their text
+     * index for [output].
+     */
+    fun readSources(
+        sources: Path, extensions: List<String>, encoding: String, output: Path, readers: FormsModuleReaders = FormsModuleReaders.BUILT_IN
+    ): ReadSources {
         val startedAt = clock()
         val started = System.nanoTime()
         val root = sources.toAbsolutePath().normalize()
-        val (read, outsideRoot) = discover(root, extensions, encoding)
+        val discovered = discover(root, extensions, encoding, readers)
+        val read = discovered.sources
         val textIndex = SourceTextIndex.start(output, read.map { it.relativePath to it.text })
-        return ReadSources(root, extensions, encoding, output.toAbsolutePath().normalize(), read, outsideRoot, textIndex, startedAt, started)
+        return ReadSources(root, extensions, encoding, output.toAbsolutePath().normalize(), readers, read, discovered.outsideRoot, discovered.notes, textIndex,
+            startedAt, started)
     }
 
     /**
@@ -155,11 +177,13 @@ class Indexer internal constructor(
         val inputs = if (incremental) IncrementalRun.inputs(options, phases) else null
         if (read != null) {
             require(read.root == options.sources.toAbsolutePath().normalize() && read.extensions == options.extensions && read.encoding == options.encoding &&
-                read.output == options.output.toAbsolutePath().normalize()) { "The sources were read for another run" }
+                read.output == options.output.toAbsolutePath().normalize() && read.readers === options.readers) { "The sources were read for another run" }
             return index(options, phases, incremental, pending, inputs, read)
         }
         phases?.start(PhaseTimes.READING)
-        readSources(options.sources, options.extensions, options.encoding, options.output).use { return index(options, phases, incremental, pending, inputs, it) }
+        readSources(options.sources, options.extensions, options.encoding, options.output, options.readers).use {
+            return index(options, phases, incremental, pending, inputs, it)
+        }
     }
 
     private fun index(
@@ -178,6 +202,7 @@ class Indexer internal constructor(
         val globalEntities = walked.globalEntities
         val globalRelations = walked.globalRelations
         val globalCoverage = walked.globalCoverage
+        globalCoverage += read.notes
         globalCoverage += CoverageFact("CALL_SCOPE_LEGACY",
             "Calls named like a local value, type or nested subprogram are recognized through the legacy symbol table, a heuristic rather than proof of lexical scope")
         val dictionary = options.dictionary
@@ -268,9 +293,11 @@ class Indexer internal constructor(
     ): Walked {
         phases?.start(PhaseTimes.PREPARATION)
 
+        // The project is the database sources: a module's program units are its own, never names of the database.
+        val database = sources.filter { it.forms == null }
         val prepared = ProjectAnalysisContext.prepared(
             ProjectIndexPreparation(ProjectDeclarationExtractor(PlSqlConfiguration(StandardCharsets.UTF_8, true, options.conditionalCompilation)))
-                .prepare(sources.map { source -> ProjectSource(FileId(source.relativePath), ProjectSourceReader { source.text }) })
+                .prepare(database.map { source -> ProjectSource(FileId(source.relativePath), ProjectSourceReader { source.text }) })
         )
         val compilationSchema = options.compilationSchema?.let { ProjectIdentifier.fromSource("\"$it\"") }
         val context = if (!options.dictionary.isAvailable && compilationSchema == null) prepared
@@ -281,7 +308,7 @@ class Indexer internal constructor(
         // The members of the object types, read before any type body is walked.
         val typeMembers = ObjectTypeMembers()
         phases?.start(PhaseTimes.TYPE_MEMBERS)
-        for (source in sources) {
+        for (source in database) {
             if (ObjectTypeMembers.MAY_SPECIFY_OBJECT.containsMatchIn(source.text)) {
                 scanner.scanFile(source, listOf(typeMembers.collector(options.compilationSchema)), source.relativePath)
             }
@@ -329,7 +356,7 @@ class Indexer internal constructor(
             source.relativePath, source.sha256, source.size, source.charset.name(), source.lineCount,
             options.dictionary, options.compilationSchema, catalogHolder::get,
             jsonBuiltIn = (options.conditionalCompilation.databaseVersion?.version ?: 0) >= JSON_BUILT_IN_VERSION,
-            typeMembers = typeMembers, strings = strings
+            typeMembers = typeMembers, strings = strings, forms = source.forms
         )
         val walked: List<Result<FileFacts>> = try {
             toWalk.map { source ->
@@ -432,31 +459,89 @@ class Indexer internal constructor(
         }
     }
 
+    /** What [discover] found: the sources, the files left out as links outside the folder, and the notes of what else it left out. */
+    private class Discovered(val sources: List<Source>, val outsideRoot: List<String>, val notes: List<CoverageFact>)
+
     /**
-     * The sources under [root] with one of [extensions], read, in path order; and the relative paths of the files left
-     * out because they are symbolic links that lead outside the real [root]. A link that stays inside is read through;
-     * folder links are not walked into. The server serves a file only where the same rule holds, so the index never
-     * holds the text of a file outside the sources folder.
+     * The sources under [root], read, in path order: the files one of [readers] reads, whatever their extension, and the
+     * files with one of [extensions]; and the relative paths of the files left out because they are symbolic links that
+     * lead outside the real [root]. A link that stays inside is read through; folder links are not walked into. The
+     * server serves a file only where the same rule holds, so the index never holds the text of a file outside the
+     * sources folder.
+     *
+     * A module is known by its file's name ([FormsModuleReaders.moduleName]): of the files with the same name in several
+     * folders, the first by path is indexed.
+     * The files a reader knows but does not index, the files that held no module and the modules left out for their
+     * name are each counted in a note.
      */
-    private fun discover(root: Path, extensions: List<String>, encoding: String): Pair<List<Source>, List<String>> {
+    private fun discover(root: Path, extensions: List<String>, encoding: String, readers: FormsModuleReaders): Discovered {
         require(Files.isDirectory(root)) { "Sources folder does not exist or is not a directory: $root" }
         val accepted = extensions.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotEmpty() }.toSet()
         val realRoot = root.toRealPath()
         val found = Files.walk(root).use { paths ->
-            paths.filter { it.isRegularFile() && it.extension.lowercase(Locale.ROOT) in accepted }.toList()
-        }
+            paths.filter { path ->
+                path.isRegularFile() && path.fileName.toString().let { name ->
+                    readers.readerOf(name) != null || readers.skipped(name) != null || path.extension.lowercase(Locale.ROOT) in accepted
+                }
+            }.toList()
+        }.sortedBy { root.relativize(it).invariantSeparatorsPathString }
         val outside = ArrayList<String>()
-        val sources = found.mapNotNull { path ->
+        val sources = ArrayList<Source>()
+        val skipped = TreeMap<String, MutableList<String>>()
+        val notModules = ArrayList<String>()
+        val modules = HashMap<String, String>()
+        val duplicates = ArrayList<String>()
+        for (path in found) {
             val relative = root.relativize(path).invariantSeparatorsPathString
             val real = path.toRealPath()
             if (!real.startsWith(realRoot)) {
                 outside += relative
-                return@mapNotNull null
+                continue
             }
-            Source(relative, path, Files.readAllBytes(real), encoding)
+            val name = path.fileName.toString()
+            readers.skipped(name)?.let { what ->
+                skipped.getOrPut(what) { ArrayList() } += relative
+                continue
+            }
+            val reader = readers.readerOf(name)
+            if (reader == null) {
+                sources += Source.database(relative, path, Files.readAllBytes(real), encoding)
+                continue
+            }
+            // Known by its file's name: the same name in two folders is the same module.
+            val moduleName = readers.moduleName(name)!!
+            modules[moduleName]?.let { first ->
+                duplicates += "$relative (indexed from $first)"
+                continue
+            }
+            val bytes = Files.readAllBytes(real)
+            val module = try {
+                reader.read(name, bytes)
+            } catch (e: Exception) {
+                notModules += "$relative (${reader.name}: ${e.javaClass.simpleName}: ${e.message?.lineSequence()?.firstOrNull().orEmpty()})"
+                continue
+            }
+            if (module == null) {
+                notModules += "$relative (${reader.name})"
+                continue
+            }
+            modules[moduleName] = relative
+            val text = FormsModuleText.of(module, moduleName)
+            sources += Source(relative, path, text.text, StandardCharsets.UTF_8, sha256(bytes), bytes.size.toLong(), FormsLayout.of(module, moduleName, text))
         }
-        return sources.sortedBy { it.relativePath } to outside.sorted()
+        val notes = ArrayList<CoverageFact>()
+        for ((what, paths) in skipped) {
+            notes += CoverageFact("FORMS_FILE_SKIPPED", "${paths.size} $what file(s) not indexed: ${shown(paths)}")
+        }
+        if (notModules.isNotEmpty()) notes += CoverageFact("FORMS_FILE_NOT_READ", "${notModules.size} file(s) held no module their reader could read: ${shown(notModules)}")
+        if (duplicates.isNotEmpty()) {
+            notes += CoverageFact("FORMS_MODULE_DUPLICATED", "${duplicates.size} module file(s) not indexed: a file of the same name in another folder, first by path, is: ${shown(duplicates)}")
+        }
+        return Discovered(sources, outside.sorted(), notes)
     }
+
+    /** The first items of [items], for a note. */
+    private fun shown(items: List<String>): String = items.take(NOTE_SHOWN).joinToString(", ") + if (items.size > NOTE_SHOWN) ", …" else ""
 
     companion object {
         private fun lineCount(text: String): Int {
@@ -474,6 +559,9 @@ class Indexer internal constructor(
             }
             return count
         }
+
+        /** How many paths a note of [discover] names. */
+        private const val NOTE_SHOWN = 20
 
         /** The first Oracle version with the built-in `JSON` type: from it on, a type named `JSON` cannot exist. */
         private const val JSON_BUILT_IN_VERSION = 21

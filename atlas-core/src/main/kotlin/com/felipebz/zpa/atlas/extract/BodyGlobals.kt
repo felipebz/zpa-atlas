@@ -48,12 +48,14 @@ internal class BodyGlobals(private val bound: BoundNames, private val recordFiel
 
     /**
      * Registers the globals and types of [body] (a `CREATE_PACKAGE_BODY`) of the package [packageKey] in [schema]: their
-     * entities and `CONTAINS` relations in [state]. Exceptions declared like variables are left out.
+     * entities and `CONTAINS` relations in [state]. Exceptions declared like variables are left out. A package of a
+     * Forms module, which zpa's project does not declare, registers its specification's the same way, with an empty
+     * [suffix].
      */
-    fun declare(body: AstNode, packageKey: String, schema: String?, unitIndex: Int, partial: Boolean, state: FileState) {
+    fun declare(body: AstNode, packageKey: String, schema: String?, unitIndex: Int, partial: Boolean, state: FileState, suffix: String = "@BODY") {
         val used = HashMap<String, Int>()
         fun entity(key: String, kind: EntityKind, name: String, parentKey: String) {
-            state.entities += EntityFact(key, kind, schema, name, parentKey, key.removePrefix("db:"), external = false, precedence = Precedence.DECLARED)
+            state.entities += EntityFact(key, kind, schema, name, parentKey, displayOf(key), external = false, precedence = Precedence.DECLARED)
             state.relations += RelationFact(parentKey, RelationKind.CONTAINS, key)
         }
         for (item in body.getFirstChildOrNull(PlSqlGrammar.DECLARE_SECTION)?.children.orEmpty()) {
@@ -63,7 +65,7 @@ internal class BodyGlobals(private val bound: BoundNames, private val recordFiel
             val normalized = normalizeIdentifier(name.tokenOriginalValue)
             val count = (used[normalized] ?: 0) + 1
             used[normalized] = count
-            val key = "$packageKey.$normalized@BODY" + if (count > 1) "#$count" else ""
+            val key = "$packageKey.$normalized$suffix" + if (count > 1) "#$count" else ""
             if (type) {
                 entity(key, EntityKind.TYPE, normalized, packageKey)
                 types += Member(key, packageKey, item, name, unitIndex, partial)
@@ -95,7 +97,7 @@ internal class BodyGlobals(private val bound: BoundNames, private val recordFiel
     ) {
         val used = HashSet<String>()
         fun entity(key: String, kind: EntityKind, name: String, parentKey: String) {
-            state.entities += EntityFact(key, kind, schema, name, parentKey, key.removePrefix("db:"), external = false, precedence = Precedence.DECLARED)
+            state.entities += EntityFact(key, kind, schema, name, parentKey, displayOf(key), external = false, precedence = Precedence.DECLARED)
             state.relations += RelationFact(parentKey, RelationKind.CONTAINS, key)
         }
         fun section(section: AstNode, prefix: String) {

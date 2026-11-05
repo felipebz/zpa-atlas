@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.gradle/wrapper \
 COPY --from=docker.io/bellsoft/liberica-runtime-container:jre-25-musl@sha256:4e8c650331b847a8e1c213fe40f60aee59718515a5376ff450e333e771f8024c /etc/passwd /etc/group /users/
 RUN echo 'atlas:x:10001:10001:zpa-atlas:/data:/sbin/nologin' >> /users/passwd \
     && echo 'atlas:x:10001:' >> /users/group \
-    && mkdir -p /folders/data /folders/sources /folders/drivers
+    && mkdir -p /folders/data /folders/sources /folders/drivers /folders/readers
 
 FROM docker.io/bellsoft/liberica-runtime-container:jre-25-musl@sha256:4e8c650331b847a8e1c213fe40f60aee59718515a5376ff450e333e771f8024c
 
@@ -38,6 +38,7 @@ COPY --from=build /src/atlas-cli/build/install/zpa-atlas /opt/zpa-atlas
 COPY --from=build --chown=10001:10001 /folders/data /data
 COPY --from=build /folders/sources /sources
 COPY --from=build /folders/drivers /opt/zpa-atlas/drivers
+COPY --from=build /folders/readers /opt/zpa-atlas/readers
 
 ENV ZPA_ATLAS_HOST=0.0.0.0 \
     ZPA_ATLAS_DB=/data/atlas.db \

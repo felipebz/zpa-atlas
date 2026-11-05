@@ -63,6 +63,7 @@ To run it without a JDK, use the container image: see [Running in a container](d
 - [What Atlas answers](docs/answers.md): a tour of the answers, on the page and for agents.
 - [Concepts](docs/concepts.md): entities, uses, and how far to trust each answer.
 - [Indexing](docs/indexing.md): options, the Oracle dictionary, project files, incremental indexing.
+- [Oracle Forms modules](docs/forms.md): exporting them, what is indexed, readers of other formats.
 - [Serving](docs/serving.md): options, agents (MCP), serving behind a proxy and several projects.
 - [Authentication](docs/authentication.md): OpenID Connect for the page, the API and agents.
 - [Running in a container](docs/container.md).

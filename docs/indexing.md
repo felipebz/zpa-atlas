@@ -12,7 +12,7 @@ zpa-atlas stats atlas.db
 |---|---|
 | `--sources`, `--out` | The folder to read, and the index file to write. |
 | `--compilation-schema` | The schema of the code that does not name its owner. Without it, keys show `~` for that schema. |
-| `--extensions` | The files to read. Default: `sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps`. |
+| `--extensions` | The files to read. Default: `sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps`. Forms modules (`_fmb.xml`) are read whatever it says: see [Oracle Forms modules](forms.md). |
 | `--encoding` | `auto` (default: each file read as UTF-8, else windows-1252), or one charset for every file. |
 | `--database-version`, `--ccflags` | The values conditional compilation (`$IF`) sees, as on the database. The version defaults to the one of `--oracle-url`. |
 | `--nls-length-semantics` | `BYTE` (default) or `CHAR`: how a length written without a unit (`varchar2(10)`) counts, as your code is compiled. With `--oracle-…`, the dictionary tells it for each unit. |

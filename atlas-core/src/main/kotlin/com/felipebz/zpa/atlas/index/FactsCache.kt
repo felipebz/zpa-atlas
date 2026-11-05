@@ -78,7 +78,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 17
+    private const val FORMAT = 18
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -142,7 +142,7 @@ internal object FactsCache {
         return FileFacts(
             facts.path, facts.sha256, facts.sizeBytes, facts.encoding, facts.parseStatus, facts.recoveredRegions, facts.compilationSchema, facts.units,
             facts.statements, facts.occurrences, facts.entities, facts.relations, facts.coverage, relations, facts.dictionarySynonyms, facts.triggerEvents,
-            facts.declaredTexts, facts.docComments, facts.usesGaps, facts.membersGaps, facts.declaredShapes, facts.intos, facts.placesLeftOut
+            facts.declaredTexts, facts.docComments, facts.usesGaps, facts.membersGaps, facts.declaredShapes, facts.intos, facts.placesLeftOut, facts.kind
         )
     }
 
@@ -228,6 +228,7 @@ internal object FactsCache {
             data.writeLong(facts.sizeBytes)
             string(facts.encoding)
             string(facts.parseStatus.name)
+            string(facts.kind.name)
             data.writeInt(facts.recoveredRegions)
             nullable(facts.compilationSchema)
             list(facts.units) { string(it.kind.name); string(it.name); nullable(it.entityKey); span(it.span); nullable(it.compilationSchema) }
@@ -390,6 +391,7 @@ internal object FactsCache {
             val sizeBytes = data.readLong()
             val encoding = string()
             val parseStatus = enumValueOf<ParseStatus>(string())
+            val kind = enumValueOf<FileKind>(string())
             val recoveredRegions = data.readInt()
             val compilationSchema = nullable()
             val units = list { UnitFact(enumValueOf(string()), string(), nullable(), span(), nullable()) }
@@ -414,7 +416,8 @@ internal object FactsCache {
             val placesLeftOut = list { string() to data.readInt() }.toMap()
             return FileFacts(
                 path, sha256, sizeBytes, encoding, parseStatus, recoveredRegions, compilationSchema, units, statements, occurrences, entities,
-                relations, coverage, emptyList(), synonyms, triggerEvents, declaredTexts, docComments, usesGaps, membersGaps, declaredShapes, intos, placesLeftOut
+                relations, coverage, emptyList(), synonyms, triggerEvents, declaredTexts, docComments, usesGaps, membersGaps, declaredShapes, intos, placesLeftOut,
+                kind
             ) to dictionaryRelations
         }
 

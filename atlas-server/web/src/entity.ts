@@ -177,8 +177,9 @@ function declaredFactHtml(fact: DeclaredFact, entity: EntityDetail) {
  */
 function headerHtml(entity: EntityDetail, direct: number) {
   const path = entityPath(entity);
+  // A Forms object's path starts at its module: it has no schema.
   const crumbs = [
-    `<span>${esc(t("entity.schema", { schema: path.schema ?? t("entity.schemaUnknown") }))}</span>`,
+    ...(entity.key.startsWith("forms:") ? [] : [`<span>${esc(t("entity.schema", { schema: path.schema ?? t("entity.schemaUnknown") }))}</span>`]),
     // A holder shows its name only: the link already leads to the right overload.
     ...path.ancestors.map(a => `<a href="${entityHref(a.key)}" title="${esc(a.display)}">${esc(a.name)}</a>`),
     `<span aria-current="page">${esc(path.name)}</span>`

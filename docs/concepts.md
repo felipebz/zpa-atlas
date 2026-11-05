@@ -16,6 +16,8 @@ A few keys carry more than the name:
 - What a package body declares for itself, invisible from outside the package, ends with `@BODY`.
 - A routine's own variables are entities too, under the routine's key. A search by name alone leaves them out: search
   for `routine.variable`.
+- An object of an Oracle Forms module is keyed `forms:` and its path, starting with the module's file name, such as
+  `forms:ORDERS/ORDERS/STATUS/WHEN-VALIDATE-ITEM` in `orders_fmb.xml`: see [Oracle Forms modules](forms.md).
 
 ## Occurrences
 

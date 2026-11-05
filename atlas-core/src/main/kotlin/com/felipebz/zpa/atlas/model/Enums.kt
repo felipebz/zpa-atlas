@@ -15,7 +15,7 @@ interface StoredEnum {
 
 enum class FileKind(val reserved: Boolean = false) : StoredEnum {
     DB_SOURCE,
-    FORMS_MODULE(reserved = true)
+    FORMS_MODULE
 }
 
 enum class ParseStatus : StoredEnum {
@@ -39,8 +39,8 @@ enum class UnitKind(val reserved: Boolean = false) : StoredEnum {
 
     /** Tokens the parser could not recognize (a `RECOVERY` region); kept so that declarations found there have a unit. */
     UNPARSED,
-    FORMS_TRIGGER(reserved = true),
-    FORMS_PROGRAM_UNIT(reserved = true)
+    FORMS_TRIGGER,
+    FORMS_PROGRAM_UNIT
 }
 
 enum class EntityKind(val reserved: Boolean = false) : StoredEnum {
@@ -68,12 +68,12 @@ enum class EntityKind(val reserved: Boolean = false) : StoredEnum {
     LOCAL_VARIABLE,
     LOCAL_CONSTANT,
     LABEL(reserved = true),
-    FORMS_MODULE(reserved = true),
-    FORMS_BLOCK(reserved = true),
-    FORMS_ITEM(reserved = true),
-    FORMS_TRIGGER(reserved = true),
-    FORMS_PROGRAM_UNIT(reserved = true),
-    FORMS_LIBRARY(reserved = true),
+    FORMS_MODULE,
+    FORMS_BLOCK,
+    FORMS_ITEM,
+    FORMS_TRIGGER,
+    FORMS_PROGRAM_UNIT,
+    FORMS_LIBRARY,
     UNKNOWN_RELATION
 }
 
@@ -88,7 +88,7 @@ enum class RelationKind(val reserved: Boolean = false) : StoredEnum {
     TRIGGER_ON,
     FORMS_BLOCK_TABLE(reserved = true),
     FORMS_ITEM_COLUMN(reserved = true),
-    FORMS_ATTACHED_LIBRARY(reserved = true)
+    FORMS_ATTACHED_LIBRARY
 }
 
 enum class Role(val reserved: Boolean = false) : StoredEnum {

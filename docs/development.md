@@ -13,6 +13,20 @@ Requirements: JDK 25 (pinned in `.java-version`). `./gradlew build` builds and t
 - `atlas-devtools`: tools that measure Atlas itself, such as the comparison with `ALL_DEPENDENCIES`: see
   [atlas-devtools/README.md](../atlas-devtools/README.md).
 
+## Forms readers
+
+A reader turns one export format of Oracle Forms modules into the model Atlas indexes
+(`com.felipebz.zpa.atlas.forms.FormsModule`, in `atlas-core`); the `frmf2xml` reader is built in. A reader implements
+`com.felipebz.zpa.atlas.forms.FormsModuleReader`:
+
+- `fileNameEndings`: the endings of the file names it reads, such as `_fmb.json`;
+- `skippedFileNameEndings`: files of its format that hold no module to index, counted in a coverage note;
+- `read(fileName, bytes)`: the module, or null when the file holds none.
+
+List the class in `META-INF/services/com.felipebz.zpa.atlas.forms.FormsModuleReader` in its JAR, and put the JAR in the
+`readers` folder of the distribution (`atlas-cli/build/install/zpa-atlas/readers/`). Two readers that claim the same
+file names stop `index` and `serve` at start.
+
 ## Documentation
 
 The documents in `docs/` explain the concepts and what to do with the answers, for the people who use the page and

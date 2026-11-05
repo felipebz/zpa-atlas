@@ -55,11 +55,7 @@ internal val ENTITY_KINDS = listOf(
 )
 
 /** The codes only a later phase of the indexer produces; the other code lists have none. */
-internal val RESERVED_ENTITY_KINDS = setOf(
-    "SCHEMA", "LABEL", "FORMS_MODULE", "FORMS_BLOCK", "FORMS_ITEM", "FORMS_TRIGGER",
-    "FORMS_PROGRAM_UNIT", "FORMS_LIBRARY"
-)
-internal val RESERVED_UNIT_KINDS = setOf("FORMS_TRIGGER", "FORMS_PROGRAM_UNIT")
+internal val RESERVED_ENTITY_KINDS = setOf("SCHEMA", "LABEL")
 internal val RESERVED_ORIGINS = setOf("FORMS_IMPLICIT", "HEURISTIC")
 
 /**
@@ -72,7 +68,7 @@ fun indexCodes(): Codes {
         roles = codes(ROLES),
         statuses = codes(STATUSES),
         entityKinds = codes(ENTITY_KINDS, RESERVED_ENTITY_KINDS),
-        unitKinds = codes(UNIT_KINDS, RESERVED_UNIT_KINDS),
+        unitKinds = codes(UNIT_KINDS),
         origins = codes(ORIGINS, RESERVED_ORIGINS),
         statementKinds = codes(STATEMENT_KINDS),
         valueKinds = codes(VALUE_KINDS),

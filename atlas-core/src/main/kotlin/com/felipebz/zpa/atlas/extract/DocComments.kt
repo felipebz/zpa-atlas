@@ -11,6 +11,7 @@ import com.felipebz.flr.api.Token
 import com.felipebz.flr.impl.Lexer
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
+import com.felipebz.zpa.atlas.extract.DocComments.Companion.position
 import com.felipebz.zpa.atlas.model.DocCommentFact
 import com.felipebz.zpa.atlas.model.DocShape
 import com.felipebz.zpa.atlas.model.SourceSpan
@@ -32,8 +33,9 @@ import java.util.*
  *
  * A block is never taken when it is only `--%` annotations or only separator lines, holds license words, comes before
  * the file's first token, or reads as code (half its lines or more, read by zpa's lexer, end with `;` or hold `:=`).
+ * The comments on [ignoredLines] are not read: the header lines of a Forms module's units, which name the unit.
  */
-internal class DocComments(root: AstNode) {
+internal class DocComments(root: AstNode, private val ignoredLines: Set<Int> = emptySet()) {
     private val tokens: List<Token> = root.tokens
 
     /** Where each token starts and ends ([position]); a file's tokens come in order, so both only grow. */
@@ -45,7 +47,7 @@ internal class DocComments(root: AstNode) {
     private val comments = arrayOfNulls<List<Comment>>(tokens.size)
 
     private fun commentsOf(index: Int): List<Comment> =
-        comments[index] ?: tokens[index].trivia.filter { it.isComment }.map { Comment(it.token) }.also { comments[index] = it }
+        comments[index] ?: tokens[index].trivia.filter { it.isComment && it.token.line !in ignoredLines }.map { Comment(it.token) }.also { comments[index] = it }
 
     /** The first token that starts at [line] and [column]. */
     private fun startingAt(line: Int, column: Int): Int? {

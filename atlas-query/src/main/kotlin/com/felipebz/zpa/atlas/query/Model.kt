@@ -836,6 +836,15 @@ fun interface CodeColorer {
 }
 
 /**
+ * Rebuilds the text the indexer read from a Forms module's file (`source_file.kind` `FORMS_MODULE`): the module text
+ * the readers of the run make of the file's [bytes] ([fileName] is its name, without folders), or null when no reader
+ * reads it. The command that starts the server hands one over, so this module does not depend on the readers.
+ */
+fun interface ModuleTexts {
+    fun text(fileName: String, bytes: ByteArray): String?
+}
+
+/**
  * One line a text search found: [line] of [path], its [text] as indexed, and [entity], the innermost container of the
  * line when the index knows it. [id] orders the lines (file, then line) and is what `after` takes. [stale] is true when
  * the file changed since indexing, null when the server cannot read it. [colors], when asked for, are the colored

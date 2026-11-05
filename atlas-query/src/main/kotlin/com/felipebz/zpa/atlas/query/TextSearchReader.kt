@@ -13,7 +13,7 @@ import java.sql.Connection
  * contain it, case folded. A line is in a container when its innermost container (`source_line.entity_id`) is that
  * entity or one of its contents (`CONTAINS`), as an occurrence is for `find_occurrences`.
  */
-internal class TextSearchReader(private val connection: Connection, private val sourcesRoot: Path?) {
+internal class TextSearchReader(private val connection: Connection, private val sourcesRoot: Path?, private val moduleTexts: ModuleTexts? = null) {
 
     /** [AtlasIndex.searchText] after its checks; with [colorer], each row's colors. */
     fun search(text: String, path: String?, container: String?, containerName: String?, after: Long?, limit: Int, colorer: CodeColorer?): TextPage {
@@ -60,7 +60,7 @@ internal class TextSearchReader(private val connection: Connection, private val 
             "${with}SELECT file_id, count(*) FROM source_line WHERE $where AND file_id IN (${fileIds.keys.joinToString(",") { "?" }}) GROUP BY file_id",
             cteParameters + parameters + fileIds.keys
         ) { fileIds.getValue(it.getLong(1)) to it.getLong(2) }.toMap()
-        val reader = SourceReader(connection, sourcesRoot)
+        val reader = SourceReader(connection, sourcesRoot, moduleTexts)
         val served = page.map { it.path }.distinct().associateWith { reader.served(it) }
         val colors = colorer?.let { lineColors(reader, it, page, served) }
         return TextPage(

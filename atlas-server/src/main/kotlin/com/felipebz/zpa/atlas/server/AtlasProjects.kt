@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.query.CodeColorer
+import com.felipebz.zpa.atlas.query.ModuleTexts
 import io.ktor.client.*
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -28,7 +29,8 @@ internal const val PROJECTS_SEGMENT = "p"
  * A project the server serves: [name] is a segment of its URLs, [indexFile] the index `index --project` writes, and
  * [sources] its sources folder, null when it is not on this machine. The index file may not exist yet: the project is
  * then not indexed, and is served as soon as the file appears. [title] and [description] tell people and agents which
- * codebase it is. [colorer] colors its files' text on the file page; [tabWidth] is how wide its pages show a tab.
+ * codebase it is. [colorer] colors its files' text on the file page, [moduleTexts] rebuilds its Forms modules' text;
+ * [tabWidth] is how wide its pages show a tab.
  */
 class ServedProject(
     val name: String,
@@ -38,13 +40,14 @@ class ServedProject(
     val description: String? = null,
     colorer: CodeColorer? = null,
     /** The width the project's pages show a tab with by default, one of [TAB_WIDTHS]. */
-    val tabWidth: Int = DEFAULT_TAB_WIDTH
+    val tabWidth: Int = DEFAULT_TAB_WIDTH,
+    moduleTexts: ModuleTexts? = null
 ) {
     init {
         require(NAME.matches(name)) { "A project name is lower-case letters, digits, '-' and '_', starting with a letter or a digit: $name" }
     }
 
-    val index = AtlasIndex(indexFile, sources, colorer = colorer)
+    val index = AtlasIndex(indexFile, sources, colorer = colorer, moduleTexts = moduleTexts)
 
     /** Whether the index file exists: the project has been indexed. */
     val indexed: Boolean get() = Files.isRegularFile(indexFile)

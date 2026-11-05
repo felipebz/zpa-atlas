@@ -16,6 +16,7 @@ import java.time.Duration
  * @param sourcesRoot the folder the indexed paths are relative to, or null when sources are not available
  * @param queryTimeout how long an occurrence query may run before it is interrupted ([QueryTimeoutException])
  * @param colorer what colors a file's text for [file]; null when the server colors none
+ * @param moduleTexts what rebuilds a Forms module's text from its file; null when the server reads none
  */
 class AtlasIndex(
     val database: Path,
@@ -23,7 +24,8 @@ class AtlasIndex(
     private val queryTimeout: Duration = DEFAULT_QUERY_TIMEOUT,
     /** The most nodes [impactView] answers. */
     private val maxViewNodes: Int = MAX_VIEW_NODES,
-    private val colorer: CodeColorer? = null
+    private val colorer: CodeColorer? = null,
+    private val moduleTexts: ModuleTexts? = null
 ) {
 
     /**
@@ -93,7 +95,7 @@ class AtlasIndex(
         return read { connection, _ ->
             val page = PlaceReader(connection).groups(key, filter, offset, limit) ?: return@read null
             // Each row's line of code, every file read once for the page.
-            val texts = SourceReader(connection, sourcesRoot).placeLines(page.groups.flatMap { g -> g.rows.mapNotNull { it.shown } }.toSet(), colorer)
+            val texts = SourceReader(connection, sourcesRoot, moduleTexts).placeLines(page.groups.flatMap { g -> g.rows.mapNotNull { it.shown } }.toSet(), colorer)
             page.copy(groups = page.groups.map { g -> g.copy(rows = g.rows.map { row -> row.copy(shown = row.shown?.let { texts[it] ?: it }) }) })
         }
     }
@@ -288,7 +290,7 @@ class AtlasIndex(
     fun source(path: String, line: Int, context: Int = 3, colors: Boolean = false): Answer<SourceSnippet?> {
         if (line < 1) throw InvalidQueryException("line must be at least 1")
         if (context !in 0..50) throw InvalidQueryException("context must be between 0 and 50")
-        return read { connection, _ -> SourceReader(connection, sourcesRoot).source(path, line, context, colorer.takeIf { colors }) }
+        return read { connection, _ -> SourceReader(connection, sourcesRoot, moduleTexts).source(path, line, context, colorer.takeIf { colors }) }
     }
 
     /**
@@ -298,7 +300,7 @@ class AtlasIndex(
      */
     fun occurrenceLines(ids: List<Long>, colors: Boolean = false): Answer<List<OccurrenceLine>> {
         if (ids.size > 500) throw InvalidQueryException("At most 500 ids")
-        return read { connection, _ -> SourceReader(connection, sourcesRoot).occurrenceLines(ids.distinct(), colorer.takeIf { colors }) }
+        return read { connection, _ -> SourceReader(connection, sourcesRoot, moduleTexts).occurrenceLines(ids.distinct(), colorer.takeIf { colors }) }
     }
 
     /**
@@ -310,7 +312,7 @@ class AtlasIndex(
      * @throws InvalidQueryException when [path] is not a file of the index or leaves the sources root
      */
     fun file(path: String, colors: Boolean = false): Answer<FileView?> =
-        read { connection, _ -> SourceReader(connection, sourcesRoot).file(path, colorer.takeIf { colors }) }
+        read { connection, _ -> SourceReader(connection, sourcesRoot, moduleTexts).file(path, colorer.takeIf { colors }) }
 
     /**
      * The lines of the indexed files that contain [text], a literal piece of text compared without case (`*` and every
@@ -338,7 +340,7 @@ class AtlasIndex(
             throw InvalidQueryException("containerName has more than ${OccurrenceQuerySql.MAX_SEGMENTS} segments")
         }
         return read(timed = true) { connection, _ ->
-            TextSearchReader(connection, sourcesRoot).search(text, path, container, containerName, after, limit, colorer.takeIf { colors })
+            TextSearchReader(connection, sourcesRoot, moduleTexts).search(text, path, container, containerName, after, limit, colorer.takeIf { colors })
         }
     }
 
@@ -381,7 +383,7 @@ class AtlasIndex(
         val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 25
+        const val SCHEMA_VERSION = 26
 
         /** How a place's value arrives ([ColumnPlace.source]), the values [PlaceFilter.source] takes. */
         val PLACE_SOURCES = listOf("SELECT_INTO", "FETCH", "RETURNING", "ASSIGNMENT", "IN_ARGUMENT", "OUT_ARGUMENT", "RETURNED")

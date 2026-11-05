@@ -1,0 +1,10 @@
+<?xml version = '1.0' encoding = 'UTF-8'?>
+<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms">
+   <FormModule Name="ORDER_LITE" Title="Order lite">
+      <Block Name="COMPANY" QueryDataSourceName="COMPANY">
+         <Item Name="ID" ColumnName="ID"/>
+         <Trigger Name="KEY-EXIT" ParentModule="REF_LIB" ParentModuleType="12" ParentName="KEY-EXIT" ParentFilename="ref_lib.fmb"/>
+      </Block>
+      <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="go_block('COMPANY');&amp;#10;proc_standalone(2);"/>
+   </FormModule>
+</Module>

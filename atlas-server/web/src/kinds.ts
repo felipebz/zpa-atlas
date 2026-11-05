@@ -6,8 +6,8 @@ const KIND_MARKS: Record<string, [string, string]> = {
   OBJECT_TABLE: ["OT", "relation"], COLUMN: ["c", "relation"], SYNONYM: ["SY", "relation"], SEQUENCE: ["S", "relation"],
   PARAMETER: ["PA", "member"], PACKAGE_VARIABLE: ["V", "member"], PACKAGE_CONSTANT: ["C", "member"], EXCEPTION: ["E", "member"],
   CURSOR: ["CU", "member"], LOCAL_VARIABLE: ["LV", "member"], LOCAL_CONSTANT: ["LC", "member"], LABEL: ["L", "member"],
-  FORMS_MODULE: ["FM", "other"], FORMS_BLOCK: ["FB", "other"], FORMS_ITEM: ["FI", "other"], FORMS_TRIGGER: ["FG", "other"],
-  FORMS_PROGRAM_UNIT: ["FU", "other"], FORMS_LIBRARY: ["FL", "other"], UNKNOWN_RELATION: ["?", "other"]
+  FORMS_MODULE: ["FM", "other"], FORMS_BLOCK: ["FB", "other"], FORMS_ITEM: ["FI", "other"], FORMS_TRIGGER: ["FG", "unit"],
+  FORMS_PROGRAM_UNIT: ["FU", "unit"], FORMS_LIBRARY: ["FL", "other"], UNKNOWN_RELATION: ["?", "other"]
 };
 
 /** The letters and color group of [kind]; an unknown kind gets a dot in the neutral group. */
@@ -22,6 +22,7 @@ export function kindMark(kind: string): [string, string] {
 const KIND_ORDER = [
   "COLUMN", "RECORD_FIELD", "ATTRIBUTE",
   "PACKAGE", "PROCEDURE", "FUNCTION", "TRIGGER",
+  "FORMS_BLOCK", "FORMS_ITEM", "FORMS_TRIGGER", "FORMS_PROGRAM_UNIT", "FORMS_LIBRARY",
   "TABLE", "VIEW", "MATERIALIZED_VIEW", "OBJECT_TABLE", "SEQUENCE", "SYNONYM",
   "TYPE", "CURSOR", "PACKAGE_CONSTANT", "PACKAGE_VARIABLE", "LOCAL_CONSTANT", "LOCAL_VARIABLE", "EXCEPTION", "LABEL"
 ];
