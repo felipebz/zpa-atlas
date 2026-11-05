@@ -45,6 +45,48 @@ class FormsModuleTest {
     }
 
     @Test
+    fun `a calculated item's formula is its FORMULA-CALCULATION trigger, first among the item's, and a blank one is none`() {
+        val module = read("calc_desk_fmb.xml")
+        assertThat(module.code.map { code ->
+            when (code) {
+                is FormsTrigger -> "${code.level} ${code.owner} ${code.name.value} ${code.text.origin}: ${code.text.value}"
+                else -> code.name.value
+            }
+        }).containsExactly(
+            "ITEM [LINES, TOTAL] FORMULA-CALCULATION overridden: NVL(:lines.qty, 0) * pack_process.f_next",
+            "ITEM [LINES, TOTAL] POST-CHANGE overridden: null;",
+            "ITEM [LINES, RATE] FORMULA-CALCULATION overridden: fn_rate(\n  :lines.qty)\n  / 100",
+            "FN_RATE"
+        )
+    }
+
+    @Test
+    fun `a formula is the value of an assignment to its item, its lines unchanged`() {
+        val text = FormsModuleText.of(read("calc_desk_fmb.xml"), "CALC_DESK").text
+        assertThat(text.substringBefore("\n-- ")).isEqualTo(
+            """
+            |BEGIN -- CALC_DESK/LINES/TOTAL/FORMULA-CALCULATION
+            |:LINES.TOTAL :=
+            |NVL(:lines.qty, 0) * pack_process.f_next
+            |;
+            |END;
+            |
+            |BEGIN -- CALC_DESK/LINES/TOTAL/POST-CHANGE
+            |null;
+            |END;
+            |
+            |BEGIN -- CALC_DESK/LINES/RATE/FORMULA-CALCULATION
+            |:LINES.RATE :=
+            |fn_rate(
+            |  :lines.qty)
+            |  / 100
+            |;
+            |END;
+            |""".trimMargin()
+        )
+    }
+
+    @Test
     fun `the module text wraps each trigger in a block and names each unit by its path`() {
         val text = FormsModuleText.of(read("order_desk_fmb.xml"), "ORDER_DESK")
         // The escaped line breaks are line breaks, the tabs and the blank line are kept, the carriage return is dropped.

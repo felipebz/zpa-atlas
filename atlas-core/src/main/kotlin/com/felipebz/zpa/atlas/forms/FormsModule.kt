@@ -46,7 +46,18 @@ enum class FormsTriggerLevel { MODULE, BLOCK, ITEM, EVENT }
  * A trigger: its [level], the names of the objects it is on below the module ([owner]: none, the block, the block and
  * the item, or the event) and its PL/SQL [text], the statements of a block without `BEGIN` and `END`.
  */
-data class FormsTrigger(val level: FormsTriggerLevel, val owner: List<String>, override val name: FormsValue, val text: FormsValue) : FormsCode
+data class FormsTrigger(val level: FormsTriggerLevel, val owner: List<String>, override val name: FormsValue, val text: FormsValue) : FormsCode {
+    /** Whether this is a calculated item's formula ([FORMULA]): its text is one expression, not statements. */
+    val isFormula: Boolean get() = level == FormsTriggerLevel.ITEM && name.value == FORMULA
+
+    companion object {
+        /**
+         * The name of the trigger a calculated item's formula is (the internal trigger Forms runs it as): a trigger of
+         * level [FormsTriggerLevel.ITEM] on the item, whose text is the formula's expression, without `;`.
+         */
+        const val FORMULA = "FORMULA-CALCULATION"
+    }
+}
 
 /** A program unit: a procedure, a function, a package specification or a package body, written without `CREATE`. */
 data class FormsProgramUnit(override val name: FormsValue, val text: FormsValue) : FormsCode {

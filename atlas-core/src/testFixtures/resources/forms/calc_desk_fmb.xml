@@ -1,0 +1,14 @@
+<?xml version = '1.0' encoding = 'UTF-8'?>
+<Module version="122010300" Dump="All" xmlns:CALC_DESK_default="http://xmlns.oracle.com/Forms"
+        xmlns:CALC_DESK_overridden="http://xmlns.oracle.com/Forms" xmlns="http://xmlns.oracle.com/Forms">
+   <FormModule CALC_DESK_overridden:Name="CALC_DESK" CALC_DESK_default:Comment="">
+      <Block CALC_DESK_overridden:Name="LINES" CALC_DESK_default:Comment="">
+         <Item CALC_DESK_overridden:Name="QTY" CALC_DESK_default:Formula=""/>
+         <Item CALC_DESK_overridden:Name="TOTAL" CALC_DESK_overridden:CalculateMode="Fórmula" CALC_DESK_overridden:Formula="NVL(:lines.qty, 0) * pack_process.f_next">
+            <Trigger CALC_DESK_overridden:Name="POST-CHANGE" CALC_DESK_overridden:TriggerText="null;"/>
+         </Item>
+         <Item CALC_DESK_overridden:Name="RATE" CALC_DESK_overridden:CalculateMode="Fórmula" CALC_DESK_overridden:Formula="fn_rate(&amp;#10;  :lines.qty)&amp;#10;  / 100"/>
+      </Block>
+      <ProgramUnit CALC_DESK_overridden:Name="FN_RATE" CALC_DESK_overridden:ProgramUnitText="FUNCTION fn_rate(p_qty number) RETURN number IS&amp;#10;BEGIN&amp;#10;  RETURN p_qty * 2;&amp;#10;END;"/>
+   </FormModule>
+</Module>

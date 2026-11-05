@@ -22,6 +22,9 @@ import javax.xml.stream.XMLStreamReader
  * properties the module itself sets are written, without prefix, so the code a module inherits from another
  * (an object with a `ParentModule`) is missing: a note says so.
  *
+ * A calculated item's `Formula` is its trigger `FORMULA-CALCULATION` ([FormsTrigger.FORMULA]), first among the item's
+ * triggers; a blank one is none.
+ *
  * `frmf2xml` escapes the line breaks of the code twice: once parsed, a text still has `&#10;` for each line break
  * (`&#x9;` for a tab, `&#xD;` for a carriage return, dropped). Object libraries (`_olb.xml`) and menu modules
  * (`_mmb.xml`) are not indexed.
@@ -106,7 +109,12 @@ object Frmf2xmlReader : FormsModuleReader {
                     block = name
                     items = ArrayList()
                 }
-                "Item" -> if (parent() == "Block" && name != null) items += FormsItem(name)
+                "Item" -> if (parent() == "Block" && name != null) {
+                    items += FormsItem(name)
+                    attributes["Formula"]?.takeIf { it.value.isNotBlank() }?.let { formula ->
+                        code += FormsTrigger(FormsTriggerLevel.ITEM, listOf(open.last().name.orEmpty(), name.value), FormsValue(FormsTrigger.FORMULA), formula)
+                    }
+                }
                 "Trigger" -> trigger(name, attributes["TriggerText"])
                 "ProgramUnit" -> if (name != null) attributes["ProgramUnitText"]?.let { code += FormsProgramUnit(name, it) }
                 "RecordGroup" -> if (name != null) attributes["RecordGroupQuery"]?.takeIf { it.value.isNotBlank() }?.let { code += FormsRecordGroup(name, it) }

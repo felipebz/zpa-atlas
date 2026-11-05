@@ -11,6 +11,8 @@ package com.felipebz.zpa.atlas.forms
  *
  * The module's code, in [FormsModule.code] order, one blank line between two units:
  * - a trigger: `BEGIN -- path`, its text unchanged, `END;` (a trigger's text is the inside of a block);
+ * - a calculated item's formula ([FormsTrigger.isFormula]), an expression: `BEGIN -- path`, `:BLOCK.ITEM :=`, the
+ *   expression unchanged, `;`, `END;`;
  * - a program unit: `-- path`, then its text;
  * - a record group query: `-- path`, the query, `;`.
  *
@@ -43,10 +45,17 @@ class FormsModuleText private constructor(val text: String, val units: List<Unit
                 if (units.isNotEmpty()) append("\n")
                 val first = line
                 when (code) {
-                    is FormsTrigger -> {
+is FormsTrigger -> {
                         append("BEGIN -- $path\n")
-                        append(body)
-                        if (!body.endsWith('\n')) append("\n")
+                        if (code.isFormula) {
+                            // An expression: the value of an assignment to the item, so that it is parsed as one.
+                            append(":${code.owner.joinToString(".")} :=\n")
+                            append(body.trimEnd('\n') + "\n")
+                            append(";\n")
+                        } else {
+                            append(body)
+                            if (!body.endsWith('\n')) append("\n")
+                        }
                         append("END;\n")
                     }
                     is FormsProgramUnit -> append("-- $path\n" + body.trimEnd('\n') + "\n")
