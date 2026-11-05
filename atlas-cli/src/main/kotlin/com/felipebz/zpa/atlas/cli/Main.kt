@@ -55,15 +55,17 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
         throw CliValidationException(project?.let { inFile(it, taken, e.message.orEmpty()) } ?: e.message.orEmpty())
     }
     val (sources, encoding) = checked
-    val readers = moduleReaders()
-    val indexer = Indexer()
-    // Read while the dictionary loads: the cache does not need it until the plan.
-    val cache = if (args.incremental) indexer.readFactsCache(Path.of(args.out)) else null
-    val extensions = args.extensions.split(',').map { it.trim() }
-    // The sources first, so that the build of their text index overlaps the dictionary load too.
-    phases?.start(PhaseTimes.READING)
-    indexer.readSources(sources, extensions, encoding, Path.of(args.out), readers).use { read ->
-        return index(args, project, phases, indexer, cache, read, extensions, checked, readers)
+    // The readers' JARs stay open for the whole run, and are closed when it ends.
+    moduleReaders().use { readers ->
+        val indexer = Indexer()
+        // Read while the dictionary loads: the cache does not need it until the plan.
+        val cache = if (args.incremental) indexer.readFactsCache(Path.of(args.out)) else null
+        val extensions = args.extensions.split(',').map { it.trim() }
+        // The sources first, so that the build of their text index overlaps the dictionary load too.
+        phases?.start(PhaseTimes.READING)
+        indexer.readSources(sources, extensions, encoding, Path.of(args.out), readers).use { read ->
+            return index(args, project, phases, indexer, cache, read, extensions, checked, readers)
+        }
     }
 }
 
@@ -281,8 +283,11 @@ private fun serve(args: ServeArguments, environment: (String) -> String?, launch
     if (args.host !in MCP_LOCAL_HOSTS && mcpHosts.isEmpty() && auth == null) {
         System.err.println("Warning: /mcp accepts only local host names; clients on other machines need --mcp-allowed-host with the name they use")
     }
-    val moduleTexts = ReaderModuleTexts(moduleReaders())
-    launch(ServeLaunch(database, sources, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, tabWidth = tabWidth, moduleTexts = moduleTexts))
+    // The server rebuilds module texts for as long as it runs: launch returns when it stops.
+    moduleReaders().use { readers ->
+        launch(ServeLaunch(database, sources, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, tabWidth = tabWidth,
+            moduleTexts = ReaderModuleTexts(readers)))
+    }
     return 0
 }
 
@@ -307,53 +312,56 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
     }
     val auth = authSettings(args, environment, basePath)
     val folder = ProjectFolder.read(Path.of(args.projects.trim()))
-    val moduleTexts = ReaderModuleTexts(moduleReaders())
-    val projects = folder.projects.map { project ->
-        val sources = Path.of(project["sources"]!!)
-        ServedProject(
-            project.name, Path.of(project["index"]!!), sources.takeIf { Files.isDirectory(it) }, project.title, project.description, ZpaCodeColorer,
-            project.tabWidth ?: tabWidth, moduleTexts
-        )
-    }
-    val defaultProject = args.defaultProject.trim().ifEmpty { null }
-    if (defaultProject != null && projects.none { it.name == defaultProject }) {
-        throw CliValidationException("The default project $defaultProject is not one of the projects: ${projects.joinToString(", ") { it.name }}")
-    }
-    val ignored = listOf("--db", "--sources").map(::environmentName).filter { !environment(it).isNullOrBlank() }
-    if (ignored.isNotEmpty()) System.err.println("Ignoring ${ignored.joinToString(" and ")}: --projects says what to serve")
-    val address = "http://${args.host}:${args.port}"
-    System.err.println("Serving ${projects.size} project${if (projects.size == 1) "" else "s"} of ${folder.folder} on $address${basePath.of("/")}")
-    val warnings = ArrayList(folder.warnings)
-    for ((served, file) in projects.zip(folder.projects)) {
-        val summary = served.summary()
-        val state = when (summary.state) {
-            ProjectState.READY -> "indexed ${summary.finishedAt}, ${summary.files} files"
-            ProjectState.NOT_INDEXED -> "not indexed yet"
-            ProjectState.UNAVAILABLE -> "unavailable: ${summary.error}"
+    // The servers rebuild module texts for as long as they run: launch returns when they stop.
+    moduleReaders().use { readers ->
+        val moduleTexts = ReaderModuleTexts(readers)
+        val projects = folder.projects.map { project ->
+            val sources = Path.of(project["sources"]!!)
+            ServedProject(
+                project.name, Path.of(project["index"]!!), sources.takeIf { Files.isDirectory(it) }, project.title, project.description, ZpaCodeColorer,
+                project.tabWidth ?: tabWidth, moduleTexts
+            )
         }
-        System.err.println("Project ${served.name} at $address${basePath.of("/p/${served.name}/")}: index ${served.indexFile}, sources ${served.sources ?: "not available"}; $state")
-        if (summary.state == ProjectState.NOT_INDEXED) {
-            warnings += "Warning: project ${served.name} is not indexed yet: its index ${served.indexFile} does not exist; its API answers 503 until " +
-                "`zpa-atlas index --project ${file.file}` writes it"
+        val defaultProject = args.defaultProject.trim().ifEmpty { null }
+        if (defaultProject != null && projects.none { it.name == defaultProject }) {
+            throw CliValidationException("The default project $defaultProject is not one of the projects: ${projects.joinToString(", ") { it.name }}")
         }
-        if (served.sources == null) warnings += "Warning: project ${served.name}: sources folder ${file["sources"]} does not exist here; it is served without sources"
-    }
-    System.err.println("MCP at $address${basePath.of("/mcp")}, for Host ${(MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")}: " +
-        "every project, picked by the tools' project argument" + when {
-            defaultProject != null -> "; without it, the default project $defaultProject"
-            projects.size == 1 -> " (optional with one project)"
-            else -> ""
-        })
-    if (auth != null) {
-        System.err.println("Authentication: /mcp, /api and every project's API need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
-            (auth.scope?.let { " and scope $it" } ?: ""))
-        System.err.println("Protected resource metadata: ${auth.metadataUrl}")
-        auth.page?.let {
-            System.err.println("Page sign-in: client ${it.clientId} (${if (it.clientSecret == null) "public" else "confidential"}), redirect URI ${auth.base}/auth/callback")
+        val ignored = listOf("--db", "--sources").map(::environmentName).filter { !environment(it).isNullOrBlank() }
+        if (ignored.isNotEmpty()) System.err.println("Ignoring ${ignored.joinToString(" and ")}: --projects says what to serve")
+        val address = "http://${args.host}:${args.port}"
+        System.err.println("Serving ${projects.size} project${if (projects.size == 1) "" else "s"} of ${folder.folder} on $address${basePath.of("/")}")
+        val warnings = ArrayList(folder.warnings)
+        for ((served, file) in projects.zip(folder.projects)) {
+            val summary = served.summary()
+            val state = when (summary.state) {
+                ProjectState.READY -> "indexed ${summary.finishedAt}, ${summary.files} files"
+                ProjectState.NOT_INDEXED -> "not indexed yet"
+                ProjectState.UNAVAILABLE -> "unavailable: ${summary.error}"
+            }
+            System.err.println("Project ${served.name} at $address${basePath.of("/p/${served.name}/")}: index ${served.indexFile}, sources ${served.sources ?: "not available"}; $state")
+            if (summary.state == ProjectState.NOT_INDEXED) {
+                warnings += "Warning: project ${served.name} is not indexed yet: its index ${served.indexFile} does not exist; its API answers 503 until " +
+                    "`zpa-atlas index --project ${file.file}` writes it"
+            }
+            if (served.sources == null) warnings += "Warning: project ${served.name}: sources folder ${file["sources"]} does not exist here; it is served without sources"
         }
+        System.err.println("MCP at $address${basePath.of("/mcp")}, for Host ${(MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")}: " +
+            "every project, picked by the tools' project argument" + when {
+                defaultProject != null -> "; without it, the default project $defaultProject"
+                projects.size == 1 -> " (optional with one project)"
+                else -> ""
+            })
+        if (auth != null) {
+            System.err.println("Authentication: /mcp, /api and every project's API need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
+                (auth.scope?.let { " and scope $it" } ?: ""))
+            System.err.println("Protected resource metadata: ${auth.metadataUrl}")
+            auth.page?.let {
+                System.err.println("Page sign-in: client ${it.clientId} (${if (it.clientSecret == null) "public" else "confidential"}), redirect URI ${auth.base}/auth/callback")
+            }
+        }
+        warnings.forEach { System.err.println(if (it.startsWith("Warning: ")) it else "Warning: $it") }
+        launch(ServeLaunch(null, null, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, projects, defaultProject))
     }
-    warnings.forEach { System.err.println(if (it.startsWith("Warning: ")) it else "Warning: $it") }
-    launch(ServeLaunch(null, null, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, projects, defaultProject))
     return 0
 }
 

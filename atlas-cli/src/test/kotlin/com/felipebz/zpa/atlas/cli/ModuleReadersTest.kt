@@ -43,36 +43,38 @@ class ModuleReadersTest {
 
     @Test
     fun `a reader of the readers folder indexes its modules next to the frmf2xml ones, and the server shows their text`() {
-        val readers = moduleReaders(jar("ledger.jar", LedgerJsonReader::class))
-        assertThat(readers.readers.map { it.name }).containsExactly("frmf2xml", "ledger-json")
-        val sources = temp.resolve("src").createDirectories()
-        sources.resolve("books_ledger.json").writeText(
-            """{"module": "BOOKS", "triggers": [{"name": "WHEN-NEW-FORM-INSTANCE", "text": "post_entry;"}],
-               |"programUnits": [{"name": "POST_ENTRY", "text": "PROCEDURE post_entry IS\nBEGIN\n  delete orders where id = 0;\nEND;"}]}""".trimMargin()
-        )
-        sources.resolve("orders_fmb.xml").writeText(
-            """<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms"><FormModule Name="ORDERS">
-               |<Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="message('orders');"/></FormModule></Module>""".trimMargin()
-        )
-        val db = temp.resolve("atlas.db")
-        Indexer().index(IndexOptions(sources, db, threads = 1, readers = readers))
-        val units = DriverManager.getConnection("jdbc:sqlite:$db").use { connection ->
-            connection.createStatement().executeQuery(
-                "SELECT f.path || ' ' || f.kind || ' ' || u.kind || ' ' || u.name FROM unit u JOIN source_file f ON f.id = u.file_id ORDER BY u.id"
-            ).use { rows -> buildList { while (rows.next()) add(rows.getString(1)) } }
+        // The JARs stay open while the readers are used, for the index and for the server, and are closed after.
+        moduleReaders(jar("ledger.jar", LedgerJsonReader::class)).use { readers ->
+            assertThat(readers.readers.map { it.name }).containsExactly("frmf2xml", "ledger-json")
+            val sources = temp.resolve("src").createDirectories()
+            sources.resolve("books_ledger.json").writeText(
+                """{"module": "BOOKS", "triggers": [{"name": "WHEN-NEW-FORM-INSTANCE", "text": "post_entry;"}],
+                   |"programUnits": [{"name": "POST_ENTRY", "text": "PROCEDURE post_entry IS\nBEGIN\n  delete orders where id = 0;\nEND;"}]}""".trimMargin()
+            )
+            sources.resolve("orders_fmb.xml").writeText(
+                """<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms"><FormModule Name="ORDERS">
+                   |<Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="message('orders');"/></FormModule></Module>""".trimMargin()
+            )
+            val db = temp.resolve("atlas.db")
+            Indexer().index(IndexOptions(sources, db, threads = 1, readers = readers))
+            val units = DriverManager.getConnection("jdbc:sqlite:$db").use { connection ->
+                connection.createStatement().executeQuery(
+                    "SELECT f.path || ' ' || f.kind || ' ' || u.kind || ' ' || u.name FROM unit u JOIN source_file f ON f.id = u.file_id ORDER BY u.id"
+                ).use { rows -> buildList { while (rows.next()) add(rows.getString(1)) } }
+            }
+            assertThat(units).containsExactly(
+                "books_ledger.json FORMS_MODULE FORMS_TRIGGER BOOKS/WHEN-NEW-FORM-INSTANCE",
+                "books_ledger.json FORMS_MODULE FORMS_PROGRAM_UNIT BOOKS/POST_ENTRY",
+                "orders_fmb.xml FORMS_MODULE FORMS_TRIGGER ORDERS/WHEN-NEW-FORM-INSTANCE"
+            )
+            val page = AtlasIndex(db, sources, moduleTexts = ReaderModuleTexts(readers)).file("books_ledger.json").result!!
+            assertThat(page.stale).isFalse()
+            assertThat(page.lines).containsExactly(
+                "BEGIN -- BOOKS/WHEN-NEW-FORM-INSTANCE", "post_entry;", "END;", "", "-- BOOKS/POST_ENTRY", "PROCEDURE post_entry IS", "BEGIN",
+                "  delete orders where id = 0;", "END;", ""
+            )
+            assertThat(page.objects.map { it.entity.key }).containsExactly("forms:BOOKS/WHEN-NEW-FORM-INSTANCE", "forms:BOOKS/POST_ENTRY")
         }
-        assertThat(units).containsExactly(
-            "books_ledger.json FORMS_MODULE FORMS_TRIGGER BOOKS/WHEN-NEW-FORM-INSTANCE",
-            "books_ledger.json FORMS_MODULE FORMS_PROGRAM_UNIT BOOKS/POST_ENTRY",
-            "orders_fmb.xml FORMS_MODULE FORMS_TRIGGER ORDERS/WHEN-NEW-FORM-INSTANCE"
-        )
-        val page = AtlasIndex(db, sources, moduleTexts = ReaderModuleTexts(readers)).file("books_ledger.json").result!!
-        assertThat(page.stale).isFalse()
-        assertThat(page.lines).containsExactly(
-            "BEGIN -- BOOKS/WHEN-NEW-FORM-INSTANCE", "post_entry;", "END;", "", "-- BOOKS/POST_ENTRY", "PROCEDURE post_entry IS", "BEGIN",
-            "  delete orders where id = 0;", "END;", ""
-        )
-        assertThat(page.objects.map { it.entity.key }).containsExactly("forms:BOOKS/WHEN-NEW-FORM-INSTANCE", "forms:BOOKS/POST_ENTRY")
     }
 
     @Test

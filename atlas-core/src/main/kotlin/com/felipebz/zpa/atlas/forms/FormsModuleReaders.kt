@@ -15,12 +15,17 @@ import kotlin.io.path.isRegularFile
 /**
  * The module readers of a run: which reads a file, by the end of its name. No two readers may claim the same files:
  * an ending of one that ends with an ending of another (`_fmb.xml` and `.xml`) is refused when the set is made.
+ *
+ * Readers loaded from JARs ([load]) keep their JARs open, so that they can load their classes as they need them, until
+ * [close]: close the set once the run that uses it ends (an open file cannot be deleted on Windows).
  */
 class FormsModuleReaders private constructor(
     val readers: List<FormsModuleReader>,
     /** The providers in the readers folder that could not be loaded (a broken or incompatible JAR), skipped. */
-    val unloadable: Int
-) {
+    val unloadable: Int,
+    /** The class loader of the readers folder's JARs the [readers] come from; null when none does. */
+    private val loader: URLClassLoader? = null
+) : AutoCloseable {
     /** The reader of [fileName], or null when no reader reads it. */
     fun readerOf(fileName: String): FormsModuleReader? {
         val name = fileName.lowercase(Locale.ROOT)
@@ -54,12 +59,19 @@ class FormsModuleReaders private constructor(
     /** The readers' names and classes, in order: what the facts cache compares between runs. */
     val description: String get() = readers.joinToString(",") { "${it.name}=${it.javaClass.name}" }
 
+    /** Closes the JARs the readers were loaded from: no reader of the set may be used after. Without such JARs, nothing. */
+    override fun close() {
+        loader?.close()
+    }
+
     companion object {
         /** The built-in reader only. */
         val BUILT_IN = of(listOf(Frmf2xmlReader))
 
         /** [readers], checked: no two claim the same files. */
-        fun of(readers: List<FormsModuleReader>, unloadable: Int = 0): FormsModuleReaders {
+        fun of(readers: List<FormsModuleReader>, unloadable: Int = 0): FormsModuleReaders = of(readers, unloadable, null)
+
+        private fun of(readers: List<FormsModuleReader>, unloadable: Int, loader: URLClassLoader?): FormsModuleReaders {
             val endings = readers.flatMap { reader -> (reader.fileNameEndings + reader.skippedFileNameEndings.keys).map { it.lowercase(Locale.ROOT) to reader } }
             for ((ending, reader) in endings) {
                 require(ending.isNotEmpty()) { "The module reader ${reader.name} claims an empty file name ending" }
@@ -70,13 +82,14 @@ class FormsModuleReaders private constructor(
                     }
                 }
             }
-            return FormsModuleReaders(readers, unloadable)
+            return FormsModuleReaders(readers, unloadable, loader)
         }
 
         /**
          * The built-in reader, then the readers the JARs of [folder] register for [ServiceLoader] under
          * [FormsModuleReader] (`META-INF/services/com.felipebz.zpa.atlas.forms.FormsModuleReader`), in the order of the
          * JARs' names. A provider that cannot be loaded is skipped and counted ([unloadable]); a missing folder has none.
+         * The JARs stay open until the set is closed; they are closed at once when none gives a reader, or the readers clash.
          *
          * @throws IllegalArgumentException when two readers claim the same files
          */
@@ -86,20 +99,29 @@ class FormsModuleReaders private constructor(
             }.orEmpty()
             if (jars.isEmpty()) return BUILT_IN
             val loader = URLClassLoader(jars.map { it.toUri().toURL() }.toTypedArray(), FormsModuleReaders::class.java.classLoader)
-            val found = ArrayList<FormsModuleReader>()
-            var unloadable = 0
-            val providers = ServiceLoader.load(FormsModuleReader::class.java, loader).iterator()
-            while (true) {
-                val reader = try {
-                    if (!providers.hasNext()) break
-                    providers.next()
-                } catch (_: ServiceConfigurationError) {
-                    unloadable++
-                    continue
+            try {
+                val found = ArrayList<FormsModuleReader>()
+                var unloadable = 0
+                val providers = ServiceLoader.load(FormsModuleReader::class.java, loader).iterator()
+                while (true) {
+                    val reader = try {
+                        if (!providers.hasNext()) break
+                        providers.next()
+                    } catch (_: ServiceConfigurationError) {
+                        unloadable++
+                        continue
+                    }
+                    if (found.none { it.javaClass == reader.javaClass }) found += reader
                 }
-                if (found.none { it.javaClass == reader.javaClass }) found += reader
+                if (found.isEmpty()) {
+                    loader.close()
+                    return of(listOf(Frmf2xmlReader), unloadable)
+                }
+                return of(listOf(Frmf2xmlReader) + found, unloadable, loader)
+            } catch (e: Throwable) {
+                loader.close()
+                throw e
             }
-            return of(listOf(Frmf2xmlReader) + found, unloadable)
         }
     }
 }
