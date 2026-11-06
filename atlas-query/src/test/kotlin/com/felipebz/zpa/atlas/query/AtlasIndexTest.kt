@@ -49,7 +49,7 @@ class AtlasIndexTest {
         // hr/param_uses.sql: zpa binds the uses in the body to the body's declaration.
         val spec = "db:HR.PK_P.RUN(P_ROWS IN T_ROWS,P_REC IN OUT T_ROW).P_REC"
         val body = "db:HR.PK_P.RUN(P_ROWS IN T_ROWS,P_REC IN OUT T_ROW)@BODY.P_REC"
-        fun rows(key: String, scope: Set<Scope>) = index.occurrences(key, scope = scope).result!!.rows.map { "${it.span.startLine} ${it.entity?.key}" }
+        fun rows(key: String, scope: Set<Scope>) = index.occurrences(key, scope = scope).result!!.rows.map { "${it.span!!.startLine} ${it.entity?.key}" }
         assertThat(defaultUsageScopes("PARAMETER")).containsExactly(Scope.IMPLEMENTATIONS)
         assertThat(rows(spec, setOf(Scope.SELF))).isEmpty()
         val bodyUses = listOf("23 $body", "26 $body")
@@ -352,7 +352,7 @@ class AtlasIndexTest {
         assertThat(viewed.nextAfter).isNull()
         assertThat(self.rows).noneMatch { it.viaView || it.path == "hr/proc_view_chain.prc" }
         // V_CHAIN2.LABEL comes from V_CHAIN1.COMPANY_NAME, which comes from the table column.
-        val chain = viewed.rows.single { it.path == "hr/proc_view_chain.prc" && it.span.startLine == 4 }
+        val chain = viewed.rows.single { it.path == "hr/proc_view_chain.prc" && it.span!!.startLine == 4 }
         assertThat(chain.written).isEqualTo("label")
         assertThat(chain.viaView).isTrue()
         assertThat(chain.matched!!.key).isEqualTo("db:HR.V_CHAIN2.LABEL")
@@ -367,7 +367,7 @@ class AtlasIndexTest {
         assertThat(page.nextAfter).isNull()
         val rows = page.rows.filter { it.path == "hr/proc_view_chain.prc" }
         // V_LIN_JOIN.MSG (5:9) comes from EVENT_LOG.MSG: CHILDREN does not apply to the views VIEWS adds.
-        assertThat(rows.map { "${it.span.startLine}:${it.span.startCol} ${it.matched!!.key} ${it.viaView}" }).containsExactly(
+        assertThat(rows.map { "${it.span!!.startLine}:${it.span!!.startCol} ${it.matched!!.key} ${it.viaView}" }).containsExactly(
             "4:9 db:HR.V_CHAIN2.LABEL true",
             "4:27 db:HR.V_CHAIN2 true",
             "4:42 db:HR.V_CHAIN2.ID true",
@@ -385,7 +385,7 @@ class AtlasIndexTest {
         assertThat(index.entity("db:HR.COMPANY").result!!.views.map { it.key }).contains("db:HR.MV_COMPANY_LOG")
         assertThat(index.entity("db:HR.MV_COMPANY_LOG").result!!.reads.map { it.key }).containsExactly("db:HR.COMPANY", "db:HR.V_COMPANY_LIST")
         val rows = index.occurrences("db:HR.COMPANY", scope = setOf(Scope.VIEWS), limit = 500).result!!.rows.filter { it.path == "hr/proc_mview.prc" }
-        assertThat(rows.map { "${it.span.startLine}:${it.span.startCol} ${it.matched!!.key} ${it.viaView}" })
+        assertThat(rows.map { "${it.span!!.startLine}:${it.span!!.startCol} ${it.matched!!.key} ${it.viaView}" })
             .containsExactly("3:40 db:HR.MV_COMPANY_LOG true")
     }
 
@@ -393,7 +393,7 @@ class AtlasIndexTest {
     fun `candidates of the four-parameter overload include the ambiguous calls`() {
         val page = index.occurrences(runJob4).result!!
         val ambiguous = page.rows.filter { it.viaCandidate }
-        assertThat(ambiguous.map { it.path to it.span.startLine }).containsExactly("hr/pack_calls.pkb" to 33, "hr/pack_calls.pkb" to 34)
+        assertThat(ambiguous.map { it.path to it.span!!.startLine }).containsExactly("hr/pack_calls.pkb" to 33, "hr/pack_calls.pkb" to 34)
         assertThat(ambiguous).allMatch { it.status == "AMBIGUOUS" && it.entity == null && it.candidates.map { c -> c.key } == listOf(runJob4, runJob5) }
         assertThat(index.occurrences(runJob4, includeCandidates = false).result!!.rows).noneMatch { it.viaCandidate }
     }
@@ -412,7 +412,7 @@ class AtlasIndexTest {
         assertThat(seen).isEqualTo(all.rows)
         assertThat(seen.map { it.id }).doesNotHaveDuplicates().isSorted
         // Ids follow file path, then position.
-        assertThat(seen.map { it.path to it.span.startLine * 10_000 + it.span.startCol }).isSortedAccordingTo(compareBy({ it.first }, { it.second }))
+        assertThat(seen.map { it.path to it.span!!.startLine * 10_000 + it.span!!.startCol }).isSortedAccordingTo(compareBy({ it.first }, { it.second }))
         assertThat(all.total).isEqualTo(seen.size.toLong())
     }
 
@@ -456,7 +456,7 @@ class AtlasIndexTest {
 
     @Test
     fun `occurrence lines give each use's line as indexed, served or not, and say when its file changed`() {
-        val rows = index.queryOccurrences(OccurrenceQuery(path = "hr/proc_standalone.prc"), summary = false).result.rows.filter { it.span.startLine == 3 }
+        val rows = index.queryOccurrences(OccurrenceQuery(path = "hr/proc_standalone.prc"), summary = false).result.rows.filter { it.span!!.startLine == 3 }
         assertThat(rows).hasSizeGreaterThanOrEqualTo(2)
         val ids = rows.map { it.id }
         val lines = index.occurrenceLines(ids + 999_999_999L).result
@@ -485,9 +485,9 @@ class AtlasIndexTest {
         assertThat(page.size).isGreaterThan(20)
         val lines = index.occurrenceLines(page.map { it.id }).result.associateBy { it.id }
         for (row in page) {
-            val expected = Fixture.sources.resolve(row.path).toFile().readText().lines()[row.span.startLine - 1]
+            val expected = Fixture.sources.resolve(row.path).toFile().readText().lines()[row.span!!.startLine - 1]
             if (expected.length < 3) continue
-            assertThat(lines.getValue(row.id).text).describedAs("${row.path}:${row.span.startLine}").isEqualTo(expected)
+            assertThat(lines.getValue(row.id).text).describedAs("${row.path}:${row.span!!.startLine}").isEqualTo(expected)
         }
     }
 
@@ -519,9 +519,9 @@ class AtlasIndexTest {
     @Test
     fun `the calls of one value are call occurrences with their argument values`() {
         val page = index.valueSites(pCode, "NUMBER", "1.5").result!!
-        assertThat(page.rows.map { it.span.startLine }).containsExactly(14, 15)
+        assertThat(page.rows.map { it.span!!.startLine }).containsExactly(14, 15)
         assertThat(page.rows.first().arguments.single().let { it.valueKind to it.value }).isEqualTo("NUMBER" to "1.5")
-        assertThat(index.valueSites(pCode, "EXPRESSION", null).result!!.rows.map { it.span.startLine }).containsExactly(28, 30)
+        assertThat(index.valueSites(pCode, "EXPRESSION", null).result!!.rows.map { it.span!!.startLine }).containsExactly(28, 30)
         assertThatThrownBy { index.valueSites(pCode, "NOPE", null) }.isInstanceOf(InvalidQueryException::class.java)
     }
 
@@ -530,17 +530,17 @@ class AtlasIndexTest {
         val groups = index.values("db:HR.COMPANY.ST_ACTIVE").result!!
         assertThat(groups.take(5)).containsExactly(ValueGroup("STRING", "S", 9), ValueGroup("STRING", "N", 7), ValueGroup("NULL", null, 3), ValueGroup("STRING", "X", 3), ValueGroup("DEFAULT", null, 1))
         val sites = index.valueSites("db:HR.COMPANY.ST_ACTIVE", "STRING", "S").result!!
-        assertThat(sites.rows.filter { it.path == "hr/proc_writes.prc" }.map { it.span.startLine }).containsExactly(7, 9, 10, 16)
+        assertThat(sites.rows.filter { it.path == "hr/proc_writes.prc" }.map { it.span!!.startLine }).containsExactly(7, 9, 10, 16)
         assertThat(sites.rows.first { it.path == "hr/proc_writes.prc" }.values.single().let { it.valueKind to it.value }).isEqualTo("STRING" to "S")
         assertThat(index.values("db:HR.COMPANY").result).isEmpty()
         // A row trigger's `:new.st_active := 'S'` is a write of the column too.
-        assertThat(sites.rows.filter { it.path == "hr/trg_company_values.trg" }.map { it.span.startLine }).containsExactly(7)
+        assertThat(sites.rows.filter { it.path == "hr/trg_company_values.trg" }.map { it.span!!.startLine }).containsExactly(7)
     }
 
     @Test
     fun `a function called through a database link lists its call sites with their argument values`() {
         val page = index.occurrences("db:NEXT_REQ@FAR").result!!
-        assertThat(page.rows.filter { it.path == "hr/remote_calls.prc" }.map { "${it.span.startLine} ${it.status} ${it.reason} ${it.arguments.map { a -> a.valueKind + " " + a.value }}" })
+        assertThat(page.rows.filter { it.path == "hr/remote_calls.prc" }.map { "${it.span!!.startLine} ${it.status} ${it.reason} ${it.arguments.map { a -> a.valueKind + " " + a.value }}" })
             .containsExactly("7 EXTERNAL DB_LINK [NUMBER 4]", "8 EXTERNAL DB_LINK [NUMBER 5]")
         val pack = index.entity("db:~.PACK_REQ@FAR.EXAMPLE.COM").result!!
         assertThat(pack.children.map { it.entity.key }).containsExactlyInAnyOrder("db:~.PACK_REQ@FAR.EXAMPLE.COM.CLOSE_REQ", "db:~.PACK_REQ@FAR.EXAMPLE.COM.GET_MAX")
@@ -556,7 +556,7 @@ class AtlasIndexTest {
         assertThat(throughViews("db:HR.V_COMPANY_LIST.COMPANY_LABEL")).containsExactlyInAnyOrder(ValueGroup("STRING", "via list", 1), ValueGroup("STRING", "via names", 1))
         // A site through a view is the occurrence on the view column.
         val sites = index.valueSites("db:HR.COMPANY.COMPANY_NAME", "STRING", "via names").result!!
-        assertThat(sites.rows.map { "${it.path}:${it.span.startLine} ${it.entity?.key}" })
+        assertThat(sites.rows.map { "${it.path}:${it.span!!.startLine} ${it.entity?.key}" })
             .containsExactly("hr/proc_view_writes.prc:4 db:HR.V_COMPANY_NAMES.COMPANY_LABEL")
         assertThat(index.valueSites("db:HR.COMPANY.ID", "NUMBER", "11").result!!.rows).isEmpty()
         assertThat(index.valueSites("db:HR.COMPANY.ID", "NUMBER", "12").result!!.rows).isEmpty()

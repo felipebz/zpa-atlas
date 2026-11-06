@@ -20,16 +20,18 @@ export interface ImpactTrigger {
 /**
  * One use on a shortest path to a node: [node] the node it uses (an index into the nodes), null on the first hop,
  * where [uses] (an index into the entities) is the entity asked for or what the first hop matched; inside Forms code,
- * [code] the unit [line] is in and its line there.
+ * [code] the unit [line] is in and its line there. A use Forms makes without code (a data block's query or DML, an
+ * item's column) is on no line: [line] null, [origin] `FORMS_IMPLICIT`.
  */
 export interface ImpactViewVia {
   node: number | null;
   uses: number;
   path: number;
-  line: number;
+  line: number | null;
   status: string;
   fires: string | null;
   code?: CodeAt | null;
+  origin?: string | null;
 }
 
 /** A node: [entity] an index into the entities, or for a file node [path] into the paths. */
@@ -168,12 +170,16 @@ export function shownNodes(view: ImpactView, state: ImpactState) {
 
 // ---- the path of a node -------------------------------------------------------------------------------------------
 
-/** One hop of a path: [node] (an index) uses the next hop's node, or the target, at [path] line [line] (inside Forms code, [code]'s line). */
+/**
+ * One hop of a path: [node] (an index) uses the next hop's node, or the target, at [path] line [line] (inside Forms
+ * code, [code]'s line); a use Forms makes without code on no line ([line] null, [origin] `FORMS_IMPLICIT`).
+ */
 export interface Hop {
   node: number;
   path: string;
-  line: number;
+  line: number | null;
   code: CodeAt | null;
+  origin: string | null;
   status: string;
   fires: string | null;
 }
@@ -181,7 +187,7 @@ export interface Hop {
 /** The hop of node [index]: where it uses the node it was reached through, or the target. */
 export function hopOf(view: ImpactView, index: number): Hop {
   const via = view.nodes[index].via;
-  return { node: index, path: view.paths[via.path], line: via.line, code: via.code ?? null, status: via.status, fires: via.fires };
+  return { node: index, path: view.paths[via.path], line: via.line, code: via.code ?? null, origin: via.origin ?? null, status: via.status, fires: via.fires };
 }
 
 /**
@@ -209,23 +215,25 @@ export function nodeText(view: ImpactView, index: number) {
 }
 
 /**
- * Where a hop is, as the CSV writes it: the file, the line (inside Forms code, the unit's own) and the unit's key, a
- * package's half after it (`forms:DEMO0004/PK_ACCORDION PACKAGE_BODY`); no unit outside Forms code.
+ * Where a hop is, as the CSV writes it: the file, the line (inside Forms code, the unit's own; empty for a use Forms
+ * makes without code) and the unit's key, a package's half after it (`forms:DEMO0004/PK_ACCORDION PACKAGE_BODY`); no
+ * unit outside Forms code.
  */
-export function hopPlace(hop: Hop): { file: string; line: number; unit: string } {
+export function hopPlace(hop: Hop): { file: string; line: number | ""; unit: string } {
   const code = hop.code;
-  return { file: hop.path, line: code?.line ?? hop.line, unit: code ? code.key + (code.unitKind ? " " + code.unitKind : "") : "" };
+  return { file: hop.path, line: code?.line ?? hop.line ?? "", unit: code ? code.key + (code.unitKind ? " " + code.unitKind : "") : "" };
 }
 
 /**
  * [pathOf] as one line of text, the hops joined by " < ": `name (file:line, fires INSERT, UNVERIFIED) < … < target`;
- * inside Forms code the unit stands for the file (`name (forms:DEMO0004/PK_ACCORDION PACKAGE_BODY:12)`).
+ * inside Forms code the unit stands for the file (`name (forms:DEMO0004/PK_ACCORDION PACKAGE_BODY:12)`); a use Forms
+ * makes without code names its file and [implicit], the words for it (`name (data_desk_fmb.xml, Forms, no code)`).
  */
-export function pathText(view: ImpactView, index: number, fires: (events: string) => string) {
+export function pathText(view: ImpactView, index: number, fires: (events: string) => string, implicit: string) {
   const { hops, target } = pathOf(view, index);
   const parts = hops.map(hop => {
     const place = hopPlace(hop);
-    const notes = [`${place.unit || place.file}:${place.line}`];
+    const notes = [place.line === "" ? `${place.file}, ${implicit}` : `${place.unit || place.file}:${place.line}`];
     if (hop.fires) notes.push(fires(hop.fires));
     if (hop.status !== "RESOLVED") notes.push(hop.status);
     return `${nodeText(view, hop.node)} (${notes.join(", ")})`;

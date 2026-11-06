@@ -43,10 +43,10 @@ class FormsFormulaTest {
             "11 FORMS_TRIGGER forms:CALC_DESK/LINES/RATE/FORMULA-CALCULATION", "20 FORMS_PROGRAM_UNIT forms:CALC_DESK/FN_RATE"
         )
         // A function of the database: its "Used by" lists the formula.
-        assertThat(index.occurrences("db:HR.PACK_PROCESS.F_NEXT()").result!!.rows.filter { it.path.startsWith("forms/") }.map { "${it.unit.kind} ${it.unit.name} ${it.span.startLine}" })
+        assertThat(index.occurrences("db:HR.PACK_PROCESS.F_NEXT()").result!!.rows.filter { it.path.startsWith("forms/") }.map { "${it.unit!!.kind} ${it.unit!!.name} ${it.span!!.startLine}" })
             .containsExactly("FORMS_TRIGGER CALC_DESK/LINES/TOTAL/FORMULA-CALCULATION 3")
         // A program unit of the module: the call resolves to it.
-        assertThat(index.occurrences("forms:CALC_DESK/FN_RATE").result!!.rows.map { "${it.unit.name} ${it.span.startLine}" })
+        assertThat(index.occurrences("forms:CALC_DESK/FN_RATE").result!!.rows.map { "${it.unit!!.name} ${it.span!!.startLine}" })
             .containsExactly("CALC_DESK/LINES/RATE/FORMULA-CALCULATION 13")
     }
 }

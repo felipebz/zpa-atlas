@@ -34,6 +34,7 @@ import {
     nameHtml,
     placeHtml,
     roleLabel,
+    relationLabel,
     specBodyLinks,
     statusLabel,
     valueKindLabel
@@ -51,7 +52,8 @@ import {
 } from "./entity-view";
 import {columnPlace, referencedColumn, referencingColumn, shownDeleteRule} from "./keys-view";
 import {showFormsTree} from "./forms";
-import {FORMS_TREE_KINDS, firstUnit, formsCrumbs, formsName} from "./forms-view";
+import type {DataSourceView} from "./forms-view";
+import {blockView, FORMS_TREE_KINDS, firstUnit, formsCrumbs, formsName, itemView} from "./forms-view";
 import {kindOrder} from "./kinds";
 import {
     codeBreaksHtml,
@@ -476,6 +478,41 @@ function referencedByHtml(entity: EntityDetail, own: string | null) {
   }).join(""), "compact stack keys");
 }
 
+/** A block's data source or DML target: its relation linked, else its name as written, its type beside it unless a table. */
+function dataSourceHtml(source: DataSourceView) {
+  const name = source.entity ? entityLink(source.entity) : `<span class="mono">${codeBreaksHtml(source.written)}</span>`;
+  return source.typeKey === null ? name : `${name} <span class="muted">(${esc(t(source.typeKey))})</span>`;
+}
+
+/**
+ * What a Forms data block or item makes Forms query and write with no code: a block's relations, its four operations
+ * (done by Forms, replaced by its trigger, not allowed, not followed) and its WHERE and ORDER BY as written; an item's
+ * kind, its column and what Forms does with it. Nothing for any other object.
+ */
+function formsDataHtml(entity: EntityDetail) {
+  const fact = (label: string, value: string) => `<tr><th scope="row">${esc(t(label))}</th><td>${value}</td></tr>`;
+  const clause = (label: string, text: string | null) => text === null ? "" : `<h3>${esc(t(label))}</h3><pre class="forms-clause">${esc(text)}</pre>`;
+  if (entity.formsBlock) {
+    const block = blockView(entity.formsBlock);
+    const operations = block.operations.map(o => fact(o.operationKey,
+      esc(t(o.stateKey)) + (o.trigger ? " " + formsNameLink(formsName(o.trigger, entity.forms)) : ""))).join("");
+    return sectionHead(t("forms.data"), t("forms.data.blockLine")) +
+      `<table class="forms-data compact"><tbody>${fact("forms.data.source", dataSourceHtml(block.source))}${fact("forms.data.target", dataSourceHtml(block.target))}` +
+      `${operations}</tbody></table>${clause("forms.data.where", block.where)}${clause("forms.data.orderBy", block.orderBy)}`;
+  }
+  if (entity.formsItem) {
+    const item = itemView(entity.formsItem);
+    const rows = [fact("forms.data.kind", esc(t(item.kindKey)))];
+    if (item.column !== null) rows.push(fact("forms.data.column", entityLink(item.column)));
+    if (item.targetColumn !== null) rows.push(fact("forms.data.targetColumn", entityLink(item.targetColumn)));
+    for (const done of item.done) rows.push(fact(done.key, esc(t(done.yes ? "forms.data.yes" : "forms.data.no"))));
+    // An item that is no database item, or stands for no column (a button), has nothing Forms reads or writes.
+    const none = item.column === null ? `<p class="muted">${esc(t(item.database ? "forms.data.noColumn" : "forms.data.notDatabase"))}</p>` : "";
+    return sectionHead(t("forms.data"), t("forms.data.itemLine")) + `<table class="forms-data compact"><tbody>${rows.join("")}</tbody></table>${none}`;
+  }
+  return "";
+}
+
 function renderEntity(entity: EntityDetail) {
   setPageTitle(t("page.entity.titleWith", { name: formsName(entity, entity.forms).label }));
   recordOpened(browserStorage(), currentProject(), entity);
@@ -505,10 +542,13 @@ function renderEntity(entity: EntityDetail) {
       if (file && unit && entity.forms) file.href = fileHref(entity.forms.path, unit);
     });
   }
+  // What a Forms data block or item makes Forms query and write with no code.
+  set("formsData", formsDataHtml(entity));
   // Inside its module a Forms object is named by its own name, the full path as the tooltip.
   const inModule = (e: EntitySummary) => entity.forms !== null && e.key.startsWith(entity.forms.module.key + "/");
   set("relations", linkList(t("entity.relations"), t("entity.relations.line"), entity.relations.map(r =>
-    `${esc(r.kind)} ${r.direction === "OUT" ? "→" : "←"} ${inModule(r.entity) ? formsNameLink(formsName(r.entity, entity.forms)) : entityLink(r.entity)}`)));
+    `<span title="${esc(r.kind)}">${esc(relationLabel(r.kind))}</span> ${r.direction === "OUT" ? "→" : "←"} ` +
+    (inModule(r.entity) ? formsNameLink(formsName(r.entity, entity.forms)) : entityLink(r.entity)))));
   // A trigger lists its events; a relation or a column, the triggers that fire on it.
   const own = entity.kind === "TRIGGER";
   set("triggers", triggersHtml(entity, own));
@@ -561,6 +601,7 @@ function renderEntity(entity: EntityDetail) {
   // and values have no count until they load.
   const sections: SectionEntry[] = [
     { id: "forms", label: t("forms.objects"), count: tree ? null : -1 },
+    { id: "formsData", label: t("forms.data"), count: entity.formsBlock || entity.formsItem ? null : -1 },
     ...contents.entries,
     { id: "parameters", label: t("entity.parameters"), count: params?.length ?? -1 },
     { id: "overloads", label: t("entity.overloads"), count: overloads.length >= 2 ? overloads.length : -1 },

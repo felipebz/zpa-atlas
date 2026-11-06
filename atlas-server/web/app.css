@@ -447,6 +447,17 @@ ul.ftree .funit { flex: none; margin-left: 4px; font-size: var(--fs-xs); }
 ul.ftree .fline:has(> a[aria-current]) { background: var(--surface); box-shadow: inset 2px 0 var(--accent); border-radius: 0 var(--radius) var(--radius) 0; }
 ul.ftree .fline > a[aria-current] { font-weight: 600; }
 .fnone { margin: 4px 0; }
+/*
+ * What a Forms data block or item makes Forms query and write with no code: each fact a row, its name on the left; the
+ * WHERE and ORDER BY as written, their line breaks kept, wrapping on a narrow screen.
+ */
+table.forms-data th { text-align: left; font-weight: 400; color: var(--muted); padding-right: 16px; white-space: nowrap; }
+table.forms-data td { overflow-wrap: anywhere; }
+pre.forms-clause { margin: 0 0 8px; padding: 6px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: var(--mono); font-size: var(--fs-s); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: var(--tab-width); }
+@media (max-width: 700px) { table.forms-data th { white-space: normal; } }
+/* A use Forms makes without code, on no line. */
+.badge.implicit { background: var(--surface-2); color: var(--fg); }
 
 /*
  * File: the title, the objects of the file beside the code, the code colored as the analyzer reads it, and the

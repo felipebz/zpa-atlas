@@ -7,6 +7,8 @@ package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.Fixture
 import com.felipebz.zpa.atlas.SizesFixture
+import com.felipebz.zpa.atlas.forms.FormsDataType
+import com.felipebz.zpa.atlas.forms.FormsItemKind
 import com.felipebz.zpa.atlas.highlight.CodeHighlighter
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
@@ -14,6 +16,8 @@ import com.felipebz.zpa.atlas.model.*
 import com.felipebz.zpa.atlas.query.AtlasIndex
 import com.felipebz.zpa.atlas.query.CodeColor
 import com.felipebz.zpa.atlas.query.CodeColorer
+import com.felipebz.zpa.atlas.query.FormsBlockOperation
+import com.felipebz.zpa.atlas.query.FormsOperationState
 import com.felipebz.zpa.atlas.query.GroupDimension
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -508,6 +512,11 @@ class AtlasServerTest {
         assertThat(served("groupDimensions")).isEqualTo(GroupDimension.entries.map { it.name to false })
         assertThat(served("reasons")).isEqualTo(Reason.entries.map { it.name to false })
         assertThat(served("parseStatuses")).isEqualTo(ParseStatus.entries.map { it.name to false })
+        assertThat(served("relationKinds")).isEqualTo(RelationKind.entries.map { it.name to it.reserved })
+        assertThat(served("formsDataTypes")).isEqualTo(FormsDataType.entries.map { it.name to false })
+        assertThat(served("formsItemKinds")).isEqualTo(FormsItemKind.entries.map { it.name to false })
+        assertThat(served("formsOperations")).isEqualTo(FormsBlockOperation.entries.map { it.name to false })
+        assertThat(served("formsOperationStates")).isEqualTo(FormsOperationState.entries.map { it.name to false })
         assertThat(served("entityKinds").filter { it.second }.map { it.first }).contains("LABEL").doesNotContain("SYNONYM")
         // Every other endpoint needs the index, which is missing.
         assertThat(client.get("/api/run").status).isNotEqualTo(HttpStatusCode.OK)
@@ -521,7 +530,8 @@ class AtlasServerTest {
         val prefixes = mapOf(
             "roles" to "role", "statuses" to "status", "entityKinds" to "kind", "unitKinds" to "unitKind", "origins" to "origin",
             "statementKinds" to "statement", "valueKinds" to "valueKind", "groupDimensions" to "query.dimension", "reasons" to "reason",
-            "parseStatuses" to "parse"
+            "parseStatuses" to "parse", "relationKinds" to "relation", "formsDataTypes" to "formsDataType", "formsItemKinds" to "formsItemKind",
+            "formsOperations" to "formsOperation", "formsOperationStates" to "formsOperationState"
         )
         assertThat(codes.keys).isEqualTo(prefixes.keys)
         for (catalog in listOf("en", "pt")) {

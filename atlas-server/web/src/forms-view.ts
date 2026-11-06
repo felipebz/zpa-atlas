@@ -1,8 +1,20 @@
 // What the pages of Forms objects show, without the DOM: names and paths as a Forms developer knows them, the module's
-// objects as a tree that opens, closes and filters by name, as the Form Builder's Object Navigator does, and which
-// piece of code the code page shows.
+// objects as a tree that opens, closes and filters by name, as the Form Builder's Object Navigator does, which piece
+// of code the code page shows, and what a data block and an item make Forms query and write with no code.
 
-import type {CodeAt, EntityDetail, EntitySummary, FormsGroup, FormsGroupKind, FormsInfo, FormsNode, FormsTree} from "./api";
+import type {
+    CodeAt,
+    EntityDetail,
+    EntitySummary,
+    FormsBlock,
+    FormsDataSource,
+    FormsGroup,
+    FormsGroupKind,
+    FormsInfo,
+    FormsItem,
+    FormsNode,
+    FormsTree
+} from "./api";
 
 /** The kinds whose page shows their objects as a tree (`api/forms-tree`). */
 export const FORMS_TREE_KINDS = ["FORMS_MODULE", "FORMS_BLOCK", "FORMS_ITEM"];
@@ -124,6 +136,84 @@ export function codePageAsk(path: string, unit: CodeUnit | null, fileKind?: stri
   return unit !== null || fileKind === "FORMS_MODULE"
     ? { api: "api/forms-file", params: { path, key: unit?.key, unitKind: unit?.unitKind, colors: true } }
     : { api: "api/file", params: { path, colors: true } };
+}
+
+// ---- a data block's and an item's data ------------------------------------------------------------------------------
+
+/**
+ * A block's data source or DML target as its page shows it: its relation to link ([entity]), else its name as written
+ * ([written]); [typeKey], the catalog key of its type, said beside it unless it is a table.
+ */
+export interface DataSourceView {
+  entity: EntitySummary | null;
+  written: string;
+  typeKey: string | null;
+}
+
+/** One of a block's operations as its page shows it: the catalog keys of the operation and of its state, and the trigger that replaces it. */
+export interface OperationView {
+  operationKey: string;
+  stateKey: string;
+  trigger: EntitySummary | null;
+}
+
+/** What a data block's page shows of its data: its source and DML target, its four operations, its WHERE and ORDER BY (null for none). */
+export interface BlockView {
+  source: DataSourceView;
+  target: DataSourceView;
+  operations: OperationView[];
+  where: string | null;
+  orderBy: string | null;
+}
+
+function dataSourceView(source: FormsDataSource): DataSourceView {
+  return { entity: source.entity ?? null, written: source.name, typeKey: source.type === "TABLE" ? null : "formsDataType." + source.type };
+}
+
+/**
+ * What the page of a data block shows of [block]: the relation it queries and the one it writes, each a link (its
+ * name as written when the block is not on a table, with its type), each of its four operations done by Forms with
+ * no code, replaced by the block's trigger, not allowed or not followed by the index, and its WHERE and ORDER BY.
+ */
+export function blockView(block: FormsBlock): BlockView {
+  return {
+    source: dataSourceView(block.source),
+    target: dataSourceView(block.target),
+    operations: block.operations.map(o => ({
+      operationKey: "formsOperation." + o.operation, stateKey: "formsOperationState." + o.state, trigger: o.state === "REPLACED" ? o.trigger ?? null : null
+    })),
+    where: block.where.trim() === "" ? null : block.where,
+    orderBy: block.orderBy.trim() === "" ? null : block.orderBy
+  };
+}
+
+/**
+ * What an item's page shows of its data: its kind's catalog key, whether it is a [database] item, its [column] (the
+ * block's source's, when the item stands for one) and the DML target's when another relation's, and, with a column,
+ * what Forms does with it, each a catalog key and yes or no.
+ */
+export interface ItemView {
+  kindKey: string;
+  database: boolean;
+  column: EntitySummary | null;
+  targetColumn: EntitySummary | null;
+  done: { key: string; yes: boolean }[];
+}
+
+/** What the page of an item shows of [item] ([ItemView]). */
+export function itemView(item: FormsItem): ItemView {
+  const column = item.column ?? null;
+  return {
+    kindKey: "formsItemKind." + item.kind,
+    database: item.database,
+    column,
+    targetColumn: item.targetColumn ?? null,
+    done: column === null ? [] : [
+      { key: "forms.data.read", yes: item.read },
+      { key: "forms.data.insertWrite", yes: item.insertWrite },
+      { key: "forms.data.updateWrite", yes: item.updateWrite }
+    ]
+  };
 }
 
 // ---- the tree ------------------------------------------------------------------------------------------------------

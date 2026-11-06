@@ -56,9 +56,9 @@ describe("pathOf", () => {
   });
 
   it("as text: each hop with its file and line, the trigger it fires and a status that is not RESOLVED", () => {
-    expect(pathText(view, 5, events => `fires ${events}`)).toBe(
+    expect(pathText(view, 5, events => `fires ${events}`, "Forms, no code")).toBe(
       "APP.TOP_INS() (app/top_ins.prc:4, fires INSERT) < HR.TRG (hr/trg.trg:5) < HR.PACK_A.MID(P IN NUMBER) (hr/pack_a.pkb:11) < HR.PACK_A.LEAF(P IN NUMBER)");
-    expect(pathText(view, 2, events => events)).toContain("HR.PACK_B.TOP() (hr/pack_b.pkb:10, UNVERIFIED)");
+    expect(pathText(view, 2, events => events, "Forms, no code")).toContain("HR.PACK_B.TOP() (hr/pack_b.pkb:10, UNVERIFIED)");
   });
 });
 
@@ -85,7 +85,7 @@ describe("a node in Forms code", () => {
 
   it("links its use to the code page of its unit at the unit's own line", () => {
     const hop = hopOf(forms, 7);
-    expect(lineHref(hop.path, hop.line, hop.code)).toBe(
+    expect(lineHref(hop.path, hop.line!, hop.code)).toBe(
       "file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FSTEUERBLOCK%2FPB_EXIT%2FWHEN-BUTTON-PRESSED&line=3#L3");
     expect(lineHref(hopOf(forms, 6).path, 640, hopOf(forms, 6).code)).toBe(
       "file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE_BODY&line=12#L12");
@@ -95,8 +95,32 @@ describe("a node in Forms code", () => {
     expect(hopPlace(hopOf(forms, 7))).toEqual({ file: "demo0004_fmb.xml", line: 3, unit: pressed });
     expect(hopPlace(hopOf(forms, 6))).toEqual({ file: "demo0004_fmb.xml", line: 12, unit: pk + " PACKAGE_BODY" });
     expect(hopPlace(hopOf(view, 2))).toEqual({ file: "hr/pack_b.pkb", line: 10, unit: "" });
-    expect(pathText(forms, 7, events => events)).toBe("DEMO0004/STEUERBLOCK/PB_EXIT/WHEN-BUTTON-PRESSED (" + pressed + ":3) < " +
+    expect(pathText(forms, 7, events => events, "Forms, no code")).toBe("DEMO0004/STEUERBLOCK/PB_EXIT/WHEN-BUTTON-PRESSED (" + pressed + ":3) < " +
       "DEMO0004/PK_ACCORDION (" + pk + " PACKAGE_BODY:12) < HR.PACK_A.LEAF(P IN NUMBER)");
+  });
+});
+
+describe("a node Forms reaches without code", () => {
+  // The data block DATA_DESK/COMPANY inserts into the entity's table with no code: a use on no line.
+  const block: EntitySummary = { key: "forms:DATA_DESK/COMPANY", kind: "FORMS_BLOCK", display: "DATA_DESK/COMPANY", external: false, name: "COMPANY" };
+  const implicit: ImpactView = {
+    ...view,
+    entities: [...entities, block],
+    paths: [...view.paths, "forms/data_desk_fmb.xml"],
+    nodes: [...view.nodes, node({ entity: 8, kind: "FORMS_BLOCK", depth: 1, stop: "ENTRY_POINT", schema: null,
+      via: { node: null, uses: 0, path: 6, line: null, status: "RESOLVED", fires: null, code: null, origin: "FORMS_IMPLICIT" } })]
+  };
+
+  it("has a hop on no line, which the CSV writes with empty line and unit cells", () => {
+    const hop = hopOf(implicit, 6);
+    expect(hop).toMatchObject({ path: "forms/data_desk_fmb.xml", line: null, code: null, origin: "FORMS_IMPLICIT" });
+    expect(hopPlace(hop)).toEqual({ file: "forms/data_desk_fmb.xml", line: "", unit: "" });
+  });
+
+  it("says the use in words in the path, never a line", () => {
+    const text = pathText(implicit, 6, events => events, "Forms, no code");
+    expect(text).toBe("DATA_DESK/COMPANY (forms/data_desk_fmb.xml, Forms, no code) < HR.PACK_A.LEAF(P IN NUMBER)");
+    expect(text).not.toMatch(/null|NaN/);
   });
 });
 

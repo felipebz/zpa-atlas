@@ -242,18 +242,24 @@ class FileExtractor internal constructor(
         val usesGaps = if (::bodyGlobals.isInitialized) bodyGlobals.gaps(context::usageEvidence, context::regionUncertainty) + parameterGaps else emptyList()
         // From the declarations, as the declaration occurrences: a file the parser rejected keeps them.
         val membersGaps = if (::catalog.isInitialized) catalog.membersGapsFor(path) else emptyList()
+        var formsObjects = emptyList<FormsObjectFact>()
+        var formsUses = emptyList<FormsUseFact>()
         formsEntities?.let {
+            val blocks = FormsDataBlocks(forms!!, it, resolver, defaultSchema)
             state.entities += it.entities
             state.relations += it.relations
+            state.relations += blocks.relations
             declaredTexts += it.declaredTexts
+            state.coverage += blocks.coverage
+            formsObjects = it.objects.map(blocks::withProperties)
+            formsUses = blocks.uses
         }
         forms?.notes?.forEach { state.coverage += CoverageFact(it.kind, it.message) }
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
         return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, defaultSchema, state.units, state.statements, state.occurrences,
             LinkedHashSet(state.entities).toList(), LinkedHashSet(state.relations).toList(), state.coverage, resolver.dictionaryRelations.toList(),
             synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts + state.columnTypes, docComments, usesGaps, membersGaps,
-            declaredShapes, intos, state.placesLeftOut.toMap(), if (forms == null) FileKind.DB_SOURCE else FileKind.FORMS_MODULE,
-            formsEntities?.objects.orEmpty())
+            declaredShapes, intos, state.placesLeftOut.toMap(), if (forms == null) FileKind.DB_SOURCE else FileKind.FORMS_MODULE, formsObjects, formsUses)
     }
 
     /** The types the file's declarations with an entity write ([TypeShapes]); none for a file that was not walked. */

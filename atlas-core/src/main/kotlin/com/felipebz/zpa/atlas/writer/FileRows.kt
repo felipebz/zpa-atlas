@@ -37,8 +37,12 @@ internal class FileRows(private val connection: Connection) {
             unit_source, unit_compiled_owner, unit_compiled_name, unit_compiled_type)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
         val formsInsert = prepare("INSERT INTO forms_object(file_id, position, entity_id, code_first_line, code_last_line, code_kind) VALUES (?,?,?,?,?,?)")
+        val blockInsert = prepare("""INSERT INTO forms_block(entity_id, database, source_type, source_name, source_entity_id, target_type, target_name,
+            target_entity_id, query_allowed, insert_allowed, update_allowed, delete_allowed, where_clause, order_by_clause) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
+        val itemInsert = prepare("""INSERT INTO forms_item(entity_id, database, column_name, kind, insert_allowed, update_allowed, column_id, target_column_id)
+            VALUES (?,?,?,?,?,?,?,?)""")
         val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert,
-            docInsert, placeInsert, formsInsert)
+            docInsert, placeInsert, formsInsert, blockInsert, itemInsert)
         var placeId = 0L
 
         var unitId = 0L
@@ -127,14 +131,57 @@ internal class FileRows(private val connection: Connection) {
                     batches.add(writtenValueInsert)
                 }
             }
+            // The uses Forms makes without code: no unit, no statement, no span.
+            for (use in file.formsUses) {
+                occurrenceInsert.setLong(1, ++occurrenceId)
+                occurrenceInsert.setLong(2, fileId)
+                for (parameter in listOf(3, 5, 6, 7, 8, 9, 16, 17, 18, 19)) occurrenceInsert.setNullableLong(parameter, null)
+                occurrenceInsert.setLong(4, entityIds.getValue(use.containerKey))
+                occurrenceInsert.setString(10, use.written)
+                occurrenceInsert.setNullableLong(11, use.entityKey?.let { entityIds.getValue(it) })
+                occurrenceInsert.setString(12, use.roles.encode())
+                occurrenceInsert.setString(13, use.status.name)
+                occurrenceInsert.setString(14, Origin.FORMS_IMPLICIT.name)
+                occurrenceInsert.setNullableString(15, use.reason)
+                batches.add(occurrenceInsert)
+            }
             for ((position, formsObject) in file.formsObjects.withIndex()) {
+                val entityId = entityIds.getValue(formsObject.entityKey)
                 formsInsert.setLong(1, fileId)
                 formsInsert.setInt(2, position)
-                formsInsert.setLong(3, entityIds.getValue(formsObject.entityKey))
+                formsInsert.setLong(3, entityId)
                 formsInsert.setNullableLong(4, formsObject.codeFirstLine?.toLong())
                 formsInsert.setNullableLong(5, formsObject.codeLastLine?.toLong())
                 formsInsert.setNullableString(6, formsObject.unitKind?.name)
                 batches.add(formsInsert)
+                formsObject.block?.let { block ->
+                    blockInsert.setLong(1, entityId)
+                    blockInsert.setInt(2, if (block.database) 1 else 0)
+                    blockInsert.setString(3, block.sourceType.name)
+                    blockInsert.setString(4, block.sourceName)
+                    blockInsert.setNullableLong(5, block.sourceKey?.let { entityIds.getValue(it) })
+                    blockInsert.setString(6, block.targetType.name)
+                    blockInsert.setString(7, block.targetName)
+                    blockInsert.setNullableLong(8, block.targetKey?.let { entityIds.getValue(it) })
+                    blockInsert.setInt(9, if (block.queryAllowed) 1 else 0)
+                    blockInsert.setInt(10, if (block.insertAllowed) 1 else 0)
+                    blockInsert.setInt(11, if (block.updateAllowed) 1 else 0)
+                    blockInsert.setInt(12, if (block.deleteAllowed) 1 else 0)
+                    blockInsert.setString(13, block.where)
+                    blockInsert.setString(14, block.orderBy)
+                    batches.add(blockInsert)
+                }
+                formsObject.item?.let { item ->
+                    itemInsert.setLong(1, entityId)
+                    itemInsert.setInt(2, if (item.database) 1 else 0)
+                    itemInsert.setString(3, item.columnName)
+                    itemInsert.setString(4, item.kind.name)
+                    itemInsert.setInt(5, if (item.insertAllowed) 1 else 0)
+                    itemInsert.setInt(6, if (item.updateAllowed) 1 else 0)
+                    itemInsert.setNullableLong(7, item.columnKey?.let { entityIds.getValue(it) })
+                    itemInsert.setNullableLong(8, item.targetColumnKey?.let { entityIds.getValue(it) })
+                    batches.add(itemInsert)
+                }
             }
             for (doc in file.docComments.sortedWith(compareBy({ it.line }, { it.entityKey }))) {
                 docInsert.setLong(1, entityIds.getValue(doc.entityKey))

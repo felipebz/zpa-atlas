@@ -173,10 +173,13 @@ class AtlasIndex(
      * the default by kind, [defaultUsageScopes]), candidates included. From the second hop on, the walk follows the uses
      * that run a node, not those that only name it: calls of a routine or a type, SQL on a view or materialized view,
      * reading a cursor. A node is the container of a use (`occurrence.container_entity_id`), a spec and its bodies being
-     * one node named by the spec; the entity and its spec or bodies are never nodes. A view is followed as a whole: from
+     * one node named by the spec; the entity and its spec or bodies are never nodes. A use Forms makes without code
+     * (`FORMS_IMPLICIT`) has its block or item as container, so the block or item is the node, reached through a use
+     * without a line. A view is followed as a whole: from
      * a column, every user of a view computed from it, not only the users of the view columns computed from that column.
      * With [followTriggers], a DML trigger is followed through the writes that fire it ([TriggerWrites]): an INSERT,
-     * UPDATE, DELETE or MERGE of its table, directly, through a synonym or through a view with one base, and with its
+     * UPDATE, DELETE or MERGE of its table (a data block's that Forms runs without code included), directly, through a
+     * synonym or through a view with one base, and with its
      * events (`UPDATE OF` columns included); the hop is not certain when the table or the event is not. A trigger no
      * such write fires is an entry point. Without it, and for system triggers, the walk stops at the trigger, as it does
      * at package-level code and code outside any container ([ImpactStop]).
@@ -295,7 +298,8 @@ class AtlasIndex(
 
     /**
      * The line each occurrence of [ids] starts on, as indexed (served or not, changed since or not), in the order of
-     * [ids] (an id the index does not have is left out): what a page of uses shows of every row with one request. With
+     * [ids] (an id the index does not have is left out, and so is a use without a line, `FORMS_IMPLICIT`): what a page
+     * of uses shows of every row with one request. With
      * [colors], each line's colored spans, as the text search colors its rows; none when there is no colorer.
      */
     fun occurrenceLines(ids: List<Long>, colors: Boolean = false): Answer<List<OccurrenceLine>> {
@@ -398,7 +402,7 @@ class AtlasIndex(
         val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 28
+        const val SCHEMA_VERSION = 29
 
         /** How a place's value arrives ([ColumnPlace.source]), the values [PlaceFilter.source] takes. */
         val PLACE_SOURCES = listOf("SELECT_INTO", "FETCH", "RETURNING", "ASSIGNMENT", "IN_ARGUMENT", "OUT_ARGUMENT", "RETURNED")

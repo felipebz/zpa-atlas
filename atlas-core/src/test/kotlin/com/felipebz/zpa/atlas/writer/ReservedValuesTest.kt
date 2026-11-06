@@ -20,10 +20,10 @@ class ReservedValuesTest {
     @Test
     fun `the reserved values are the ones the later phases need`() {
         assertThat(EntityKind.entries.filter { it.reserved }.map { it.name }).containsExactly("SCHEMA", "LABEL")
-        assertThat(RelationKind.entries.filter { it.reserved }.map { it.name }).containsExactly("OVERLOAD_OF", "FORMS_BLOCK_TABLE", "FORMS_ITEM_COLUMN")
+        assertThat(RelationKind.entries.filter { it.reserved }.map { it.name }).containsExactly("OVERLOAD_OF")
         assertThat(Role.entries.filter { it.reserved }).isEmpty()
         assertThat(Status.entries.filter { it.reserved }).isEmpty()
-        assertThat(Origin.entries.filter { it.reserved }.map { it.name }).containsExactly("FORMS_IMPLICIT", "HEURISTIC")
+        assertThat(Origin.entries.filter { it.reserved }.map { it.name }).containsExactly("HEURISTIC")
         assertThat(UnitKind.entries.filter { it.reserved }).isEmpty()
         assertThat(FileKind.entries.filter { it.reserved }).isEmpty()
     }

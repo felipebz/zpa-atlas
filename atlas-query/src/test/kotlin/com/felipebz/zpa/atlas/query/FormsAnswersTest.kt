@@ -44,9 +44,9 @@ class FormsAnswersTest {
         AtlasIndex(db, sources, moduleTexts = texts)
     }
 
-    /** The units of the uses of [key] (and with [scope], of its members) in the Forms modules, as `kind path`. */
+    /** The units of the uses of [key] (and with [scope], of its members) in the Forms modules, as `kind path`; a use without code has none. */
     private fun formsUnits(key: String, scope: Set<Scope> = setOf(Scope.SELF)) =
-        index.occurrences(key, scope = scope).result!!.rows.filter { it.path.startsWith("forms/order_") }.map { "${it.unit.kind} ${it.unit.name}" }.distinct()
+        index.occurrences(key, scope = scope).result!!.rows.filter { it.path.startsWith("forms/order_") }.mapNotNull { it.unit }.map { "${it.kind} ${it.name}" }.distinct()
 
     @Test
     fun `the uses of a table, a package and a procedure of the database list the Forms units by path`() {
@@ -57,7 +57,7 @@ class FormsAnswersTest {
         assertThat(formsUnits("db:HR.PACK_PROCESS", setOf(Scope.SELF, Scope.CHILDREN))).containsExactly("FORMS_PROGRAM_UNIT ORDER_DESK/ORDER_UTIL")
         // ORDER_DESK calls its own PROC_STANDALONE: only ORDER_LITE calls HR's.
         assertThat(formsUnits("db:HR.PROC_STANDALONE(P_ID IN NUMBER)")).containsExactly("FORMS_TRIGGER ORDER_LITE/WHEN-NEW-FORM-INSTANCE")
-        assertThat(index.occurrences("forms:ORDER_DESK/PROC_STANDALONE").result!!.rows.map { "${it.unit.name} ${it.span.startLine}" })
+        assertThat(index.occurrences("forms:ORDER_DESK/PROC_STANDALONE").result!!.rows.map { "${it.unit!!.name} ${it.span!!.startLine}" })
             .containsExactly("ORDER_DESK/WHEN-NEW-FORM-INSTANCE 26")
     }
 

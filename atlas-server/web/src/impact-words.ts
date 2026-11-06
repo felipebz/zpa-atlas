@@ -59,16 +59,18 @@ export function triggerNote(say: Say, trigger: ImpactTrigger) {
 
 /**
  * One line of the path under "Why?", as text pieces: the name (short), its place (`line 7`, in [path]; inside Forms
- * code, [code] and the unit's own line), the status in words when not resolved, and what the hop fires. The page links
- * the name and the place.
+ * code, [code] and the unit's own line; for a use Forms makes without code, the words for it and [line] null, which
+ * the page does not link), the status in words when not resolved, and what the hop fires. The page links the name
+ * and the place.
  */
 export function pathLine(say: Say, view: ImpactView, hop: Hop) {
   const node = view.nodes[hop.node];
   const entity = node.entity !== null ? view.entities[node.entity] : null;
+  const line = hop.code?.line ?? hop.line;
   return {
     entity,
     name: entity ? shownNameText(entity, nameShape(entity)) : view.paths[node.path!],
-    place: say("entity.line", { line: hop.code?.line ?? hop.line }),
+    place: line === null ? say("origin." + (hop.origin ?? "FORMS_IMPLICIT")) : say("entity.line", { line }),
     path: hop.path,
     line: hop.line,
     code: hop.code,

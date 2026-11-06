@@ -1,0 +1,40 @@
+<?xml version = '1.0' encoding = 'UTF-8'?>
+<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms">
+   <FormModule Name="DATA_DESK" Title="Data desk">
+      <Block Name="COMPANY" QueryDataSourceName="V_COMPANY" DMLDataName="COMPANY" WhereClause="st_active = 'Y'" OrderByClause="company_name">
+         <Item Name="ID" UpdateAllowed="false"/>
+         <Item Name="NAME" ColumnName="COMPANY_NAME"/>
+         <Item Name="SAVE" ItemType="Push Button" DatabaseItem="true"/>
+         <Item Name="LABEL" ItemType="Display Item" DatabaseItem="false"/>
+         <Item Name="LEVEL" ItemType="Slider"/>
+      </Block>
+      <Block Name="EVENTS" QueryDataSourceName="EVENT_LOG" InsertAllowed="false">
+         <Item Name="ID"/>
+         <Item Name="MSG"/>
+         <Item Name="ARCHIVED" ItemType="Check Box" ColumnName="ARCHIVED"/>
+         <Trigger Name="ON-UPDATE" TriggerText="update event_log set msg = :events.msg where id = :events.id;"/>
+      </Block>
+      <Block Name="QUEUE" QueryDataSourceName="SEND_QUEUE" DMLDataType="None" DMLDataName="SEND_QUEUE">
+         <Item Name="ID"/>
+         <Item Name="PAYLOAD"/>
+      </Block>
+      <Block Name="CONTROL">
+         <Item Name="FILTER"/>
+      </Block>
+      <Block Name="ORDERS" QueryDataSourceType="Procedure" QueryDataSourceName="order_api.query_orders" DMLDataType="Transactional Triggers">
+         <Item Name="ID"/>
+      </Block>
+      <Block Name="ODD" QueryDataSourceType="Stored Thing" QueryDataSourceName="IT_ORDERS">
+         <Item Name="ID"/>
+      </Block>
+      <Block Name="ORD" QueryDataSourceName="IT_ORDERS">
+         <Item Name="ID"/>
+         <Item Name="STATUS"/>
+         <Trigger Name="ON-INSERT" TriggerText="insert into it_orders (id, status) values (:ord.id, :ord.status);"/>
+      </Block>
+      <Block Name="D" QueryDataSourceName="DUAL">
+         <Item Name="DUMMY"/>
+      </Block>
+      <Trigger Name="ON-INSERT" TriggerText="insert_record;"/>
+   </FormModule>
+</Module>

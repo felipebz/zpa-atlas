@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas.forms
 
 import java.io.ByteArrayInputStream
+import java.util.Locale
 import javax.xml.stream.XMLInputFactory
 import javax.xml.stream.XMLStreamConstants
 import javax.xml.stream.XMLStreamException
@@ -24,6 +25,11 @@ import javax.xml.stream.XMLStreamReader
  *
  * A calculated item's `Formula` is its trigger `FORMULA-CALCULATION` ([FormsTrigger.FORMULA]), first among the item's
  * triggers; a blank one is none.
+ *
+ * A block's and an item's data properties (`DatabaseBlock`, `QueryDataSourceType`, `DMLDataName`, `ItemType`, …) are
+ * read in the words of the Form Builder that exported the module, Portuguese or English; an absent one is the Forms
+ * default. A word the reader does not know is not guessed: a type or kind `UNKNOWN`, counted in a `FORMS_VALUE_UNKNOWN`
+ * note.
  *
  * `frmf2xml` escapes the line breaks of the code twice: once parsed, a text still has `&#10;` for each line break
  * (`&#x9;` for a tab, `&#xD;` for a carriage return, dropped). Object libraries (`_olb.xml`) and menu modules
@@ -72,10 +78,14 @@ object Frmf2xmlReader : FormsModuleReader {
         private val blocks = ArrayList<FormsBlock>()
         private var items = ArrayList<FormsItem>()
         private var block: FormsValue? = null
+        private var blockAttributes: Map<String, FormsValue> = emptyMap()
         private val code = ArrayList<FormsCode>()
         private val libraries = ArrayList<FormsLibrary>()
         private var inheriting = 0
         private var otherTriggers = 0
+
+        /** The values of the properties the reader does not know, by property and value, with their counts. */
+        private val unknown = LinkedHashMap<Pair<String, String>, Int>()
 
         fun module(): FormsModule? {
             while (reader.hasNext()) {
@@ -94,6 +104,10 @@ object Frmf2xmlReader : FormsModuleReader {
             if (otherTriggers > 0) {
                 notes += FormsNote("FORMS_TRIGGER_NOT_READ", "$otherTriggers trigger(s) on an object other than the module, a block, an item or an event: not indexed")
             }
+            if (unknown.isNotEmpty()) {
+                notes += FormsNote("FORMS_VALUE_UNKNOWN", "${unknown.values.sum()} value(s) not known: " +
+                    unknown.entries.joinToString(", ") { (value, count) -> "${value.first} \"${value.second}\" ($count)" })
+            }
             return FormsModule(name, blocks, code, libraries, notes)
         }
 
@@ -107,10 +121,11 @@ object Frmf2xmlReader : FormsModuleReader {
                 "FormModule" -> if (moduleName == null) moduleName = name
                 "Block" -> if (parent() == "FormModule" && name != null) {
                     block = name
+                    blockAttributes = attributes
                     items = ArrayList()
                 }
                 "Item" -> if (parent() == "Block" && name != null) {
-                    items += FormsItem(name)
+                    items += item(name, attributes)
                     attributes["Formula"]?.takeIf { it.value.isNotBlank() }?.let { formula ->
                         code += FormsTrigger(FormsTriggerLevel.ITEM, listOf(open.last().name.orEmpty(), name.value), FormsValue(FormsTrigger.FORMULA), formula)
                     }
@@ -126,12 +141,54 @@ object Frmf2xmlReader : FormsModuleReader {
         private fun end() {
             val closed = open.removeAt(open.size - 1)
             if (closed.kind == "Block" && parent() == "FormModule") {
-                block?.let { blocks += FormsBlock(it, items) }
+                block?.let { blocks += block(it, items, blockAttributes) }
                 block = null
             }
         }
 
         private fun parent(): String? = open.lastOrNull()?.kind
+
+        /**
+         * A block from its attributes: an absent property is the Forms default, an absent data source or target type
+         * a table (Forms' default, a database block or not), a blank DML target name the source's.
+         */
+        private fun block(name: FormsValue, items: List<FormsItem>, attributes: Map<String, FormsValue>): FormsBlock {
+            val source = dataSource(attributes, "QueryDataSourceType", "QueryDataSourceName")
+            val target = dataSource(attributes, "DMLDataType", "DMLDataName").let { if (it.name.isBlank()) it.copy(name = source.name) else it }
+            return FormsBlock(name, items, flag(attributes, "DatabaseBlock"), source, target, flag(attributes, "QueryAllowed"), flag(attributes, "InsertAllowed"),
+                flag(attributes, "UpdateAllowed"), flag(attributes, "DeleteAllowed"), attributes["WhereClause"]?.value.orEmpty(),
+                attributes["OrderByClause"]?.value.orEmpty())
+        }
+
+        private fun dataSource(attributes: Map<String, FormsValue>, typeProperty: String, nameProperty: String): FormsDataSource {
+            val name = attributes[nameProperty]?.value?.trim().orEmpty()
+            val word = attributes[typeProperty]?.value?.trim().orEmpty()
+            if (word.isEmpty()) return FormsDataSource(FormsDataType.TABLE, name)
+            val type = DATA_TYPES[word.lowercase(Locale.ROOT)] ?: return FormsDataSource(FormsDataType.UNKNOWN, name, word).also { unknown(typeProperty, word) }
+            return FormsDataSource(type, name)
+        }
+
+        /** An item from its attributes: an absent property is the Forms default (a database text item that allows insert and update). */
+        private fun item(name: FormsValue, attributes: Map<String, FormsValue>): FormsItem {
+            val word = attributes["ItemType"]?.value?.trim().orEmpty()
+            val kind = if (word.isEmpty()) FormsItemKind.TEXT_ITEM else ITEM_KINDS[word.lowercase(Locale.ROOT)] ?: FormsItemKind.UNKNOWN.also { unknown("ItemType", word) }
+            return FormsItem(name, flag(attributes, "DatabaseItem"), attributes["ColumnName"]?.value?.trim().orEmpty(), kind, flag(attributes, "InsertAllowed"),
+                flag(attributes, "UpdateAllowed"), word.takeIf { kind == FormsItemKind.UNKNOWN })
+        }
+
+        /** A yes-or-no property, true when absent (the default of every one the reader takes); a value other than `true` or `false` keeps it, noted. */
+        private fun flag(attributes: Map<String, FormsValue>, property: String): Boolean {
+            val word = attributes[property]?.value?.trim().orEmpty()
+            return when (word.lowercase(Locale.ROOT)) {
+                "", "true" -> true
+                "false" -> false
+                else -> true.also { unknown(property, word) }
+            }
+        }
+
+        private fun unknown(property: String, word: String) {
+            unknown.merge(property to word, 1, Int::plus)
+        }
 
         private fun trigger(name: FormsValue?, text: FormsValue?) {
             if (name == null || text == null) return
@@ -157,6 +214,32 @@ object Frmf2xmlReader : FormsModuleReader {
             return result
         }
     }
+
+    /** The words of a data source or target type, in Portuguese and English. */
+    private val DATA_TYPES = mapOf(
+        "tabela" to FormsDataType.TABLE, "table" to FormsDataType.TABLE,
+        "nenhum" to FormsDataType.NONE, "none" to FormsDataType.NONE,
+        "procedimento" to FormsDataType.PROCEDURE, "procedure" to FormsDataType.PROCEDURE,
+        "consulta da cláusula from" to FormsDataType.QUERY, "from clause query" to FormsDataType.QUERY,
+        "gatilhos transacionais" to FormsDataType.TRANSACTIONAL_TRIGGERS, "transactional triggers" to FormsDataType.TRANSACTIONAL_TRIGGERS
+    )
+
+    /** The words of an item type, in Portuguese and English. */
+    private val ITEM_KINDS = mapOf(
+        "item de texto" to FormsItemKind.TEXT_ITEM, "text item" to FormsItemKind.TEXT_ITEM,
+        "item de exibição" to FormsItemKind.DISPLAY_ITEM, "display item" to FormsItemKind.DISPLAY_ITEM,
+        "item de lista" to FormsItemKind.LIST_ITEM, "list item" to FormsItemKind.LIST_ITEM,
+        "caixa de seleção" to FormsItemKind.CHECK_BOX, "check box" to FormsItemKind.CHECK_BOX,
+        "grupo de rádio" to FormsItemKind.RADIO_GROUP, "radio group" to FormsItemKind.RADIO_GROUP,
+        "imagem" to FormsItemKind.IMAGE, "image" to FormsItemKind.IMAGE,
+        "tecla" to FormsItemKind.PUSH_BUTTON, "push button" to FormsItemKind.PUSH_BUTTON,
+        "área bean" to FormsItemKind.BEAN_AREA, "bean area" to FormsItemKind.BEAN_AREA,
+        "árvore hierárquica" to FormsItemKind.HIERARCHICAL_TREE, "hierarchical tree" to FormsItemKind.HIERARCHICAL_TREE,
+        "gráfico" to FormsItemKind.CHART, "item de gráfico" to FormsItemKind.CHART, "chart item" to FormsItemKind.CHART,
+        "ole container" to FormsItemKind.OTHER, "contêiner ole" to FormsItemKind.OTHER, "sound" to FormsItemKind.OTHER, "som" to FormsItemKind.OTHER,
+        "user area" to FormsItemKind.OTHER, "área do usuário" to FormsItemKind.OTHER, "vbx control" to FormsItemKind.OTHER,
+        "controle vbx" to FormsItemKind.OTHER, "activex control" to FormsItemKind.OTHER, "controle activex" to FormsItemKind.OTHER
+    )
 
     /** A value with the escapes `frmf2xml` leaves after parsing: `&#10;` a line break, `&#x9;` a tab, carriage returns dropped. */
     internal fun decode(value: String): String {

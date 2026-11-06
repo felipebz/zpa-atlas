@@ -329,6 +329,55 @@ export interface EntityDetail {
   receives: EntitySummary[];
   /** For an object of a Forms module (the module included), the module; null otherwise. */
   forms: FormsInfo | null;
+  /** For a Forms database block, what Forms queries and writes for it without code; absent otherwise. */
+  formsBlock?: FormsBlock;
+  /** For a Forms item, the column it stands for and what Forms does with it; absent otherwise. */
+  formsItem?: FormsItem;
+}
+
+/**
+ * A Forms block's data source or DML target: its [type] (`NONE`, `TABLE`, `PROCEDURE`, `QUERY`,
+ * `TRANSACTIONAL_TRIGGERS`, `UNKNOWN`), its [name] as written, and its relation when the block is on a table.
+ */
+export interface FormsDataSource {
+  type: string;
+  name: string;
+  entity?: EntitySummary | null;
+}
+
+/**
+ * One of a Forms block's four operations (`QUERY`, `INSERT`, `UPDATE`, `DELETE`) and its [state]: `DONE` by Forms
+ * without code, `REPLACED` by the block's [trigger], `NOT_ALLOWED`, or `NOT_FOLLOWED` by the index.
+ */
+export interface FormsOperation {
+  operation: string;
+  state: string;
+  trigger?: EntitySummary | null;
+}
+
+/** What a Forms database block queries and writes: its source, its DML target, its four operations, its WHERE and ORDER BY ("" for none). */
+export interface FormsBlock {
+  source: FormsDataSource;
+  target: FormsDataSource;
+  operations: FormsOperation[];
+  where: string;
+  orderBy: string;
+}
+
+/**
+ * What a Forms item says of its data: a [database] item or not, its [kind], its column as written ("": the item's own
+ * name), the source's [column] and the DML target's [targetColumn] when another relation, and whether Forms reads it
+ * in the block's query and writes it in its insert and its update.
+ */
+export interface FormsItem {
+  database: boolean;
+  kind: string;
+  columnName: string;
+  column?: EntitySummary | null;
+  targetColumn?: EntitySummary | null;
+  read: boolean;
+  insertWrite: boolean;
+  updateWrite: boolean;
 }
 
 /** The unit an occurrence is in; [entity] is its package, routine, view, trigger or type, null for a script. */
@@ -517,10 +566,14 @@ export interface PlaceQuery {
   limit: number;
 }
 
+/**
+ * A use as a row. A use Forms makes without code (origin `FORMS_IMPLICIT`: a data block's query or DML, an item's
+ * column) is on no line: its [span], [unit], [statementKind] and [code] are null, its [container] the block or item.
+ */
 export interface OccurrenceRow {
   id: number;
   path: string;
-  span: Span;
+  span: Span | null;
   written: string;
   roles: string[];
   status: string;
@@ -532,7 +585,7 @@ export interface OccurrenceRow {
   viaView: boolean;
   entity: EntitySummary | null;
   container: EntitySummary | null;
-  unit: UnitRef;
+  unit: UnitRef | null;
   statementKind: string | null;
   candidates: EntitySummary[];
   arguments: CallArgument[];

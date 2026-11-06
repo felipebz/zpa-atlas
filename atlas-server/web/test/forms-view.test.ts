@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from "vitest";
 import type {EntityDetail, EntitySummary, FormsInfo, FormsNode, FormsTree} from "../src/api";
 import {
     allOpen,
+    blockView,
     codePageAsk,
     codeUnitName,
     filterTree,
@@ -10,6 +11,7 @@ import {
     formsName,
     groupId,
     initialOpen,
+    itemView,
     nodeId,
     nodeUnit,
     openTo,
@@ -244,5 +246,57 @@ describe("the code page", () => {
     const none: FormsTree = { root: module, groups: [{ kind: "LIBRARIES", nodes: [leaf(accordion)] }] };
     expect(firstUnit(none)).toBeNull();
     expect(fileHref(path, firstUnit(none))).toBe("file.html?path=demo0004_fmb.xml");
+  });
+});
+
+describe("a data block's and an item's data", () => {
+  // The fixture module DATA_DESK: EVENTS queries and writes HR.EVENT_LOG, COMPANY queries HR.V_COMPANY and writes HR.COMPANY.
+  const db = (display: string, kind: string): EntitySummary =>
+    ({ key: "db:" + display, kind, display, external: false, name: display.slice(display.lastIndexOf(".") + 1) });
+  const eventLog = db("HR.EVENT_LOG", "TABLE");
+  const onUpdate = forms("DATA_DESK/EVENTS/ON-UPDATE", "FORMS_TRIGGER", "DATA_DESK/EVENTS/ON-UPDATE");
+
+  it("links the block's relations and says each operation: done by Forms, replaced by its trigger, not allowed", () => {
+    const view = blockView({
+      source: { type: "TABLE", name: "EVENT_LOG", entity: eventLog }, target: { type: "TABLE", name: "EVENT_LOG", entity: eventLog },
+      operations: [{ operation: "QUERY", state: "DONE" }, { operation: "INSERT", state: "NOT_ALLOWED" },
+        { operation: "UPDATE", state: "REPLACED", trigger: onUpdate }, { operation: "DELETE", state: "DONE" }],
+      where: "", orderBy: ""
+    });
+    expect(view.source).toEqual({ entity: eventLog, written: "EVENT_LOG", typeKey: null });
+    expect(view.operations).toEqual([
+      { operationKey: "formsOperation.QUERY", stateKey: "formsOperationState.DONE", trigger: null },
+      { operationKey: "formsOperation.INSERT", stateKey: "formsOperationState.NOT_ALLOWED", trigger: null },
+      { operationKey: "formsOperation.UPDATE", stateKey: "formsOperationState.REPLACED", trigger: onUpdate },
+      { operationKey: "formsOperation.DELETE", stateKey: "formsOperationState.DONE", trigger: null }
+    ]);
+    expect([view.where, view.orderBy]).toEqual([null, null]);
+  });
+
+  it("names a source that is no table as written, with its type, and keeps WHERE and ORDER BY as written", () => {
+    const view = blockView({
+      source: { type: "PROCEDURE", name: "order_api.query_orders" }, target: { type: "NONE", name: "order_api.query_orders" },
+      operations: ["QUERY", "INSERT", "UPDATE", "DELETE"].map(operation => ({ operation, state: "NOT_FOLLOWED" })),
+      where: "st_active = 'Y'\n  and id > 0", orderBy: "company_name"
+    });
+    expect(view.source).toEqual({ entity: null, written: "order_api.query_orders", typeKey: "formsDataType.PROCEDURE" });
+    expect(view.target.typeKey).toBe("formsDataType.NONE");
+    expect(view.operations.map(o => o.stateKey)).toEqual(Array(4).fill("formsOperationState.NOT_FOLLOWED"));
+    expect([view.where, view.orderBy]).toEqual(["st_active = 'Y'\n  and id > 0", "company_name"]);
+  });
+
+  it("links an item's column and the one its block writes, and says what Forms does with it", () => {
+    const view = itemView({ database: true, kind: "TEXT_ITEM", columnName: "", column: db("HR.V_COMPANY.ID", "COLUMN"),
+      targetColumn: db("HR.COMPANY.ID", "COLUMN"), read: true, insertWrite: true, updateWrite: false });
+    expect(view).toEqual({
+      kindKey: "formsItemKind.TEXT_ITEM", database: true, column: db("HR.V_COMPANY.ID", "COLUMN"), targetColumn: db("HR.COMPANY.ID", "COLUMN"),
+      done: [{ key: "forms.data.read", yes: true }, { key: "forms.data.insertWrite", yes: true }, { key: "forms.data.updateWrite", yes: false }]
+    });
+  });
+
+  it("says nothing Forms does for an item on no column", () => {
+    const button = itemView({ database: true, kind: "PUSH_BUTTON", columnName: "", read: false, insertWrite: false, updateWrite: false });
+    expect(button).toEqual({ kindKey: "formsItemKind.PUSH_BUTTON", database: true, column: null, targetColumn: null, done: [] });
+    expect(itemView({ database: false, kind: "DISPLAY_ITEM", columnName: "", read: false, insertWrite: false, updateWrite: false }).database).toBe(false);
   });
 });

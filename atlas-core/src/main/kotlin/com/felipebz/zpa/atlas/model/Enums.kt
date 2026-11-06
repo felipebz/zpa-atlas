@@ -87,8 +87,8 @@ enum class RelationKind(val reserved: Boolean = false) : StoredEnum {
     /** A view column to a column its value is computed from (another view's column included: one hop per view). */
     VIEW_BASE,
     TRIGGER_ON,
-    FORMS_BLOCK_TABLE(reserved = true),
-    FORMS_ITEM_COLUMN(reserved = true),
+    FORMS_BLOCK_TABLE,
+    FORMS_ITEM_COLUMN,
     FORMS_ATTACHED_LIBRARY
 }
 
@@ -128,7 +128,7 @@ enum class Status(val reserved: Boolean = false) : StoredEnum {
 enum class Origin(val reserved: Boolean = false) : StoredEnum {
     STATIC,
     DYNAMIC_LITERAL,
-    FORMS_IMPLICIT(reserved = true),
+    FORMS_IMPLICIT,
     HEURISTIC(reserved = true)
 }
 

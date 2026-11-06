@@ -94,6 +94,7 @@ export const kindLabel = (kind: string) => storedLabel("kind", kind);
 export const statusLabel = (status: string) => storedLabel("status", status);
 export const reasonLabel = (reason: string) => storedLabel("reason", reason);
 export const originLabel = (origin: string) => storedLabel("origin", origin);
+export const relationLabel = (kind: string) => storedLabel("relation", kind);
 export const unitKindLabel = (kind: string) => storedLabel("unitKind", kind);
 export const statementLabel = (kind: string) => storedLabel("statement", kind);
 export const valueKindLabel = (kind: string) => storedLabel("valueKind", kind);

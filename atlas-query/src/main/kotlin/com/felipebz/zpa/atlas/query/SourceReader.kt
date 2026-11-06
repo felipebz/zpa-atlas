@@ -34,12 +34,14 @@ internal class SourceReader(private val connection: Connection, private val sour
      * The line each occurrence of [ids] starts on, as indexed ([AtlasIndex.occurrenceLines]): the text of its
      * `source_line` row, so the occurrence's span is on it whether or not the file is served or changed since. [stale]
      * says whether the file changed (null when the server cannot read it), each file read once; with [colorer], the
-     * colors as the text search gives them. An id the index does not have is left out.
+     * colors as the text search gives them. An id the index does not have is left out, and so is a use without a line
+     * (`FORMS_IMPLICIT`).
      */
     fun occurrenceLines(ids: List<Long>, colorer: CodeColorer?): List<OccurrenceLine> {
         if (ids.isEmpty()) return emptyList()
         val found = connection.query(
-            "SELECT o.id, o.file_id, f.path, o.start_line FROM occurrence o JOIN source_file f ON f.id = o.file_id WHERE o.id IN (${ids.joinToString(",") { "?" }})",
+            """SELECT o.id, o.file_id, f.path, o.start_line FROM occurrence o JOIN source_file f ON f.id = o.file_id
+               WHERE o.id IN (${ids.joinToString(",") { "?" }}) AND o.start_line IS NOT NULL""",
             ids
         ) { OccurrenceAt(it.getLong(1), it.getLong(2), it.getString(3), it.getInt(4)) }
         val result = HashMap<Long, OccurrenceLine>()
@@ -157,14 +159,16 @@ internal class SourceReader(private val connection: Connection, private val sour
         val entityIndexes = LinkedHashMap<Long, Int>()
         fun indexOf(id: Long) = entityIndexes.getOrPut(id) { entityIndexes.size }
         val candidates = connection.query(
-            "SELECT c.occurrence_id, c.entity_id FROM occurrence o JOIN occurrence_candidate c ON c.occurrence_id = o.id WHERE o.file_id = ? ORDER BY c.occurrence_id, c.entity_id",
+            """SELECT c.occurrence_id, c.entity_id FROM occurrence o JOIN occurrence_candidate c ON c.occurrence_id = o.id
+               WHERE o.file_id = ? AND o.start_line IS NOT NULL ORDER BY c.occurrence_id, c.entity_id""",
             listOf(file.id)
         ) { it.getLong(1) to it.getLong(2) }.groupBy({ it.first }, { it.second })
-        // The name span when it was recorded apart, else the span; read through occurrence_file_line.
+        // The name span when it was recorded apart, else the span; read through occurrence_file_line. A use without a
+        // line (FORMS_IMPLICIT) is on none.
         val occurrences = connection.query(
             """SELECT o.id, coalesce(o.name_start_line, o.start_line), coalesce(o.name_start_col, o.start_col),
                       coalesce(o.name_end_line, o.end_line), coalesce(o.name_end_col, o.end_col), o.roles, o.status, o.reason, o.entity_id
-               FROM occurrence o WHERE o.file_id = ? ORDER BY o.start_line, o.id""",
+               FROM occurrence o WHERE o.file_id = ? AND o.start_line IS NOT NULL ORDER BY o.start_line, o.id""",
             listOf(file.id)
         ) { rs ->
             val entityId = (rs.getObject(9) as Number?)?.toLong()

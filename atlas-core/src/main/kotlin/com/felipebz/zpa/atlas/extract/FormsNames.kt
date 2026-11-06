@@ -40,18 +40,24 @@ internal class FormsEntities(private val layout: FormsLayout) {
     private val programUnits = HashMap<String, String>()
     private val unitKeys = HashMap<FormsLayout.Unit, String>()
 
+    /** The entity of each block of the layout, in its order, and of each of its items. */
+    val blockKeys = ArrayList<String>()
+    val itemKeys = ArrayList<List<String>>()
+
     val moduleKey: String = entity(EntityKind.FORMS_MODULE, layout.name, layout.name, null)
 
     init {
         objects += FormsObjectFact(moduleKey)
         for (block in layout.blocks) {
-            val blockKey = entity(EntityKind.FORMS_BLOCK, "${layout.name}/${block.name}", block.name, moduleKey)
-            owners.putIfAbsent(listOf(block.name), blockKey)
+            val blockKey = entity(EntityKind.FORMS_BLOCK, "${layout.name}/${block.name.value}", block.name.value, moduleKey)
+            owners.putIfAbsent(listOf(block.name.value), blockKey)
             objects += FormsObjectFact(blockKey)
-            for (item in block.items) {
-                val itemKey = entity(EntityKind.FORMS_ITEM, "${layout.name}/${block.name}/$item", item, blockKey)
-                owners.putIfAbsent(listOf(block.name, item), itemKey)
+            blockKeys += blockKey
+            itemKeys += block.items.map { item ->
+                val itemKey = entity(EntityKind.FORMS_ITEM, "${layout.name}/${block.name.value}/${item.name.value}", item.name.value, blockKey)
+                owners.putIfAbsent(listOf(block.name.value, item.name.value), itemKey)
                 objects += FormsObjectFact(itemKey)
+                itemKey
             }
         }
         for (unit in layout.units) {

@@ -39,4 +39,6 @@ tasks.processResources {
 
 tasks.test {
     useJUnitPlatform()
+    // The whole Doag corpus of frmf2xml exports, when given: -PdoagForms=<folder with frm2xml/>.
+    providers.gradleProperty("doagForms").orNull?.let { systemProperty("doagForms", file(it).absolutePath) }
 }

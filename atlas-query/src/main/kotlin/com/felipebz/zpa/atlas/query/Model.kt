@@ -245,6 +245,7 @@ data class UsageSummary(val byRole: List<Count>, val byStatus: List<Count>, val 
 @Serializable
 data class TriggerEvent(val trigger: EntitySummary, val timing: String, val level: String?, val event: String, val column: EntitySummary?)
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class EntityDetail(
     val key: String,
@@ -323,7 +324,73 @@ data class EntityDetail(
     /** For a variable, parameter, field or other PL/SQL target, the columns whose value it is read into, by key. */
     val receives: List<EntitySummary> = emptyList(),
     /** For an object of a Forms module, the module ([FormsInfo]); null otherwise. */
-    val forms: FormsInfo? = null
+    val forms: FormsInfo? = null,
+    /** For a database block of a Forms module, what it does with its data ([FormsBlockData]); left out otherwise. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val formsBlock: FormsBlockData? = null,
+    /** For an item of a Forms module, what it says of its data ([FormsItemData]); left out otherwise. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val formsItem: FormsItemData? = null
+)
+
+/** What Forms does for a data block without code, the operations of [FormsBlockData.operations], in that order. */
+enum class FormsBlockOperation { QUERY, INSERT, UPDATE, DELETE }
+
+/**
+ * What Forms does of one [FormsBlockOperation] of a block, the first that holds: [NOT_ALLOWED] the block does not allow
+ * it; [REPLACED] a transactional trigger replaces it (`ON-SELECT`, `ON-INSERT`, `ON-UPDATE`, `ON-DELETE`: the block's
+ * own, else the module's), whose code runs instead; [NOT_FOLLOWED] the index does not follow what Forms does, the block
+ * having no table for it (its data source is not a table or is `DUAL`, or for the DML its target is not one); [DONE]
+ * Forms runs it on the block's table, the block's and its items' `FORMS_IMPLICIT` uses.
+ */
+enum class FormsOperationState { NOT_ALLOWED, REPLACED, NOT_FOLLOWED, DONE }
+
+/**
+ * What a database data block does with its data ([EntityDetail.formsBlock]): the data [source] it queries and the DML
+ * [target] it inserts into, updates and deletes from, each [FormsBlockOperation] in order with its state, and the
+ * `WHERE` and `ORDER BY` clauses the block adds to its query ([where], [orderBy]; empty when it has none).
+ */
+@Serializable
+data class FormsBlockData(
+    val source: FormsDataSource,
+    val target: FormsDataSource,
+    val operations: List<FormsOperation>,
+    val where: String,
+    val orderBy: String
+)
+
+/**
+ * A block's data source or DML target: its [type] (`TABLE`, `PROCEDURE`, `QUERY` for a FROM clause query,
+ * `TRANSACTIONAL_TRIGGERS`, `NONE`, or `UNKNOWN` for a type the reader does not know), its [name] as written (a blank
+ * DML target is the source's), and the relation it names when the block is on a table ([entity]: an `UNKNOWN_RELATION`
+ * when the dictionary lacks it); [entity] is left out otherwise.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class FormsDataSource(val type: String, val name: String, @EncodeDefault(EncodeDefault.Mode.NEVER) val entity: EntitySummary? = null)
+
+/** One [FormsBlockOperation] of a block and its [FormsOperationState]; [trigger] is the replacing trigger, left out unless `REPLACED`. */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class FormsOperation(val operation: String, val state: String, @EncodeDefault(EncodeDefault.Mode.NEVER) val trigger: EntitySummary? = null)
+
+/**
+ * What an item of a Forms module says of its data ([EntityDetail.formsItem]): whether it is a [database] item, its
+ * [kind] (`TEXT_ITEM`, `PUSH_BUTTON`, ... `UNKNOWN` for a kind the reader does not know), its [columnName] as written
+ * (empty: the item's own name), the [column] of its block's source it stands for and, when the block's DML target is
+ * another relation, the target's [targetColumn] (each left out when there is none). [read], [insertWrite] and
+ * [updateWrite] say whether Forms reads its column in the block's query and writes it in the block's insert and update,
+ * as the item's `FORMS_IMPLICIT` uses do.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class FormsItemData(
+    val database: Boolean,
+    val kind: String,
+    val columnName: String,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val column: EntitySummary? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val targetColumn: EntitySummary? = null,
+    val read: Boolean,
+    val insertWrite: Boolean,
+    val updateWrite: Boolean
 )
 
 /**
@@ -604,6 +671,8 @@ enum class ImpactStop {
 /**
  * One use on a shortest path to a node: of [uses] (the entity asked for at depth 1), at [path] line [line]. [fires]
  * is set when the use is a write that fires the trigger [uses]: the trigger's events it fires, such as `INSERT`.
+ * A use Forms makes without code (a data block's query or DML, an item's column) has [origin] `FORMS_IMPLICIT`, the
+ * module's file as [path] and no [line]; [origin] is left out for a use in code.
  */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -611,11 +680,12 @@ data class ImpactVia(
     val uses: String,
     val occurrence: Long,
     val path: String,
-    val line: Int,
+    val line: Int?,
     val status: String,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val fires: String? = null,
     /** In a Forms module, the code [line] is in and its line there ([CodeAt]); null elsewhere. */
-    val code: CodeAt? = null
+    val code: CodeAt? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val origin: String? = null
 )
 
 /** One event of a trigger node: as [TriggerEvent] without the trigger. */
@@ -627,10 +697,10 @@ data class ImpactTriggerEvent(val timing: String, val level: String?, val event:
 data class ImpactTrigger(val table: EntitySummary?, val events: List<ImpactTriggerEvent>)
 
 /**
- * One node of an impact graph: a routine, view, trigger, type or package ([entity]), or for [ImpactStop.NO_CONTAINER]
- * a file ([path], with its [uses] and [firstLine], counted over the uses of every node reached, not only those on its
- * shortest path). [depth] is the shortest path from the entity; [certain] is true when
- * some path uses only `RESOLVED` uses.
+ * One node of an impact graph: a routine, view, trigger, type or package ([entity]), a Forms block or item whose data
+ * Forms queries or writes without code, or for [ImpactStop.NO_CONTAINER] a file ([path], with its [uses] and
+ * [firstLine], counted over the uses of every node reached, not only those on its shortest path). [depth] is the
+ * shortest path from the entity; [certain] is true when some path uses only `RESOLVED` uses.
  */
 @Serializable
 data class ImpactNode(
@@ -686,11 +756,16 @@ data class CallArgument(
 @Serializable
 data class ValueGroup(val valueKind: String, val value: String?, val count: Long)
 
+/**
+ * One occurrence of a listing. A use Forms makes without code ([origin] `FORMS_IMPLICIT`: a data block's query, insert,
+ * update or delete of its table, an item's read or write of its column) has no line: its [span], [unit],
+ * [statementKind] and [code] are null, [path] is the module's file and [container] the block or the item.
+ */
 @Serializable
 data class OccurrenceRow(
     val id: Long,
     val path: String,
-    val span: Span,
+    val span: Span?,
     val written: String,
     val roles: List<String>,
     val status: String,
@@ -703,7 +778,7 @@ data class OccurrenceRow(
     val viaView: Boolean,
     val entity: EntitySummary?,
     val container: EntitySummary?,
-    val unit: UnitRef,
+    val unit: UnitRef?,
     val statementKind: String?,
     val candidates: List<EntitySummary>,
     val arguments: List<CallArgument>,
@@ -719,8 +794,9 @@ data class WrittenValue(val row: Int, val valueKind: String, val value: String?)
 
 /**
  * Counts over a set of occurrences: roles split (an occurrence counts once under each of its roles). [byOrigin],
- * [byEntityKind] (the kind of the matched entity; occurrences without one are left out), [byUnitKind] and [byReason]
- * (occurrences without a reason are left out) are filled by the occurrence query only.
+ * [byEntityKind] (the kind of the matched entity; occurrences without one are left out), [byUnitKind] (occurrences in
+ * no unit, the uses Forms makes without code, are left out) and [byReason] (occurrences without a reason are left out)
+ * are filled by the occurrence query only.
  */
 @Serializable
 data class Facets(
@@ -841,7 +917,17 @@ data class Codes(
     /** Why an occurrence has its status (`occurrence.reason`). */
     val reasons: List<Code>,
     /** How a file's parse went (`source_file.parse_status`). */
-    val parseStatuses: List<Code>
+    val parseStatuses: List<Code>,
+    /** What links two entities ([RelationLink.kind]). */
+    val relationKinds: List<Code>,
+    /** A Forms block's data source and DML target type ([FormsDataSource.type]). */
+    val formsDataTypes: List<Code>,
+    /** A Forms item's kind ([FormsItemData.kind]). */
+    val formsItemKinds: List<Code>,
+    /** What Forms does for a data block without code ([FormsBlockOperation]). */
+    val formsOperations: List<Code>,
+    /** What Forms does of each of them ([FormsOperationState]). */
+    val formsOperationStates: List<Code>
 )
 
 /** Line [number] of a file and its [text]; in a Forms module, the code it is in and its line there ([code]). */

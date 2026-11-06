@@ -9,7 +9,11 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 
-/** The `frmf2xml` reader and the module text, on the invented modules `forms/order_desk_fmb.xml` (`DUMP=ALL`) and `forms/order_lite_fmb.xml`. */
+/**
+ * The `frmf2xml` reader and the module text, on the invented modules `forms/order_desk_fmb.xml` (`DUMP=ALL`),
+ * `forms/order_lite_fmb.xml`, and `forms/data_desk_fmb.xml` and `forms/data_plain_fmb.xml` (the same module, in English
+ * words, with and without `DUMP=ALL`).
+ */
 class FormsModuleTest {
     private fun read(resource: String): FormsModule {
         val bytes = FormsModuleTest::class.java.getResourceAsStream("/forms/$resource")!!.use { it.readAllBytes() }
@@ -165,6 +169,57 @@ class FormsModuleTest {
             "ORDER_DESK/WHEN-NEW-FORM-INSTANCE 24-28", "ORDER_DESK/PROC_STANDALONE 30-35", "ORDER_DESK/FN_LABEL 37-43", "ORDER_DESK/ORDER_UTIL 45-49",
             "ORDER_DESK/ORDER_UTIL 51-60", "ORDER_DESK/COMPANY_LOV 62-66"
         )
+    }
+
+    @Test
+    fun `a block and an item give their data properties in English words, the same exported with DUMP=ALL or without`() {
+        val desk = read("data_desk_fmb.xml")
+        val plain = read("data_plain_fmb.xml")
+        fun withoutOrigins(module: FormsModule) = module.blocks.map { block ->
+            block.copy(name = FormsValue(block.name.value), items = block.items.map { it.copy(name = FormsValue(it.name.value)) })
+        }
+        assertThat(withoutOrigins(plain)).isEqualTo(withoutOrigins(desk))
+        val blocks = desk.blocks.associateBy { it.name.value }
+        val company = blocks.getValue("COMPANY")
+        assertThat(listOf(company.source, company.target))
+            .containsExactly(FormsDataSource(FormsDataType.TABLE, "V_COMPANY"), FormsDataSource(FormsDataType.TABLE, "COMPANY"))
+        assertThat(company.where to company.orderBy).isEqualTo("st_active = 'Y'" to "company_name")
+        assertThat(company.items.map { "${it.name.value} ${it.database} ${it.kind} [${it.columnName}] ${it.insertAllowed} ${it.updateAllowed} ${it.kindWord}" })
+            .containsExactly(
+                "ID true TEXT_ITEM [] true false null",
+                "NAME true TEXT_ITEM [COMPANY_NAME] true true null",
+                "SAVE true PUSH_BUTTON [] true true null",
+                "LABEL false DISPLAY_ITEM [] true true null",
+                "LEVEL true UNKNOWN [] true true Slider"
+            )
+        // A blank DML target name is the source's, whatever the target's type.
+        assertThat(blocks.getValue("EVENTS").target).isEqualTo(FormsDataSource(FormsDataType.TABLE, "EVENT_LOG"))
+        assertThat(blocks.getValue("EVENTS").insertAllowed).isFalse()
+        assertThat(blocks.getValue("QUEUE").target).isEqualTo(FormsDataSource(FormsDataType.NONE, "SEND_QUEUE"))
+        assertThat(blocks.getValue("CONTROL").source).isEqualTo(FormsDataSource(FormsDataType.TABLE, ""))
+        assertThat(listOf(blocks.getValue("ORDERS").source, blocks.getValue("ORDERS").target)).containsExactly(
+            FormsDataSource(FormsDataType.PROCEDURE, "order_api.query_orders"), FormsDataSource(FormsDataType.TRANSACTIONAL_TRIGGERS, "order_api.query_orders")
+        )
+        assertThat(blocks.getValue("ODD").source).isEqualTo(FormsDataSource(FormsDataType.UNKNOWN, "IT_ORDERS", "Stored Thing"))
+        assertThat(desk.notes).containsExactly(FormsNote("FORMS_VALUE_UNKNOWN", "2 value(s) not known: ItemType \"Slider\" (1), QueryDataSourceType \"Stored Thing\" (1)"))
+        assertThat(plain.notes).isEqualTo(desk.notes)
+    }
+
+    @Test
+    fun `a Doag module gives its data properties in the Portuguese words of its Form Builder`() {
+        val module = read("doag/demo0004_fmb.xml")
+        assertThat(module.blocks.map { "${it.name.value} ${it.database} ${it.source} ${it.target} ${it.queryAllowed} ${it.insertAllowed} ${it.updateAllowed} ${it.deleteAllowed}" })
+            .containsExactly(
+                "V\$LOCK true ${FormsDataSource(FormsDataType.TABLE, "v\$lock")} ${FormsDataSource(FormsDataType.TABLE, "v\$lock")} true false false false",
+                "V\$SESSION true ${FormsDataSource(FormsDataType.TABLE, "V\$session")} ${FormsDataSource(FormsDataType.TABLE, "V\$session")} true false false false",
+                "STEUERBLOCK false ${FormsDataSource(FormsDataType.TABLE, "")} ${FormsDataSource(FormsDataType.TABLE, "")} true true true true"
+            )
+        val session = module.blocks[1].items.associateBy { it.name.value }
+        assertThat(listOf(session.getValue("SERIAL#").columnName, session.getValue("USERNAME").columnName)).containsExactly("SERIAL#", "")
+        assertThat(module.blocks.flatMap { it.items }.groupingBy { it.kind }.eachCount())
+            .isEqualTo(mapOf(FormsItemKind.TEXT_ITEM to 23, FormsItemKind.PUSH_BUTTON to 5))
+        assertThat(module.blocks[0].items.count { it.database }).isEqualTo(8)
+        assertThat(module.notes).isEmpty()
     }
 
     @Test

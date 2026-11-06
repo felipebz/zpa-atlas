@@ -1,8 +1,8 @@
-import type {Answer, EntitySummary} from "./api";
+import type {Answer, CodeAt, EntitySummary} from "./api";
 import {api, ApiFailure, errorMessage} from "./api";
 import {showBanner} from "./banner";
 import type {NameOptions} from "./entity-html";
-import {entityLink, kindBadge, kindLabel, listNameOptions, nameHtml, statusBadge} from "./entity-html";
+import {entityLink, kindBadge, kindLabel, listNameOptions, nameHtml, originLabel, statusBadge} from "./entity-html";
 import {entityHref, esc, lineHref, scrollTable, stackCell} from "./html";
 import {formatList, formatNumber, initI18n, t} from "./i18n";
 import type {Phrase} from "./impact-words";
@@ -337,6 +337,13 @@ function nodeNameHtml(view: ImpactView, index: number, options?: NameOptions) {
   return `<a class="mono" href="${lineHref(path, node.firstLine!)}">${esc(path)}</a>`;
 }
 
+/** Where a hop's use is ([pathLine]): its line, linked; a use Forms makes without code, on no line, marked as such. */
+function hopAtHtml(words: { path: string; line: number | null; code: CodeAt | null; place: string }) {
+  return words.line === null
+    ? `<span class="badge implicit" title="${esc(words.path)}">${esc(words.place)}</span>`
+    : `<a href="${lineHref(words.path, words.line, words.code)}" title="${esc(words.path)}">${esc(words.place)}</a>`;
+}
+
 /** A trigger's note as the CSV writes it: its codes and the table's full name, for tools. */
 function triggerText(trigger: ImpactTrigger) {
   const events = trigger.events.map(event =>
@@ -377,7 +384,7 @@ function togglePath(button: HTMLButtonElement) {
   const lines = hops.map(hop => {
     const line = pathLine(t, view, hop);
     const name = line.entity ? entityLink(line.entity, nameShape(line.entity)) : `<span class="mono">${esc(line.name)}</span>`;
-    const notes = [`<a href="${lineHref(line.path, line.line, line.code)}" title="${esc(line.path)}">${esc(line.place)}</a>`,
+    const notes = [hopAtHtml(line),
       `<span class="muted mono">${esc(line.path)}</span>`];
     if (line.fires) notes.push(esc(line.fires));
     if (line.status) notes.push(statusBadge(hop.status));
@@ -439,7 +446,7 @@ function treeLineHtml(item: TreeItem, level: number) {
   const name = node.entity !== null
     ? `${kindBadge(node.kind, true)} ${entityLink(view.entities[node.entity], treeNaming(view.entities[node.entity]))}`
     : `<span class="badge">${esc(t("impact.kind.FILE"))}</span> ${nodeNameHtml(view, item.node)}`;
-  const notes = [`<a href="${lineHref(words.path, words.line, words.code)}" title="${esc(words.path)}">${esc(words.place)}</a>`];
+  const notes = [hopAtHtml(words)];
   if (words.status) notes.push(statusBadge(hop.status));
   else if (!node.certain) notes.push(`<span class="badge uncertain" title="${esc(t("impact.notCertainHint"))}">${esc(t("impact.notCertain"))}</span>`);
   if (words.fires) notes.push(esc(words.fires));
@@ -511,7 +518,7 @@ function downloadCsv() {
     const row = [nodeText(view, index), node.entity !== null ? view.entities[node.entity].key : "",
       node.kind === "FILE" ? t("impact.kind.FILE") : kindLabel(node.kind), node.depth, t("impact.stopShort." + node.stop),
       t(node.certain ? "impact.yes" : "impact.no"), node.trigger ? triggerText(node.trigger) : "", place.file, place.line, place.unit,
-      pathText(view, index, fires)];
+      pathText(view, index, fires, originLabel("FORMS_IMPLICIT"))];
     if (state.tab === "entries") row.unshift(groupOf.get(index)!);
     return row;
   });

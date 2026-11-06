@@ -35,9 +35,59 @@ data class FormsModule(
     val recordGroups: List<FormsRecordGroup> get() = code.filterIsInstance<FormsRecordGroup>()
 }
 
-data class FormsBlock(val name: FormsValue, val items: List<FormsItem>)
+/**
+ * A data block: whether it is a [database] block, the [source] Forms queries it from and the [target] its inserts,
+ * updates and deletes go to (the target's name, when the file leaves it blank, is the source's: the Forms default),
+ * which of the four operations it allows, and its [where] and [orderBy] clauses as written (empty when none).
+ * The values are the Forms defaults where the file says nothing.
+ */
+data class FormsBlock(
+    val name: FormsValue,
+    val items: List<FormsItem>,
+    val database: Boolean = true,
+    val source: FormsDataSource = FormsDataSource.NONE,
+    val target: FormsDataSource = FormsDataSource.NONE,
+    val queryAllowed: Boolean = true,
+    val insertAllowed: Boolean = true,
+    val updateAllowed: Boolean = true,
+    val deleteAllowed: Boolean = true,
+    val where: String = "",
+    val orderBy: String = ""
+)
 
-data class FormsItem(val name: FormsValue)
+/**
+ * A block's query data source or DML data target: its [type] and its [name] as written (blank when none). [word] is
+ * what the file said for an [FormsDataType.UNKNOWN] type, for the reader's note; null otherwise.
+ */
+data class FormsDataSource(val type: FormsDataType, val name: String, val word: String? = null) {
+    companion object {
+        val NONE = FormsDataSource(FormsDataType.NONE, "")
+    }
+}
+
+/** What a block's data source or target is. [UNKNOWN]: a value the reader does not know, never guessed. */
+enum class FormsDataType { NONE, TABLE, PROCEDURE, QUERY, TRANSACTIONAL_TRIGGERS, UNKNOWN }
+
+/**
+ * An item: whether it is a [database] item, its [columnName] as written (blank: the item's own name), its [kind], and
+ * whether it allows insert and update. The values are the Forms defaults where the file says nothing.
+ */
+data class FormsItem(
+    val name: FormsValue,
+    val database: Boolean = true,
+    val columnName: String = "",
+    val kind: FormsItemKind = FormsItemKind.TEXT_ITEM,
+    val insertAllowed: Boolean = true,
+    val updateAllowed: Boolean = true,
+    /** What the file said for an [FormsItemKind.UNKNOWN] kind, for the reader's note; null otherwise. */
+    val kindWord: String? = null
+)
+
+/** The kind of an item. Only the kinds that hold a value ([holdsValue]) may stand for a column. */
+enum class FormsItemKind(val holdsValue: Boolean) {
+    TEXT_ITEM(true), DISPLAY_ITEM(true), LIST_ITEM(true), CHECK_BOX(true), RADIO_GROUP(true), IMAGE(true),
+    PUSH_BUTTON(false), BEAN_AREA(false), CHART(false), HIERARCHICAL_TREE(false), OTHER(false), UNKNOWN(false)
+}
 
 /** An object of a module that holds code. */
 sealed interface FormsCode {

@@ -12,7 +12,8 @@ import java.sql.Connection
  * A write that fires [trigger]: the target occurrence [occurrence] of an INSERT, UPDATE, DELETE or MERGE, in [container]
  * (null for code outside any). [fires] names the trigger's events it fires, such as `INSERT` or `INSERT,UPDATE`.
  * [sure] is false when the hop may not happen though the write is RESOLVED: the table is reached only through some of
- * the columns of a view, or an `UPDATE OF` trigger meets an UPDATE whose column list is not known.
+ * the columns of a view, or an `UPDATE OF` trigger meets an UPDATE whose column list is not known. A data block's
+ * insert, update or delete that Forms runs without code has [origin] `FORMS_IMPLICIT` and no [line].
  */
 internal class FiringWrite(
     val trigger: Long,
@@ -21,7 +22,8 @@ internal class FiringWrite(
     val status: String,
     val candidate: Boolean,
     val path: String,
-    val line: Int,
+    val line: Int?,
+    val origin: String,
     val sure: Boolean,
     val fires: String
 )
@@ -36,7 +38,9 @@ internal class FiringWrite(
  *
  * As Oracle 26ai runs them: INSERT and the insert clause of MERGE fire INSERT; UPDATE and the update clause of MERGE fire
  * UPDATE, and `UPDATE OF` only when they set one of its columns; DELETE and the DELETE WHERE of MERGE fire DELETE. A
- * statement-level trigger fires even when no row is touched, so every such statement counts.
+ * statement-level trigger fires even when no row is touched, so every such statement counts. The insert, update and
+ * delete Forms runs for a data block without code (`FORMS_IMPLICIT`) fire as such a statement would, the columns its
+ * items write being its column list.
  */
 internal class TriggerWrites(private val connection: Connection) {
 
@@ -60,7 +64,7 @@ internal class TriggerWrites(private val connection: Connection) {
 
     private class Write(
         val occurrence: Long, val relation: Long, val roles: Set<String>, val status: String, val candidate: Boolean,
-        val container: Long?, val path: String, val line: Int, val statement: Long?
+        val container: Long?, val path: String, val line: Int?, val statement: Long?, val origin: String
     )
 
     /** A written column of a statement: [entity] and its [parent] when resolved. */
@@ -99,16 +103,17 @@ internal class TriggerWrites(private val connection: Connection) {
         val views = chains.values.flatMap { chain -> chain.values.map { it.third } }.toSet()
         val writes = connection.query(
             """WITH r(id) AS (SELECT value FROM json_each(?))
-               SELECT o.id, o.entity_id, o.roles, o.status, 0, o.container_entity_id, f.path, o.start_line, o.statement_id
+               SELECT o.id, o.entity_id, o.roles, o.status, 0, o.container_entity_id, f.path, o.start_line, o.statement_id, o.origin
                FROM occurrence o JOIN source_file f ON f.id = o.file_id WHERE o.entity_id IN (SELECT id FROM r)
                UNION ALL
-               SELECT o.id, c.entity_id, o.roles, o.status, 1, o.container_entity_id, f.path, o.start_line, o.statement_id
+               SELECT o.id, c.entity_id, o.roles, o.status, 1, o.container_entity_id, f.path, o.start_line, o.statement_id, o.origin
                FROM occurrence_candidate c JOIN occurrence o ON o.id = c.occurrence_id JOIN source_file f ON f.id = o.file_id
                WHERE c.entity_id IN (SELECT id FROM r)""",
             listOf(json(tables + views))
         ) {
             Write(it.getLong(1), it.getLong(2), roles(it.getString(3)).toSet(), it.getString(4), it.getInt(5) == 1,
-                (it.getObject(6) as Number?)?.toLong(), it.getString(7), it.getInt(8), (it.getObject(9) as Number?)?.toLong())
+                (it.getObject(6) as Number?)?.toLong(), it.getString(7), (it.getObject(8) as Number?)?.toInt(), (it.getObject(9) as Number?)?.toLong(),
+                it.getString(10))
         }.filter { w -> w.roles.any { it in DML_ROLES } }
         if (writes.isEmpty()) return emptyList()
         val columns = connection.query(
@@ -116,6 +121,15 @@ internal class TriggerWrites(private val connection: Connection) {
                WHERE o.statement_id IN (SELECT value FROM json_each(?)) AND (',' || o.roles || ',') LIKE '%,WRITE,%'""",
             listOf(json(writes.mapNotNull { it.statement }.toSet()))
         ) { it.getLong(1) to Column((it.getObject(2) as Number?)?.toLong(), (it.getObject(3) as Number?)?.toLong(), roles(it.getString(4)).toSet()) }
+            .groupBy({ it.first }, { it.second })
+        // A data block's insert or update without code has no statement: it writes the columns of its items' writes, a
+        // column list Forms knows (their IMPLICIT role says no more than that), so an UPDATE OF goes by them.
+        val itemColumns = connection.query(
+            """SELECT i.parent_id, o.entity_id, e.parent_id, o.roles FROM entity i JOIN occurrence o ON o.container_entity_id = i.id
+               LEFT JOIN entity e ON e.id = o.entity_id
+               WHERE i.parent_id IN (SELECT value FROM json_each(?)) AND o.origin = 'FORMS_IMPLICIT' AND (',' || o.roles || ',') LIKE '%,WRITE,%'""",
+            listOf(json(writes.filter { it.origin == FORMS_IMPLICIT }.mapNotNull { it.container }.toSet()))
+        ) { it.getLong(1) to Column((it.getObject(2) as Number?)?.toLong(), (it.getObject(3) as Number?)?.toLong(), roles(it.getString(4)).toSet() - "IMPLICIT") }
             .groupBy({ it.first }, { it.second })
         // A DELETE through a view writes no column: the view's columns tell which table it reaches.
         val viewColumns = connection.query(
@@ -140,7 +154,8 @@ internal class TriggerWrites(private val connection: Connection) {
                 val merge = "SQL_MERGE" in write.roles
                 // A MERGE never runs an INSTEAD OF trigger: it is refused, or goes on to the base table.
                 if (merge && its.insteadOf) continue
-                val written = columns[write.statement].orEmpty().filter { it.parent == null || it.parent == write.relation }
+                val statementColumns = if (write.origin == FORMS_IMPLICIT) itemColumns[write.container] else columns[write.statement]
+                val written = statementColumns.orEmpty().filter { it.parent == null || it.parent == write.relation }
 
                 /** The columns of [table] that [cols] write by [event] (or as a MERGE), and whether every one reaches it. */
                 fun reach(cols: List<Column>, event: ViewWrite): Pair<Set<Long>, Boolean> {
@@ -175,7 +190,7 @@ internal class TriggerWrites(private val connection: Connection) {
                 }
                 if (fired.isEmpty()) continue
                 found += FiringWrite(
-                    trigger, write.occurrence, write.container, write.status, write.candidate, write.path, write.line,
+                    trigger, write.occurrence, write.container, write.status, write.candidate, write.path, write.line, write.origin,
                     fired.any { it.second }, fired.map { it.first }.sorted().joinToString(",")
                 )
             }
@@ -187,5 +202,7 @@ internal class TriggerWrites(private val connection: Connection) {
 
     companion object {
         private val DML_ROLES = setOf("SQL_INSERT", "SQL_UPDATE", "SQL_DELETE")
+
+        private const val FORMS_IMPLICIT = "FORMS_IMPLICIT"
     }
 }

@@ -52,7 +52,8 @@ internal class OccurrenceQueryReader(private val connection: Connection) {
         val valueRows = GroupDimension.VALUE in dimensions
         if (GroupDimension.ENTITY in dimensions || GroupDimension.ENTITY_KIND in dimensions) joins += "LEFT JOIN entity me ON me.id = ${sql.matched}"
         if (GroupDimension.CONTAINER in dimensions) joins += "LEFT JOIN entity ce ON ce.id = o.container_entity_id"
-        if (GroupDimension.UNIT in dimensions) joins += "JOIN unit un ON un.id = o.unit_id JOIN source_file uf ON uf.id = un.file_id"
+        // A use without a line (FORMS_IMPLICIT) is in no unit: its UNIT group is the one without a unit.
+        if (GroupDimension.UNIT in dimensions) joins += "LEFT JOIN unit un ON un.id = o.unit_id LEFT JOIN source_file uf ON uf.id = un.file_id"
         if (GroupDimension.FILE in dimensions) joins += "JOIN source_file fi ON fi.id = o.file_id"
         if (GroupDimension.STATEMENT_KIND in dimensions) joins += "LEFT JOIN sql_statement st ON st.id = o.statement_id"
         if (valueRows) {
@@ -156,9 +157,9 @@ internal class OccurrenceQueryReader(private val connection: Connection) {
         val counts = HashMap<String, Long>()
         connection.prepareStatement(
             """${sql.with}
-               SELECT o.roles || char(9) || o.status || char(9) || o.origin || char(9) || coalesce(me.kind, '') || char(9) || un.kind
+               SELECT o.roles || char(9) || o.status || char(9) || o.origin || char(9) || coalesce(me.kind, '') || char(9) || coalesce(un.kind, '')
                       || char(9) || coalesce(o.reason, '')
-               FROM ${sql.from} LEFT JOIN entity me ON me.id = ${sql.matched} JOIN unit un ON un.id = o.unit_id
+               FROM ${sql.from} LEFT JOIN entity me ON me.id = ${sql.matched} LEFT JOIN unit un ON un.id = o.unit_id
                ${sql.where()}"""
         ).use { statement ->
             statement.bind(sql.parameters)

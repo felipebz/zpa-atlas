@@ -5,6 +5,8 @@
 
 package com.felipebz.zpa.atlas.query
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.sql.Connection
@@ -62,10 +64,15 @@ data class ImpactViewNode(
 /**
  * [ImpactVia] by index: [node] is the node it uses (an index into [ImpactView.nodes]), null on the first hop, where
  * [uses] (an index into [ImpactView.entities]) is the entity asked for or what the first hop matched (a member, a view).
- * [code] as in [ImpactVia].
+ * [line], [code] and [origin] as in [ImpactVia]: a use Forms makes without code has no [line] and [origin]
+ * `FORMS_IMPLICIT`.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
-data class ImpactViewVia(val node: Int?, val uses: Int, val path: Int, val line: Int, val status: String, val fires: String?, val code: CodeAt? = null)
+data class ImpactViewVia(
+    val node: Int?, val uses: Int, val path: Int, val line: Int?, val status: String, val fires: String?, val code: CodeAt? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val origin: String? = null
+)
 
 /** Builds an [ImpactView] from a whole [ImpactGraph], reading what the graph does not carry over [connection]. */
 internal class ImpactViewBuilder(private val connection: Connection) {
@@ -104,7 +111,8 @@ internal class ImpactViewBuilder(private val connection: Connection) {
                     line = node.via.line,
                     status = node.via.status,
                     fires = node.via.fires,
-                    code = node.via.code
+                    code = node.via.code,
+                    origin = node.via.origin
                 ),
                 trigger = node.trigger
             )

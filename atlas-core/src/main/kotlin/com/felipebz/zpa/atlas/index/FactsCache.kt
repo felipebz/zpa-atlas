@@ -80,7 +80,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 21
+    private const val FORMAT = 22
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -145,7 +145,7 @@ internal object FactsCache {
             facts.path, facts.sha256, facts.sizeBytes, facts.encoding, facts.parseStatus, facts.recoveredRegions, facts.compilationSchema, facts.units,
             facts.statements, facts.occurrences, facts.entities, facts.relations, facts.coverage, relations, facts.dictionarySynonyms, facts.triggerEvents,
             facts.declaredTexts, facts.docComments, facts.usesGaps, facts.membersGaps, facts.declaredShapes, facts.intos, facts.placesLeftOut, facts.kind,
-            facts.formsObjects
+            facts.formsObjects, facts.formsUses
         )
     }
 
@@ -267,7 +267,25 @@ internal object FactsCache {
                 data.writeBoolean(into.keeps)
             }
             list(facts.placesLeftOut.entries.toList()) { string(it.key); data.writeInt(it.value) }
-            list(facts.formsObjects) { string(it.entityKey); nullableInt(it.codeFirstLine); nullableInt(it.codeLastLine); nullable(it.unitKind?.name) }
+            list(facts.formsObjects) {
+                string(it.entityKey); nullableInt(it.codeFirstLine); nullableInt(it.codeLastLine); nullable(it.unitKind?.name)
+                data.writeBoolean(it.block != null)
+                it.block?.let { block ->
+                    data.writeBoolean(block.database); string(block.sourceType.name); string(block.sourceName); nullable(block.sourceKey)
+                    string(block.targetType.name); string(block.targetName); nullable(block.targetKey); data.writeBoolean(block.queryAllowed)
+                    data.writeBoolean(block.insertAllowed); data.writeBoolean(block.updateAllowed); data.writeBoolean(block.deleteAllowed); string(block.where)
+                    string(block.orderBy)
+                }
+                data.writeBoolean(it.item != null)
+                it.item?.let { item ->
+                    data.writeBoolean(item.database); string(item.columnName); string(item.kind.name); data.writeBoolean(item.insertAllowed)
+                    data.writeBoolean(item.updateAllowed); nullable(item.columnKey); nullable(item.targetColumnKey)
+                }
+            }
+            list(facts.formsUses) {
+                string(it.containerKey); string(it.written); nullable(it.entityKey); strings(it.roles.map { role -> role.name }); string(it.status.name)
+                nullable(it.reason)
+            }
         }
 
         fun item(item: QueryItem) {
@@ -420,11 +438,23 @@ internal object FactsCache {
                     if (data.readBoolean()) span() else null, if (data.readBoolean()) span() else null, data.readBoolean())
             }
             val placesLeftOut = list { string() to data.readInt() }.toMap()
-            val formsObjects = list { FormsObjectFact(string(), nullableInt(), nullableInt(), nullable()?.let { enumValueOf<UnitKind>(it) }) }
+            val formsObjects = list {
+                FormsObjectFact(string(), nullableInt(), nullableInt(), nullable()?.let { enumValueOf<UnitKind>(it) },
+                    if (data.readBoolean()) {
+                        FormsBlockFact(data.readBoolean(), enumValueOf(string()), string(), nullable(), enumValueOf(string()), string(), nullable(),
+                            data.readBoolean(), data.readBoolean(), data.readBoolean(), data.readBoolean(), string(), string())
+                    } else null,
+                    if (data.readBoolean()) {
+                        FormsItemFact(data.readBoolean(), string(), enumValueOf(string()), data.readBoolean(), data.readBoolean(), nullable(), nullable())
+                    } else null)
+            }
+            val formsUses = list {
+                FormsUseFact(string(), string(), nullable(), strings().mapTo(LinkedHashSet()) { enumValueOf(it) }, enumValueOf(string()), nullable())
+            }
             return FileFacts(
                 path, sha256, sizeBytes, encoding, parseStatus, recoveredRegions, compilationSchema, units, statements, occurrences, entities,
                 relations, coverage, emptyList(), synonyms, triggerEvents, declaredTexts, docComments, usesGaps, membersGaps, declaredShapes, intos, placesLeftOut,
-                kind, formsObjects
+                kind, formsObjects, formsUses
             ) to dictionaryRelations
         }
 

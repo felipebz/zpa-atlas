@@ -6,10 +6,12 @@
 package com.felipebz.zpa.atlas.query
 
 import java.sql.Connection
+import java.sql.ResultSet
 
 /**
  * What the index says of Forms modules beyond their entities: the module an object belongs to, the tree of a module's
- * objects in the order of its file, and the own text of each piece of code (`forms_object`).
+ * objects in the order of its file, the own text of each piece of code (`forms_object`), and what a block and an item
+ * do with their data (`forms_block`, `forms_item`).
  */
 internal class FormsReader(private val connection: Connection) {
     /** The module of the Forms object [entityId], with its title and file; null when it is not a Forms object. */
@@ -36,6 +38,67 @@ internal class FormsReader(private val connection: Connection) {
         }
         return null
     }
+
+    /**
+     * What the database block [entityId] does with its data ([FormsBlockData]): each operation's state follows the rules
+     * the indexer followed for the block's `FORMS_IMPLICIT` uses, so `DONE` is where they are. Null for a non-database
+     * block (Forms queries and writes nothing for it, and its items stand for no column) and for any other entity.
+     */
+    fun block(entityId: Long): FormsBlockData? {
+        val (data, allowed) = connection.query(
+            """SELECT b.source_type, b.source_name, b.target_type, b.target_name, b.query_allowed, b.insert_allowed,
+                      b.update_allowed, b.delete_allowed, b.where_clause, b.order_by_clause,
+                      s.key, s.kind, s.display, s.external, s.name, t.key, t.kind, t.display, t.external, t.name
+               FROM forms_block b LEFT JOIN entity s ON s.id = b.source_entity_id LEFT JOIN entity t ON t.id = b.target_entity_id
+               WHERE b.entity_id = ? AND b.database = 1""", listOf(entityId)
+        ) { rs ->
+            FormsBlockData(FormsDataSource(rs.getString(1), rs.getString(2), summaryAt(rs, 11)),
+                FormsDataSource(rs.getString(3), rs.getString(4), summaryAt(rs, 16)), emptyList(), rs.getString(9), rs.getString(10)) to
+                (5..8).map { rs.getInt(it) == 1 }
+        }.singleOrNull() ?: return null
+        // The block's own transactional triggers, else the module's, which fire for every block without its own.
+        val triggers = connection.query(
+            """SELECT upper(e.name), e.key, e.kind, e.display, e.external, e.name FROM entity e
+               WHERE e.kind = 'FORMS_TRIGGER' AND upper(e.name) IN ('ON-SELECT', 'ON-INSERT', 'ON-UPDATE', 'ON-DELETE')
+                 AND (e.parent_id = ? OR e.parent_id = (SELECT parent_id FROM entity WHERE id = ?))
+               ORDER BY e.parent_id = ? DESC, e.key""", listOf(entityId, entityId, entityId)
+        ) { it.getString(1) to summaryAt(it, 2)!! }.fold(HashMap<String, EntitySummary>()) { map, (name, trigger) -> map.apply { putIfAbsent(name, trigger) } }
+        val operations = FormsBlockOperation.entries.mapIndexed { i, operation ->
+            val trigger = triggers[REPLACING_TRIGGERS.getValue(operation)]
+            val table = if (operation == FormsBlockOperation.QUERY) data.source.entity else data.target.entity
+            val state = when {
+                !allowed[i] -> FormsOperationState.NOT_ALLOWED
+                trigger != null -> FormsOperationState.REPLACED
+                table == null -> FormsOperationState.NOT_FOLLOWED
+                else -> FormsOperationState.DONE
+            }
+            FormsOperation(operation.name, state.name, trigger.takeIf { state == FormsOperationState.REPLACED })
+        }
+        return data.copy(operations = operations)
+    }
+
+    /**
+     * What the item [entityId] says of its data ([FormsItemData]), with what Forms does with its column read from the
+     * item's `FORMS_IMPLICIT` uses; null for any other entity.
+     */
+    fun item(entityId: Long): FormsItemData? = connection.query(
+        """SELECT i.database, i.kind, i.column_name, c.key, c.kind, c.display, c.external, c.name, t.key, t.kind, t.display, t.external, t.name,
+                  ${implicitUse("i.entity_id", "READ")}, ${implicitUse("i.entity_id", "SQL_INSERT")}, ${implicitUse("i.entity_id", "SQL_UPDATE")}
+           FROM forms_item i LEFT JOIN entity c ON c.id = i.column_id LEFT JOIN entity t ON t.id = i.target_column_id
+           WHERE i.entity_id = ?""", listOf(entityId)
+    ) { rs ->
+        FormsItemData(rs.getInt(1) == 1, rs.getString(2), rs.getString(3), summaryAt(rs, 4), summaryAt(rs, 9),
+            rs.getInt(14) == 1, rs.getInt(15) == 1, rs.getInt(16) == 1)
+    }.singleOrNull()
+
+    /** Whether the item [itemColumn] has a `FORMS_IMPLICIT` use with [role]: an SQL expression giving 0 or 1. */
+    private fun implicitUse(itemColumn: String, role: String) =
+        """EXISTS (SELECT 1 FROM occurrence o WHERE o.container_entity_id = $itemColumn AND o.origin = 'FORMS_IMPLICIT'
+                   AND instr(',' || o.roles || ',', ',$role,') > 0)"""
+
+    /** The [EntitySummary] in the five columns from [first] (key, kind, display, external, name); null for a null key. */
+    private fun summaryAt(rs: ResultSet, first: Int): EntitySummary? =
+        rs.getString(first)?.let { EntitySummary(it, rs.getString(first + 1), rs.getString(first + 2), rs.getInt(first + 3) == 1, rs.getString(first + 4)) }
 
     /** The tree of the Forms module, block or item [key] ([FormsTree]); null when it is none of these. */
     fun tree(key: String): FormsTree? {
@@ -119,6 +182,12 @@ internal class FormsReader(private val connection: Connection) {
 
     companion object {
         private const val MAX_DEPTH = 10
+
+        /** The block trigger whose code Forms runs instead of each operation. */
+        private val REPLACING_TRIGGERS = mapOf(
+            FormsBlockOperation.QUERY to "ON-SELECT", FormsBlockOperation.INSERT to "ON-INSERT",
+            FormsBlockOperation.UPDATE to "ON-UPDATE", FormsBlockOperation.DELETE to "ON-DELETE"
+        )
 
         private val TREE_KINDS = setOf("FORMS_MODULE", "FORMS_BLOCK", "FORMS_ITEM")
 

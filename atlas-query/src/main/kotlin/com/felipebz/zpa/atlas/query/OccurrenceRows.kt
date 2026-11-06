@@ -17,7 +17,7 @@ internal class Hit(
 /** The hit an occurrence hit several ways reports: not added by [Scope.VIEWS] first, then direct before candidate. */
 internal val hitPreference = compareBy<Hit>({ it.viaView }, { it.viaCandidate }, { it.matched })
 
-/** The rows of [page]; with [unitEntities], each [UnitRef] names its entity. */
+/** The rows of [page]; with [unitEntities], each [UnitRef] names its entity. A use without a line has no span and no unit. */
 internal fun rows(connection: Connection, page: List<Hit>, unitEntities: Boolean = false): List<OccurrenceRow> {
     if (page.isEmpty()) return emptyList()
     val marks = page.joinToString(",") { "?" }
@@ -46,7 +46,7 @@ internal fun rows(connection: Connection, page: List<Hit>, unitEntities: Boolean
     return connection.query(
         """SELECT o.id, f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.written, o.roles, o.status, o.reason, o.origin,
                   o.entity_id, o.container_entity_id, u.kind, u.name, s.kind, u.entity_id, ${FormsReader.codeAtSql("o.file_id", "o.start_line")}
-           FROM occurrence o JOIN source_file f ON f.id = o.file_id JOIN unit u ON u.id = o.unit_id
+           FROM occurrence o JOIN source_file f ON f.id = o.file_id LEFT JOIN unit u ON u.id = o.unit_id
            LEFT JOIN sql_statement s ON s.id = o.statement_id
            WHERE o.id IN ($marks) ORDER BY o.id""",
         ids
@@ -56,13 +56,12 @@ internal fun rows(connection: Connection, page: List<Hit>, unitEntities: Boolean
         val entityId = (rs.getObject(12) as Number?)?.toLong()
         val containerId = (rs.getObject(13) as Number?)?.toLong()
         val unitEntityId = (rs.getObject(17) as Number?)?.toLong()
+        val unit = rs.getString(14)?.let { UnitRef(it, rs.getString(15), if (unitEntities) entityOf(unitEntityId) else null) }
         OccurrenceRow(
-            id, rs.getString(2), span(rs, 3), rs.getString(7), roles(rs.getString(8)), rs.getString(9), rs.getString(10), rs.getString(11),
-            entityOf(hit.matched), hit.viaCandidate, hit.viaView, null, null, UnitRef(rs.getString(14), rs.getString(15), null), rs.getString(16),
+            id, rs.getString(2), spanOrNull(rs, 3), rs.getString(7), roles(rs.getString(8)), rs.getString(9), rs.getString(10), rs.getString(11),
+            entityOf(hit.matched), hit.viaCandidate, hit.viaView, entityOf(entityId), entityOf(containerId), unit, rs.getString(16),
             candidates[id].orEmpty(), arguments[id].orEmpty(), written[id].orEmpty(), FormsReader.codeAt(rs.getString(18))
-        ).let { row ->
-            row.copy(entity = entityOf(entityId), container = entityOf(containerId), unit = if (unitEntities) row.unit.copy(entity = entityOf(unitEntityId)) else row.unit)
-        }
+        )
     }
 }
 
@@ -72,6 +71,9 @@ internal fun summary(connection: Connection, id: Long): EntitySummary =
 internal fun entitySummary(rs: ResultSet) = EntitySummary(rs.getString(1), rs.getString(2), rs.getString(3), rs.getInt(4) == 1, rs.getString(5))
 
 internal fun span(rs: ResultSet, first: Int) = Span(rs.getInt(first), rs.getInt(first + 1), rs.getInt(first + 2), rs.getInt(first + 3))
+
+/** [span], or null when its first column is null: an occurrence without a line (`FORMS_IMPLICIT`). */
+internal fun spanOrNull(rs: ResultSet, first: Int) = if (rs.getObject(first) == null) null else span(rs, first)
 
 internal fun roles(text: String): List<String> = if (text.isEmpty()) emptyList() else text.split(',')
 

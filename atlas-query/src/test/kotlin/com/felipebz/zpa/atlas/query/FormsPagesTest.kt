@@ -144,7 +144,7 @@ class FormsPagesTest {
         val rows = index.occurrences("forms:DEMO0002/CONST_LOCAL").result!!.rows
         assertThat(rows.map { it.code!!.key.substringAfter('/') }.distinct())
             .containsExactlyInAnyOrder("FILTER/BT_QUERY/WHEN-BUTTON-PRESSED", "FILTER/WHEN-VALIDATE-ITEM", "WHEN_TIMER_EXPIRED", "WNF")
-        for (row in rows) assertThat(lineOf(row.code!!)).describedAs("${row.unit.name} ${row.span.startLine}").containsIgnoringCase(row.written)
+        for (row in rows) assertThat(lineOf(row.code!!)).describedAs("${row.unit!!.name} ${row.span!!.startLine}").containsIgnoringCase(row.written)
         // A package's halves: its definitions, one in each half, at line 1.
         val definitions = index.entity("forms:DEMO0002/BL_EMPLOYEES").result!!.definitions.map { it.code!! }
         assertThat(definitions).containsExactlyInAnyOrder(

@@ -90,6 +90,7 @@ internal class EntityReader(private val connection: Connection) {
         ) { it.getString(1) to it.getString(2) }
         val asCandidate = connection.query("SELECT count(*) FROM occurrence_candidate WHERE entity_id = ?", listOf(row.id)) { it.getLong(1) }.single()
         val ownKeys = ownKeys(row.id, row.kind)
+        val formsReader = if (row.key.startsWith("forms:")) FormsReader(connection) else null
         return EntityDetail(
             row.key, row.kind, row.schema, row.name, row.display, row.external, parent, ancestors, children, relations, definitions, overloads, partners,
             UsageSummary(tally(usages.flatMap { roles(it.first) }), tally(usages.map { it.second }), asCandidate),
@@ -108,7 +109,9 @@ internal class EntityReader(private val connection: Connection) {
             if (row.kind == "COLUMN") PlaceReader(connection).counts(row.id, concatenated = false) else emptyList(),
             if (row.kind == "COLUMN") PlaceReader(connection).total(row.id, concatenated = true) else 0,
             PlaceReader(connection).receives(row.id),
-            if (row.key.startsWith("forms:")) FormsReader(connection).info(row.id) else null
+            formsReader?.info(row.id),
+            if (row.kind == "FORMS_BLOCK") formsReader?.block(row.id) else null,
+            if (row.kind == "FORMS_ITEM") formsReader?.item(row.id) else null
         )
     }
 

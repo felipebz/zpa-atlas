@@ -2,8 +2,8 @@ import type {Answer, CallArgument, CodeAt, Count, EntitySummary, OccurrenceLine,
 import {api} from "./api";
 import {sourceLine} from "./banner";
 import {codeLineNode} from "./code-line";
-import {entityLink, kindBadge, nameHtml, roleLabel, statusBadge, unitKindLabel, valueKindLabel} from "./entity-html";
-import {entityHref, esc, fileHref, lineLink, literalText} from "./html";
+import {entityLink, kindBadge, nameHtml, originLabel, roleLabel, statusBadge, unitKindLabel, valueKindLabel} from "./entity-html";
+import {entityHref, esc, fileHref, lineLink, literalText, nameBreaksHtml} from "./html";
 import {formatNumber, t} from "./i18n";
 import {shownLine} from "./text-search";
 import type {UsesContext, UsesGroup} from "./uses-view";
@@ -14,6 +14,7 @@ import {
     groupOf,
     nameLength,
     programWithin,
+    rowLine,
     rowNaming,
     shownStatement,
     useMark
@@ -83,14 +84,15 @@ export function usesBlock(context: UsesContext = {}): UsesBlock {
         }
         state.element.insertAdjacentHTML("beforeend", useRowHtml(row, context));
         const shownRow = state.element.lastElementChild as HTMLElement;
-        placed.set(row.id, { row, element: shownRow });
+        // A use Forms makes without code has no line to show.
+        if (row.span !== null) placed.set(row.id, { row, element: shownRow });
         rowsShown.set(shownRow, row);
         state.count++;
         if (!state.files.some(file => file.path === row.path)) {
           state.files.push({ path: row.path, code: row.code });
           state.element.querySelector(".grp-files")!.innerHTML = state.files.map(file => fileLink(file.path, file.code)).join(", ");
         }
-        if (!group.program && !state.units.includes(row.unit.kind)) {
+        if (!group.program && row.unit !== null && !state.units.includes(row.unit.kind)) {
           state.units.push(row.unit.kind);
           const units = state.element.querySelector<HTMLElement>(".grp-units")!;
           units.textContent = state.units.map(unitKindLabel).join(", ");
@@ -109,9 +111,9 @@ export function usesBlock(context: UsesContext = {}): UsesBlock {
 /** The row each "who uses" row element shows, for its marks. */
 const rowsShown = new WeakMap<HTMLElement, OccurrenceRow>();
 
-/** What [row] marks on [line]: its span, ended at the entity's own name when the row is a chain's start. */
+/** What [row] marks on [line]: its span, ended at the entity's own name when the row is a chain's start; nothing without a span. */
 function rowMark(row: OccurrenceRow, line: string) {
-  return useMark(row.span, line, { written: row.written, length: nameLength(row.written, (row.matched ?? row.entity)?.name) });
+  return row.span === null ? [] : useMark(row.span, line, { written: row.written, length: nameLength(row.written, (row.matched ?? row.entity)?.name) });
 }
 
 /**
@@ -142,9 +144,13 @@ const fileLink = (path: string, code: CodeAt | null) =>
 
 /**
  * A program's short name: without its schema, its owner package kept (dropped too when the owner is the page's own
- * entity), no "body" badge; the tooltip keeps the full display.
+ * entity), no "body" badge; the tooltip keeps the full display. A Forms object by its full path in its module
+ * (`DATA_DESK/COMPANY`).
  */
 function programHtml(program: EntitySummary, context: UsesContext) {
+  if (program.kind.startsWith("FORMS_")) {
+    return `<a class="mono" href="${entityHref(program.key)}" title="${esc(program.display)}">${nameBreaksHtml(program.display).replace(/\//g, "/<wbr>")}</a>`;
+  }
   const within = programWithin(program, context.page);
   return `<a href="${entityHref(program.key)}">${nameHtml(program, { within: within ? { display: within } : undefined, noBodyBadge: true })}</a>`;
 }
@@ -176,13 +182,16 @@ function useRowHtml(row: OccurrenceRow, context: UsesContext) {
   const statementHtml = statement
     ? ` <span class="muted" title="${esc(statement)}">${esc(t("usage.inStatement." + statement))}</span>` : "";
   const status = row.status === "RESOLVED" ? "" : " " + statusBadge(row.status, row.reason);
-  // Inside Forms code the line leads to the code page of its unit at its own line, the number it has there.
-  const line = row.code?.line ?? row.span.startLine;
-  const at = lineLink(row.path, row.span.startLine, t("usage.at", { line, column: row.span.startCol }), row.code);
-  return `<div class="use" data-path="${esc(row.path)}" data-line="${row.span.startLine}"><span class="at">${at}</span>
-    <div class="what"><div class="uline" hidden></div>${head}${argumentsHtml(row.arguments)}${written}${via}${others}</div>
+  // Inside Forms code the line leads to the code page of its unit at its own line, the number it has there. A use
+  // Forms makes without code is on no line: no link and no snippet, the row says Forms made it.
+  const at = rowLine(row);
+  const implicit = at === null ? `<div><span class="badge implicit" title="${esc(row.origin)}">${esc(originLabel("FORMS_IMPLICIT"))}</span></div>` : "";
+  const link = at === null ? "" : lineLink(row.path, at.line, t("usage.at", { line: at.shown, column: at.column }), at.code);
+  const snip = at === null ? `<span></span>` : `<button type="button" class="snip" title="${esc(t("source.show"))}">▸</button>`;
+  return `<div class="use" data-path="${esc(row.path)}"${at === null ? "" : ` data-line="${at.line}"`}><span class="at">${link}</span>
+    <div class="what"><div class="uline" hidden></div>${implicit}${head}${argumentsHtml(row.arguments)}${written}${via}${others}</div>
     <span class="how" title="${esc(row.roles.join(", "))}">${esc(row.roles.map(roleLabel).join(", "))}${statementHtml}${status}</span>
-    <button type="button" class="snip" title="${esc(t("source.show"))}">▸</button></div>`;
+    ${snip}</div>`;
 }
 
 /**

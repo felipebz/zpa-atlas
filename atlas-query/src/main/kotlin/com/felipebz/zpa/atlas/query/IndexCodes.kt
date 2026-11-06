@@ -27,6 +27,19 @@ internal val UNIT_KINDS = listOf(
     "ANONYMOUS_BLOCK", "SQL_STATEMENT", "UNPARSED", "FORMS_TRIGGER", "FORMS_PROGRAM_UNIT"
 )
 internal val ORIGINS = listOf("STATIC", "DYNAMIC_LITERAL", "FORMS_IMPLICIT", "HEURISTIC")
+internal val RELATION_KINDS = listOf(
+    "CONTAINS", "IMPLEMENTS", "OVERLOAD_OF", "SYNONYM_FOR", "VIEW_BASE", "TRIGGER_ON", "FORMS_BLOCK_TABLE", "FORMS_ITEM_COLUMN",
+    "FORMS_ATTACHED_LIBRARY"
+)
+
+/** A Forms block's data source or DML target type (`forms_block.source_type`, `target_type`). */
+internal val FORMS_DATA_TYPES = listOf("NONE", "TABLE", "PROCEDURE", "QUERY", "TRANSACTIONAL_TRIGGERS", "UNKNOWN")
+
+/** A Forms item's kind (`forms_item.kind`). */
+internal val FORMS_ITEM_KINDS = listOf(
+    "TEXT_ITEM", "DISPLAY_ITEM", "LIST_ITEM", "CHECK_BOX", "RADIO_GROUP", "IMAGE", "PUSH_BUTTON", "BEAN_AREA", "CHART",
+    "HIERARCHICAL_TREE", "OTHER", "UNKNOWN"
+)
 internal val STATEMENT_KINDS = listOf("SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "LOCK", "DYNAMIC", "DDL")
 
 /** Why an occurrence has its status, as the writer's `Reason` declares them. */
@@ -56,7 +69,8 @@ internal val ENTITY_KINDS = listOf(
 
 /** The codes only a later phase of the indexer produces; the other code lists have none. */
 internal val RESERVED_ENTITY_KINDS = setOf("SCHEMA", "LABEL")
-internal val RESERVED_ORIGINS = setOf("FORMS_IMPLICIT", "HEURISTIC")
+internal val RESERVED_ORIGINS = setOf("HEURISTIC")
+internal val RESERVED_RELATION_KINDS = setOf("OVERLOAD_OF")
 
 /**
  * Every code list, as `GET /api/codes` serves it. The codes do not depend on an index, so the endpoint opens none: it
@@ -74,7 +88,12 @@ fun indexCodes(): Codes {
         valueKinds = codes(VALUE_KINDS),
         groupDimensions = codes(GroupDimension.entries.map { it.name }),
         reasons = codes(REASONS),
-        parseStatuses = codes(PARSE_STATUSES)
+        parseStatuses = codes(PARSE_STATUSES),
+        relationKinds = codes(RELATION_KINDS, RESERVED_RELATION_KINDS),
+        formsDataTypes = codes(FORMS_DATA_TYPES),
+        formsItemKinds = codes(FORMS_ITEM_KINDS),
+        formsOperations = codes(FormsBlockOperation.entries.map { it.name }),
+        formsOperationStates = codes(FormsOperationState.entries.map { it.name })
     )
 }
 

@@ -5,6 +5,8 @@
 
 package com.felipebz.zpa.atlas.writer
 
+import com.felipebz.zpa.atlas.forms.FormsDataType
+import com.felipebz.zpa.atlas.forms.FormsItemKind
 import com.felipebz.zpa.atlas.model.*
 import java.sql.Connection
 
@@ -24,8 +26,10 @@ internal fun execute(connection: Connection, ddl: List<String>) {
  * An IN list in a CHECK made each batched insert several times slower when measured; a chain of equalities
  * accepts the same values without that cost.
  */
-private inline fun <reified E> check(column: String): String where E : Enum<E>, E : StoredEnum =
-    "CHECK (${enumValues<E>().joinToString(" OR ") { "$column = '${it.name}'" }})"
+private inline fun <reified E> check(column: String): String where E : Enum<E>, E : StoredEnum = check(column, enumValues<E>().asList())
+
+/** The CHECK of a column that holds the name of one of [values]. */
+private fun check(column: String, values: List<Enum<*>>): String = "CHECK (${values.joinToString(" OR ") { "$column = '${it.name}'" }})"
 
 /** A comma-separated set of roles (empty for dynamic SQL): removing every role name and comma must leave nothing. */
 private fun rolesCheck(): String {
@@ -117,17 +121,19 @@ internal fun tableDdl(): List<String> = listOf(
         normalized_hash TEXT NOT NULL
     )
     """,
+    // A use without a line of code, one Oracle Forms makes for a data block (origin FORMS_IMPLICIT), has no unit, no
+    // statement and no span: its container is the block or the item.
     """
     CREATE TABLE occurrence (
         id INTEGER PRIMARY KEY,
         file_id INTEGER NOT NULL REFERENCES source_file(id),
-        unit_id INTEGER NOT NULL REFERENCES unit(id),
+        unit_id INTEGER NULL REFERENCES unit(id),
         container_entity_id INTEGER NULL REFERENCES entity(id),
         statement_id INTEGER NULL REFERENCES sql_statement(id),
-        start_line INTEGER NOT NULL,
-        start_col INTEGER NOT NULL,
-        end_line INTEGER NOT NULL,
-        end_col INTEGER NOT NULL,
+        start_line INTEGER NULL,
+        start_col INTEGER NULL,
+        end_line INTEGER NULL,
+        end_col INTEGER NULL,
         written TEXT NOT NULL,
         entity_id INTEGER NULL REFERENCES entity(id),
         roles TEXT NOT NULL ${rolesCheck()},
@@ -138,7 +144,9 @@ internal fun tableDdl(): List<String> = listOf(
         name_start_line INTEGER NULL,
         name_start_col INTEGER NULL,
         name_end_line INTEGER NULL,
-        name_end_col INTEGER NULL
+        name_end_col INTEGER NULL,
+        CHECK (origin = 'FORMS_IMPLICIT' OR unit_id IS NOT NULL AND start_line IS NOT NULL AND start_col IS NOT NULL AND end_line IS NOT NULL
+            AND end_col IS NOT NULL)
     )
     """,
     """
@@ -231,6 +239,42 @@ internal fun tableDdl(): List<String> = listOf(
         code_last_line INTEGER NULL,
         code_kind TEXT NULL,
         PRIMARY KEY (file_id, position)
+    )
+    """,
+    // What a data block says of its data, one row per block: whether it is a database block, its query data source and
+    // DML data target (type, name as written, and the relation the name resolves to when the block is on a table), the
+    // operations it allows (1) and its WHERE and ORDER BY clauses as written (empty when none).
+    """
+    CREATE TABLE forms_block (
+        entity_id INTEGER PRIMARY KEY REFERENCES entity(id),
+        database INTEGER NOT NULL CHECK (database IN (0, 1)),
+        source_type TEXT NOT NULL ${check("source_type", FormsDataType.entries)},
+        source_name TEXT NOT NULL,
+        source_entity_id INTEGER NULL REFERENCES entity(id),
+        target_type TEXT NOT NULL ${check("target_type", FormsDataType.entries)},
+        target_name TEXT NOT NULL,
+        target_entity_id INTEGER NULL REFERENCES entity(id),
+        query_allowed INTEGER NOT NULL CHECK (query_allowed IN (0, 1)),
+        insert_allowed INTEGER NOT NULL CHECK (insert_allowed IN (0, 1)),
+        update_allowed INTEGER NOT NULL CHECK (update_allowed IN (0, 1)),
+        delete_allowed INTEGER NOT NULL CHECK (delete_allowed IN (0, 1)),
+        where_clause TEXT NOT NULL,
+        order_by_clause TEXT NOT NULL
+    )
+    """,
+    // What an item says of its data, one row per item: whether it is a database item, its column name as written (empty:
+    // the item's own name), its kind, whether it allows insert and update, and for an item on a column the column of its
+    // block's source (column_id) and, when the block's DML target is another relation, the target's (target_column_id).
+    """
+    CREATE TABLE forms_item (
+        entity_id INTEGER PRIMARY KEY REFERENCES entity(id),
+        database INTEGER NOT NULL CHECK (database IN (0, 1)),
+        column_name TEXT NOT NULL,
+        kind TEXT NOT NULL ${check("kind", FormsItemKind.entries)},
+        insert_allowed INTEGER NOT NULL CHECK (insert_allowed IN (0, 1)),
+        update_allowed INTEGER NOT NULL CHECK (update_allowed IN (0, 1)),
+        column_id INTEGER NULL REFERENCES entity(id),
+        target_column_id INTEGER NULL REFERENCES entity(id)
     )
     """,
     // The body globals whose recorded uses may be incomplete, one row per entity: reasons lists, comma-separated, what

@@ -7,6 +7,8 @@ package com.felipebz.zpa.atlas.model
 
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
+import com.felipebz.zpa.atlas.forms.FormsDataType
+import com.felipebz.zpa.atlas.forms.FormsItemKind
 
 /** One-based lines, zero-based columns, exclusive end column (the ZPA token convention). */
 data class SourceSpan(val startLine: Int, val startCol: Int, val endLine: Int, val endCol: Int) : Comparable<SourceSpan> {
@@ -165,9 +167,56 @@ data class MembersGapFact(val entityKey: String, val reasons: List<String>)
 /**
  * An object of a Forms module, in the order of its file: [entityKey], and for code (a trigger, a program unit's
  * specification or body, a record group query) the lines of the module text that are its own text, and [unitKind]
- * `PACKAGE` or `PACKAGE_BODY` for a package's halves.
+ * `PACKAGE` or `PACKAGE_BODY` for a package's halves; for a block its [block] properties, for an item its [item] ones.
  */
-data class FormsObjectFact(val entityKey: String, val codeFirstLine: Int? = null, val codeLastLine: Int? = null, val unitKind: UnitKind? = null)
+data class FormsObjectFact(
+    val entityKey: String, val codeFirstLine: Int? = null, val codeLastLine: Int? = null, val unitKind: UnitKind? = null,
+    val block: FormsBlockFact? = null, val item: FormsItemFact? = null
+)
+
+/**
+ * What a data block says of its data ([com.felipebz.zpa.atlas.forms.FormsBlock]): whether it is a database block, its
+ * query data source and DML data target (each its type and name as written, and the relation the name resolves to when
+ * the block is on a table and that one is a table), the operations it allows and its `WHERE` and `ORDER BY` clauses.
+ */
+data class FormsBlockFact(
+    val database: Boolean,
+    val sourceType: FormsDataType,
+    val sourceName: String,
+    val sourceKey: String?,
+    val targetType: FormsDataType,
+    val targetName: String,
+    val targetKey: String?,
+    val queryAllowed: Boolean,
+    val insertAllowed: Boolean,
+    val updateAllowed: Boolean,
+    val deleteAllowed: Boolean,
+    val where: String,
+    val orderBy: String
+)
+
+/**
+ * What an item says of its data ([com.felipebz.zpa.atlas.forms.FormsItem]): whether it is a database item, its column
+ * name as written, its kind, whether it allows insert and update, and, for an item on a column, the column of its
+ * block's source ([columnKey]) and, when the block's DML target is another relation, the target's column of that name
+ * ([targetColumnKey]).
+ */
+data class FormsItemFact(
+    val database: Boolean,
+    val columnName: String,
+    val kind: FormsItemKind,
+    val insertAllowed: Boolean,
+    val updateAllowed: Boolean,
+    val columnKey: String?,
+    val targetColumnKey: String?
+)
+
+/**
+ * A use Oracle Forms makes without code ([com.felipebz.zpa.atlas.extract.FormsDataBlocks]): a block's query, insert,
+ * update or delete of its table, an item's read or write of its column. It has no unit and no place in the module
+ * text: its [containerKey] is the block or the item, its origin `FORMS_IMPLICIT`.
+ */
+data class FormsUseFact(val containerKey: String, val written: String, val entityKey: String?, val roles: Set<Role>, val status: Status, val reason: String?)
 
 /** Everything one file contributes, produced off the writer thread. */
 class FileFacts(
@@ -203,5 +252,7 @@ class FileFacts(
     /** A database source, or a Forms module whose text is the module text built from the file ([com.felipebz.zpa.atlas.forms.FormsModuleText]). */
     val kind: FileKind = FileKind.DB_SOURCE,
     /** For a Forms module, its objects in the order of its file. */
-    val formsObjects: List<FormsObjectFact> = emptyList()
+    val formsObjects: List<FormsObjectFact> = emptyList(),
+    /** For a Forms module, the uses its data blocks make without code, in the order of its objects. */
+    val formsUses: List<FormsUseFact> = emptyList()
 )

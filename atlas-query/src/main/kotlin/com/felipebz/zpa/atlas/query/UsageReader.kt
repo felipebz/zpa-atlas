@@ -119,7 +119,7 @@ internal class UsageReader(private val connection: Connection) {
                    SELECT c.occurrence_id, c.entity_id, 1 FROM occurrence_candidate c WHERE ? AND c.entity_id IN (SELECT id FROM viewed))
                SELECT h.oid, h.matched, h.via_candidate, h.matched NOT IN (SELECT id FROM scope), o.roles, o.status,
                       u.entity_id IS NOT NULL AND u.entity_id IN (SELECT id FROM self)
-               FROM hits h JOIN occurrence o ON o.id = h.oid JOIN unit u ON u.id = o.unit_id
+               FROM hits h JOIN occurrence o ON o.id = h.oid LEFT JOIN unit u ON u.id = o.unit_id
                ORDER BY h.oid""",
             listOf(key, Scope.IMPLEMENTATIONS in scope, Scope.IMPLEMENTATIONS in scope, Scope.IMPLEMENTATIONS in scope, Scope.CHILDREN in scope,
                 Scope.VIEWS in scope, Scope.VIEWS in scope, includeCandidates)

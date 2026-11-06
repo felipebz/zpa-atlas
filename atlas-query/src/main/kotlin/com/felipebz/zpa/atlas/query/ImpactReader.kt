@@ -37,17 +37,18 @@ internal class ImpactReader(private val connection: Connection) {
         val firstHits = UsageReader(connection).usageHits(key, roleFilter, statuses, (scopes + Scope.SELF).toSet(), true, null)!!.second
         val candidateHits = firstHits.filter { it.viaCandidate }.map { it.id }.toSet()
         val firstUses = connection.query(
-            """SELECT o.id, o.container_entity_id, o.status, f.path, o.start_line, m.key
+            """SELECT o.id, o.container_entity_id, o.status, f.path, o.start_line, m.key, o.origin
                FROM json_each(?) j JOIN occurrence o ON o.id = json_extract(j.value, '$[0]') JOIN source_file f ON f.id = o.file_id
                LEFT JOIN entity m ON m.id = json_extract(j.value, '$[1]')""",
             listOf(firstHits.joinToString(",", "[", "]") { "[${it.id},${it.matched}]" })
         ) {
-            Use(null, it.getLong(1), (it.getObject(2) as Number?)?.toLong(), it.getString(3), it.getLong(1) in candidateHits, it.getString(4), it.getInt(5), it.getString(6))
+            Use(null, it.getLong(1), (it.getObject(2) as Number?)?.toLong(), it.getString(3), it.getLong(1) in candidateHits, it.getString(4),
+                (it.getObject(5) as Number?)?.toInt(), it.getString(7), it.getString(6))
         }
         // A DML trigger asked for: the code that fires it is the writes that fire it.
         val firing = if (followTriggers) {
             TriggerWrites(connection).firing(listOf(rootId)).filter { statuses.isNullOrEmpty() || it.status in statuses }.map {
-                Use(null, it.occurrence, it.container, it.status, it.candidate, it.path, it.line, sure = it.sure, fires = it.fires)
+                Use(null, it.occurrence, it.container, it.status, it.candidate, it.path, it.line, it.origin, sure = it.sure, fires = it.fires)
             }
         } else {
             emptyList()
@@ -66,7 +67,8 @@ internal class ImpactReader(private val connection: Connection) {
 
     /**
      * One use: of node [from] (null on the first hop, where [matched] is the key it matched: the entity, a partner, a
-     * member or a view), in [container] (null for code outside any).
+     * member or a view), in [container] (null for code outside any); [line] is null for a use without one ([origin]
+     * `FORMS_IMPLICIT`).
      */
     private class Use(
         val from: Long?,
@@ -75,7 +77,8 @@ internal class ImpactReader(private val connection: Connection) {
         val status: String,
         val candidate: Boolean,
         val path: String,
-        val line: Int,
+        val line: Int?,
+        val origin: String,
         val matched: String? = null,
         val sure: Boolean = true,
         val fires: String? = null
@@ -221,10 +224,10 @@ internal class ImpactReader(private val connection: Connection) {
                     ImpactNode(
                         node.kind, node.entity, node.path,
                         uses = if (node.id == null) uses.map { it.occurrence }.distinct().size else null,
-                        firstLine = if (node.id == null) uses.minOf { it.line } else null,
+                        firstLine = if (node.id == null) uses.mapNotNull { it.line }.minOrNull() else null,
                         depth = node.depth,
                         via = ImpactVia(via.from?.let { byId.getValue(it).entity!!.key } ?: via.matched ?: root.key, via.occurrence, via.path, via.line, via.status, via.fires,
-                            forms.codeAt(via.path, via.line)),
+                            via.line?.let { forms.codeAt(via.path, it) }, via.origin.takeIf { via.line == null }),
                         certain = node in certain,
                         stop = stops.getValue(node).name,
                         trigger = node.id?.let { triggers[it] }
@@ -242,7 +245,7 @@ internal class ImpactReader(private val connection: Connection) {
     private fun usesOf(frontier: List<Node>): List<Use> {
         val (triggers, others) = frontier.partition { it.kind == "TRIGGER" }
         val fired = TriggerWrites(connection).firing(triggers.map { it.id!! }).map {
-            Use(it.trigger, it.occurrence, it.container, it.status, it.candidate, it.path, it.line, sure = it.sure, fires = it.fires)
+            Use(it.trigger, it.occurrence, it.container, it.status, it.candidate, it.path, it.line, it.origin, sure = it.sure, fires = it.fires)
         }
         return fired + if (others.isEmpty()) emptyList() else callsOf(others)
     }
@@ -257,16 +260,17 @@ internal class ImpactReader(private val connection: Connection) {
         val roles = frontier.associate { it.id!! to followedRoles(it.kind) }
         val found = connection.query(
             """WITH f(id, node) AS (SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]') FROM json_each(?))
-               SELECT f.node, o.id, o.container_entity_id, o.status, 0, fi.path, o.start_line, o.roles
+               SELECT f.node, o.id, o.container_entity_id, o.status, 0, fi.path, o.start_line, o.roles, o.origin
                FROM f JOIN occurrence o ON o.entity_id = f.id JOIN source_file fi ON fi.id = o.file_id
                UNION ALL
-               SELECT f.node, o.id, o.container_entity_id, o.status, 1, fi.path, o.start_line, o.roles
+               SELECT f.node, o.id, o.container_entity_id, o.status, 1, fi.path, o.start_line, o.roles, o.origin
                FROM f JOIN occurrence_candidate c ON c.entity_id = f.id JOIN occurrence o ON o.id = c.occurrence_id
                JOIN source_file fi ON fi.id = o.file_id""",
             listOf(pairs.joinToString(",", "[", "]") { (id, node) -> "[$id,$node]" })
         ) { rs ->
             val node = rs.getLong(1)
-            Use(node, rs.getLong(2), (rs.getObject(3) as Number?)?.toLong(), rs.getString(4), rs.getInt(5) == 1, rs.getString(6), rs.getInt(7))
+            Use(node, rs.getLong(2), (rs.getObject(3) as Number?)?.toLong(), rs.getString(4), rs.getInt(5) == 1, rs.getString(6),
+                (rs.getObject(7) as Number?)?.toInt(), rs.getString(9))
                 .takeIf { roles(rs.getString(8)).any { it in roles.getValue(node) } }
         }.filterNotNull()
         // An occurrence of a node found directly is not counted again through a candidate.

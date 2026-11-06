@@ -73,20 +73,26 @@ describe("pathLine", () => {
   };
 
   it("reads like a Used by row: the short name, the line in the file, the status in words", () => {
-    expect(pathLine(say, graph, { node: 0, path: "app/close_order.prc", line: 7, code: null, status: "UNVERIFIED", fires: null })).toEqual({
+    expect(pathLine(say, graph, { node: 0, path: "app/close_order.prc", line: 7, code: null, origin: null, status: "UNVERIFIED", fires: null })).toEqual({
       entity: graph.entities[1], name: "CLOSE_ORDER(P_ID)", place: "line 7", path: "app/close_order.prc", line: 7, code: null, status: "unverified", fires: null
     });
   });
 
   it("names a script file by its path, and says what a step fires", () => {
-    const line = pathLine(say, graph, { node: 1, path: "scripts/fix.sql", line: 3, code: null, status: "RESOLVED", fires: "UPDATE" });
+    const line = pathLine(say, graph, { node: 1, path: "scripts/fix.sql", line: 3, code: null, origin: null, status: "RESOLVED", fires: "UPDATE" });
     expect(line).toMatchObject({ entity: null, name: "scripts/fix.sql", place: "line 3", status: null, fires: "fires on update" });
   });
 
   it("says the unit's own line inside Forms code, and keeps its unit for the link", () => {
     const code = { key: "forms:DEMO0004/STEUERBLOCK/PB_EXIT/WHEN-BUTTON-PRESSED", line: 3, unitKind: null };
-    const line = pathLine(say, graph, { node: 0, path: "demo0004_fmb.xml", line: 412, code, status: "RESOLVED", fires: null });
+    const line = pathLine(say, graph, { node: 0, path: "demo0004_fmb.xml", line: 412, code, origin: null, status: "RESOLVED", fires: null });
     expect(line).toMatchObject({ place: "line 3", path: "demo0004_fmb.xml", line: 412, code });
+  });
+
+  it("says a use Forms makes without code in the same words as a Used by row, on no line", () => {
+    const hop = { node: 0, path: "forms/data_desk_fmb.xml", line: null, code: null, origin: "FORMS_IMPLICIT", status: "RESOLVED", fires: "INSERT" };
+    expect(pathLine(say, graph, hop)).toMatchObject({ place: "Forms, no code", line: null, fires: "fires on insert" });
+    expect(pathLine(sayPt, graph, hop).place).toBe("Forms, sem código");
   });
 
   it("ends on the object the page starts from, or on what the first step reached from it", () => {

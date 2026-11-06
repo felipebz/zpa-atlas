@@ -5,6 +5,8 @@
 
 package com.felipebz.zpa.atlas.query
 
+import com.felipebz.zpa.atlas.forms.FormsDataType
+import com.felipebz.zpa.atlas.forms.FormsItemKind
 import com.felipebz.zpa.atlas.model.*
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -22,12 +24,16 @@ class IndexCodesTest {
         assertThat(ORIGINS).containsExactlyElementsOf(names(Origin.entries))
         assertThat(STATEMENT_KINDS).containsExactlyElementsOf(names(StatementKind.entries))
         assertThat(VALUE_KINDS).containsExactlyElementsOf(names(ValueKind.entries))
+        assertThat(RELATION_KINDS).containsExactlyElementsOf(names(RelationKind.entries))
+        assertThat(FORMS_DATA_TYPES).containsExactlyElementsOf(names(FormsDataType.entries))
+        assertThat(FORMS_ITEM_KINDS).containsExactlyElementsOf(names(FormsItemKind.entries))
     }
 
     @Test
     fun `the reserved codes are the enum values marked reserved`() {
         assertThat(RESERVED_ENTITY_KINDS).containsExactlyInAnyOrderElementsOf(EntityKind.entries.filter { it.reserved }.map { it.name })
         assertThat(RESERVED_ORIGINS).containsExactlyInAnyOrderElementsOf(Origin.entries.filter { it.reserved }.map { it.name })
+        assertThat(RESERVED_RELATION_KINDS).containsExactlyInAnyOrderElementsOf(RelationKind.entries.filter { it.reserved }.map { it.name })
         // The lists served without reserved codes have none in the writer either.
         assertThat(Role.entries.filter { it.reserved }).isEmpty()
         assertThat(UnitKind.entries.filter { it.reserved }).isEmpty()

@@ -1,4 +1,4 @@
-import type {CallArgument, EntitySummary, OccurrenceRow} from "./api";
+import type {CallArgument, CodeAt, EntitySummary, OccurrenceRow} from "./api";
 import {literalText} from "./html";
 
 // What a "who uses" row and its group show, without the DOM or the catalog.
@@ -39,23 +39,36 @@ const specKey = (key: string) => key.replace(/@BODY(?=#\d+$|$)/, "");
 
 /**
  * The group of [row]: its program for [grouping] `program`, else its container. A script: by its file for `program`
- * (one group per script file), else by its unit and file.
+ * (one group per script file), else by its unit and file. A use Forms makes without code is in no unit: its block or
+ * item heads its group either way.
  */
 export function groupOf(row: OccurrenceRow, grouping: UsesGrouping = "routine"): UsesGroup {
-  const program = grouping === "program" ? row.unit.entity ?? null : row.container ?? row.unit.entity ?? null;
+  const unit = row.unit;
+  const program = unit === null ? row.container : grouping === "program" ? unit.entity ?? null : row.container ?? unit.entity ?? null;
   if (program) return { key: (grouping === "program" ? specKey(program.key) : program.key), program };
-  return { key: "file:" + row.path + (grouping === "program" ? "" : "|" + row.unit.kind + " " + row.unit.name), program: null };
+  return { key: "file:" + row.path + (grouping === "program" || unit === null ? "" : "|" + unit.kind + " " + unit.name), program: null };
 }
 
 /**
  * The routine a row grouped by program sits in, when it is not the program itself (code of a package body outside
- * its routines is in the package): `GET_STR` in `FMT_TIME`.
+ * its routines is in the package): `GET_STR` in `FMT_TIME`. None for a use Forms makes without code: its block or
+ * item is its group.
  */
 export function enclosingRoutine(row: OccurrenceRow): EntitySummary | null {
   const container = row.container;
-  if (!container) return null;
+  if (!container || row.unit === null) return null;
   const program = row.unit.entity;
   return program && specKey(container.key) === specKey(program.key) ? null : container;
+}
+
+/**
+ * The line a row is on, as its link and its tooltip say it: the line in the file, the one shown (inside Forms code
+ * the unit's own, which [code] leads to) and the column; null for a use Forms makes without code, which is on no line
+ * (no link, no snippet: its block or item heads its group, and the row says Forms made it).
+ */
+export function rowLine(row: Pick<OccurrenceRow, "span" | "code">): { line: number; shown: number; column: number; code: CodeAt | null } | null {
+  if (row.span === null) return null;
+  return { line: row.span.startLine, shown: row.code?.line ?? row.span.startLine, column: row.span.startCol, code: row.code ?? null };
 }
 
 /**

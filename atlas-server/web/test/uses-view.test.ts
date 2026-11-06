@@ -8,6 +8,7 @@ import {
     groupOf,
     nameLength,
     programWithin,
+    rowLine,
     rowNaming,
     shownStatement,
     useMark
@@ -203,5 +204,29 @@ describe("nameLength", () => {
     expect(nameLength("other.thing", "P_IMG")).toBeNull();
     expect(nameLength("\"MyRec\".f", "MYREC")).toBeNull();
     expect(nameLength("p_img.color_tab", null)).toBeNull();
+  });
+});
+
+describe("a use Forms makes without code", () => {
+  // The data block DATA_DESK/COMPANY inserts into HR.COMPANY by itself: a use on no line, in no unit.
+  const block = entity("forms:DATA_DESK/COMPANY", "FORMS_BLOCK", "DATA_DESK/COMPANY", "COMPANY");
+  const company = entity("db:HR.COMPANY", "TABLE", "HR.COMPANY", "COMPANY");
+  const implicit = row({ path: "forms/data_desk_fmb.xml", span: null, unit: null, code: null, written: "COMPANY", roles: ["IMPLICIT", "SQL_INSERT"],
+    origin: "FORMS_IMPLICIT", container: block, matched: company, entity: company });
+
+  it("has no line: no link, no snippet", () => {
+    expect(rowLine(implicit)).toBeNull();
+    expect(rowLine(row({}))).toEqual({ line: 10, shown: 10, column: 5, code: null });
+  });
+
+  it("goes under its block, which links to the block's page, however the rows are grouped", () => {
+    expect(groupOf(implicit)).toEqual({ key: block.key, program: block });
+    expect(groupOf(implicit, "program")).toEqual({ key: block.key, program: block });
+    expect(enclosingRoutine(implicit)).toBeNull();
+    expect(shownStatement(implicit)).toBeNull();
+  });
+
+  it("still has a group without a block, by its file", () => {
+    expect(groupOf({ ...implicit, container: null })).toEqual({ key: "file:forms/data_desk_fmb.xml", program: null });
   });
 });
