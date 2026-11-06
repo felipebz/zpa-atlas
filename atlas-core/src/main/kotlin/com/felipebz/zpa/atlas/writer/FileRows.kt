@@ -198,10 +198,11 @@ internal class FileRows(private val connection: Connection) {
                 val column = entityIds[place.columnKey] ?: continue
                 placeInsert.setLong(1, ++placeId)
                 placeInsert.setLong(2, fileId)
-                placeInsert.setLong(3, unitIds[place.unitIndex])
+                placeInsert.setNullableLong(3, place.unitIndex?.let { unitIds[it] })
                 placeInsert.setNullableLong(4, place.containerKey?.let { entityIds[it] })
                 placeInsert.setNullableLong(5, place.statementLocalId?.let { statementIds[it] })
-                placeInsert.setSpan(6, place.span)
+                // A place in no code (a block's query): no lines.
+                if (place.span != null) placeInsert.setSpan(6, place.span) else for (parameter in 6..9) placeInsert.setNullableLong(parameter, null)
                 placeInsert.setLong(10, column)
                 placeInsert.setString(11, place.source.name)
                 placeInsert.setInt(12, if (place.bulk) 1 else 0)
@@ -330,4 +331,4 @@ private val OCCURRENCE_ORDER = compareBy<OccurrenceFact>(
     { it.span }, { it.entityKey ?: "" }, { it.roles.encode() }, { it.status }, { it.reason ?: "" }, { it.written }
 )
 
-private val PLACE_ORDER = compareBy<ColumnPlaceFact>({ it.span }, { it.columnKey }, { it.field ?: "" }, { it.source })
+private val PLACE_ORDER = compareBy<ColumnPlaceFact>({ it.span }, { it.columnKey }, { it.field ?: "" }, { it.source }, { it.targetKey ?: "" })

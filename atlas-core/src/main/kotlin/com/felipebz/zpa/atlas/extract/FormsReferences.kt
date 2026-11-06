@@ -53,7 +53,7 @@ internal class FormsReferences(private val layout: FormsLayout, private val enti
             }
             items += byName
         }
-        layout.parameters.forEachIndexed { index, name -> parameters.putIfAbsent(upper(name), entities.parameterKeys[index]) }
+        layout.parameters.forEachIndexed { index, parameter -> parameters.putIfAbsent(upper(parameter.name.value), entities.parameterKeys[index]) }
         for (unit in layout.units) {
             if (unit.kind != FormsLayout.Kind.TRIGGER || unit.level == FormsTriggerLevel.EVENT) continue
             val key = entities.keyOf(unit) ?: continue

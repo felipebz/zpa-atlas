@@ -21,7 +21,8 @@ import java.util.*
  * scan). A select item is a column when it is the column itself, written bare or qualified (the column read static SQL
  * records at it), or a `*` over a relation whose columns the dictionary lists; an expression of one column is counted by
  * its shape. A target is the entity zpa binds its name to (the value use the walk records), else the declaration
- * without an entity zpa binds it to, with its own type.
+ * without an entity zpa binds it to, with its own type; a Forms host name (`:BLOCK.ITEM`) is the module's object its
+ * use names.
  *
  * Other reads of a column into PL/SQL are counted, not recorded ([FileState.placesLeftOut]): dynamic `INTO`, a field
  * of a `%ROWTYPE` or cursor loop record passed to a routine, a column passed to a routine in static SQL, and a `FETCH`
@@ -1285,7 +1286,7 @@ internal class IntoClauses(
         if (element && isElementOfElement(node)) return IntoTarget(span, written, null, emptyList(), true, null, null, TARGET_SHAPE_NOT_FOLLOWED)
         val name = if (element) node.firstChild else node
         val segments = plsql.nameSegments(name)?.map { normalizeIdentifier(it) }
-            ?: return IntoTarget(span, written, null, emptyList(), element, null, null, "TARGET_NOT_A_NAME")
+            ?: return formsTarget(span, written, name, element) ?: IntoTarget(span, written, null, emptyList(), element, null, null, "TARGET_NOT_A_NAME")
         if (segments.size > 1) {
             val last = name.children.last { it.type == PlSqlGrammar.IDENTIFIER_NAME || it.type == PlSqlGrammar.VARIABLE_NAME }
             bySpan[spanOf(last)]?.firstOrNull()?.entityKey?.let { return IntoTarget(span, written, it, emptyList(), element, null, null, null) }
@@ -1303,6 +1304,19 @@ internal class IntoClauses(
         val localKey = declaration.takeIf { it.type == PlSqlGrammar.PARAMETER_DECLARATION && !it.hasAncestor(PlSqlGrammar.CREATE_TYPE_BODY) }
             ?.let(::localKey)
         return IntoTarget(span, written, null, segments.drop(1), element, shape, DeclaredTexts.of("", declaration)?.datatype, null, localKey)
+    }
+
+    /**
+     * A Forms host name (`:BLOCK.ITEM`, `:ITEM`, `:PARAMETER.NAME`, `:GLOBAL.NAME`) as the module's names resolve its use
+     * ([FormsReferences]): the object it names, else, ambiguous or missing, the use's reason; null for any other target
+     * (`:SYSTEM.NAME` among them).
+     */
+    private fun formsTarget(span: SourceSpan, written: String, name: AstNode, element: Boolean): IntoTarget? {
+        val use = state.occurrencesAt(spanOf(name)).firstOrNull { use ->
+            use.entityKey?.startsWith(FORMS_PREFIX) == true || use.reason in FORMS_MISSING ||
+                use.status == Status.AMBIGUOUS && use.candidateKeys.isNotEmpty() && use.candidateKeys.all { it.startsWith(FORMS_PREFIX) }
+        } ?: return null
+        return IntoTarget(span, written, use.entityKey, emptyList(), element, null, null, use.reason)
     }
 
     /**
@@ -1415,5 +1429,8 @@ internal class IntoClauses(
         private val CALLED_STATUSES = setOf(Status.RESOLVED, Status.PARTIAL_SOURCE)
 
         private val COLUMN_STATUSES = setOf(Status.RESOLVED, Status.UNVERIFIED, Status.EXTERNAL, Status.PARTIAL_SOURCE)
+
+        /** The reasons of a Forms host name whose block, item or parameter the module does not have ([formsTarget]). */
+        private val FORMS_MISSING = setOf(Reason.NO_SUCH_BLOCK.name, Reason.NO_SUCH_ITEM.name, Reason.NO_SUCH_PARAMETER.name)
     }
 }

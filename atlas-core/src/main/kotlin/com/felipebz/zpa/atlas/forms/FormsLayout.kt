@@ -19,8 +19,8 @@ internal class FormsLayout(
     val libraries: List<String>,
     val units: List<Unit>,
     val notes: List<FormsNote>,
-    /** The names of the module's parameters. */
-    val parameters: List<String> = emptyList()
+    /** The module's parameters. */
+    val parameters: List<FormsModuleParameter> = emptyList()
 ) {
     enum class Kind { TRIGGER, PROGRAM_UNIT, RECORD_GROUP_QUERY }
 
@@ -67,7 +67,7 @@ internal class FormsLayout(
                 }
             },
             module.notes,
-            module.parameters.map { it.name.value }
+            module.parameters
         )
     }
 }

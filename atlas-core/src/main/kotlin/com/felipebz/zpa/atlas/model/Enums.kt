@@ -291,7 +291,9 @@ enum class PlaceSource : StoredEnum {
     /** A target inside a routine that a column's value, passed to the routine's `IN` parameter, is written into. */
     IN_ARGUMENT,
     /** A target a function's result is written into, the function returning a column's value. */
-    RETURNED
+    RETURNED,
+    /** A Forms item its data block's query reads the column into, without code. */
+    BLOCK_QUERY
 }
 
 /** The `occurrence.roles` text: the sorted, comma-separated role names. */

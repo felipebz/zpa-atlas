@@ -70,14 +70,15 @@ internal class PlaceReader(private val connection: Connection) {
 
     /** [place] with the line it [shows], and in a Forms module the code its lines are in. */
     private fun located(place: ColumnPlace, shows: PlaceLine?) = place.copy(
-        shown = shows, code = forms.codeAt(place.path, place.line),
+        shown = shows, code = place.line?.let { forms.codeAt(place.path, it) },
         callCode = place.callPath?.let { path -> place.callLine?.let { forms.codeAt(path, it) } }
     )
 
     /**
      * The line each of [places] shows, read in one statement: for a value passed to a parameter, the argument of the
      * call that passes it; else the read of the column (the view column of a place read through a view) in the place's
-     * own statement that gives this target its value ([itemRead]); else the target, marked as written.
+     * own statement that gives this target its value ([itemRead]); else the target, marked as written. A place in no
+     * code (a Forms block's query) shows none.
      */
     private fun shown(places: List<ColumnPlace>): Map<ColumnPlace, PlaceLine> {
         val ids = places.mapNotNull { placeIds[it] }
@@ -92,7 +93,7 @@ internal class PlaceReader(private val connection: Connection) {
                        WHERE p.source = 'IN_ARGUMENT' AND cf.path = p.call_path AND a.start_line = p.call_line AND a.parameter_entity_id = p.argument_parameter_id
                        ORDER BY a.start_col LIMIT 1),
                       p.statement_id, p.source, p.column_id, p.target_written
-               FROM column_place p JOIN source_file f ON f.id = p.file_id WHERE p.id IN (${chunk.joinToString(",") { "?" }})""",
+               FROM column_place p JOIN source_file f ON f.id = p.file_id WHERE p.start_line IS NOT NULL AND p.id IN (${chunk.joinToString(",") { "?" }})""",
             chunk
         ) { rs ->
             val argument = span(rs.getString(9))
@@ -212,7 +213,7 @@ internal class PlaceReader(private val connection: Connection) {
             }
             val compiledIn = rs.getString(52)?.let { CompiledIn(it, rs.getString(53), rs.getString(54)) }
             val place = ColumnPlace(
-                summary(1)!!, rs.getInt(6) == 1, rs.getString(7), rs.getInt(8) == 1, rs.getString(9), rs.getInt(10), rs.getInt(11),
+                summary(1)!!, rs.getInt(6) == 1, rs.getString(7), rs.getInt(8) == 1, rs.getString(9), int(10), int(11),
                 summary(12), rs.getString(17), summary(18), rs.getString(23), placeClass, rs.getString(25), length, unit, summary(28),
                 rs.getString(33), int(34), rs.getString(35), rs.getString(36)?.split(',').orEmpty(), summary(37), summary(42),
                 int(47), rs.getString(48), int(49), concatenated,

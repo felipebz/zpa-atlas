@@ -182,13 +182,13 @@ data class IntoFact(
  * declaration writes it, [length] and [unit] when it has a size ([scale] too for a number: [length] is then the digits
  * before the point), [typeSourceKey] the entity whose declaration decides the type (the column an anchor ends at, or the
  * variable, field or type that writes the size), [parameterMode] when the target is an `OUT` or `IN OUT` parameter,
- * [reason] for `UNKNOWN`.
+ * [reason] for `UNKNOWN`. A [PlaceSource.BLOCK_QUERY] place is in no code: no unit ([unitIndex]), no [span].
  */
 data class ColumnPlaceFact(
-    val unitIndex: Int,
+    val unitIndex: Int?,
     val containerKey: String?,
     val statementLocalId: Int?,
-    val span: SourceSpan,
+    val span: SourceSpan?,
     val columnKey: String,
     val source: PlaceSource,
     val bulk: Boolean,

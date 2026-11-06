@@ -856,9 +856,10 @@ function placeRowHtml(p: ColumnPlace, index: number, page: PlaceGroupsPage, grou
     (functions === null ? "" : ` <code class="place-fn" title="${esc(functionsText(t, p))}">${esc(functions)}</code>`) +
     (p.concatenated ? ` <span class="place-mark">${esc(t("places.otherText"))}</span>` : "") +
     (p.viaView ? ` <span class="place-mark">${esc(t("places.viaView"))}</span>` : "");
-  // A parameter's line is the call that passes the column; the target's is in the detail.
+  // A parameter's line is the call that passes the column; the target's is in the detail. A place in no code leads to its item.
   const line = rowAt(t, p, groupPath);
-  const at = `<a href="${lineHref(line.path, line.line, line.code)}" title="${esc(line.path)}">${esc(line.text)}</a>`;
+  const at = "path" in line ? `<a href="${lineHref(line.path, line.line, line.code)}" title="${esc(line.path)}">${esc(line.text)}</a>`
+    : line.entity === null ? esc(line.text) : `<a href="${entityHref(line.entity.key)}" title="${esc(line.entity.display)}">${esc(line.text)}</a>`;
   return `<div class="place-row v-${esc(p.verdict)}" data-place="${index}" tabindex="0" aria-expanded="false" aria-controls="place-detail-${index}">` +
     `${size}<span class="place-target">${target}</span><span class="place-how">${how}</span><span class="place-at">${at}</span>` +
     (p.shown?.text ? `<span class="place-code uline"></span>` : "") + `</div>`;

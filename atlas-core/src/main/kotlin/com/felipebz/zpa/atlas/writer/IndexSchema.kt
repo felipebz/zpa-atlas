@@ -328,18 +328,19 @@ internal fun tableDdl(): List<String> = listOf(
     // view's column for a read through a view), the target as written (its span) and its entity, the field of a record
     // target, how the target is declared (class, the declared type as written, a length and its unit; for a number the
     // digits before the point and the scale), the entity whose declaration decides the type (type_source_id), why it is
-    // UNKNOWN, and the mode of an OUT or IN OUT parameter target, whose callers' arguments hold the value.
+    // UNKNOWN, and the mode of an OUT or IN OUT parameter target, whose callers' arguments hold the value. A Forms
+    // block's query (source BLOCK_QUERY) is in no code: no unit, no lines.
     """
     CREATE TABLE column_place (
         id INTEGER PRIMARY KEY,
         file_id INTEGER NOT NULL REFERENCES source_file(id),
-        unit_id INTEGER NOT NULL REFERENCES unit(id),
+        unit_id INTEGER NULL REFERENCES unit(id),
         container_entity_id INTEGER NULL REFERENCES entity(id),
         statement_id INTEGER NULL REFERENCES sql_statement(id),
-        start_line INTEGER NOT NULL,
-        start_col INTEGER NOT NULL,
-        end_line INTEGER NOT NULL,
-        end_col INTEGER NOT NULL,
+        start_line INTEGER NULL,
+        start_col INTEGER NULL,
+        end_line INTEGER NULL,
+        end_col INTEGER NULL,
         column_id INTEGER NOT NULL REFERENCES entity(id),
         source TEXT NOT NULL ${check<PlaceSource>("source")},
         bulk INTEGER NOT NULL CHECK (bulk IN (0, 1)),

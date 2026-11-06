@@ -778,22 +778,23 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "formsGlobal: the modules using it, writes, reads. " +
             "$PATHS $KEYS"
 
-        const val PLACES = "Every PL/SQL variable, parameter or field a column's value is read into, each with its verdict against a size: " +
-            "size, the column's by default, in its unit (a number's digits before the point). " +
-            "verdict: SMALLER (its own size is less), FITS (as large or larger, or a type without a size: CLOB, NUMBER, DATE), " +
-            "CALLER_DECIDES (an OUT or IN OUT parameter: each caller's argument decides, and is a row), UNKNOWN (type not " +
-            "known: reason; or verdictReason UNIT_MISMATCH, bytes fewer than 4 per character of a column counting characters; " +
+        const val PLACES = "Every PL/SQL variable, parameter or field (or Forms item, parameter, global) a column's value is read into, " +
+            "each with its verdict against a size: size, the column's by default, in its unit (a number's digits before the point). " +
+            "verdict: SMALLER (its own size is less), FITS (as large or larger, or no size: CLOB, NUMBER, DATE), " +
+            "CALLER_DECIDES (an OUT or IN OUT parameter: each caller's argument decides, as a row), UNKNOWN (type not " +
+            "known: reason; or verdictReason UNIT_MISMATCH, under 4 bytes per character of a CHAR column; " +
             "OTHER_COLUMN_UNKNOWN; NO_LENGTH; OTHER_KIND), FOLLOWS (%TYPE, %ROWTYPE or a cursor record over the column), " +
-            "OWN_SIZE (no size given and the column's not known). verdicts: those to list, all but FOLLOWS by default; counts: " +
-            "each, under the other arguments. source: SELECT_INTO, FETCH, RETURNING (with bulk); ASSIGNMENT (target := r.f, r a " +
+            "OWN_SIZE (no size given, the column's not known). verdicts: to list (all but FOLLOWS by default); counts: " +
+            "under the other arguments. source: SELECT_INTO, FETCH, RETURNING (with bulk); ASSIGNMENT (target := r.f, r a " +
             "cursor FOR loop or %ROWTYPE record); OUT_ARGUMENT (a call's argument for an OUT parameter; argumentOf, routine); " +
-            "IN_ARGUMENT (a target inside a routine, written from the IN parameter argumentOf; callCount calls pass it, one at " +
-            "callPath, callLine); RETURNED (a function's result holding the column; callCount calls). Rows " +
+            "IN_ARGUMENT (a target in a routine, written from its IN parameter argumentOf; callCount calls pass it, one at " +
+            "callPath, callLine); RETURNED (a function's result holding the column; callCount calls); BLOCK_QUERY (the Forms " +
+            "item its block's query fills; no line). Rows " +
             "by verdict, file, line; paged (nextOffset); view columns computed from it too (viaView). Each row: read, source, " +
             "path, line, shownLine (the line to read: the call's for IN_ARGUMENT), container, targetWritten, target, field, declaredType, length, unit (BYTE, CHAR, DIGITS: p-s, with " +
-            "scale), unitSource (WRITTEN; COMPILED, as unitCompiledIn was; OPTION, the index's default optionUnit), size and " +
+            "scale), unitSource (WRITTEN; COMPILED, see unitCompiledIn; OPTION: optionUnit), size and " +
             "sizeUnit compared (the other column's for ANCHORED_ELSEWHERE, typeSource), functions read through, outer first " +
-            "(NVL may give another value, REPLACE change the length), concatenated (one part of a || or CONCAT; room: " +
+            "(NVL may give another value, REPLACE another length), concatenated (one part of a || or CONCAT; room: " +
             "what the size leaves). Lists where the value lands alone; concatenated true adds those (concatenatedCount). $PATHS"
 
         const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column " +

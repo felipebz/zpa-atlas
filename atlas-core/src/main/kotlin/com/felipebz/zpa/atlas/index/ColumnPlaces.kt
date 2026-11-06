@@ -5,8 +5,10 @@
 
 package com.felipebz.zpa.atlas.index
 
+import com.felipebz.zpa.atlas.extract.FORMS_PREFIX
 import com.felipebz.zpa.atlas.extract.IntoClauses
 import com.felipebz.zpa.atlas.extract.TypeShapes
+import com.felipebz.zpa.atlas.extract.displayOf
 import com.felipebz.zpa.atlas.model.*
 import java.util.Collections
 import java.util.IdentityHashMap
@@ -73,6 +75,9 @@ import kotlin.collections.withIndex
  *   caller's argument, which does not take the size of the parameter's type;
  * - anything that cannot be followed is [PlaceClass.UNKNOWN], with the reason.
  *
+ * A Forms item or parameter a module's code names is typed by what it holds
+ * ([com.felipebz.zpa.atlas.extract.FormsEntities.shapes]); a global holds text of no declared length.
+ *
  * A character length written without a unit counts in the `NLS_LENGTH_SEMANTICS` the unit declaring it was compiled
  * with, as the dictionary gives it ([compiledSemantics]): the package body for a variable of the body, the package spec
  * for a field of a record type of the spec, wherever the place is. Without it, in [defaultSemantics].
@@ -135,11 +140,16 @@ internal class ColumnPlaces(
     /**
      * The places of [file], and what its `INTO`s and assignments read without being followed, by shape: the expression
      * items of one column, the fetches from an unknown cursor, the assignments of a row record's field whose column is
-     * not known, and those of an expression of such a field.
+     * not known, and those of an expression of such a field. In a Forms module, each item its block's query reads a
+     * column into ([PlaceSource.BLOCK_QUERY]: the implicit read of the item's column) is a place of the column.
      */
     fun of(file: FileFacts): Pair<List<ColumnPlaceFact>, Map<String, Int>> {
         val places = ArrayList<ColumnPlaceFact>()
         val leftOut = HashMap<String, Int>()
+        for (use in file.formsUses) {
+            if (Role.IMPLICIT !in use.roles || Role.READ !in use.roles || kinds[use.containerKey] != EntityKind.FORMS_ITEM || use.status !in COLUMN_STATUSES) continue
+            places += blockQuery(file.path, use.containerKey, use.entityKey?.takeIf { kinds[it] == EntityKind.COLUMN } ?: continue)
+        }
         for (into in file.intos) {
             if (into.source == PlaceSource.ASSIGNMENT) {
                 assignment(file.path, into, places, leftOut)
@@ -380,7 +390,7 @@ internal class ColumnPlaces(
         }
         // An OUT parameter's value ([place] in [path], whose parameter it is), come into its routine at each of [entries].
         val outSeen = HashSet<OutValue>()
-        val notFollowedOut = HashSet<List<Any>>()
+        val notFollowedOut = HashSet<List<Any?>>()
         fun follow(path: String, place: ColumnPlaceFact, entries: Collection<Entry?>) {
             val parameter = place.targetKey ?: place.localParameter
             if (parameter == null) {
@@ -511,7 +521,7 @@ internal class ColumnPlaces(
         // The arguments callers pass for the OUT parameter of [value]: the calls the value came into the routine through take
         // it ([to] alone, a call that came in after the value was given; all, for a value with no entry), each going on in
         // its caller with the caller's entry and value at the call.
-        val outPlaced = HashSet<List<Any>>()
+        val outPlaced = HashSet<List<Any?>>()
         val undecided = HashSet<Pair<String, SourceSpan>>()
         val notFollowed = HashSet<List<Any>>()
         fun outBack(value: OutValue, to: Incoming?) {
@@ -587,11 +597,26 @@ internal class ColumnPlaces(
         return node is Node.Shape && (node.shape is TypeShape.Record || node.shape is TypeShape.CursorRow || node.shape is TypeShape.Anchored && node.shape.rowType)
     }
 
+    /** The place of [column] in the item [item] of the file [path], which its block's query reads the column into: in no code. */
+    private fun blockQuery(path: String, item: String, column: String): ColumnPlaceFact {
+        val decision = classify(of(item), column, 0)
+        val unit = unitOf(decision, path, null)
+        return ColumnPlaceFact(null, item, null, null, column, PlaceSource.BLOCK_QUERY, false, item, displayOf(item), null, decision.placeClass,
+            formsType(item), decision.length, unit.unit, decision.scale, null, null, decision.reason, unitSource = unit.source)
+    }
+
+    /** The data type of the Forms item or parameter [key], as its shape tells it; null for any other entity. */
+    private fun formsType(key: String): String? = if (!key.startsWith(FORMS_PREFIX)) null else when (val shape = shapes[key]) {
+        is TypeShape.Sized -> shape.type
+        is TypeShape.Unsized -> shape.type
+        else -> null
+    }
+
     /** The place of [column] in [target] of [into], a statement of the file [path]. */
     private fun place(path: String, into: IntoFact, target: IntoTarget, field: Int?, column: String, functions: List<String>): ColumnPlaceFact {
         var node = targetNode(target, into.bulk)
         var fieldName: String? = null
-        var text = target.entityKey?.let { texts[it] } ?: target.declaredType
+        var text = target.entityKey?.let { texts[it] ?: formsType(it) } ?: target.declaredType
         if (field != null) {
             val (reached, name) = field(node, field, null)
             node = reached
@@ -605,11 +630,7 @@ internal class ColumnPlaces(
             ?.takeIf { field == null && target.path.isEmpty() && !target.element && !into.bulk }?.mode
         val placeClass = if (mode != null) PlaceClass.CALLER_DECIDES else decision.placeClass
         val sized = mode == null
-        val unit = when (val written = decision.unit.takeIf { sized }) {
-            TypeShapes.NLS_LENGTH_SEMANTICS -> lengthUnit(decision.source, path, into)
-            "BYTE", "CHAR" -> LengthUnit(written, UnitSource.WRITTEN)
-            else -> LengthUnit(written)
-        }
+        val unit = if (sized) unitOf(decision, path, into.unitIndex) else LengthUnit(null)
         // The type source is another entity whose declaration decides the type; the target's own declaration is not repeated.
         return ColumnPlaceFact(
             into.unitIndex, into.containerKey, into.statementLocalId, target.span, column, into.source, into.bulk, target.entityKey, target.written,
@@ -619,12 +640,21 @@ internal class ColumnPlaces(
         )
     }
 
+    /** The unit of [decision]'s length, at a place in the unit [unitIndex] of the file [path]: one written without a unit, [lengthUnit]'s. */
+    private fun unitOf(decision: Decision, path: String, unitIndex: Int?): LengthUnit = when (val written = decision.unit) {
+        TypeShapes.NLS_LENGTH_SEMANTICS -> lengthUnit(decision.source, path, unitIndex)
+        "BYTE", "CHAR" -> LengthUnit(written, UnitSource.WRITTEN)
+        else -> LengthUnit(written)
+    }
+
     /**
      * The unit of a length written without one in the declaration of [owner] (or, for one without an entity, in the unit
-     * of [into] in [path]): the `NLS_LENGTH_SEMANTICS` the unit declaring it was compiled with, else [defaultSemantics].
+     * [unitIndex] of [path]): the `NLS_LENGTH_SEMANTICS` the unit declaring it was compiled with, else [defaultSemantics].
+     * A Forms item's or parameter's is the one its module was compiled with, which the dictionary does not tell.
      */
-    private fun lengthUnit(owner: String?, path: String, into: IntoFact): LengthUnit {
-        val declaring = owner?.let { declaredIn[it] } ?: units[path]?.getOrNull(into.unitIndex)
+    private fun lengthUnit(owner: String?, path: String, unitIndex: Int?): LengthUnit {
+        if (owner?.startsWith(FORMS_PREFIX) == true) return LengthUnit(defaultSemantics, UnitSource.OPTION)
+        val declaring = owner?.let { declaredIn[it] } ?: unitIndex?.let { units[path]?.getOrNull(it) }
         val compiled = declaring?.let { unit -> COMPILED_TYPES[unit.kind]?.let { type -> unit.compilationSchema?.let { CompiledUnit(it, unit.name, type) } } }
         val setting = compiled?.let { compiledSemantics[it] }
         return if (setting != null) LengthUnit(setting, UnitSource.COMPILED, compiled) else LengthUnit(defaultSemantics, UnitSource.OPTION)
@@ -646,6 +676,8 @@ internal class ColumnPlaces(
     private fun of(key: String): Node = shapes[key]?.let { Node.Shape(it, key) } ?: fieldOf(key) ?: when (kinds[key]) {
         EntityKind.COLUMN -> Node.Column(key)
         EntityKind.TYPE -> Node.Failed("TYPE_NOT_DECLARED")
+        // A Forms global holds text whose length no declaration gives.
+        EntityKind.FORMS_GLOBAL -> Node.Failed("GLOBAL_LENGTH_NOT_GIVEN")
         else -> Node.Failed("DECLARATION_UNKNOWN")
     }
 
@@ -857,5 +889,8 @@ internal class ColumnPlaces(
         )
 
         private val RELATIONS = setOf(EntityKind.TABLE, EntityKind.VIEW, EntityKind.MATERIALIZED_VIEW, EntityKind.OBJECT_TABLE, EntityKind.UNKNOWN_RELATION)
+
+        /** The statuses of a block query's read of its item's column that name the column. */
+        private val COLUMN_STATUSES = setOf(Status.RESOLVED, Status.UNVERIFIED, Status.EXTERNAL, Status.PARTIAL_SOURCE)
     }
 }

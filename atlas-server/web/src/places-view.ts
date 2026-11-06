@@ -12,7 +12,7 @@ export const VERDICTS: readonly Verdict[] = ["SMALLER", "CALLER_DECIDES", "UNKNO
 export const DEFAULT_VERDICTS: readonly Verdict[] = VERDICTS.filter(v => v !== "FOLLOWS");
 
 /** The ways a value arrives, in the order the filter lists them. */
-export const PLACE_SOURCES: readonly PlaceSource[] = ["SELECT_INTO", "FETCH", "RETURNING", "ASSIGNMENT", "IN_ARGUMENT", "OUT_ARGUMENT", "RETURNED"];
+export const PLACE_SOURCES: readonly PlaceSource[] = ["SELECT_INTO", "FETCH", "RETURNING", "ASSIGNMENT", "IN_ARGUMENT", "OUT_ARGUMENT", "RETURNED", "BLOCK_QUERY"];
 
 /** The catalog's text for [key] with [params], else [fallback]: a stored code the catalog does not know reads as the code. */
 function sayOr(say: Say, key: string, fallback: string, params?: Params) {
@@ -297,13 +297,23 @@ function declaredLine(say: Say, p: ColumnPlace): DetailLine | null {
 const showsOtherLine = (p: Pick<ColumnPlace, "path" | "line" | "shown">) => p.shown !== null && (p.shown.path !== p.path || p.shown.line !== p.line);
 
 /**
+ * Where a row's link goes: a line of code (inside Forms code, [code] the unit and its own line), or, for a place in no
+ * code (a Forms block's query), the item's page ([entity], null when the index does not know it).
+ */
+export type RowAt =
+  | { path: string; line: number; code: CodeAt | null; text: string }
+  | { entity: EntitySummary | null; text: string };
+
+/**
  * Where a row's line link goes: the line it shows (for a parameter, the call that passes the column; else where its
  * statement reads the column), else the target's; with the file when not the group's. Inside Forms code ([code]),
  * the unit's own line, with the unit's name when it is another than the target's (a call elsewhere in the module).
+ * A place in no code (a Forms block's query) has no line: the link leads to the item.
  */
-export function rowAt(say: Say, p: Pick<ColumnPlace, "path" | "line" | "shown" | "code">, groupPath: string) {
+export function rowAt(say: Say, p: Pick<ColumnPlace, "path" | "line" | "shown" | "code" | "container" | "target">, groupPath: string): RowAt {
   const path = p.shown?.path ?? p.path;
   const line = p.shown?.line ?? p.line;
+  if (line === null) return { entity: p.target ?? p.container, text: say("places.atItem") };
   const code = (p.shown !== null ? p.shown.code : p.code) ?? null;
   const shownLine = code?.line ?? line;
   const elsewhere = path !== groupPath || (code !== null && code.key !== p.code?.key);
@@ -352,8 +362,11 @@ export function placeDetail(say: Say, p: ColumnPlace): DetailLine[] {
   if (p.reason !== null) lines.push({ parts: [{ text: reasonText(say, p.reason) }], className: "uses-gap", title: p.reason });
   if (p.verdictReason !== null) lines.push({ parts: [{ text: verdictReasonText(say, p.verdictReason) }], className: "uses-gap", title: p.verdictReason });
   if (p.viaView) lines.push({ parts: [{ view: p.read }], className: "muted" });
-  // On a phone the group's header has no file: the target's file and line, said to be the target's when the row shows another line.
-  const at: DetailPart = { path: p.path, line: p.line, codeAt: p.code ?? null };
-  lines.push({ parts: showsOtherLine(p) ? [{ text: say("places.target") + " " }, at] : [at], className: "muted" });
+  // On a phone the group's header has no file: the target's file and line, said to be the target's when the row shows
+  // another line. A place in no code has none: its target links to the item.
+  if (p.line !== null) {
+    const at: DetailPart = { path: p.path, line: p.line, codeAt: p.code ?? null };
+    lines.push({ parts: showsOtherLine(p) ? [{ text: say("places.target") + " " }, at] : [at], className: "muted" });
+  }
   return lines;
 }

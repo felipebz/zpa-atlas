@@ -28,8 +28,9 @@ import javax.xml.stream.XMLStreamReader
  *
  * A block's and an item's data properties (`DatabaseBlock`, `QueryDataSourceType`, `DMLDataName`, `ItemType`, …) are
  * read in the words of the Form Builder that exported the module, Portuguese or English; an absent one is the Forms
- * default. A word the reader does not know is not guessed: a type or kind `UNKNOWN`, counted in a `FORMS_VALUE_UNKNOWN`
- * note.
+ * default. An item's size (`DataType`, which the Form Builder does not translate, `MaximumLength`,
+ * `DataLengthSemantics`) and a parameter's data type are read too; `frmf2xml` writes no maximum length of a parameter. A
+ * word the reader does not know is not guessed: a type or kind `UNKNOWN`, counted in a `FORMS_VALUE_UNKNOWN` note.
  *
  * `frmf2xml` escapes the line breaks of the code twice: once parsed, a text still has `&#10;` for each line break
  * (`&#x9;` for a tab, `&#xD;` for a carriage return, dropped). Object libraries (`_olb.xml`) and menu modules
@@ -135,7 +136,7 @@ object Frmf2xmlReader : FormsModuleReader {
                 "ProgramUnit" -> if (name != null) attributes["ProgramUnitText"]?.let { code += FormsProgramUnit(name, it) }
                 "RecordGroup" -> if (name != null) attributes["RecordGroupQuery"]?.takeIf { it.value.isNotBlank() }?.let { code += FormsRecordGroup(name, it) }
                 "AttachedLibrary" -> if (name != null) libraries += FormsLibrary(name, attributes["LibraryLocation"])
-                "ModuleParameter" -> if (parent() == "FormModule" && name != null) parameters += FormsModuleParameter(name)
+                "ModuleParameter" -> if (parent() == "FormModule" && name != null) parameters += parameter(name, attributes)
             }
             open += Open(kind, name?.value)
         }
@@ -170,12 +171,42 @@ object Frmf2xmlReader : FormsModuleReader {
             return FormsDataSource(type, name)
         }
 
-        /** An item from its attributes: an absent property is the Forms default (a database text item that allows insert and update). */
+        /**
+         * An item from its attributes: an absent property is the Forms default (a database text item that allows insert
+         * and update, of type `Char`, 30 long, its unit left to the session).
+         */
         private fun item(name: FormsValue, attributes: Map<String, FormsValue>): FormsItem {
             val word = attributes["ItemType"]?.value?.trim().orEmpty()
             val kind = if (word.isEmpty()) FormsItemKind.TEXT_ITEM else ITEM_KINDS[word.lowercase(Locale.ROOT)] ?: FormsItemKind.UNKNOWN.also { unknown("ItemType", word) }
             return FormsItem(name, flag(attributes, "DatabaseItem"), attributes["ColumnName"]?.value?.trim().orEmpty(), kind, flag(attributes, "InsertAllowed"),
-                flag(attributes, "UpdateAllowed"), word.takeIf { kind == FormsItemKind.UNKNOWN })
+                flag(attributes, "UpdateAllowed"), word.takeIf { kind == FormsItemKind.UNKNOWN }, dataType(attributes, "DataType"),
+                length(attributes, "MaximumLength") ?: DEFAULT_LENGTH, lengthSemantics(attributes))
+        }
+
+        /** A parameter from its attributes: `frmf2xml` does not write a parameter's maximum length, so it is not known. */
+        private fun parameter(name: FormsValue, attributes: Map<String, FormsValue>) =
+            FormsModuleParameter(name, dataType(attributes, "ParameterDataType"), length(attributes, "MaximumLength"))
+
+        /** A data type, `Char` when absent. */
+        private fun dataType(attributes: Map<String, FormsValue>, property: String): FormsItemDataType {
+            val word = attributes[property]?.value?.trim().orEmpty()
+            if (word.isEmpty()) return FormsItemDataType.CHAR
+            return ITEM_DATA_TYPES[word.lowercase(Locale.ROOT)] ?: FormsItemDataType.UNKNOWN.also { unknown(property, word) }
+        }
+
+        /** A length, null when absent; a value other than a whole number is noted and taken as absent. */
+        private fun length(attributes: Map<String, FormsValue>, property: String): Int? {
+            val word = attributes[property]?.value?.trim().orEmpty()
+            if (word.isEmpty()) return null
+            return word.toIntOrNull()?.takeIf { it >= 0 } ?: null.also { unknown(property, word) }
+        }
+
+        /** The unit of an item's length: null when absent or `Null` (the session's), a word the reader does not know noted. */
+        private fun lengthSemantics(attributes: Map<String, FormsValue>): FormsLengthSemantics? {
+            val word = attributes["DataLengthSemantics"]?.value?.trim().orEmpty()
+            val key = word.lowercase(Locale.ROOT)
+            if (key.isEmpty() || key in NULL_SEMANTICS) return null
+            return LENGTH_SEMANTICS[key] ?: null.also { unknown("DataLengthSemantics", word) }
         }
 
         /** A yes-or-no property, true when absent (the default of every one the reader takes); a value other than `true` or `false` keeps it, noted. */
@@ -242,6 +273,28 @@ object Frmf2xmlReader : FormsModuleReader {
         "user area" to FormsItemKind.OTHER, "área do usuário" to FormsItemKind.OTHER, "vbx control" to FormsItemKind.OTHER,
         "controle vbx" to FormsItemKind.OTHER, "activex control" to FormsItemKind.OTHER, "controle activex" to FormsItemKind.OTHER
     )
+
+    /** The words of a data type: Form Builder writes them untranslated. */
+    private val ITEM_DATA_TYPES = mapOf(
+        "char" to FormsItemDataType.CHAR, "alpha" to FormsItemDataType.ALPHA, "long" to FormsItemDataType.LONG,
+        "number" to FormsItemDataType.NUMBER, "integer" to FormsItemDataType.INTEGER, "int" to FormsItemDataType.INTEGER,
+        "rnumber" to FormsItemDataType.RNUMBER, "rinteger" to FormsItemDataType.RINTEGER, "rint" to FormsItemDataType.RINTEGER,
+        "money" to FormsItemDataType.MONEY, "rmoney" to FormsItemDataType.RMONEY, "date" to FormsItemDataType.DATE,
+        "datetime" to FormsItemDataType.DATETIME, "time" to FormsItemDataType.TIME, "jdate" to FormsItemDataType.JDATE,
+        "edate" to FormsItemDataType.EDATE
+    )
+
+    /** The words of a `DataLengthSemantics` that leave the unit to the session, in Portuguese and English. */
+    private val NULL_SEMANTICS = setOf("nulo", "null")
+
+    /** The words of a length unit, in Portuguese and English. */
+    private val LENGTH_SEMANTICS = mapOf(
+        "byte" to FormsLengthSemantics.BYTE, "char" to FormsLengthSemantics.CHAR, "caractere" to FormsLengthSemantics.CHAR,
+        "character" to FormsLengthSemantics.CHAR
+    )
+
+    /** An item's maximum length when the file does not give it: the Forms default. */
+    private const val DEFAULT_LENGTH = 30
 
     /** A value with the escapes `frmf2xml` leaves after parsing: `&#10;` a line break, `&#x9;` a tab, carriage returns dropped. */
     internal fun decode(value: String): String {

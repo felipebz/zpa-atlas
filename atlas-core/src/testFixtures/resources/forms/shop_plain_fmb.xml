@@ -1,0 +1,28 @@
+<?xml version = '1.0' encoding = 'UTF-8'?>
+<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms">
+   <FormModule Name="SHOP_DESK" Title="Shop desk">
+      <Block Name="CTRL" DatabaseBlock="false">
+         <Item Name="SHORT_STATUS" DatabaseItem="false" MaximumLength="5"/>
+         <Item Name="DEFAULT_STATUS" DatabaseItem="false"/>
+         <Item Name="WIDE_STATUS" DatabaseItem="false" MaximumLength="10" DataLengthSemantics="CHAR"/>
+         <Item Name="COUNT_ID" DatabaseItem="false" DataType="Number" MaximumLength="10"/>
+         <Item Name="STATUS_LIST" ItemType="List Item" DatabaseItem="false" MaximumLength="10"/>
+         <Item Name="BARE_STATUS" DatabaseItem="false" MaximumLength="8"/>
+         <Item Name="ONLY_HERE" DatabaseItem="false" MaximumLength="7"/>
+         <Item Name="DUP" DatabaseItem="false" MaximumLength="12"/>
+      </Block>
+      <Block Name="INFO" DatabaseBlock="false">
+         <Item Name="DUP" DatabaseItem="false" MaximumLength="12"/>
+      </Block>
+      <Block Name="ORDERS" QueryDataSourceName="ORDERS">
+         <Item Name="ORDER_ID" DataType="Number" MaximumLength="10"/>
+         <Item Name="STATUS" MaximumLength="4"/>
+      </Block>
+      <Block Name="ORDERS_ALT" QueryDataSourceName="ORDERS">
+         <Item Name="STATUS" MaximumLength="6"/>
+         <Trigger Name="ON-SELECT" TriggerText="NULL;"/>
+      </Block>
+      <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="DECLARE&amp;#10;  CURSOR c_ord IS SELECT status FROM orders WHERE order_id = 1;&amp;#10;  r_ord orders%ROWTYPE;&amp;#10;BEGIN&amp;#10;  SELECT status INTO :ctrl.short_status FROM orders WHERE order_id = 1;&amp;#10;  OPEN c_ord;&amp;#10;  FETCH c_ord INTO :ctrl.short_status;&amp;#10;  CLOSE c_ord;&amp;#10;  :ctrl.short_status := r_ord.status;&amp;#10;  :ctrl.short_status := NVL(r_ord.status, '-');&amp;#10;  SELECT status INTO :ctrl.default_status FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :ctrl.wide_status FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :ctrl.count_id FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :ctrl.status_list FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :ctrl.bare_status FROM orders WHERE order_id = 1;&amp;#10;  read_status(1, :ctrl.short_status);&amp;#10;  SELECT status INTO :only_here FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :dup FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :nope.z FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :parameter.p_status FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :global.last_status FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :system.message_level FROM orders WHERE order_id = 1;&amp;#10;END;"/>
+      <ModuleParameter Name="P_STATUS"/>
+   </FormModule>
+</Module>

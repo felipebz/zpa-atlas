@@ -20,6 +20,7 @@ import {
     moreText,
     optionSizedText,
     parameterText,
+    PLACE_SOURCES,
     placeDetail,
     rowAt,
     shortName,
@@ -97,7 +98,7 @@ describe("verdict buttons", () => {
     expect(verdictTitle(say, "CALLER_DECIDES", 10)).toBe(en["places.classTitle.CALLER_DECIDES"]);
     expect(verdictTitle(say, "UNKNOWN", 10)).toBe(en["places.classTitle.UNKNOWN"]);
     expect(verdictTitle(say, "OWN_SIZE", null)).toBe(en["places.classTitle.FIXED_SIZE"]);
-    expect(verdictTitle(say, "SMALLER", 10)).toBe("Declared with a size of its own smaller than 10: a longer value does not fit.");
+    expect(verdictTitle(say, "SMALLER", 10)).toBe("Has a size of its own smaller than 10: a longer value does not fit.");
     expect(verdictTitle(sayPt, "FITS", 10)).toBe("Recebe um valor de 10: tamanho 10 ou maior, ou sem limite de tamanho.");
   });
 });
@@ -327,6 +328,14 @@ describe("reasons and calls", () => {
     expect(reasonText(say, "SOME_NEW_REASON")).toBe("SOME_NEW_REASON");
   });
 
+  it("says every Forms reason in both languages, none as its code", () => {
+    const reasons = ["ITEM_HOLDS_ELEMENT", "ITEM_HOLDS_NO_VALUE", "DATA_TYPE_UNKNOWN", "PARAMETER_LENGTH_NOT_GIVEN", "GLOBAL_LENGTH_NOT_GIVEN",
+      "AMBIGUOUS", "NO_SUCH_ITEM", "NO_SUCH_BLOCK", "NO_SUCH_PARAMETER"];
+    for (const s of [say, sayPt]) for (const reason of reasons) expect(reasonText(s, reason)).not.toBe(reason);
+    expect(reasonText(say, "GLOBAL_LENGTH_NOT_GIVEN")).toBe("a Forms global holds text of no declared length");
+    expect(reasonText(sayPt, "NO_SUCH_ITEM")).toBe("o módulo não tem esse item");
+  });
+
   it("says why a size does not compare, in both languages", () => {
     expect(verdictReasonText(say, "UNIT_MISMATCH")).toBe("the column counts characters, the target counts bytes");
     expect(verdictReasonText(sayPt, "UNIT_MISMATCH")).toBe("a coluna conta caracteres, o destino conta bytes");
@@ -443,7 +452,7 @@ describe("placeDetail", () => {
     it("says the unit's own line on the row and leads it there", () => {
       const at = rowAt(say, own, module);
       expect(at).toEqual({ path: module, line: 640, code: pk, text: "l. 12" });
-      expect(lineHref(at.path, at.line, at.code)).toBe("file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE_BODY&line=12#L12");
+      expect("path" in at && lineHref(at.path, at.line, at.code)).toBe("file.html?path=demo0004_fmb.xml&unit=forms%3ADEMO0004%2FPK_ACCORDION&unitKind=PACKAGE_BODY&line=12#L12");
     });
 
     it("names the unit of a call elsewhere in the module, and leads the call line and the target's line to their units", () => {
@@ -456,6 +465,38 @@ describe("placeDetail", () => {
 
     it("leaves a database row's lines to its file", () => {
       expect(links(placeDetail(say, vCode))).toEqual(["file.html?path=mc.sql&line=28#L28"]);
+    });
+  });
+
+  // Invented names: the module SHOP_DESK's block ORDERS has the item STATUS, which its query fills from ORDERS.CODE,
+  // and its trigger reads the column into the item :orders.status.
+  describe("into a Forms item", () => {
+    const STATUS = { key: "forms:SHOP_DESK/ORDERS/STATUS", kind: "FORMS_ITEM", display: "SHOP_DESK/ORDERS/STATUS", external: false, name: "STATUS" };
+    const module = "shop_desk_fmb.xml";
+    const queried = place({ source: "BLOCK_QUERY", path: module, line: null, column: null, container: STATUS, target: STATUS,
+      targetWritten: "SHOP_DESK/ORDERS/STATUS", declaredType: "CHAR", length: 30, unit: "CHAR", size: 30, sizeUnit: "CHAR", typeSource: null });
+
+    it("lists the block's query as a way the value arrives, in both languages", () => {
+      expect(PLACE_SOURCES).toContain("BLOCK_QUERY");
+      expect(howText(say, queried)).toBe("read by the block's query, no code");
+      expect(howText(sayPt, queried)).toBe("lida pela consulta do bloco, sem código");
+    });
+
+    it("leads a place in no code to its item, with no line", () => {
+      expect(rowAt(say, queried, module)).toEqual({ entity: STATUS, text: "Forms item" });
+      expect(rowAt(sayPt, queried, "other.sql").text).toBe("item do Forms");
+    });
+
+    it("gives an item's data type and size like a declaration's, and no file line for a place in no code", () => {
+      expect(text(placeDetail(say, queried))).toEqual(["declared `CHAR` · 30 CHAR"]);
+      expect(sizeShown(say, queried, 40, "CHAR")).toEqual({ text: "30", fill: 0.75 });
+    });
+
+    it("keeps the line of an item target written in code", () => {
+      const trigger = { key: "forms:SHOP_DESK/ORDERS/POST-QUERY", line: 2, unitKind: null };
+      const written = { ...queried, source: "SELECT_INTO" as const, line: 120, column: 18, targetWritten: ":orders.status", code: trigger };
+      expect(rowAt(say, written, module)).toEqual({ path: module, line: 120, code: trigger, text: "l. 2" });
+      expect(text(placeDetail(say, written)).at(-1)).toBe(`${module}:120`);
     });
   });
 });

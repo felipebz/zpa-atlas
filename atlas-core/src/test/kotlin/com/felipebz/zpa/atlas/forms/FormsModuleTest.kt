@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test
 /**
  * The `frmf2xml` reader and the module text, on the invented modules `forms/order_desk_fmb.xml` (`DUMP=ALL`),
  * `forms/order_lite_fmb.xml`, and `forms/data_desk_fmb.xml` and `forms/data_plain_fmb.xml` (the same module, in English
- * words, with and without `DUMP=ALL`).
+ * words, with and without `DUMP=ALL`), as are `forms/shop_desk_fmb.xml` and `forms/shop_plain_fmb.xml`.
  */
 class FormsModuleTest {
     private fun read(resource: String): FormsModule {
@@ -219,7 +219,52 @@ class FormsModuleTest {
         assertThat(module.blocks.flatMap { it.items }.groupingBy { it.kind }.eachCount())
             .isEqualTo(mapOf(FormsItemKind.TEXT_ITEM to 23, FormsItemKind.PUSH_BUTTON to 5))
         assertThat(module.blocks[0].items.count { it.database }).isEqualTo(8)
+        // "Nulo" leaves the unit of the length to the session.
+        assertThat(module.blocks.flatMap { it.items }.groupingBy { "${it.dataType} ${it.lengthSemantics}" }.eachCount())
+            .isEqualTo(mapOf("CHAR null" to 13, "NUMBER null" to 9, "CHAR BYTE" to 5, "DATE null" to 1))
         assertThat(module.notes).isEmpty()
+    }
+
+    @Test
+    fun `an item gives its data type, maximum length and unit, a parameter its data type, the same exported with DUMP=ALL or without`() {
+        val desk = read("shop_desk_fmb.xml")
+        val plain = read("shop_plain_fmb.xml")
+        fun sizes(module: FormsModule) = module.blocks.flatMap { block ->
+            block.items.map { "${block.name.value}.${it.name.value} ${it.kind} ${it.dataType} ${it.maximumLength} ${it.lengthSemantics}" }
+        }
+        // DEFAULT_STATUS has the Forms default length, BARE_STATUS no data type: Char.
+        assertThat(sizes(desk)).containsExactly(
+            "CTRL.SHORT_STATUS TEXT_ITEM CHAR 5 null",
+            "CTRL.DEFAULT_STATUS TEXT_ITEM CHAR 30 null",
+            "CTRL.WIDE_STATUS TEXT_ITEM CHAR 10 CHAR",
+            "CTRL.COUNT_ID TEXT_ITEM NUMBER 10 null",
+            "CTRL.STATUS_LIST LIST_ITEM CHAR 10 null",
+            "CTRL.BARE_STATUS TEXT_ITEM CHAR 8 null",
+            "CTRL.ONLY_HERE TEXT_ITEM CHAR 7 null",
+            "CTRL.DUP TEXT_ITEM CHAR 12 null",
+            "INFO.DUP TEXT_ITEM CHAR 12 null",
+            "ORDERS.ORDER_ID TEXT_ITEM NUMBER 10 null",
+            "ORDERS.STATUS TEXT_ITEM CHAR 4 null",
+            "ORDERS_ALT.STATUS TEXT_ITEM CHAR 6 null"
+        )
+        assertThat(sizes(plain)).isEqualTo(sizes(desk))
+        // frmf2xml does not write a parameter's maximum length.
+        for (module in listOf(desk, plain)) {
+            assertThat(module.parameters.map { "${it.name.value} ${it.dataType} ${it.maximumLength}" }).containsExactly("P_STATUS CHAR null")
+            assertThat(module.notes).isEmpty()
+        }
+    }
+
+    @Test
+    fun `a data type, length or unit the reader does not know is noted, never guessed`() {
+        val xml = """<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms"><FormModule Name="ODD_SIZES"><Block Name="B">
+            |<Item Name="A" DataType="Blob"/><Item Name="B" MaximumLength="long"/><Item Name="C" DataLengthSemantics="Caracteres largos"/>
+            |<Item Name="D" DataType="Number" DataLengthSemantics="Nulo"/></Block></FormModule></Module>""".trimMargin()
+        val module = Frmf2xmlReader.read("odd_sizes_fmb.xml", xml.toByteArray())!!
+        assertThat(module.blocks.single().items.map { "${it.name.value} ${it.dataType} ${it.maximumLength} ${it.lengthSemantics}" })
+            .containsExactly("A UNKNOWN 30 null", "B CHAR 30 null", "C CHAR 30 null", "D NUMBER 30 null")
+        assertThat(module.notes).containsExactly(FormsNote("FORMS_VALUE_UNKNOWN",
+            "3 value(s) not known: DataType \"Blob\" (1), MaximumLength \"long\" (1), DataLengthSemantics \"Caracteres largos\" (1)"))
     }
 
     @Test

@@ -8,7 +8,11 @@ package com.felipebz.zpa.atlas.extract
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.atlas.forms.FormsBuiltins
+import com.felipebz.zpa.atlas.forms.FormsItem
+import com.felipebz.zpa.atlas.forms.FormsItemDataType
+import com.felipebz.zpa.atlas.forms.FormsItemKind
 import com.felipebz.zpa.atlas.forms.FormsLayout
+import com.felipebz.zpa.atlas.forms.FormsLengthSemantics
 import com.felipebz.zpa.atlas.forms.FormsProgramUnitKind
 import com.felipebz.zpa.atlas.forms.FormsTriggerLevel
 import com.felipebz.zpa.atlas.model.*
@@ -52,6 +56,16 @@ internal class FormsEntities(private val layout: FormsLayout) {
     val parameterKeys = ArrayList<String>()
     private val globals = HashSet<String>()
 
+    /**
+     * What each item and parameter holds, as the type of a declaration, for the places column values are read into:
+     * a text or display item of a character data type holds its maximum length, in its unit (the compile-time
+     * `NLS_LENGTH_SEMANTICS` when the item leaves it: what Forms does with `Null`); one of another data type has no
+     * size; a list item, check box, radio group or image holds one of its elements, not a value of a length
+     * (`ITEM_HOLDS_ELEMENT`); any other item holds no value (`ITEM_HOLDS_NO_VALUE`). A character parameter whose length
+     * the file does not give is `PARAMETER_LENGTH_NOT_GIVEN`; a data type the reader did not know `DATA_TYPE_UNKNOWN`.
+     */
+    val shapes = ArrayList<DeclaredShapeFact>()
+
     val moduleKey: String = entity(EntityKind.FORMS_MODULE, layout.name, layout.name, null)
 
     init {
@@ -65,6 +79,7 @@ internal class FormsEntities(private val layout: FormsLayout) {
                 val itemKey = entity(EntityKind.FORMS_ITEM, "${layout.name}/${block.name.value}/${item.name.value}", item.name.value, blockKey)
                 owners.putIfAbsent(listOf(block.name.value, item.name.value), itemKey)
                 objects += FormsObjectFact(itemKey)
+                shapes += DeclaredShapeFact(itemKey, itemShape(item))
                 itemKey
             }
         }
@@ -93,9 +108,11 @@ internal class FormsEntities(private val layout: FormsLayout) {
             objects += FormsObjectFact(key)
         }
         for (parameter in layout.parameters) {
-            val key = entity(EntityKind.FORMS_PARAMETER, "${layout.name}/PARAMETER/$parameter", parameter, moduleKey)
+            val name = parameter.name.value
+            val key = entity(EntityKind.FORMS_PARAMETER, "${layout.name}/PARAMETER/$name", name, moduleKey)
             parameterKeys += key
             objects += FormsObjectFact(key)
+            shapes += DeclaredShapeFact(key, valueShape(parameter.dataType, parameter.maximumLength, null))
         }
     }
 
@@ -134,6 +151,21 @@ internal class FormsEntities(private val layout: FormsLayout) {
         entities += EntityFact(key, kind, null, name, parentKey, displayOf(key), external = false, precedence = Precedence.DECLARED)
         if (parentKey != null && contained) relations += RelationFact(parentKey, RelationKind.CONTAINS, key)
         return key
+    }
+
+    private companion object {
+        fun itemShape(item: FormsItem): TypeShape = when (item.kind) {
+            FormsItemKind.TEXT_ITEM, FormsItemKind.DISPLAY_ITEM -> valueShape(item.dataType, item.maximumLength, item.lengthSemantics)
+            FormsItemKind.LIST_ITEM, FormsItemKind.CHECK_BOX, FormsItemKind.RADIO_GROUP, FormsItemKind.IMAGE -> TypeShape.Unknown("ITEM_HOLDS_ELEMENT")
+            else -> TypeShape.Unknown("ITEM_HOLDS_NO_VALUE")
+        }
+
+        fun valueShape(type: FormsItemDataType, length: Int?, unit: FormsLengthSemantics?): TypeShape = when {
+            type == FormsItemDataType.UNKNOWN -> TypeShape.Unknown("DATA_TYPE_UNKNOWN")
+            !type.character -> TypeShape.Unsized(type.name)
+            length == null -> TypeShape.Unknown("PARAMETER_LENGTH_NOT_GIVEN")
+            else -> TypeShape.Sized(type.name, length, unit?.name ?: TypeShapes.NLS_LENGTH_SEMANTICS)
+        }
     }
 }
 

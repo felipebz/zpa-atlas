@@ -48,6 +48,8 @@ What to make of it:
 - **Calls into an attached library** are not found, or point to a guessed database object: the library's code is not
   in the module.
 - **A module exported without `DUMP=ALL`** may lack the code it inherits; a coverage note says so. Export it again.
+- **An item in a column's Read into** holds no more than its maximum length: Forms cuts a longer value, so an item
+  smaller than the column loses the end of it.
 
 ## The module's own names
 

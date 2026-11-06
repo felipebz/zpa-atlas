@@ -426,10 +426,13 @@ export type Verdict = "SMALLER" | "CALLER_DECIDES" | "UNKNOWN" | "FITS" | "FOLLO
 /** What a size counts: bytes, characters, or a number's digits before the point. */
 export type SizeUnit = "BYTE" | "CHAR" | "DIGITS";
 
-/** How a column's value arrives in a place. */
-export type PlaceSource = "SELECT_INTO" | "FETCH" | "RETURNING" | "ASSIGNMENT" | "IN_ARGUMENT" | "OUT_ARGUMENT" | "RETURNED";
+/** How a column's value arrives in a place: by a statement of code, or, for `BLOCK_QUERY`, by a Forms data block's own query into an item. */
+export type PlaceSource = "SELECT_INTO" | "FETCH" | "RETURNING" | "ASSIGNMENT" | "IN_ARGUMENT" | "OUT_ARGUMENT" | "RETURNED" | "BLOCK_QUERY";
 
-/** A place a column's value is read into in PL/SQL (`SELECT … INTO`, `FETCH … INTO`, `RETURNING … INTO`) and how its target is declared. */
+/**
+ * A place a column's value is read into, in PL/SQL (`SELECT … INTO`, `FETCH … INTO`, `RETURNING … INTO`) or in a Forms
+ * module (an item, parameter or global target; an item its block's query fills), and how its target is declared.
+ */
 export interface ColumnPlace {
   /** The column read: the page's column, or a view column computed from it ([viaView]). */
   read: EntitySummary;
@@ -437,10 +440,13 @@ export interface ColumnPlace {
   source: PlaceSource;
   /** `BULK COLLECT INTO`. */
   bulk: boolean;
-  /** Where the target is written: the file relative to the sources, one-based line, zero-based column. */
+  /**
+   * Where the target is written: the file relative to the sources, one-based line, zero-based column. Line and column
+   * are null for a place in no code (`BLOCK_QUERY`), whose [container] and [target] are the item.
+   */
   path: string;
-  line: number;
-  column: number;
+  line: number | null;
+  column: number | null;
   /** The routine around it. */
   container: EntitySummary | null;
   /** The target as written: `l_code`, `l_pair.code`, `r_ord`. */

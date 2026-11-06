@@ -72,7 +72,9 @@ enum class FormsDataType { NONE, TABLE, PROCEDURE, QUERY, TRANSACTIONAL_TRIGGERS
 
 /**
  * An item: whether it is a [database] item, its [columnName] as written (blank: the item's own name), its [kind], and
- * whether it allows insert and update. The values are the Forms defaults where the file says nothing.
+ * whether it allows insert and update, and its size: its [dataType], its [maximumLength] and the unit of that length
+ * ([lengthSemantics], null when the module leaves it to the session's `NLS_LENGTH_SEMANTICS`). Forms cuts a longer
+ * value to the length (FRM-40831). The values are the Forms defaults where the file says nothing.
  */
 data class FormsItem(
     val name: FormsValue,
@@ -82,7 +84,10 @@ data class FormsItem(
     val insertAllowed: Boolean = true,
     val updateAllowed: Boolean = true,
     /** What the file said for an [FormsItemKind.UNKNOWN] kind, for the reader's note; null otherwise. */
-    val kindWord: String? = null
+    val kindWord: String? = null,
+    val dataType: FormsItemDataType = FormsItemDataType.CHAR,
+    val maximumLength: Int = 30,
+    val lengthSemantics: FormsLengthSemantics? = null
 )
 
 /** The kind of an item. Only the kinds that hold a value ([holdsValue]) may stand for a column. */
@@ -90,6 +95,18 @@ enum class FormsItemKind(val holdsValue: Boolean) {
     TEXT_ITEM(true), DISPLAY_ITEM(true), LIST_ITEM(true), CHECK_BOX(true), RADIO_GROUP(true), IMAGE(true),
     PUSH_BUTTON(false), BEAN_AREA(false), CHART(false), HIERARCHICAL_TREE(false), OTHER(false), UNKNOWN(false)
 }
+
+/**
+ * The data type of an item or a parameter, as Forms names it: [character] the types whose value is text, held to the
+ * maximum length. [UNKNOWN]: a value the reader does not know, never guessed.
+ */
+enum class FormsItemDataType(val character: Boolean) {
+    CHAR(true), ALPHA(true), LONG(true), NUMBER(false), INTEGER(false), RNUMBER(false), RINTEGER(false), MONEY(false),
+    RMONEY(false), DATE(false), DATETIME(false), TIME(false), JDATE(false), EDATE(false), UNKNOWN(false)
+}
+
+/** The unit of an item's maximum length. */
+enum class FormsLengthSemantics { BYTE, CHAR }
 
 /** An object of a module that holds code. */
 sealed interface FormsCode {
@@ -131,8 +148,15 @@ data class FormsLibrary(val name: FormsValue, val location: FormsValue?)
 /** A coverage note about the module's file: its [kind] (a code such as `FORMS_NOT_FULL_DUMP`) and its [message]. */
 data class FormsNote(val kind: String, val message: String)
 
-/** A parameter of a module, by its `Name`. */
-data class FormsModuleParameter(val name: FormsValue)
+/**
+ * A parameter of a module, by its `Name`, with its [dataType] and its [maximumLength] (null when the file does not
+ * give it).
+ */
+data class FormsModuleParameter(
+    val name: FormsValue,
+    val dataType: FormsItemDataType = FormsItemDataType.CHAR,
+    val maximumLength: Int? = null
+)
 
 enum class FormsProgramUnitKind {
     PROCEDURE, FUNCTION, PACKAGE, PACKAGE_BODY, UNKNOWN;

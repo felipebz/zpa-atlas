@@ -467,7 +467,9 @@ data class ReferencingKeyPage(
  * A place a column's value is read into in PL/SQL: the column read ([read], the page's column or a view column computed
  * from it, then [viaView]), by [source] (`SELECT_INTO`, `FETCH`, `RETURNING`, `ASSIGNMENT` of a row record's field; [bulk] for `BULK COLLECT`), at [path]
  * and [line], [column] in [container]; the target as written ([targetWritten]), its entity ([target], absent for a
- * declaration without one) and the [field] of a record target. How the target is declared: [placeClass], [declaredType]
+ * declaration without one) and the [field] of a record target. A Forms item a data block's query reads the column into
+ * (`BLOCK_QUERY`) is in no code: no [line] or [column], the item its [container] and [target], its path [targetWritten].
+ * How the target is declared: [placeClass], [declaredType]
  * as written, [length] and [unit] (`CHAR`, `BYTE` or `DIGITS`; for a number, [length] is the digits it holds before the
  * point and [scale] its scale), [typeSource] the entity whose declaration decides it (the column an anchor ends at, the
  * variable, field or type that writes the size), [parameterMode] (`OUT`, `IN OUT`) for a parameter target, whose
@@ -485,8 +487,8 @@ data class ColumnPlace(
     val source: String,
     val bulk: Boolean,
     val path: String,
-    val line: Int,
-    val column: Int,
+    val line: Int?,
+    val column: Int?,
     val container: EntitySummary?,
     val targetWritten: String,
     val target: EntitySummary?,

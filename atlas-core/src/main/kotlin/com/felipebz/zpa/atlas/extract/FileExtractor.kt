@@ -253,6 +253,7 @@ class FileExtractor internal constructor(
             state.relations += it.relations
             state.relations += blocks.relations
             declaredTexts += it.declaredTexts
+            declaredShapes += it.shapes
             state.coverage += blocks.coverage
             state.coverage += formsReferences!!.coverage()
             formsObjects = it.objects.map(blocks::withProperties)

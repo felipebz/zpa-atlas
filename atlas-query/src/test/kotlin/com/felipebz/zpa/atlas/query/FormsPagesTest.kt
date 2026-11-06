@@ -19,8 +19,9 @@ import kotlin.io.path.createDirectories
 /**
  * What the pages of Forms objects read: the module of an object, the tree of a module, a block or an item, and the
  * code page of a module, with the own code of a trigger, a formula, a program unit and a record group query. On the Doag modules `demo0002_fmb.xml`,
- * `demo0004_fmb.xml` and `modernize_fmb.xml` and the invented `calc_desk_fmb.xml` and `order_read_fmb.xml` (whose
- * program unit P_READ reads the table ORDERS of `orders.sql`).
+ * `demo0004_fmb.xml` and `modernize_fmb.xml` and the invented `calc_desk_fmb.xml`, `order_read_fmb.xml` (whose
+ * program unit P_READ reads the table ORDERS of `orders.sql`) and `shop_desk_fmb.xml` (whose items take `ORDERS.STATUS`
+ * of `shop_desk.sql`).
  */
 class FormsPagesTest {
     @TempDir
@@ -43,6 +44,15 @@ class FormsPagesTest {
         Files.writeString(root.resolve("orders.sql"), "CREATE TABLE orders (id NUMBER, status VARCHAR2(10));\n")
         val db = temp.resolve("orders.db")
         Indexer().index(IndexOptions(root, db, compilationSchema = "HR", threads = 2))
+        AtlasIndex(db, root, moduleTexts = { name, bytes -> FormsModuleReaders.BUILT_IN.text(name, bytes) })
+    }
+
+    /** `shop_desk_fmb.xml` and its table and procedure, `shop_desk.sql`, without a dictionary. */
+    private val shop by lazy {
+        val root = temp.resolve("shop").createDirectories()
+        for (name in listOf("shop_desk_fmb.xml", "shop_desk.sql")) javaClass.getResourceAsStream("/forms/$name")!!.use { Files.copy(it, root.resolve(name)) }
+        val db = temp.resolve("shop.db")
+        Indexer().index(IndexOptions(root, db, compilationSchema = "SHOP", threads = 2))
         AtlasIndex(db, root, moduleTexts = { name, bytes -> FormsModuleReaders.BUILT_IN.text(name, bytes) })
     }
 
@@ -173,7 +183,31 @@ class FormsPagesTest {
         assertThat(nodes).containsExactlyInAnyOrderEntriesOf(mapOf(unit to CodeAt(unit, 5), trigger to CodeAt(trigger, 1)))
         assertThat(orders.impactView("db:HR.ORDERS.STATUS").result!!.nodes.map { it.via.code }).containsExactlyInAnyOrder(CodeAt(unit, 5), CodeAt(trigger, 1))
         // The lines get_source reads; a database file's have none.
-        assertThat(orders.source("order_read_fmb.xml", place.line, context = 0).result!!.lines.single().code).isEqualTo(CodeAt(unit, 5))
+        assertThat(orders.source("order_read_fmb.xml", place.line!!, context = 0).result!!.lines.single().code).isEqualTo(CodeAt(unit, 5))
         assertThat(orders.source("orders.sql", 1).result!!.lines.map { it.code }).containsOnlyNulls()
+    }
+
+    @Test
+    fun `a column's places name the Forms items it is read into, with their size, the block query's in no code`() {
+        val key = "db:SHOP.ORDERS.STATUS"
+        val query = shop.columnPlaces(key, PlaceFilter(source = "BLOCK_QUERY")).result!!.rows.single()
+        assertThat(listOf(query.line, query.column, query.shown, query.code, query.container?.key, query.target?.key, query.targetWritten))
+            .containsExactly(null, null, null, null, "forms:SHOP_DESK/ORDERS/STATUS", "forms:SHOP_DESK/ORDERS/STATUS", "SHOP_DESK/ORDERS/STATUS")
+        // The items shorter than VARCHAR2(10): the block's, then those the code reads it into, each on its line.
+        val smaller = shop.columnPlaces(key, PlaceFilter(verdicts = setOf(Verdict.SMALLER))).result!!.rows
+        assertThat(smaller.map { "${it.source} ${it.targetWritten} ${it.declaredType} ${it.size} ${it.sizeUnit} ${it.unitSource}" }).containsExactly(
+            "BLOCK_QUERY SHOP_DESK/ORDERS/STATUS CHAR 4 BYTE OPTION",
+            "SELECT_INTO :ctrl.short_status CHAR 5 BYTE OPTION",
+            "FETCH :ctrl.short_status CHAR 5 BYTE OPTION",
+            "ASSIGNMENT :ctrl.short_status CHAR 5 BYTE OPTION",
+            "ASSIGNMENT :ctrl.short_status CHAR 5 BYTE OPTION",
+            "SELECT_INTO :ctrl.bare_status CHAR 8 BYTE OPTION",
+            "OUT_ARGUMENT :ctrl.short_status CHAR 5 BYTE OPTION",
+            "SELECT_INTO :only_here CHAR 7 BYTE OPTION"
+        )
+        assertThat(smaller.drop(1).map { it.shown?.code?.key }.distinct()).containsExactly("forms:SHOP_DESK/WHEN-NEW-FORM-INSTANCE")
+        // By routine, the block query's group is the item's.
+        val groups = shop.columnPlaceGroups(key, PlaceFilter(source = "BLOCK_QUERY")).result!!.groups
+        assertThat(groups.map { "${it.container?.key} ${it.routine} ${it.packageName} ${it.smaller}" }).containsExactly("forms:SHOP_DESK/ORDERS/STATUS STATUS ORDERS 1")
     }
 }
