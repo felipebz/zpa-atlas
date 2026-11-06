@@ -9,6 +9,7 @@ import {
     firstUnit,
     formsCrumbs,
     formsName,
+    globalUseRows,
     groupId,
     initialOpen,
     itemView,
@@ -94,6 +95,30 @@ describe("Forms names", () => {
     expect(formsCrumbs(page(pressed, [module, steuer, pbExit])).map(c => [c.label, c.title])).toEqual([
       ["RELEASE_LOCKS", "DEMO0004"], ["STEUERBLOCK", "DEMO0004/STEUERBLOCK"], ["PB_EXIT", "DEMO0004/STEUERBLOCK/PB_EXIT"]
     ]);
+  });
+
+  it("names a module parameter by its own name, and a global, which belongs to no module, as its code writes it", () => {
+    const city = forms("DEMO0004/PARAMETER/P_CITY", "FORMS_PARAMETER", "DEMO0004/PARAMETER/P_CITY");
+    expect(formsName(city, info)).toEqual({ key: city.key, label: "P_CITY", title: "DEMO0004/PARAMETER/P_CITY" });
+    const user: EntitySummary = { key: "forms::GLOBAL.ROUTE_USER", kind: "FORMS_GLOBAL", display: ":GLOBAL.ROUTE_USER", external: false, name: "ROUTE_USER" };
+    expect(formsName(user, null)).toEqual({ key: user.key, label: ":GLOBAL.ROUTE_USER", title: ":GLOBAL.ROUTE_USER" });
+    expect(formsName(user, info).label).toBe(":GLOBAL.ROUTE_USER");
+  });
+
+  it("lists a global's modules in the answer's order, each count leading to its uses in that module's file", () => {
+    const desk = forms("ROUTE_DESK", "FORMS_MODULE", "ROUTE_DESK");
+    const view = forms("ROUTE_VIEW", "FORMS_MODULE", "ROUTE_VIEW");
+    const key = "forms::GLOBAL.ROUTE_USER";
+    expect(globalUseRows(key, [
+      { module: desk, path: "route_desk_fmb.xml", writes: 1, reads: 2 },
+      { module: view, path: "forms/route_view_fmb.xml", writes: 0, reads: 1 }
+    ])).toEqual([
+      { module: desk, path: "route_desk_fmb.xml", writes: 1, reads: 2,
+        writesQuery: { entity: key, roles: "WRITE", path: "route_desk_fmb.xml" }, readsQuery: { entity: key, roles: "READ", path: "route_desk_fmb.xml" } },
+      { module: view, path: "forms/route_view_fmb.xml", writes: 0, reads: 1,
+        writesQuery: null, readsQuery: { entity: key, roles: "READ", path: "forms/route_view_fmb.xml" } }
+    ]);
+    expect(globalUseRows(key, [])).toEqual([]);
   });
 
   it("names a place in Forms code by its unit's own name, without a key collision's number", () => {

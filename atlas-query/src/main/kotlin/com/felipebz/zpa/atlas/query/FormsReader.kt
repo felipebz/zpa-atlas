@@ -96,6 +96,18 @@ internal class FormsReader(private val connection: Connection) {
         """EXISTS (SELECT 1 FROM occurrence o WHERE o.container_entity_id = $itemColumn AND o.origin = 'FORMS_IMPLICIT'
                    AND instr(',' || o.roles || ',', ',$role,') > 0)"""
 
+    /**
+     * The modules whose code uses the Forms global [entityId] ([FormsGlobalModule]), by name: each module is the first
+     * object of its file.
+     */
+    fun global(entityId: Long): List<FormsGlobalModule> = connection.query(
+        """SELECT m.key, m.kind, m.display, m.external, m.name, f.path,
+                  sum(instr(',' || o.roles || ',', ',WRITE,') > 0), sum(instr(',' || o.roles || ',', ',READ,') > 0)
+           FROM occurrence o JOIN source_file f ON f.id = o.file_id
+           JOIN forms_object fo ON fo.file_id = o.file_id AND fo.position = 0 JOIN entity m ON m.id = fo.entity_id
+           WHERE o.entity_id = ? GROUP BY f.id ORDER BY m.name COLLATE NOCASE, m.key""", listOf(entityId)
+    ) { FormsGlobalModule(summaryAt(it, 1)!!, it.getString(6), it.getInt(7), it.getInt(8)) }
+
     /** The [EntitySummary] in the five columns from [first] (key, kind, display, external, name); null for a null key. */
     private fun summaryAt(rs: ResultSet, first: Int): EntitySummary? =
         rs.getString(first)?.let { EntitySummary(it, rs.getString(first + 1), rs.getString(first + 2), rs.getInt(first + 3) == 1, rs.getString(first + 4)) }
@@ -196,7 +208,7 @@ internal class FormsReader(private val connection: Connection) {
         /** The groups of each kind of node, in the Object Navigator's order, each with the kind of entity it holds. */
         private val GROUPS = mapOf(
             "FORMS_MODULE" to listOf("TRIGGERS" to "FORMS_TRIGGER", "LIBRARIES" to "FORMS_LIBRARY", "BLOCKS" to "FORMS_BLOCK",
-                "PROGRAM_UNITS" to "FORMS_PROGRAM_UNIT", "RECORD_GROUPS" to "FORMS_RECORD_GROUP"),
+                "PARAMETERS" to "FORMS_PARAMETER", "PROGRAM_UNITS" to "FORMS_PROGRAM_UNIT", "RECORD_GROUPS" to "FORMS_RECORD_GROUP"),
             "FORMS_BLOCK" to listOf("TRIGGERS" to "FORMS_TRIGGER", "ITEMS" to "FORMS_ITEM"),
             "FORMS_ITEM" to listOf("TRIGGERS" to "FORMS_TRIGGER")
         )

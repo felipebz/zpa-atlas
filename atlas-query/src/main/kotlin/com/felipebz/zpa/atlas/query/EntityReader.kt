@@ -111,7 +111,8 @@ internal class EntityReader(private val connection: Connection) {
             PlaceReader(connection).receives(row.id),
             formsReader?.info(row.id),
             if (row.kind == "FORMS_BLOCK") formsReader?.block(row.id) else null,
-            if (row.kind == "FORMS_ITEM") formsReader?.item(row.id) else null
+            if (row.kind == "FORMS_ITEM") formsReader?.item(row.id) else null,
+            if (row.kind == "FORMS_GLOBAL") formsReader?.global(row.id) else null
         )
     }
 

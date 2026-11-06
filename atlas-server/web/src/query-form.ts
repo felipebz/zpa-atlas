@@ -13,7 +13,7 @@ import {
 import {esc} from "./html";
 import {t} from "./i18n";
 import type {QueryParams} from "./query-params";
-import {moreSet} from "./query-params";
+import {isEntityKey, moreSet} from "./query-params";
 import {field, form, picks, state} from "./query-state";
 import {entityOf, pick, setKept, setupSuggest, suggestBox, unpick} from "./query-suggest";
 
@@ -72,13 +72,13 @@ export function readFilters() {
   const params: QueryParams = {};
   const what = field("what").value.trim();
   if (picks.entity) params.entity = picks.entity.key;
-  else if (what.startsWith("db:")) params.entity = what;
+  else if (isEntityKey(what)) params.entity = what;
   else if (what) params.name = what;
   if (params.entity && field("inside").checked) params.inside = "true";
   if (params.entity && state.keptName) params.name = state.keptName;
   const within = field("within").value.trim();
   if (picks.container) params.container = picks.container.key;
-  else if (within.startsWith("db:")) params.container = within;
+  else if (isEntityKey(within)) params.container = within;
   else if (within) params.containerName = within;
   for (const name of TEXTS) {
     const value = name === "value" ? field(name).value : field(name).value.trim();

@@ -129,12 +129,12 @@ internal class SqlStatements(
         // `CAST(… AS t)` and the other datatypes of the statement.
         root.getDescendants(*NAMED_DATATYPES).forEach { typeReferences.typeUse(it, context, id) }
         root.getDescendants(PlSqlGrammar.JSON_DATATYPE).forEach { typeReferences.jsonTypeUse(it, context, id) }
-        // Names: correlation columns of a trigger; INTO targets are PL/SQL values; every other name is a column read when
-        // an SQL scope captures it.
+        // Names: correlation columns of a trigger; the objects of a Forms module; INTO targets are PL/SQL values; every
+        // other name is a column read when an SQL scope captures it.
         root.getDescendants(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION)
             .filter { plsql.isValueName(it) && it.getFirstAncestorOrNull(*NAMED_DATATYPES) == null }
             .filterNot { columnReads.isCorrelationArgument(statement, it) || isMakeRefRelation(it) }
-            .filterNot { triggers.correlationColumn(it, context, id) }
+            .filterNot { triggers.correlationColumn(it, context, id) || plsql.formsHostName(it, context, id) }
             .forEach { if (it.getFirstAncestorOrNull(DmlGrammar.INTO_CLAUSE) != null) plsql.valueReference(it, context, id, sql = false) else columnReads.sqlName(statement, it) }
         root.getDescendants(DmlGrammar.SELECT_COLUMN).forEach { columnReads.selectStar(statement, it) }
         places.statement(statement)

@@ -28,7 +28,9 @@ data class FormsModule(
     val code: List<FormsCode>,
     val libraries: List<FormsLibrary>,
     /** What the file lacks for a complete index, each a coverage note of the module's file. */
-    val notes: List<FormsNote> = emptyList()
+    val notes: List<FormsNote> = emptyList(),
+    /** The module's parameters (`ModuleParameter`), which its code reads and writes as `:PARAMETER.NAME`. */
+    val parameters: List<FormsModuleParameter> = emptyList()
 ) {
     val triggers: List<FormsTrigger> get() = code.filterIsInstance<FormsTrigger>()
     val programUnits: List<FormsProgramUnit> get() = code.filterIsInstance<FormsProgramUnit>()
@@ -128,6 +130,9 @@ data class FormsLibrary(val name: FormsValue, val location: FormsValue?)
 
 /** A coverage note about the module's file: its [kind] (a code such as `FORMS_NOT_FULL_DUMP`) and its [message]. */
 data class FormsNote(val kind: String, val message: String)
+
+/** A parameter of a module, by its `Name`. */
+data class FormsModuleParameter(val name: FormsValue)
 
 enum class FormsProgramUnitKind {
     PROCEDURE, FUNCTION, PACKAGE, PACKAGE_BODY, UNKNOWN;

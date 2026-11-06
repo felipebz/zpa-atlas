@@ -111,7 +111,7 @@ export interface FormsInfo {
 }
 
 /** The groups of a [FormsTree], as the Form Builder's Object Navigator has them. */
-export type FormsGroupKind = "TRIGGERS" | "LIBRARIES" | "BLOCKS" | "ITEMS" | "PROGRAM_UNITS" | "RECORD_GROUPS";
+export type FormsGroupKind = "TRIGGERS" | "LIBRARIES" | "BLOCKS" | "ITEMS" | "PARAMETERS" | "PROGRAM_UNITS" | "RECORD_GROUPS";
 
 /**
  * A Forms object in a [FormsTree], with the objects under it by group (a block's triggers and items, an item's
@@ -333,6 +333,16 @@ export interface EntityDetail {
   formsBlock?: FormsBlock;
   /** For a Forms item, the column it stands for and what Forms does with it; absent otherwise. */
   formsItem?: FormsItem;
+  /** For a Forms global (`:GLOBAL.ROUTE_USER`), the modules whose code uses it, by module name; absent otherwise. */
+  formsGlobal?: FormsGlobalModule[];
+}
+
+/** The uses of a Forms global in one module: the module, its file, how many of its uses set the global and how many read it. */
+export interface FormsGlobalModule {
+  module: EntitySummary;
+  path: string;
+  writes: number;
+  reads: number;
 }
 
 /**

@@ -255,4 +255,9 @@ class FileFacts(
     val formsObjects: List<FormsObjectFact> = emptyList(),
     /** For a Forms module, the uses its data blocks make without code, in the order of its objects. */
     val formsUses: List<FormsUseFact> = emptyList()
-)
+) {
+    /** These facts with [occurrences] instead of their own. */
+    fun withOccurrences(occurrences: List<OccurrenceFact>) = FileFacts(path, sha256, sizeBytes, encoding, parseStatus, recoveredRegions, compilationSchema,
+        units, statements, occurrences, entities, relations, coverage, dictionaryRelations, dictionarySynonyms, triggerEvents, declaredTexts, docComments,
+        usesGaps, membersGaps, declaredShapes, intos, placesLeftOut, kind, formsObjects, formsUses)
+}

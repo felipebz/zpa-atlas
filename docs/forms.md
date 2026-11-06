@@ -30,13 +30,14 @@ count them.
   property, when it is another, is shown on its page as its internal name. Two files with the same name, in two folders
   or under two file names, are one module, indexed from the first file by path.
 - **The module's page** shows its objects as a tree, in the module's order, as the Form Builder's Object Navigator
-  does: its triggers, data blocks with their items, program units, record groups and attached libraries. A trigger,
-  program unit or record group query opens on the code page, one at a time, with the tree beside it. Each piece of code
-  is named by its path: the module, the block and item it is on, and its name, such as
+  does: its triggers, data blocks with their items, parameters, program units, record groups and attached libraries.
+  A trigger, program unit or record group query opens on the code page, one at a time, with the tree beside it. Each
+  piece of code is named by its path: the module, the block and item it is on, and its name, such as
   `ORDERS/ORDERS/STATUS/WHEN-VALIDATE-ITEM`.
-- **The module's objects are entities:** the module, its blocks, items, triggers, program units and attached libraries,
-  keyed `forms:` and their path, such as `forms:ORDERS/CALC_TOTAL`. A package's specification and body are one
-  entity, and the uses of its routines count as uses of the package; a routine it does not declare is not found.
+- **The module's objects are entities:** the module, its blocks, items, parameters, triggers, program units and
+  attached libraries, keyed `forms:` and their path, such as `forms:ORDERS/CALC_TOTAL`. A package's specification and
+  body are one entity, and the uses of its routines count as uses of the package; a routine it does not declare is not
+  found.
 - **Used by** lists the Forms code by its path, next to the database code.
 
 A name the module's own program units declare means that program unit, even when the database has a routine with the
@@ -47,6 +48,15 @@ What to make of it:
 - **Calls into an attached library** are not found, or point to a guessed database object: the library's code is not
   in the module.
 - **A module exported without `DUMP=ALL`** may lack the code it inherits; a coverage note says so. Export it again.
+
+## The module's own names
+
+When a module's code names its own items, blocks, parameters, triggers, or another module (`:ORDERS.STATUS`,
+`GO_BLOCK('LINES')`, `CALL_FORM('CUSTOMERS')`), those are uses too, shown in the **Used by** of what they name. A
+module's **Used by** tells which forms call it.
+
+A global (`:GLOBAL.USER_ID`) lives for the whole session, across the forms it opens, so it is one object for every
+module: its page shows which forms set it and which read it.
 
 ## Data blocks
 

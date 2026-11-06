@@ -15,7 +15,7 @@ import javax.xml.stream.XMLStreamReader
 /**
  * Reads the form modules Oracle's `frmf2xml` exports (Forms 12, `name_fmb.xml`): a `Module` root with one
  * `FormModule`, whose objects are elements by kind (`Block`, `Item`, `Trigger`, `ProgramUnit`, `RecordGroup`,
- * `AttachedLibrary`, `Event`), each named by its `Name` attribute.
+ * `AttachedLibrary`, `Event`, `ModuleParameter`), each named by its `Name` attribute.
  *
  * Attributes are read by their local name. With `DUMP=ALL` every property is written, under a prefix that says where
  * its value comes from (`MODULE_default:`, `MODULE_overridden:`, `PARENT_inherited:`, `MODULE_inherited_overridden:`,
@@ -81,6 +81,7 @@ object Frmf2xmlReader : FormsModuleReader {
         private var blockAttributes: Map<String, FormsValue> = emptyMap()
         private val code = ArrayList<FormsCode>()
         private val libraries = ArrayList<FormsLibrary>()
+        private val parameters = ArrayList<FormsModuleParameter>()
         private var inheriting = 0
         private var otherTriggers = 0
 
@@ -108,7 +109,7 @@ object Frmf2xmlReader : FormsModuleReader {
                 notes += FormsNote("FORMS_VALUE_UNKNOWN", "${unknown.values.sum()} value(s) not known: " +
                     unknown.entries.joinToString(", ") { (value, count) -> "${value.first} \"${value.second}\" ($count)" })
             }
-            return FormsModule(name, blocks, code, libraries, notes)
+            return FormsModule(name, blocks, code, libraries, notes, parameters)
         }
 
         private fun start() {
@@ -134,6 +135,7 @@ object Frmf2xmlReader : FormsModuleReader {
                 "ProgramUnit" -> if (name != null) attributes["ProgramUnitText"]?.let { code += FormsProgramUnit(name, it) }
                 "RecordGroup" -> if (name != null) attributes["RecordGroupQuery"]?.takeIf { it.value.isNotBlank() }?.let { code += FormsRecordGroup(name, it) }
                 "AttachedLibrary" -> if (name != null) libraries += FormsLibrary(name, attributes["LibraryLocation"])
+                "ModuleParameter" -> if (parent() == "FormModule" && name != null) parameters += FormsModuleParameter(name)
             }
             open += Open(kind, name?.value)
         }

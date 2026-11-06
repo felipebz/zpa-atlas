@@ -8,6 +8,7 @@ import type {
     EntitySummary,
     FormsBlock,
     FormsDataSource,
+    FormsGlobalModule,
     FormsGroup,
     FormsGroupKind,
     FormsInfo,
@@ -30,10 +31,32 @@ export interface FormsName {
 
 /**
  * How a page inside the module [forms] names a Forms object: by its own name (`ID1`), the module by its title (its
- * internal name, `RELEASE_LOCKS`); the full path (`DEMO0004/V$LOCK/ID1`) is the tooltip.
+ * internal name, `RELEASE_LOCKS`); the full path (`DEMO0004/V$LOCK/ID1`) is the tooltip. A global, which belongs to no
+ * module, as its code writes it (`:GLOBAL.ROUTE_USER`).
  */
-export function formsName(entity: Pick<EntitySummary, "key" | "name" | "display">, forms: FormsInfo | null): FormsName {
-  return { key: entity.key, label: forms !== null && forms.module.key === entity.key ? forms.title : entity.name, title: entity.display };
+export function formsName(entity: Pick<EntitySummary, "key" | "kind" | "name" | "display">, forms: FormsInfo | null): FormsName {
+  const label = entity.kind === "FORMS_GLOBAL" ? entity.display : forms !== null && forms.module.key === entity.key ? forms.title : entity.name;
+  return { key: entity.key, label, title: entity.display };
+}
+
+/**
+ * A row of a Forms global's "Forms that use it": the module and its file, how many of its uses set the global and how
+ * many read it, each with the query page's filters listing those uses (null when there are none).
+ */
+export interface GlobalUseRow {
+  module: EntitySummary;
+  path: string;
+  writes: number;
+  reads: number;
+  writesQuery: Record<string, string> | null;
+  readsQuery: Record<string, string> | null;
+}
+
+/** The rows of the global [key]'s "Forms that use it", one per module of [uses], in the answer's order. */
+export function globalUseRows(key: string, uses: FormsGlobalModule[]): GlobalUseRow[] {
+  const query = (count: number, roles: string, path: string) => count === 0 ? null : { entity: key, roles, path };
+  return uses.map(u => ({ module: u.module, path: u.path, writes: u.writes, reads: u.reads,
+    writesQuery: query(u.writes, "WRITE", u.path), readsQuery: query(u.reads, "READ", u.path) }));
 }
 
 /**

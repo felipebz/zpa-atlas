@@ -75,6 +75,8 @@ enum class EntityKind(val reserved: Boolean = false) : StoredEnum {
     FORMS_PROGRAM_UNIT,
     FORMS_LIBRARY,
     FORMS_RECORD_GROUP,
+    FORMS_PARAMETER,
+    FORMS_GLOBAL,
     UNKNOWN_RELATION
 }
 
@@ -147,6 +149,12 @@ enum class Reason : StoredEnum {
     NO_APPLICABLE_CANDIDATE,
     INVALID_NOTATION,
     LOCAL_SUBPROGRAM,
+    // A name of a Forms module's own objects that the module does not have, or a module the index does not have.
+    NO_SUCH_BLOCK,
+    NO_SUCH_ITEM,
+    NO_SUCH_PARAMETER,
+    NO_SUCH_TRIGGER,
+    MODULE_NOT_INDEXED,
     // Several candidates.
     AMBIGUOUS,
     AMBIGUOUS_TARGET,
@@ -158,6 +166,8 @@ enum class Reason : StoredEnum {
     COLUMNS_UNKNOWN,
     COLUMN_NOT_EXCLUDED,
     PARTIAL_DECLARATIONS,
+    // A trigger EXECUTE_TRIGGER names, found by name outside the caller's own item, block and module.
+    TRIGGER_FOUND_BY_NAME,
     INCOMPLETE_INDEX,
     DB_LINK,
     // What became of a dynamic statement's text.

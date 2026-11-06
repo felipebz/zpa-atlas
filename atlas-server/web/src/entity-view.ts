@@ -52,6 +52,11 @@ export function membersGapKey(reasons: string[] | null | undefined): string | nu
   return reasons.includes("ALTER_TYPE") ? "entity.membersIncomplete.ALTER_TYPE" : "entity.membersIncomplete.NOT_EXTRACTED";
 }
 
+/** The message key of the line under "Used by": a Forms module is used by the forms and code that call it. */
+export function usageLineKey(kind: string) {
+  return kind === "FORMS_MODULE" ? "usage.line.FORMS_MODULE" : "usage.line";
+}
+
 /** Whether [key] is a body's (`…@BODY`, before a collision's `#2`). */
 export function isBodyKey(key: string) {
   return /@BODY(#\d+)?$/.test(key);

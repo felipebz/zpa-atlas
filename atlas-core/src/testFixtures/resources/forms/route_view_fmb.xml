@@ -1,0 +1,10 @@
+<?xml version = '1.0' encoding = 'UTF-8'?>
+<Module version="122010300" Dump="All" xmlns:ROUTE_VIEW_default="http://xmlns.oracle.com/Forms"
+        xmlns:ROUTE_VIEW_overridden="http://xmlns.oracle.com/Forms" xmlns="http://xmlns.oracle.com/Forms">
+   <FormModule ROUTE_VIEW_overridden:Name="ROUTE_VIEW">
+      <Block ROUTE_VIEW_overridden:Name="INFO" ROUTE_VIEW_overridden:DatabaseBlock="false">
+         <Item ROUTE_VIEW_overridden:Name="TEXT" ROUTE_VIEW_overridden:DatabaseItem="false"/>
+      </Block>
+      <Trigger ROUTE_VIEW_overridden:Name="WHEN-NEW-FORM-INSTANCE" ROUTE_VIEW_default:TriggerStyle="PL/SQL" ROUTE_VIEW_overridden:TriggerText=":info.text := :global.route_user;&amp;#10;call_form('route_desk');"/>
+   </FormModule>
+</Module>

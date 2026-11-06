@@ -16,6 +16,9 @@ import com.felipebz.zpa.atlas.model.*
 /** The key prefix of the entities of Forms modules: `forms:` and a path in the module (`forms:ORDERS/ORDERS/WHEN-NEW-RECORD-INSTANCE`). */
 internal const val FORMS_PREFIX = "forms:"
 
+/** The key prefix of a Forms global variable, the same in every module: `forms::GLOBAL.` and its name (`forms::GLOBAL.USER_ID`). */
+internal const val FORMS_GLOBAL_PREFIX = "$FORMS_PREFIX:GLOBAL."
+
 /** What an entity shows: its key without the namespace prefix (`db:` or [FORMS_PREFIX]). */
 internal fun displayOf(key: String): String = key.removePrefix("db:").removePrefix(FORMS_PREFIX)
 
@@ -23,9 +26,10 @@ internal fun displayOf(key: String): String = key.removePrefix("db:").removePref
  * The entities of a Forms module ([FormsLayout]) and their keys: `forms:` and the object's path, unique in the module
  * (a path two objects share, a block and a program unit of the same name, numbers the later one `#2`). The module,
  * its blocks, their items, the triggers, the program units (a package's specification and body are one), the record
- * groups with a query and the attached libraries; each contained in the object it is on (a trigger on an event is the
- * module's), a library attached to the module. [objects] lists them in the order of the file, each piece of code with
- * the lines of its own text.
+ * groups with a query, the attached libraries and the parameters (`MODULE/PARAMETER/NAME`); each contained in the
+ * object it is on (a trigger on an event is the module's), a library attached to the module. [objects] lists them in
+ * the order of the file, each piece of code with the lines of its own text. The globals the code names ([global]) are
+ * not the module's: one entity, `forms::GLOBAL.NAME`, for every module that names it.
  */
 internal class FormsEntities(private val layout: FormsLayout) {
     val entities = ArrayList<EntityFact>()
@@ -43,6 +47,10 @@ internal class FormsEntities(private val layout: FormsLayout) {
     /** The entity of each block of the layout, in its order, and of each of its items. */
     val blockKeys = ArrayList<String>()
     val itemKeys = ArrayList<List<String>>()
+
+    /** The entity of each parameter of the layout, in its order. */
+    val parameterKeys = ArrayList<String>()
+    private val globals = HashSet<String>()
 
     val moduleKey: String = entity(EntityKind.FORMS_MODULE, layout.name, layout.name, null)
 
@@ -84,10 +92,22 @@ internal class FormsEntities(private val layout: FormsLayout) {
             relations += RelationFact(moduleKey, RelationKind.FORMS_ATTACHED_LIBRARY, key)
             objects += FormsObjectFact(key)
         }
+        for (parameter in layout.parameters) {
+            val key = entity(EntityKind.FORMS_PARAMETER, "${layout.name}/PARAMETER/$parameter", parameter, moduleKey)
+            parameterKeys += key
+            objects += FormsObjectFact(key)
+        }
     }
 
     /** The entity of [unit]: a trigger, a program unit or a record group. */
     fun keyOf(unit: FormsLayout.Unit): String? = unitKeys[unit]
+
+    /** The entity of the global [name] (normalized), added the first time the module's code names it. */
+    fun global(name: String): String {
+        val key = FORMS_GLOBAL_PREFIX + name
+        if (globals.add(key)) entities += EntityFact(key, EntityKind.FORMS_GLOBAL, null, name, null, displayOf(key), external = false, precedence = Precedence.DECLARED)
+        return key
+    }
 
     /**
      * The module's names for [FormsNames]: each program unit's entity by its name, with the name of the package it is

@@ -730,7 +730,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "its parameters add .P_A, its body @BODY after the list; #2, #3 tell apart the same signature. " +
                 "What a package body declares for itself is db:HR.PKG.G_X@BODY; a field of its record type adds .F. " +
                 "~ is an unknown schema (db:~.DBMS_SQL). Through a database link: db:SCHEMA.NAME@LINK, or db:NAME@LINK. " +
-                "Forms: forms:ORDERS/BLOCK/ITEM/TRIGGER, forms:ORDERS/PROGRAM_UNIT in orders_fmb.xml (a package with its members)."
+                "Forms: forms:ORDERS/BLOCK/ITEM/TRIGGER, forms:ORDERS/PROGRAM_UNIT (a package with its members), " +
+                "forms:ORDERS/PARAMETER/P, forms::GLOBAL.G (a global)."
 
         private const val STATUSES =
             "status: RESOLVED is proven. The others say why the index is not sure: UNVERIFIED (not checked, no " +
@@ -750,16 +751,20 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
                 "table; an item's read or write of its column), with no span, unit or line; container is the block or " +
                 "item, path the module's file."
 
+        private const val FORMS_NAMES =
+            "Forms code: :BLOCK.ITEM, :ITEM, :PARAMETER.P, :GLOBAL.G are READ/WRITE uses; GO_BLOCK, GO_ITEM, " +
+                "EXECUTE_TRIGGER, CALL_FORM, OPEN_FORM, NEW_FORM with a literal CALL the block, item, trigger or module. " +
+                "Missing: NO_SUCH_* or MODULE_NOT_INDEXED."
+
         const val SEARCH = "Finds the key of an entity by its name: tables, views, columns, packages, procedures, " +
             "functions, parameters, types, object type attributes, package variables and constants (a body's own included), sequences, " +
-            "synonyms, triggers. Exact name matches first. $KEYS"
+            "synonyms, triggers, Forms objects (modules, blocks, items, parameters, globals, triggers, program units). Exact name matches first. $KEYS"
 
         const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
             "(members or columns, with their uses), relations, triggers and the views that read it. A routine spec's " +
             "bodies (key and definitions, never cut), a body's spec. declared (entity, " +
-            "child): the declaration as written: type, " +
-            "a function's or cursor's return type, else the declared type; value, a parameter's default or a " +
-            "variable's, constant's or record field's initial value, valueCut if cut; valueFrom SPEC: a " +
+            "child): as written: type (a function's or cursor's return type); value, a default or " +
+            "initial value, valueCut if cut; valueFrom SPEC: a " +
             "body's parameter takes its spec's default; specText: the spec's, where a " +
             "body differs. documentation (entity, child): its doc comment, " +
             "then the other half's (from SPEC or BODY) if it differs. " +
@@ -769,7 +774,8 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "placesByClass (column): where its value lands alone, by class; " +
             "concatenatedPlaces: where it is in a concatenation (find_column_places lists both); " +
             "receives: columns read into this target. formsBlock: source, target, operations DONE (by Forms, " +
-            "no code), REPLACED (trigger), NOT_ALLOWED, NOT_FOLLOWED; formsItem: column, read, insertWrite, updateWrite. " +
+            "no code), REPLACED (trigger), NOT_ALLOWED, NOT_FOLLOWED; formsItem: column, read, insertWrite, updateWrite; " +
+            "formsGlobal: the modules using it, writes, reads. " +
             "$PATHS $KEYS"
 
         const val PLACES = "Every PL/SQL variable, parameter or field a column's value is read into, each with its verdict against a size: " +
@@ -804,7 +810,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "facets counted over every match. Pages: pass " +
             "the answer's nextAfter as after; nextAfter is absent on the last page. Each row has its status and " +
             "reason; facets.byStatus counts the statuses of every match. A call's arguments name their parameter " +
-            "(P_A); its key is the row's entity key, a dot and that name. $IMPLICIT_USES $PATHS $STATUSES $ROLES $NOT_ANSWERED"
+            "(P_A); its key is the row's entity key, a dot and that name. $IMPLICIT_USES $FORMS_NAMES $PATHS $STATUSES $ROLES $NOT_ANSWERED"
 
         const val USAGES = "Who calls, reads or writes one entity, for impact analysis: use it instead of " +
             "find_occurrences for one entity, following its spec or body and the views built on it. For a table, " +
@@ -814,7 +820,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
             "AMBIGUOUS row where the entity is one of the candidates. One hop only: for the callers of the callers, up to " +
             "the entry points, use find_impact. A package body's own variable or constant is used only inside its " +
             "body. usesIncomplete: entities in scope with uses beyond the rows (key, reasons). Pages as in " +
-            "find_occurrences. $IMPLICIT_USES $PATHS $STATUSES $NOT_ANSWERED"
+            "find_occurrences. $IMPLICIT_USES $FORMS_NAMES $PATHS $STATUSES $NOT_ANSWERED"
 
         const val IMPACT = "Impact analysis: who calls the callers of an entity, transitively, up to the entry " +
             "points (code nothing in the index calls, run from Forms, jobs or other systems). The first hop is who uses " +

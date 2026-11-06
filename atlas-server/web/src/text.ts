@@ -7,6 +7,7 @@ import {entityHref, esc, fileHref, lineLink} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {fileTitleParts} from "./project";
 import {entityOf, pick, setupSuggest, suggestBox, unpick} from "./query-suggest";
+import {isEntityKey} from "./query-params";
 import {field, form, picks} from "./query-state";
 import type {TextParams} from "./text-search";
 import {longEnough, matchesIn, MIN_TEXT, placeRows, shownLine, textHref, textParamsOf} from "./text-search";
@@ -30,7 +31,7 @@ function readForm(): TextParams {
   if (path) params.path = path;
   const within = field("within").value.trim();
   if (picks.container) params.container = picks.container.key;
-  else if (within.startsWith("db:")) params.container = within;
+  else if (isEntityKey(within)) params.container = within;
   else if (within) params.containerName = within;
   return params;
 }

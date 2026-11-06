@@ -251,7 +251,8 @@ class Indexer internal constructor(
                         startedAt = startedAt.toString(),
                         finishedAt = clock().toString()
                     ),
-                    facts, globalEntities, globalRelations, globalCoverage, texts::get, phase,
+                    // The cache keeps the calls of modules as the walks wrote them: which modules the run has is checked on every run.
+                    FormsReferences.resolveModuleCalls(facts), globalEntities, globalRelations, globalCoverage, texts::get, phase,
                     dictionaryDeclaredTexts = globalDeclaredTexts, keys = keys, places = places, placesLeftOut = placesLeftOut
                 )
             }

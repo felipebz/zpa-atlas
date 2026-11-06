@@ -72,6 +72,9 @@ class FileExtractor internal constructor(
     /** The entities of the Forms module the file is, keyed before the walk. */
     private val formsEntities = forms?.let { FormsEntities(it) }
 
+    /** The names the module's code gives its own blocks, items, parameters, globals, triggers and other modules. */
+    private val formsReferences = formsEntities?.let { FormsReferences(forms!!, it, state) }
+
     private val synonyms = SynonymResolver(dictionary)
     private val resolver = RelationResolver(dictionary, synonyms, state.entities, state.relations)
 
@@ -123,7 +126,7 @@ class FileExtractor internal constructor(
         fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding, bodyGlobals::fieldAt)
         val sequences = projectAnalysis()
         val formsNames = formsEntities?.names(modulePackages(node))
-        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, bound, fields, formsNames) {
+        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, bound, fields, formsNames, formsReferences) {
             sequenceResolutions[it] ?: sequences.resolveSequenceReference(it)
         }
         triggers = Triggers(state, resolver, plsql)
@@ -251,6 +254,7 @@ class FileExtractor internal constructor(
             state.relations += blocks.relations
             declaredTexts += it.declaredTexts
             state.coverage += blocks.coverage
+            state.coverage += formsReferences!!.coverage()
             formsObjects = it.objects.map(blocks::withProperties)
             formsUses = blocks.uses
         }
@@ -593,7 +597,7 @@ class FileExtractor internal constructor(
             }
             PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION -> if (typeReferences.isAggregateImplementation(node)) {
                 typeReferences.aggregateType(node, context)
-            } else if (plsql.isValueName(node) && !triggers.correlationColumn(node, context, null)) {
+            } else if (plsql.isValueName(node) && !triggers.correlationColumn(node, context, null) && !plsql.formsHostName(node, context, null)) {
                 plsql.valueReference(node, context, null, sql = false)
             }
             PlSqlGrammar.UNIT_NAME -> when {

@@ -131,20 +131,23 @@ class FormsIndexTest {
         WHERE f.path = '$path' AND (',' || o.roles || ',') LIKE '%,CALL,%' ORDER BY o.id""")
 
     @Test
-    fun `a name of the module's own code wins over the database, and a Forms built-in gives nothing`() {
+    fun `a name of the module's own code wins over the database, and a Forms built-in gives only what its literal names`() {
         assertThat(calls("forms/order_desk_fmb.xml")).containsExactly(
             // count is Oracle's own: recorded as any built-in function the index does not know.
             "5 count - UNRESOLVED",
             // A routine of the module's package is the package.
             "7 order_util.refresh forms:ORDER_DESK/ORDER_UTIL RESOLVED",
             "14 fn_label forms:ORDER_DESK/FN_LABEL RESOLVED",
-            // The module's PROC_STANDALONE, not HR's; go_block and execute_query are Forms built-ins.
+            // go_block's literal is the block; the module's PROC_STANDALONE, not HR's; execute_query gives nothing.
+            "25 'COMPANY' forms:ORDER_DESK/COMPANY RESOLVED",
             "26 proc_standalone forms:ORDER_DESK/PROC_STANDALONE RESOLVED",
             "56 pack_process.f_next db:HR.PACK_PROCESS.F_NEXT() RESOLVED",
             "57 pack_process.run_job - AMBIGUOUS"
         )
         // ORDER_LITE has no PROC_STANDALONE of its own: HR's.
-        assertThat(calls("forms/order_lite_fmb.xml")).containsExactly("3 proc_standalone db:HR.PROC_STANDALONE(P_ID IN NUMBER) RESOLVED")
+        assertThat(calls("forms/order_lite_fmb.xml")).containsExactly(
+            "2 'COMPANY' forms:ORDER_LITE/COMPANY RESOLVED", "3 proc_standalone db:HR.PROC_STANDALONE(P_ID IN NUMBER) RESOLVED"
+        )
         assertThat(query("SELECT written FROM occurrence WHERE lower(written) IN ('go_block', 'execute_query', 'message', 'exit_form')")).isEmpty()
     }
 
@@ -194,7 +197,8 @@ class FormsIndexTest {
         assertThat(report.fullReason).isNull()
         assertThat(listOf(report.walked, report.changed, report.new, report.affected)).containsExactly(1, 1, 0, 0)
         assertThat(calls("forms/order_lite_fmb.xml")).containsExactly(
-            "3 proc_standalone db:HR.PROC_STANDALONE(P_ID IN NUMBER) RESOLVED", "4 proc_standalone db:HR.PROC_STANDALONE(P_ID IN NUMBER) RESOLVED"
+            "2 'COMPANY' forms:ORDER_LITE/COMPANY RESOLVED", "3 proc_standalone db:HR.PROC_STANDALONE(P_ID IN NUMBER) RESOLVED",
+            "4 proc_standalone db:HR.PROC_STANDALONE(P_ID IN NUMBER) RESOLVED"
         )
     }
 

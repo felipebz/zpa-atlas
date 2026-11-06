@@ -1,0 +1,24 @@
+<?xml version = '1.0' encoding = 'UTF-8'?>
+<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms">
+   <FormModule Name="ROUTE_DESK">
+      <Block Name="STOPS" DatabaseBlock="false">
+         <Item Name="STOP_ID" DatabaseItem="false">
+            <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="select count(*) into :stops.note from dual where dummy = :stops.stop_id;&amp;#10;route_next(:stops.city);&amp;#10;execute_trigger('check_stop');&amp;#10;execute_trigger('REFRESH_STOP');&amp;#10;execute_trigger('LOG_ROUTE');"/>
+            <Trigger Name="CHECK_STOP" TriggerText="null;"/>
+         </Item>
+         <Item Name="CITY" DatabaseItem="false"/>
+         <Item Name="NOTE" DatabaseItem="false"/>
+         <Trigger Name="WHEN-NEW-RECORD-INSTANCE" TriggerText=":note := :city || :distance;&amp;#10;message(:stops.rowid);"/>
+         <Trigger Name="REFRESH_STOP" TriggerText="null;"/>
+      </Block>
+      <Block Name="LEGS" DatabaseBlock="false">
+         <Item Name="LEG_ID" DatabaseItem="false"/>
+         <Item Name="CITY" DatabaseItem="false"/>
+         <Item Name="DISTANCE" DatabaseItem="false"/>
+      </Block>
+      <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="DECLARE&amp;#10;  v_name varchar2(30) := 'LEGS';&amp;#10;BEGIN&amp;#10;  :global.route_user := user;&amp;#10;  :distance := 0;&amp;#10;  message(:city);&amp;#10;  :stops.city := :parameter.p_city;&amp;#10;  message(:parameter.p_none);&amp;#10;  message(:nowhere.city);&amp;#10;  message(:stops.nothing);&amp;#10;  message(:system.cursor_item);&amp;#10;  go_block('LEGS');&amp;#10;  go_item('LEGS.DISTANCE');&amp;#10;  go_item('distance');&amp;#10;  execute_trigger('CHECK_STOP');&amp;#10;  call_form('route_view');&amp;#10;  call_form('/forms/route_view.fmx');&amp;#10;  call_form('ROUTE_GONE');&amp;#10;  go_block(v_name);&amp;#10;  go_item(v_name);&amp;#10;  execute_trigger(v_name);&amp;#10;  call_form(v_name);&amp;#10;END;"/>
+      <Trigger Name="REFRESH_STOP" TriggerText="null;"/>
+      <Trigger Name="LOG_ROUTE" TriggerText="null;"/>
+      <ModuleParameter Name="P_CITY"/>
+   </FormModule>
+</Module>

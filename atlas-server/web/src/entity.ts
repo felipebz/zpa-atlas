@@ -4,6 +4,7 @@ import type {
     Documentation,
     EntityDetail,
     EntitySummary,
+    FormsGlobalModule,
     FormsInfo,
     KeyColumn,
     Member,
@@ -48,12 +49,13 @@ import {
     membersGapKey,
     places,
     routineRows,
+    usageLineKey,
     usesGapKey
 } from "./entity-view";
 import {columnPlace, referencedColumn, referencingColumn, shownDeleteRule} from "./keys-view";
 import {showFormsTree} from "./forms";
 import type {DataSourceView} from "./forms-view";
-import {blockView, FORMS_TREE_KINDS, firstUnit, formsCrumbs, formsName, itemView} from "./forms-view";
+import {blockView, FORMS_TREE_KINDS, firstUnit, formsCrumbs, formsName, globalUseRows, itemView} from "./forms-view";
 import {kindOrder} from "./kinds";
 import {
     codeBreaksHtml,
@@ -183,22 +185,26 @@ function declaredFactHtml(fact: DeclaredFact, entity: EntityDetail) {
  * return type, what a declaration says (type, default or initial value), where it is (the spec and the body, each half
  * linking to its page when it is another; inside Forms code, the code page at the line), its uses, and the actions. A
  * Forms object reads as in the Form Builder: its own name, under its module's title and the objects that hold it, the
- * full path as the tooltip; a module by its title, its file (its code a link away) the first fact.
+ * full path as the tooltip; a module by its title, its file (its code a link away) the first fact; a global, which
+ * belongs to no module, as its code writes it (`:GLOBAL.ROUTE_USER`), with nothing above it.
  */
 function headerHtml(entity: EntityDetail, direct: number) {
   const path = entityPath(entity);
   const forms = entity.forms;
+  // A Forms global belongs to no module and has no schema: named as its code writes it, with nothing above it.
+  const global = entity.kind === "FORMS_GLOBAL";
+  const formsNamed = forms !== null || global;
   // A Forms object's path starts at its module: it has no schema.
   const crumbs = [
-    ...(forms !== null ? formsCrumbs(entity).map(name => formsNameLink(name)) : [
+    ...(global ? [] : forms !== null ? formsCrumbs(entity).map(name => formsNameLink(name)) : [
       `<span>${esc(t("entity.schema", { schema: path.schema ?? t("entity.schemaUnknown") }))}</span>`,
       // A holder shows its name only: the link already leads to the right overload.
       ...path.ancestors.map(a => `<a href="${entityHref(a.key)}" title="${esc(a.display)}">${esc(a.name)}</a>`)
     ]),
-    `<span aria-current="page">${esc(forms !== null ? formsName(entity, forms).label : path.name)}</span>`
+    `<span aria-current="page">${esc(formsNamed ? formsName(entity, forms).label : path.name)}</span>`
   ];
   const parts = displayParts(entity.display, entity.name);
-  const title = forms !== null ? formsName(entity, forms).label : parts.base;
+  const title = formsNamed ? formsName(entity, forms).label : parts.base;
   const tags = entityTags(entity).map(tag => tag === "external"
     ? `<span class="badge external">${esc(t("entity.external"))}</span>`
     : tag === "private" ? `<span class="badge">${esc(t("entity.tag.private"))}</span>` : `<span class="badge">${esc(t("entity.overload.body"))}</span>`);
@@ -513,6 +519,18 @@ function formsDataHtml(entity: EntityDetail) {
   return "";
 }
 
+/** The modules whose code uses a Forms global: each module, its file, and how many of its uses set and read the global. */
+function formsGlobalHtml(key: string, uses: FormsGlobalModule[]) {
+  const count = (n: number, query: Record<string, string> | null) =>
+    `<td class="num">${query === null ? esc(formatNumber(n)) : `<a href="${queryHref(query)}">${esc(formatNumber(n))}</a>`}</td>`;
+  return sectionHead(t("forms.global"), t("forms.global.line")) + scrollTable(
+    `<thead><tr><th>${esc(t("forms.global.module"))}</th><th>${esc(t("forms.global.file"))}</th>` +
+    `<th class="num">${esc(t("forms.global.writes"))}</th><th class="num">${esc(t("forms.global.reads"))}</th></tr></thead><tbody>` +
+    globalUseRows(key, uses).map(row => `<tr><td>${entityLink(row.module)}</td>` +
+      `<td class="grow"><a class="mono" href="${fileHref(row.path)}">${esc(row.path).replace(/\//g, "/<wbr>")}</a></td>` +
+      count(row.writes, row.writesQuery) + count(row.reads, row.readsQuery) + `</tr>`).join("") + `</tbody>`, "compact");
+}
+
 function renderEntity(entity: EntityDetail) {
   setPageTitle(t("page.entity.titleWith", { name: formsName(entity, entity.forms).label }));
   recordOpened(browserStorage(), currentProject(), entity);
@@ -544,6 +562,8 @@ function renderEntity(entity: EntityDetail) {
   }
   // What a Forms data block or item makes Forms query and write with no code.
   set("formsData", formsDataHtml(entity));
+  // A Forms global, used in many modules: each one, its file, how often it sets and reads the global.
+  set("formsGlobal", entity.formsGlobal?.length ? formsGlobalHtml(entity.key, entity.formsGlobal) : "");
   // Inside its module a Forms object is named by its own name, the full path as the tooltip.
   const inModule = (e: EntitySummary) => entity.forms !== null && e.key.startsWith(entity.forms.module.key + "/");
   set("relations", linkList(t("entity.relations"), t("entity.relations.line"), entity.relations.map(r =>
@@ -565,6 +585,7 @@ function renderEntity(entity: EntityDetail) {
   set("keys", keysHtml(entity, column));
   set("referencedBy", referencedByHtml(entity, column));
   document.getElementById("usage")!.hidden = false;
+  document.querySelector("#usage > .sec-line")!.textContent = t(usageLineKey(entity.kind));
   // Under the total too: the list below may not be every use.
   const usesGap = document.getElementById("usesGap")!;
   const gapKey = usesGapKey(entity.usesIncomplete);
@@ -602,6 +623,7 @@ function renderEntity(entity: EntityDetail) {
   const sections: SectionEntry[] = [
     { id: "forms", label: t("forms.objects"), count: tree ? null : -1 },
     { id: "formsData", label: t("forms.data"), count: entity.formsBlock || entity.formsItem ? null : -1 },
+    { id: "formsGlobal", label: t("forms.global"), count: entity.formsGlobal?.length || -1 },
     ...contents.entries,
     { id: "parameters", label: t("entity.parameters"), count: params?.length ?? -1 },
     { id: "overloads", label: t("entity.overloads"), count: overloads.length >= 2 ? overloads.length : -1 },

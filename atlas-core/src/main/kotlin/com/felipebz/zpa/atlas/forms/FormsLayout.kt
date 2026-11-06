@@ -7,8 +7,8 @@ package com.felipebz.zpa.atlas.forms
 
 /**
  * What the walk of a module's text needs of the module besides the text: its name, blocks (with their items and data
- * properties), attached libraries, its notes, and the lines and path of each unit of the text. The code itself is in
- * the text only, so the code of the model can be let go once the text is built.
+ * properties), parameters, attached libraries, its notes, and the lines and path of each unit of the text. The code
+ * itself is in the text only, so the code of the model can be let go once the text is built.
  */
 internal class FormsLayout(
     /** The name the module is known by, the one its reader gives it ([FormsModuleReader.moduleName]): by default its file's. */
@@ -18,7 +18,9 @@ internal class FormsLayout(
     val blocks: List<FormsBlock>,
     val libraries: List<String>,
     val units: List<Unit>,
-    val notes: List<FormsNote>
+    val notes: List<FormsNote>,
+    /** The names of the module's parameters. */
+    val parameters: List<String> = emptyList()
 ) {
     enum class Kind { TRIGGER, PROGRAM_UNIT, RECORD_GROUP_QUERY }
 
@@ -64,7 +66,8 @@ internal class FormsLayout(
                         unit.codeFirstLine, unit.codeLastLine)
                 }
             },
-            module.notes
+            module.notes,
+            module.parameters.map { it.name.value }
         )
     }
 }

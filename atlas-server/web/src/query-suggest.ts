@@ -4,6 +4,7 @@ import {kindBadge, kindBadgeNode, listNameOptions, nameHtml} from "./entity-html
 import {esc, getOrPut, qualifierHtml} from "./html";
 import {t} from "./i18n";
 import {shownName} from "./names";
+import {isEntityKey} from "./query-params";
 import {field, form, picks, state, typed} from "./query-state";
 
 const SUGGESTIONS = 10;
@@ -42,7 +43,7 @@ export function setupSuggest(box: HTMLElement) {
     clearTimeout(timer);
     const text = input.value.trim();
     // A pattern or a key is a filter as typed, not a search.
-    if (!text || text.includes("*") || text.startsWith("db:")) { close(); return; }
+    if (!text || text.includes("*") || isEntityKey(text)) { close(); return; }
     timer = setTimeout(async () => {
       const ask = ++asked;
       try {

@@ -36,6 +36,8 @@ internal class PlSqlNames(
     private val fields: FieldUses,
     /** The names of a Forms module's own program units and the Forms built-ins; null outside a Forms module. */
     private val forms: FormsNames?,
+    /** The names a Forms module's code gives its own objects; null outside a Forms module. */
+    private val formsReferences: FormsReferences?,
     /** What zpa's project analysis says of a name that may be a sequence pseudocolumn. */
     sequenceResolution: (AstNode) -> SequenceReferenceResolution
 ) {
@@ -167,6 +169,9 @@ internal class PlSqlNames(
         return node.previousSiblingOrNull?.type != PlSqlPunctuator.DOT
     }
 
+    /** A host variable naming an object of the Forms module ([FormsReferences.hostName]): its use recorded, true. */
+    fun formsHostName(name: AstNode, context: Context, statementId: Int?): Boolean = formsReferences?.hostName(name, context, statementId) ?: false
+
     /**
      * A value reference: a sequence pseudocolumn; else, unless the legacy table captures the first segment
      * lexically, a package value, exception or cursor, a project function called without parentheses, or a missing
@@ -259,12 +264,14 @@ internal class PlSqlNames(
     /**
      * A call in a Forms module whose name is the module's own ([FormsNames.own]): one `CALL` of the program unit, its
      * actuals bound to no parameter (the module's code is not zpa's project); true when the name is one of the module or a
-     * Forms built-in, which gives nothing.
+     * Forms built-in, which gives nothing itself: only the object its first argument names ([FormsReferences.builtInCall]).
      */
     private fun formsCall(
         forms: FormsNames, callee: AstNode, segments: List<String>, arguments: List<Pair<String?, AstNode>>, context: Context, statementId: Int?
     ): Boolean {
-        val target = forms.own(callee, segments) ?: return forms.isBuiltIn(segments)
+        val target = forms.own(callee, segments) ?: return forms.isBuiltIn(segments).also { builtIn ->
+            if (builtIn && segments.size == 1) formsReferences?.builtInCall(normalizeIdentifier(segments[0]), arguments.map { it.second }, context, statementId)
+        }
         if (!target.known) {
             state.callOccurrence(callee, context, statementId, CallOutcome.Call(Status.UNRESOLVED, null, "UNKNOWN_MEMBER"))
             return true

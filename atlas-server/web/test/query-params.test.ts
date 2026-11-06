@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filtersOf, hasFilter, modeChosen, modeOf, moreSet, paramsOf } from "../src/query-params";
+import { filtersOf, hasFilter, isEntityKey, modeChosen, modeOf, moreSet, paramsOf } from "../src/query-params";
 
 // The expected values are what the code returns today.
 
@@ -8,6 +8,15 @@ describe("filtersOf", () => {
     expect(filtersOf({ mode: "groups", groupBy: "ENTITY", roles: "WRITE", name: "x" })).toEqual({ roles: "WRITE", name: "x" });
     expect(filtersOf({})).toEqual({  });
     expect(filtersOf({ mode: "groups" })).toEqual({  });
+  });
+});
+
+describe("isEntityKey", () => {
+  it("takes a database or a Forms key as an entity, anything else as a name", () => {
+    for (const key of ["db:HR.COMPANY", "forms:ROUTE_DESK/STOPS/CITY", "forms:ROUTE_DESK/PARAMETER/P_CITY", "forms::GLOBAL.ROUTE_USER"]) {
+      expect(isEntityKey(key), key).toBe(true);
+    }
+    for (const name of ["COMPANY", "HR.COMPANY", ":GLOBAL.ROUTE_USER", "forms"]) expect(isEntityKey(name), name).toBe(false);
   });
 });
 

@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from "vitest";
 import type {EntityDetail, EntitySummary, Location, Partner} from "../src/api";
-import {entityPath, entityTags, localOf, places, routineRows, usesGapKey} from "../src/entity-view";
+import {entityPath, entityTags, localOf, places, routineRows, usageLineKey, usesGapKey} from "../src/entity-view";
 import {lineHref} from "../src/html";
 
 // Invented names: a package PACK_ORDERS with a routine SHIP_ORDER in its spec and body, and a private one.
@@ -140,6 +140,14 @@ describe("usesGapKey", () => {
     expect(usesGapKey(["DECLARATION_OUTSIDE_FILE", "CONDITIONAL_COMPILATION"])).toBe("entity.usesIncomplete.CONDITIONAL_COMPILATION");
     expect(usesGapKey(["DECLARATION_OUTSIDE_FILE"])).toBe("entity.usesIncomplete.DECLARATION_OUTSIDE_FILE");
     expect(usesGapKey(["SOMETHING_NEW"])).toBe("entity.usesIncomplete");
+  });
+});
+
+describe("usageLineKey", () => {
+  it("says a Forms module is used by the forms and code that call it, any other entity by the code that uses it", () => {
+    expect(usageLineKey("FORMS_MODULE")).toBe("usage.line.FORMS_MODULE");
+    expect(usageLineKey("FORMS_GLOBAL")).toBe("usage.line");
+    expect(usageLineKey("PACKAGE")).toBe("usage.line");
   });
 });
 

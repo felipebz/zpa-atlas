@@ -109,7 +109,7 @@ data class FormsNode(val entity: EntitySummary, val groups: List<FormsGroup> = e
 
 /**
  * The objects of a group of a [FormsTree], in the order of the module file: [kind] is `TRIGGERS`, `LIBRARIES`,
- * `BLOCKS`, `ITEMS`, `PROGRAM_UNITS` or `RECORD_GROUPS`.
+ * `BLOCKS`, `ITEMS`, `PARAMETERS`, `PROGRAM_UNITS` or `RECORD_GROUPS`.
  */
 @Serializable
 data class FormsGroup(val kind: String, val nodes: List<FormsNode>)
@@ -117,8 +117,8 @@ data class FormsGroup(val kind: String, val nodes: List<FormsNode>)
 /**
  * The objects of a Forms module, of a block or of an item, as the Form Builder's Object Navigator shows them: a module
  * has its triggers, attached libraries, blocks (each with its triggers, then its items, each with its triggers),
- * program units and record groups; a block its triggers and items; an item its triggers. Groups without objects are
- * left out.
+ * parameters, program units and record groups; a block its triggers and items; an item its triggers. Groups without
+ * objects are left out.
  */
 @Serializable
 data class FormsTree(val root: EntitySummary, val groups: List<FormsGroup>)
@@ -328,8 +328,17 @@ data class EntityDetail(
     /** For a database block of a Forms module, what it does with its data ([FormsBlockData]); left out otherwise. */
     @EncodeDefault(EncodeDefault.Mode.NEVER) val formsBlock: FormsBlockData? = null,
     /** For an item of a Forms module, what it says of its data ([FormsItemData]); left out otherwise. */
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val formsItem: FormsItemData? = null
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val formsItem: FormsItemData? = null,
+    /** For a Forms global variable, the modules that use it ([FormsGlobalModule]); left out otherwise. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val formsGlobal: List<FormsGlobalModule>? = null
 )
+
+/**
+ * The uses of a Forms global variable in one module ([EntityDetail.formsGlobal]): the [module], the [path] of its file,
+ * how many of its uses set the global ([writes]) and how many read it ([reads]).
+ */
+@Serializable
+data class FormsGlobalModule(val module: EntitySummary, val path: String, val writes: Int, val reads: Int)
 
 /** What Forms does for a data block without code, the operations of [FormsBlockData.operations], in that order. */
 enum class FormsBlockOperation { QUERY, INSERT, UPDATE, DELETE }

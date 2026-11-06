@@ -13,6 +13,12 @@ export function filtersOf(params: QueryParams) {
   return filters;
 }
 
+/**
+ * Whether [text], typed where a name goes, is an entity's key (`db:HR.COMPANY`, `forms:ROUTE_DESK/STOPS/CITY`,
+ * `forms::GLOBAL.ROUTE_USER`): the filter is then that entity, not a name.
+ */
+export const isEntityKey = (text: string) => text.startsWith("db:") || text.startsWith("forms:");
+
 /** What only modifies another filter: `inside` an entity, `containerInside` a container, `candidates` the entity filters. */
 const MODIFIERS = ["inside", "containerInside", "candidates"];
 
