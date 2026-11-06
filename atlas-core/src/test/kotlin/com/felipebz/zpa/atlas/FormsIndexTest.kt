@@ -154,7 +154,7 @@ class FormsIndexTest {
             SELECT coalesce(f.path, '-') || ' ' || n.kind || ': ' || n.message FROM coverage_note n LEFT JOIN source_file f ON f.id = n.file_id
             WHERE n.kind LIKE 'FORMS%' ORDER BY 1""")).containsExactly(
             "- FORMS_FILE_SKIPPED: 1 object library file(s) not indexed: forms/shared_olb.xml",
-            "- FORMS_MODULE_DUPLICATED: 1 module file(s) not indexed: a file of the same name in another folder, first by path, is: " +
+            "- FORMS_MODULE_DUPLICATED: 1 module file(s) not indexed: a file of the same module, first by path, is: " +
                 "forms/zz/order_desk_fmb.xml (indexed from forms/order_desk_fmb.xml)",
             // pkg_check_fmb.xml, without DUMP=ALL too, inherits nothing: no note.
             "forms/order_lite_fmb.xml FORMS_NOT_FULL_DUMP: Exported without DUMP=ALL: only the properties the module sets itself are in the file, " +

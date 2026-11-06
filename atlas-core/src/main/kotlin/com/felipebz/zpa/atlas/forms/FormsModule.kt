@@ -5,6 +5,8 @@
 
 package com.felipebz.zpa.atlas.forms
 
+import java.util.Locale
+
 /**
  * A property of a Forms object as the module file gives it: its [value] and, when the file says so, where the value
  * comes from ([origin]: the reader's word for it, such as `default`, `overridden`, `inherited`).
@@ -127,4 +129,16 @@ interface FormsModuleReader {
 
     /** The module [bytes] hold ([fileName] is the file's name, without folders), or null when they hold none. */
     fun read(fileName: String, bytes: ByteArray): FormsModule?
+
+    /**
+     * The module's identity for the file [fileName] (without folders) this reader reads: the name the form is called by
+     * (`CALL_FORM`, `OPEN_FORM`), which names the compiled form. By default the file name without the ending this reader
+     * claims, in upper case (`demo0004_fmb.xml` is `DEMO0004`); a reader whose files are named otherwise says so here.
+     * A blank name is refused: the file is not indexed. The module's `Name` property is only its internal name.
+     */
+    fun moduleName(fileName: String): String {
+        val name = fileName.lowercase(Locale.ROOT)
+        val ending = fileNameEndings.firstOrNull { name.endsWith(it.lowercase(Locale.ROOT)) } ?: ""
+        return fileName.substring(0, fileName.length - ending.length).uppercase(Locale.ROOT)
+    }
 }

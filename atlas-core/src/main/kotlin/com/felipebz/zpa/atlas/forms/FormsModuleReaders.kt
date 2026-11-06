@@ -33,20 +33,16 @@ class FormsModuleReaders private constructor(
     }
 
     /**
-     * The name a module is known by: [fileName] without the ending its reader claims, in upper case
-     * (`demo0004_fmb.xml` is `DEMO0004`), as `CALL_FORM` and `OPEN_FORM` name a form by its file. Null when no reader
-     * reads [fileName]. The module's `Name` property is only its internal name.
+     * The identity of the module in [fileName], as the reader that reads it says ([FormsModuleReader.moduleName]): the
+     * name the form is called by. Null when no reader reads [fileName], or its reader gives a blank name.
      */
-    fun moduleName(fileName: String): String? {
-        val name = fileName.lowercase(Locale.ROOT)
-        val ending = readers.firstNotNullOfOrNull { reader -> reader.fileNameEndings.firstOrNull { name.endsWith(it.lowercase(Locale.ROOT)) } } ?: return null
-        return fileName.substring(0, fileName.length - ending.length).uppercase(Locale.ROOT)
-    }
+    fun moduleName(fileName: String): String? = readerOf(fileName)?.moduleName(fileName)?.takeIf { it.isNotBlank() }
 
     /** The module text of the file [fileName] holding [bytes], as the indexer builds it; null when no reader reads a module in it. */
     fun text(fileName: String, bytes: ByteArray): String? {
+        val name = moduleName(fileName) ?: return null
         val module = readerOf(fileName)?.read(fileName, bytes) ?: return null
-        return FormsModuleText.of(module, moduleName(fileName)!!).text
+        return FormsModuleText.of(module, name).text
     }
 
     /** What [fileName] is when a reader knows its format but does not index it (`object library`), else null. */

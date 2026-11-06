@@ -25,9 +25,10 @@ count them.
 
 ## What you see
 
-- **A module is known by its file's name**, as `CALL_FORM` and `OPEN_FORM` name it: `orders_fmb.xml` is `ORDERS`. Its
-  `Name` property, when it is another, is shown on its page as its internal name. The same file name in two folders is
-  one module, indexed from the first file by path.
+- **A module is known by the name it is called by**, as `CALL_FORM` and `OPEN_FORM` name it. By default that is its
+  file's name: `orders_fmb.xml` is `ORDERS`. A reader whose files are named otherwise may say another name. Its `Name`
+  property, when it is another, is shown on its page as its internal name. Two files with the same name, in two folders
+  or under two file names, are one module, indexed from the first file by path.
 - **The module's page** shows its code as PL/SQL, each trigger, program unit and record group query under a comment
   with its path: the module, the block and item it is on, and its name, such as
   `ORDERS/ORDERS/STATUS/WHEN-VALIDATE-ITEM`.

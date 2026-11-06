@@ -21,7 +21,10 @@ A reader turns one export format of Oracle Forms modules into the model Atlas in
 
 - `fileNameEndings`: the endings of the file names it reads, such as `_fmb.json`;
 - `skippedFileNameEndings`: files of its format that hold no module to index, counted in a coverage note;
-- `read(fileName, bytes)`: the module, or null when the file holds none.
+- `read(fileName, bytes)`: the module, or null when the file holds none;
+- `moduleName(fileName)`: the module's identity, the name the form is called by (`CALL_FORM`, `OPEN_FORM`). By default
+  it is the file name without the reader's ending, in upper case; a reader whose files are named otherwise overrides
+  it. A file whose name is blank is not indexed.
 
 List the class in `META-INF/services/com.felipebz.zpa.atlas.forms.FormsModuleReader` in its JAR, and put the JAR in the
 `readers` folder of the distribution (`atlas-cli/build/install/zpa-atlas/readers/`). Two readers that claim the same

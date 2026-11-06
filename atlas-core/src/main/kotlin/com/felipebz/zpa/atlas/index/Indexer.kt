@@ -469,8 +469,9 @@ class Indexer internal constructor(
      * server serves a file only where the same rule holds, so the index never holds the text of a file outside the
      * sources folder.
      *
-     * A module is known by its file's name ([FormsModuleReaders.moduleName]): of the files with the same name in several
-     * folders, the first by path is indexed.
+     * A module is known by the identity its reader gives its file ([FormsModuleReaders.moduleName], by default the file's
+     * name): of the files with the same identity, the first by path is indexed; a file whose reader gives a blank one
+     * is not read.
      * The files a reader knows but does not index, the files that held no module and the modules left out for their
      * name are each counted in a note.
      */
@@ -508,8 +509,12 @@ class Indexer internal constructor(
                 sources += Source.database(relative, path, Files.readAllBytes(real), encoding)
                 continue
             }
-            // Known by its file's name: the same name in two folders is the same module.
-            val moduleName = readers.moduleName(name)!!
+            // Known by its identity: two files with the same one are the same module.
+            val moduleName = readers.moduleName(name)
+            if (moduleName == null) {
+                notModules += "$relative (${reader.name}: no module name)"
+                continue
+            }
             modules[moduleName]?.let { first ->
                 duplicates += "$relative (indexed from $first)"
                 continue
@@ -535,7 +540,7 @@ class Indexer internal constructor(
         }
         if (notModules.isNotEmpty()) notes += CoverageFact("FORMS_FILE_NOT_READ", "${notModules.size} file(s) held no module their reader could read: ${shown(notModules)}")
         if (duplicates.isNotEmpty()) {
-            notes += CoverageFact("FORMS_MODULE_DUPLICATED", "${duplicates.size} module file(s) not indexed: a file of the same name in another folder, first by path, is: ${shown(duplicates)}")
+            notes += CoverageFact("FORMS_MODULE_DUPLICATED", "${duplicates.size} module file(s) not indexed: a file of the same module, first by path, is: ${shown(duplicates)}")
         }
         return Discovered(sources, outside.sorted(), notes)
     }
