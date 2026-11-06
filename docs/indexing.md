@@ -85,4 +85,5 @@ files that changed and those a change can affect, such as the callers of a proce
 index it writes is the same as a full run's.
 
 A run reads everything again when the options or the dictionary changed, or when the cache was written by another
-version of Atlas.
+version of Atlas. A Forms module is read again when the JAR of its [reader](forms.md#serving) changed, even if its file
+did not.

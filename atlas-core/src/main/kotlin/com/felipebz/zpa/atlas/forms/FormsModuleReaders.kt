@@ -5,10 +5,13 @@
 
 package com.felipebz.zpa.atlas.forms
 
+import java.io.IOException
 import java.net.URLClassLoader
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
 import java.util.*
+import java.util.jar.JarFile
 import kotlin.io.path.extension
 import kotlin.io.path.isRegularFile
 
@@ -24,7 +27,9 @@ class FormsModuleReaders private constructor(
     /** The providers in the readers folder that could not be loaded (a broken or incompatible JAR), skipped. */
     val unloadable: Int,
     /** The class loader of the readers folder's JARs the [readers] come from; null when none does. */
-    private val loader: URLClassLoader? = null
+    private val loader: URLClassLoader? = null,
+    /** What tells each reader's code apart, by reader ([fingerprint]); a reader not in it is told by its name and class. */
+    private val fingerprints: Map<FormsModuleReader, String> = emptyMap()
 ) : AutoCloseable {
     /** The reader of [fileName], or null when no reader reads it. */
     fun readerOf(fileName: String): FormsModuleReader? {
@@ -52,8 +57,12 @@ class FormsModuleReaders private constructor(
         return null
     }
 
-    /** The readers' names and classes, in order: what the facts cache compares between runs. */
-    val description: String get() = readers.joinToString(",") { "${it.name}=${it.javaClass.name}" }
+    /**
+     * What tells apart the code of the reader of [fileName], for the facts cache: its name and class, and for a reader
+     * of the readers folder, the checksum of the JAR that registers it, so that another build of the same reader is
+     * another reader. Null when no reader reads [fileName]. The built-in reader is part of the atlas's own build.
+     */
+    fun fingerprint(fileName: String): String? = readerOf(fileName)?.let { fingerprints[it] ?: "${it.name}=${it.javaClass.name}" }
 
     /** Closes the JARs the readers were loaded from: no reader of the set may be used after. Without such JARs, nothing. */
     override fun close() {
@@ -67,7 +76,9 @@ class FormsModuleReaders private constructor(
         /** [readers], checked: no two claim the same files. */
         fun of(readers: List<FormsModuleReader>, unloadable: Int = 0): FormsModuleReaders = of(readers, unloadable, null)
 
-        private fun of(readers: List<FormsModuleReader>, unloadable: Int, loader: URLClassLoader?): FormsModuleReaders {
+        private fun of(
+            readers: List<FormsModuleReader>, unloadable: Int, loader: URLClassLoader?, fingerprints: Map<FormsModuleReader, String> = emptyMap()
+        ): FormsModuleReaders {
             val endings = readers.flatMap { reader -> (reader.fileNameEndings + reader.skippedFileNameEndings.keys).map { it.lowercase(Locale.ROOT) to reader } }
             for ((ending, reader) in endings) {
                 require(ending.isNotEmpty()) { "The module reader ${reader.name} claims an empty file name ending" }
@@ -78,7 +89,7 @@ class FormsModuleReaders private constructor(
                     }
                 }
             }
-            return FormsModuleReaders(readers, unloadable, loader)
+            return FormsModuleReaders(readers, unloadable, loader, fingerprints)
         }
 
         /**
@@ -86,6 +97,7 @@ class FormsModuleReaders private constructor(
          * [FormsModuleReader] (`META-INF/services/com.felipebz.zpa.atlas.forms.FormsModuleReader`), in the order of the
          * JARs' names. A provider that cannot be loaded is skipped and counted ([unloadable]); a missing folder has none.
          * The JARs stay open until the set is closed; they are closed at once when none gives a reader, or the readers clash.
+         * Each reader is fingerprinted with the checksum of the JAR that registers it ([fingerprint]).
          *
          * @throws IllegalArgumentException when two readers claim the same files
          */
@@ -113,11 +125,37 @@ class FormsModuleReaders private constructor(
                     loader.close()
                     return of(listOf(Frmf2xmlReader), unloadable)
                 }
-                return of(listOf(Frmf2xmlReader) + found, unloadable, loader)
+                val jarOf = registeringJars(jars)
+                val fingerprints = IdentityHashMap<FormsModuleReader, String>()
+                for (reader in found) fingerprints[reader] = "${reader.name}=${reader.javaClass.name}@" + (jarOf[reader.javaClass.name] ?: "?")
+                return of(listOf(Frmf2xmlReader) + found, unloadable, loader, fingerprints)
             } catch (e: Throwable) {
                 loader.close()
                 throw e
             }
+        }
+
+        /**
+         * The checksum of the JAR that registers each provider class of [jars] (the first by name, as the class loader
+         * finds them), from the JARs' own `META-INF/services` entries for [FormsModuleReader]; a JAR that cannot be read
+         * registers nothing.
+         */
+        private fun registeringJars(jars: List<Path>): Map<String, String> {
+            val result = HashMap<String, String>()
+            for (jar in jars) {
+                val providers = try {
+                    JarFile(jar.toFile()).use { file ->
+                        val entry = file.getJarEntry("META-INF/services/${FormsModuleReader::class.java.name}") ?: return@use emptyList()
+                        file.getInputStream(entry).bufferedReader().readLines().map { it.substringBefore('#').trim() }.filter { it.isNotEmpty() }
+                    }
+                } catch (_: IOException) {
+                    continue
+                }
+                if (providers.isEmpty()) continue
+                val digest = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(jar)).joinToString("") { "%02x".format(it) }
+                for (provider in providers) result.putIfAbsent(provider, digest)
+            }
+            return result
         }
     }
 }

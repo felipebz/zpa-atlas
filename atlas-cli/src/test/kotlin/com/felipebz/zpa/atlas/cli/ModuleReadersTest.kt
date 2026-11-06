@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas.cli
 
 import com.felipebz.zpa.atlas.forms.*
+import com.felipebz.zpa.atlas.index.IncrementalReport
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.query.AtlasIndex
@@ -28,8 +29,8 @@ class ModuleReadersTest {
     @TempDir
     lateinit var temp: Path
 
-    /** A JAR in the readers folder that registers [reader] for the ServiceLoader. */
-    private fun jar(name: String, reader: KClass<*>): Path {
+    /** A JAR in the readers folder that registers [reader] for the ServiceLoader; [build] tells two builds of it apart. */
+    private fun jar(name: String, reader: KClass<*>, build: String = "1"): Path {
         val folder = temp.resolve("readers").createDirectories()
         val type = reader.java.name
         JarOutputStream(Files.newOutputStream(folder.resolve(name))).use { jar ->
@@ -37,8 +38,47 @@ class ModuleReadersTest {
             reader.java.getResourceAsStream("/" + type.replace('.', '/') + ".class")!!.use { it.transferTo(jar) }
             jar.putNextEntry(JarEntry("META-INF/services/${FormsModuleReader::class.java.name}"))
             jar.write("$type\n".toByteArray())
+            jar.putNextEntry(JarEntry("build.txt"))
+            jar.write(build.toByteArray())
         }
         return folder
+    }
+
+    /** Indexes [sources] into [db] with the readers of [folder], incrementally: what the run did, and the keys of the Forms modules. */
+    private fun incremental(sources: Path, db: Path, folder: Path): Pair<IncrementalReport, List<String>> = moduleReaders(folder).use { readers ->
+        val report = Indexer().index(IndexOptions(sources, db, threads = 1, readers = readers), incremental = true).incremental!!
+        val modules = DriverManager.getConnection("jdbc:sqlite:$db").use { connection ->
+            connection.createStatement().executeQuery("SELECT key FROM entity WHERE kind = 'FORMS_MODULE' ORDER BY key")
+                .use { rows -> buildList { while (rows.next()) add(rows.getString(1)) } }
+        }
+        report to modules
+    }
+
+    @Test
+    fun `an incremental run reads again the modules of a reader whose JAR changed, and only those`() {
+        val sources = temp.resolve("src").createDirectories()
+        sources.resolve("accounts_01.ver").writeText("message('accounts');")
+        sources.resolve("orders_fmb.xml").writeText(
+            """<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms"><FormModule Name="ORDERS">
+               |<Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="message('orders');"/></FormModule></Module>""".trimMargin()
+        )
+        val db = temp.resolve("atlas.db")
+        try {
+            val folder = jar("versioned.jar", VersionedReader::class, build = "1")
+            assertThat(incremental(sources, db, folder).second).containsExactly("forms:ACCOUNTS_01", "forms:ORDERS")
+            // The same readers: nothing to walk.
+            val (same, _) = incremental(sources, db, folder)
+            assertThat(same.line()).isEqualTo("Incremental run: walked 0 of 2 files (0 changed, 0 new, 0 affected), 0 removed")
+            // Another build of the reader, which names the module otherwise: its file is read again, the other is not.
+            VersionedReader.dropsVersion = true
+            jar("versioned.jar", VersionedReader::class, build = "2")
+            val (rebuilt, modules) = incremental(sources, db, folder)
+            assertThat(rebuilt.line())
+                .isEqualTo("Incremental run: walked 1 of 2 files (0 changed, 0 new, 0 affected, 1 read by another build of their module reader), 0 removed")
+            assertThat(modules).containsExactly("forms:ACCOUNTS", "forms:ORDERS")
+        } finally {
+            VersionedReader.dropsVersion = false
+        }
     }
 
     @Test
@@ -98,6 +138,28 @@ class LedgerJsonReader : FormsModuleReader {
         val triggers = list("triggers").map { FormsTrigger(FormsTriggerLevel.MODULE, emptyList(), value(it, "name"), value(it, "text")) }
         val units = list("programUnits").map { FormsProgramUnit(value(it, "name"), value(it, "text")) }
         return FormsModule(FormsValue(json["module"]!!.jsonPrimitive.content), emptyList(), triggers + units, emptyList())
+    }
+}
+
+/**
+ * A reader of `.ver` files, each one module whose text is one trigger. Its two builds differ in how they name a module:
+ * `accounts_01.ver` is `ACCOUNTS_01`, then with [dropsVersion], `ACCOUNTS`.
+ */
+class VersionedReader : FormsModuleReader {
+    override val name = "versioned"
+    override val fileNameEndings = listOf(".ver")
+
+    override fun moduleName(fileName: String): String = super.moduleName(fileName).let { if (dropsVersion) it.replace(Regex("_\\d+$"), "") else it }
+
+    override fun read(fileName: String, bytes: ByteArray): FormsModule = FormsModule(
+        FormsValue(fileName), emptyList(),
+        listOf(FormsTrigger(FormsTriggerLevel.MODULE, emptyList(), FormsValue("WHEN-NEW-FORM-INSTANCE"), FormsValue(bytes.decodeToString()))), emptyList()
+    )
+
+    companion object {
+        /** Which build of the reader runs: the class is the test's, whichever JAR registers it. */
+        @Volatile
+        var dropsVersion = false
     }
 }
 

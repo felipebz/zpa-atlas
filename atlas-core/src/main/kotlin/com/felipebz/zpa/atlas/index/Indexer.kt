@@ -315,7 +315,10 @@ class Indexer internal constructor(
         }
         val hashes = sources.associate { it.relativePath to it.sha256 }
         val run = if (!incremental) null else {
-            val current = sources.map { IncrementalRule.Current(it.relativePath, hashes.getValue(it.relativePath), it.text) }
+            val current = sources.map {
+                val reader = if (it.forms == null) null else options.readers.fingerprint(it.absolute.fileName.toString())
+                IncrementalRule.Current(it.relativePath, hashes.getValue(it.relativePath), it.text, reader)
+            }
             IncrementalRun.plan(options, typeMembers, current, pending!!, inputs!!, planCatalog!!, phases)
         }
         val toWalk = if (run == null) sources else sources.filter { it.relativePath in run.walk }

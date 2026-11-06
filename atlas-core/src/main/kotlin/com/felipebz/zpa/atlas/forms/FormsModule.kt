@@ -5,7 +5,7 @@
 
 package com.felipebz.zpa.atlas.forms
 
-import java.util.Locale
+import java.util.*
 
 /**
  * A property of a Forms object as the module file gives it: its [value] and, when the file says so, where the value
@@ -18,7 +18,10 @@ data class FormsValue(val value: String, val origin: String? = null)
  * exported in. Everything the index does with a module starts from this model, never from the file.
  */
 data class FormsModule(
-    /** The module's `Name` property: its internal name. The index knows a module by its file's name instead. */
+    /**
+     * The module's `Name` property: its internal name. The index knows a module by the name its reader gives it
+     * ([FormsModuleReader.moduleName]).
+     */
     val name: FormsValue,
     val blocks: List<FormsBlock>,
     /** The triggers, program units and record groups, in the order of the file: the order of the module text. */

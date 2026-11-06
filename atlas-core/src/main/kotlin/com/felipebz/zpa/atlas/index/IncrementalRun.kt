@@ -33,10 +33,14 @@ data class IncrementalReport(
     val fullReason: String?,
     /** Why an incremental run walked every file, when a project-wide input changed. */
     val everything: String? = null,
-    val touched: List<String> = emptyList()
+    val touched: List<String> = emptyList(),
+    /** The Forms modules walked again because the reader of their file is not the one that read them for the cache. */
+    val reread: Int = 0
 ) {
     fun line(): String = if (fullReason != null) "Full run: $fullReason; the facts cache is written for the next run" else buildString {
-        append("Incremental run: walked $walked of $total files ($changed changed, $new new, $affected affected), $removed removed")
+        append("Incremental run: walked $walked of $total files ($changed changed, $new new, $affected affected")
+        if (reread > 0) append(", $reread read by another build of their module reader")
+        append("), $removed removed")
         if (everything != null) append("; every file is affected: $everything")
         else if (touched.isNotEmpty()) append("; affected through ${touched.joinToString(", ")}")
     }
@@ -71,7 +75,8 @@ internal class IncrementalRun private constructor(
     fun save(facts: List<FileFacts>): CompletableFuture<Void> = CompletableFuture.runAsync {
         val byPath = facts.associateBy { it.path }
         val files = current.sortedBy { it.path }.map { source ->
-            CachedFile(source.path, source.sha256, declarations[source.path].orEmpty(), digests.getValue(source.path), byPath.getValue(source.path), emptyList())
+            CachedFile(source.path, source.sha256, declarations[source.path].orEmpty(), digests.getValue(source.path), source.reader, byPath.getValue(source.path),
+                emptyList())
         }
         FactsCache.write(cachePath, CacheContents(inputs, global, files))
     }
@@ -169,7 +174,8 @@ internal class IncrementalRun private constructor(
             val plan = IncrementalRule.plan(contents, current, declarations, digests, global, options.dictionary.synonyms)
             return IncrementalRun(
                 cachePath, snapshot, runCatalog, runInputs, global, current, declarations, digests, cached, plan.walk,
-                IncrementalReport(current.size, plan.walk.size, plan.changed, plan.new, plan.affected, plan.removed, null, plan.everything, plan.touched)
+                IncrementalReport(current.size, plan.walk.size, plan.changed, plan.new, plan.affected, plan.removed, null, plan.everything, plan.touched,
+                    plan.reread)
             )
         }
 
@@ -181,7 +187,6 @@ internal class IncrementalRun private constructor(
             "--compilation-schema" to options.compilationSchema.orEmpty(),
             "--encoding" to options.encoding,
             "--extensions" to options.extensions.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotEmpty() }.sorted().joinToString(","),
-            "module readers" to options.readers.description,
             "conditional compilation (--database-version, --ccflags)" to Rendering().render(options.conditionalCompilation),
             "dictionary (the Oracle options or what they read)" to try {
                 fingerprint(options.dictionary)

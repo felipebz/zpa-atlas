@@ -103,7 +103,7 @@ export interface CodeAt {
   unitKind?: string | null;
 }
 
-/** The Forms module an object belongs to: the module, its title (its internal name, else its file's name) and its file. */
+/** The Forms module an object belongs to: the module, its title (its internal name, else the name it is known by) and its file. */
 export interface FormsInfo {
   module: EntitySummary;
   title: string;

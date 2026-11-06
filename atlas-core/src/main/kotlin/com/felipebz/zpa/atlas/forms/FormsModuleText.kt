@@ -19,9 +19,10 @@ package com.felipebz.zpa.atlas.forms
  * Each unit's own text, as the module file has it and the Form Builder numbers it from 1, is the lines [Unit.codeFirstLine]
  * to [Unit.codeLastLine]: its header and the lines added around it are not.
  *
- * A path is the module's name (its file's, [FormsModuleReaders.moduleName]), the names of the objects the code is on and the code's name, joined with `/`:
- * `MODULE/TRIGGER`, `MODULE/BLOCK/TRIGGER`, `MODULE/BLOCK/ITEM/TRIGGER`, `MODULE/EVENT/TRIGGER`, `MODULE/PROGRAM_UNIT`,
- * `MODULE/RECORD_GROUP`. A package's specification and body have the same path. Code with a blank text is left out.
+ * A path is the module's name (the one its reader gives it, [FormsModuleReader.moduleName]: by default its file's),
+ * the names of the objects the code is on and the code's name, joined with `/`: `MODULE/TRIGGER`, `MODULE/BLOCK/TRIGGER`,
+ * `MODULE/BLOCK/ITEM/TRIGGER`, `MODULE/EVENT/TRIGGER`, `MODULE/PROGRAM_UNIT`, `MODULE/RECORD_GROUP`. A package's
+ * specification and body have the same path. Code with a blank text is left out.
  */
 class FormsModuleText private constructor(val text: String, val units: List<Unit>) {
     /**

@@ -11,7 +11,7 @@ package com.felipebz.zpa.atlas.forms
  * model can be let go once the text is built.
  */
 internal class FormsLayout(
-    /** The name the module is known by, its file's ([FormsModuleReaders.moduleName]). */
+    /** The name the module is known by, the one its reader gives it ([FormsModuleReader.moduleName]): by default its file's. */
     val name: String,
     /** The module's `Name` property, its internal name. */
     val internalName: String,

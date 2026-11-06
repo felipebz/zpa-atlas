@@ -11,13 +11,53 @@ import com.felipebz.zpa.atlas.extract.DeclarationCatalog
 import com.felipebz.zpa.atlas.extract.ObjectTypeMembers
 import com.felipebz.zpa.atlas.extract.sha256
 import java.util.Locale
+import kotlin.collections.ArrayDeque
+import kotlin.collections.ArrayList
+import kotlin.collections.Collection
+import kotlin.collections.HashMap
+import kotlin.collections.HashSet
+import kotlin.collections.LinkedHashSet
+import kotlin.collections.List
+import kotlin.collections.Map
+import kotlin.collections.MutableList
+import kotlin.collections.Set
+import kotlin.collections.all
+import kotlin.collections.associateBy
+import kotlin.collections.component1
+import kotlin.collections.component2
+import kotlin.collections.contains
+import kotlin.collections.eachCount
+import kotlin.collections.emptyList
+import kotlin.collections.filter
+import kotlin.collections.filterTo
+import kotlin.collections.forEach
+import kotlin.collections.getOrPut
+import kotlin.collections.getValue
+import kotlin.collections.groupingBy
+import kotlin.collections.isNotEmpty
+import kotlin.collections.iterator
+import kotlin.collections.map
+import kotlin.collections.mapTo
+import kotlin.collections.mapValues
+import kotlin.collections.minus
+import kotlin.collections.minusAssign
+import kotlin.collections.orEmpty
+import kotlin.collections.plus
+import kotlin.collections.plusAssign
+import kotlin.collections.setOf
+import kotlin.collections.sorted
+import kotlin.collections.take
+import kotlin.collections.toHashSet
+import kotlin.collections.toMap
+import kotlin.collections.toSet
 
 /**
  * Which files an incremental run walks.
  *
  * A file's facts are a function of the inputs of its walk, and of nothing else (two full runs on any number of
  * threads give the same index, so walks do not read each other). Those inputs are:
- * - **its own path and text;**
+ * - **its own path and text,** and for a Forms module, the reader that read it: another build of the reader may read
+ *   another module from the same file;
  * - **the options and the dictionary** (compilation schema, encoding, conditional compilation, the Oracle metadata),
  *   and the code of atlas and ZPA: the cache records them, and any difference is a full run;
  * - **the project snapshot:** the declarations ZPA's preparation extracts from every file, which name resolution, call
@@ -46,8 +86,11 @@ import java.util.Locale
  * ignored), is walked as *affected*. Line shifts alone touch nothing: a walk reads the positions of its own file only.
  */
 internal object IncrementalRule {
-    /** The run's facts about one file, as the rule compares them. */
-    class Current(val path: String, val sha256: String, val text: String)
+    /**
+     * The run's facts about one file, as the rule compares them; [reader] is the reader of a Forms module
+     * ([com.felipebz.zpa.atlas.forms.FormsModuleReaders.fingerprint]), null for another file.
+     */
+    class Current(val path: String, val sha256: String, val text: String, val reader: String? = null)
 
     class Plan(
         val walk: Set<String>,
@@ -58,7 +101,9 @@ internal object IncrementalRule {
         /** Why every file is walked, when a project-wide input changed. */
         val everything: String?,
         /** Some of the names that made files affected. */
-        val touched: List<String>
+        val touched: List<String>,
+        /** The Forms modules whose text did not change but whose reader did: walked again. */
+        val reread: Int = 0
     )
 
     private val SKIPPED = setOf(
@@ -111,6 +156,8 @@ internal object IncrementalRule {
         val changed = current.filter { before[it.path]?.let { old -> old.sha256 != it.sha256 } == true }.mapTo(HashSet()) { it.path }
         val new = current.filter { it.path !in before }.mapTo(HashSet()) { it.path }
         val removed = before.keys.filter { it !in paths }
+        // A Forms module whose file did not change but whose reader did: the new reader may read another module from it.
+        val reread = current.filter { it.path !in changed && it.path !in new && before.getValue(it.path).reader != it.reader }.mapTo(HashSet()) { it.path }
         val all = { why: String -> Plan(paths, changed.size, new.size, paths.size - changed.size - new.size, removed.size, why, emptyList()) }
 
         when {
@@ -130,11 +177,15 @@ internal object IncrementalRule {
         }
         for (name in global.omitted.symmetricDifference(cached.global.omitted)) touched += Rendering().also { it.render(name) }.strings
         touched += changedTypes(cached.global.typeMembers, global.typeMembers).map { it.substringAfterLast('.') }
-        val catalogChanged = current.filter { it.path !in changed && it.path !in new && before.getValue(it.path).catalogDigest != digests[it.path] }
+        val catalogChanged = current.filter {
+            it.path !in changed && it.path !in new && it.path !in reread && before.getValue(it.path).catalogDigest != digests[it.path]
+        }
             .mapTo(HashSet()) { it.path }
         for (path in catalogChanged) touched += catalogNames(before.getValue(path).catalogDigest, digests.getValue(path))
 
-        if (touched.isEmpty()) return Plan(changed + new + catalogChanged, changed.size, new.size, catalogChanged.size, removed.size, null, emptyList())
+        if (touched.isEmpty()) {
+            return Plan(changed + new + reread + catalogChanged, changed.size, new.size, catalogChanged.size, removed.size, null, emptyList(), reread.size)
+        }
         // Close over the snapshot and the synonyms: what refers to a touched name, or names it, is touched.
         val byReference = HashMap<String, MutableList<String>>()
         for (list in declarations.values) for (declaration in list) for (name in declaration.references) byReference.getOrPut(name) { ArrayList() } += declaration.name
@@ -149,10 +200,10 @@ internal object IncrementalRule {
         val affected = run {
             val lengths = touched.mapTo(HashSet()) { it.length }
             current.parallelStream().filter { source ->
-                source.path !in changed && source.path !in new && (source.path in catalogChanged || writesAny(source.text, touched, lengths))
+                source.path !in changed && source.path !in new && source.path !in reread && (source.path in catalogChanged || writesAny(source.text, touched, lengths))
             }.map { it.path }.toList().toHashSet()
         }
-        return Plan(changed + new + affected, changed.size, new.size, affected.size, removed.size, null, touched.take(TOUCHED_SHOWN))
+        return Plan(changed + new + reread + affected, changed.size, new.size, affected.size, removed.size, null, touched.take(TOUCHED_SHOWN), reread.size)
     }
 
     private const val TOUCHED_SHOWN = 5

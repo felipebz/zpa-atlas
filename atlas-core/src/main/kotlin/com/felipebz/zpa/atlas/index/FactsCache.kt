@@ -36,6 +36,8 @@ internal class CachedFile(
     val declarations: List<CachedDeclaration>,
     /** What the run's declaration catalog gives this file (keys, roles, implemented specifications), positions left out. */
     val catalogDigest: String,
+    /** The reader that read the Forms module the file is ([com.felipebz.zpa.atlas.forms.FormsModuleReaders.fingerprint]); null for another file. */
+    val reader: String?,
     /** The file's facts, without their dictionary relations: those come back from the run's dictionary, by [relations]. */
     val facts: FileFacts,
     val relations: List<RelationReference>
@@ -78,7 +80,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 20
+    private const val FORMAT = 21
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -174,6 +176,7 @@ internal object FactsCache {
                     strings(declaration.references.sorted())
                 }
                 string(file.catalogDigest)
+                nullable(file.reader)
                 facts(file.facts)
             }
         }
@@ -355,8 +358,9 @@ internal object FactsCache {
                 val sha256 = string()
                 val declarations = List(count()) { CachedDeclaration(string(), string(), strings().toSet()) }
                 val digest = string()
+                val reader = nullable()
                 val (facts, relations) = facts()
-                CachedFile(path, sha256, declarations, digest, facts, relations)
+                CachedFile(path, sha256, declarations, digest, reader, facts, relations)
             }
             return CacheContents(inputs, global, files)
         }

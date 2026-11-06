@@ -29,8 +29,10 @@ count them.
   file's name: `orders_fmb.xml` is `ORDERS`. A reader whose files are named otherwise may say another name. Its `Name`
   property, when it is another, is shown on its page as its internal name. Two files with the same name, in two folders
   or under two file names, are one module, indexed from the first file by path.
-- **The module's page** shows its code as PL/SQL, each trigger, program unit and record group query under a comment
-  with its path: the module, the block and item it is on, and its name, such as
+- **The module's page** shows its objects as a tree, in the module's order, as the Form Builder's Object Navigator
+  does: its triggers, data blocks with their items, program units, record groups and attached libraries. A trigger,
+  program unit or record group query opens on the code page, one at a time, with the tree beside it. Each piece of code
+  is named by its path: the module, the block and item it is on, and its name, such as
   `ORDERS/ORDERS/STATUS/WHEN-VALIDATE-ITEM`.
 - **The module's objects are entities:** the module, its blocks, items, triggers, program units and attached libraries,
   keyed `forms:` and their path, such as `forms:ORDERS/CALC_TOTAL`. A package's specification and body are one
