@@ -50,33 +50,13 @@ What to make of it:
 
 ## Data blocks
 
-A data block on a table queries, inserts, updates and deletes it without a line of code. Atlas records that as uses of
-the table and its columns, with the origin `FORMS_IMPLICIT` and no line:
+A data block on a table queries, inserts, updates and deletes its rows with no line of code. These uses appear in the
+table's and its columns' **Used by**, under the block or the item, marked as done by Forms with no code: they have no
+line to open.
 
-- **A block on a table** is a database block whose query data source is a table it names. Its query uses the table as
-  `SELECT`; its inserts, updates and deletes use its DML data target (the same table, unless the block names another)
-  as `INSERT`, `UPDATE` and `DELETE`. An operation the block does not allow, or that a transactional trigger replaces
-  (`ON-SELECT`, `ON-INSERT`, `ON-UPDATE`, `ON-DELETE`, the block's own or else the module's), is not recorded: the
-  trigger's own code is.
-- **An item on a column** is a database item that holds a value (not a button or a chart), in a block on a table. Its
-  column is its `Column Name`, else its own name. It reads the column when its block queries, and writes it in the
-  inserts and updates both it and its block allow.
-- The table and its columns are found as the module's SQL finds them, in `--compilation-schema`: a column the table
-  lacks is not found, and a block on `DUAL` uses no table, as a query of `DUAL` does not.
-- The block's page shows its table, its DML target, each operation (done by Forms, replaced by a trigger, or not
-  allowed) and its `WHERE` and `ORDER BY` clauses; the item's page shows its column.
-- A property value Atlas does not know, such as a word of a Form Builder in another language, is not guessed: a coverage
-  note lists it.
-
-Not followed yet:
-
-- the columns named in a block's `WHERE` and `ORDER BY` clauses;
-- the lock Forms takes on a row before it updates or deletes it;
-- data sources and targets other than a table (a procedure, a `FROM` clause query, transactional triggers): a coverage
-  note counts the blocks;
-- an item as a place a column's value is read into, with its size, in **Read into**;
-- `:BLOCK.ITEM` and the module's other names in the code;
-- master-detail relations.
+The block's page shows the table it queries and the one it writes, and for each operation whether Forms does it,
+a trigger replaces it, or the block does not allow it. The item's page shows its column and whether Forms reads and
+writes it.
 
 ## Serving
 
