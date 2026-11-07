@@ -123,7 +123,7 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val fileSchemas: Fil
 
     fun subprogramAt(fileId: String, line: Int, column: Int): String? = subprogramsByStart[Triple(fileId, line, column)]
 
-    /** The key of a package (or other schema object) named [segments] as written, with the schema rule of [nameSpellings]. */
+    /** The key of a package (or other schema object) named [segments] as written: its owner, else its file's schema. */
     fun objectKey(fileId: String, segments: List<String>): String {
         val (schema, rest) = schemaAndName(fileId, segments)
         return dbKey(schema, *rest.toTypedArray())

@@ -98,9 +98,11 @@ class FileExtractor internal constructor(
         val snapshot = projectAnalysis().snapshot
         catalog = catalogOf(snapshot)
         runSchemas = catalog.schemas + dictionary.schemas + schemas.all + setOf("SYS", "SYSTEM")
-        values = PackageValues(snapshot, catalog)
-        calls = CallResolver(snapshot, catalog, values, synonyms, state.entities, state.relations, runSchemas)
-        types = TypeReferenceResolver(snapshot, catalog, values, resolver, synonyms, state.entities, state.relations, runSchemas)
+        // One preferred snapshot per unit schema, shared by every lookup by name of the file.
+        val snapshots = UnitSnapshots(snapshot)
+        values = PackageValues(snapshots, catalog)
+        calls = CallResolver(snapshots, catalog, values, synonyms, state.entities, state.relations, runSchemas)
+        types = TypeReferenceResolver(snapshots, catalog, values, resolver, synonyms, state.entities, state.relations, runSchemas)
     }
 
     /**

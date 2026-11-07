@@ -9,6 +9,7 @@ import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.extract.DeclarationCatalog
 import com.felipebz.zpa.atlas.extract.ObjectTypeMembers
+import com.felipebz.zpa.atlas.extract.exact
 import com.felipebz.zpa.atlas.extract.sha256
 import java.util.Locale
 import kotlin.collections.ArrayDeque
@@ -83,28 +84,16 @@ internal object IncrementalRule {
             }
         }.toList().filter { it.second.isNotEmpty() }.toMap()
 
-    /** The project-wide inputs; [CacheGlobal.omitted] holds `?` when ZPA's omitted callables cannot be read. */
+    /** The project-wide inputs. */
     fun global(snapshot: ProjectSnapshot, catalog: DeclarationCatalog, typeMembers: ObjectTypeMembers): CacheGlobal = CacheGlobal(
         preparation = snapshot.preparationState.name + " " + snapshot.failures.map { it.fileId }.sorted(),
         schemas = catalog.schemas,
-        omitted = omittedCallables(snapshot),
+        // The standalone callables whose heading gave no declaration: never candidates, but names the files may use.
+        omitted = snapshot.omittedStandaloneCallables.mapTo(HashSet()) { name ->
+            name.segments.joinToString(".") { it.exact() }
+        },
         typeMembers = typeMembers.summaries().mapValues { (_, summary) -> TypeSummary(summary.first, summary.second) }
     )
-
-    /**
-     * The standalone callables whose heading gave no declaration. ZPA keeps them in its index and offers no public
-     * accessor, so they are read through its fields; `?` when that fails, and the rule then walks every file.
-     */
-    private fun omittedCallables(snapshot: ProjectSnapshot): Set<String> = try {
-        val result = Rendering.field(snapshot, "preparationResult")!!
-        val index = result.javaClass.getMethod("getIndex").invoke(result)
-        // The root index keeps its derived maps in one `tables` object, shared with its schema views.
-        (Rendering.field(Rendering.field(index, "tables")!!, "omittedStandaloneCallables") as Set<*>).mapTo(HashSet()) { Rendering().render(it) }
-    } catch (_: Exception) {
-        setOf(UNREADABLE)
-    }
-
-    private const val UNREADABLE = "?"
 
     fun plan(
         cached: CacheContents,
@@ -124,14 +113,13 @@ internal object IncrementalRule {
         val all = { why: String -> Plan(paths, changed.size, new.size, paths.size - changed.size - new.size, removed.size, why, emptyList()) }
 
         when {
-            UNREADABLE in global.omitted || UNREADABLE in cached.global.omitted -> return all("the omitted callables of the preparation cannot be read")
             global.preparation != cached.global.preparation -> return all("the preparation state or its failed files changed")
             global.schemas != cached.global.schemas -> return all("the schemas of the declared entities changed")
         }
 
         val touched = LinkedHashSet<String>()
         addChangedDeclarations(touched, changed + new + removed, before, declarations)
-        for (name in global.omitted.symmetricDifference(cached.global.omitted)) touched += Rendering().also { it.render(name) }.strings
+        for (name in global.omitted.symmetricDifference(cached.global.omitted)) touched += name.split('.')
         touched += changedTypes(cached.global.typeMembers, global.typeMembers).map { it.substringAfterLast('.') }
         val catalogChanged = current.filter {
             it.path !in changed && it.path !in new && it.path !in reread && before.getValue(it.path).catalogDigest != digests[it.path]

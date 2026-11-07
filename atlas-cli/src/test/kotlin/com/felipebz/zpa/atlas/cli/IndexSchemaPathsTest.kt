@@ -147,6 +147,61 @@ class IndexSchemaPathsTest {
     }
 
     @Test
+    fun `an unqualified name in a unit takes the declaration of the unit's schema`() {
+        for (dir in listOf("a", "b")) {
+            write("$dir/base_t.sql", "create or replace type base_t as object (id number);\n/")
+            write("$dir/pk_dup.sql", "create or replace package pk_dup is\n  procedure run;\nend;\n/")
+        }
+        write("b/use_dup.sql", """
+            create or replace procedure use_dup is
+              v base_t;
+              w app_b.base_t;
+            begin
+              pk_dup.run;
+              app_a.pk_dup.run;
+            end;
+            /
+            """)
+        val uses = "SELECT o.written || ' ' || coalesce(e.key, '-') || ' ' || o.status FROM occurrence o " +
+            "JOIN source_file f ON f.id = o.file_id LEFT JOIN entity e ON e.id = o.entity_id " +
+            "WHERE f.path = 'b/use_dup.sql' AND o.start_line BETWEEN 2 AND 6 AND o.written NOT IN ('v', 'w') ORDER BY o.start_line, o.start_col"
+
+        assertThat(index("--schema-paths", "a/**=APP_A,b/**=APP_B").first).isEqualTo(0)
+        assertThat(query(uses)).containsExactly(
+            "base_t db:APP_B.BASE_T RESOLVED", "app_b.base_t db:APP_B.BASE_T RESOLVED",
+            "pk_dup.run db:APP_B.PK_DUP.RUN() RESOLVED", "app_a.pk_dup.run db:APP_A.PK_DUP.RUN() RESOLVED"
+        )
+    }
+
+    @Test
+    fun `a name written with the unit's own schema reaches the unowned declaration`() {
+        write("shop/ship_order.sql", """
+            create or replace procedure ship_order(p_id number) is
+            begin
+              shop.close_order(p_id);
+            end;
+            /
+            """)
+        val call = "SELECT o.written || ' ' || coalesce(e.key, '-') || ' ' || o.status FROM occurrence o " +
+            "LEFT JOIN entity e ON e.id = o.entity_id WHERE o.written = 'shop.close_order'"
+
+        assertThat(index("--schema-paths", mapping).first).isEqualTo(0)
+        assertThat(query(call)).containsExactly("shop.close_order db:SHOP.CLOSE_ORDER(P_ID IN NUMBER) RESOLVED")
+    }
+
+    @Test
+    fun `an omitted callable that appears touches the files using its name`() {
+        write("shop/use_broken.sql", "create or replace procedure use_broken is\nbegin\n  broken_proc(1);\nend;\n/")
+        assertThat(index("--incremental").first).isEqualTo(0)
+
+        // A heading zpa identifies but keeps no declaration of: the call cannot bind to it, but its file is walked again.
+        write("shop/broken_proc.sql", "create or replace procedure broken_proc(p in out nocopy) is\nbegin\n  null;\nend;\n/")
+        val (code, stderr) = index("--incremental")
+        assertThat(code).isEqualTo(0)
+        assertThat(stderr).contains("Incremental run: walked 2 of 4 files")
+    }
+
+    @Test
     fun `the project file key is the option`() {
         val project = directory.resolve("conf/billing.yaml")
         Files.createDirectories(project.parent)

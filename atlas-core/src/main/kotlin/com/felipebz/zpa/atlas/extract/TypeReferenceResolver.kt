@@ -7,7 +7,6 @@ package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.zpa.api.project.ProjectNamedTypeResolution
 import com.felipebz.zpa.api.project.ProjectQualifiedName
-import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.api.project.ProjectTypeDescription
 import com.felipebz.zpa.atlas.model.EntityFact
 import com.felipebz.zpa.atlas.model.EntityKind
@@ -20,12 +19,13 @@ data class TypeOutcome(val status: Status, val entityKey: String?, val reason: S
 /**
  * Resolves the names of datatypes: `%TYPE`/`%ROWTYPE` anchors to the first object they name, never to the type
  * they end at, and named types to their declaration. Lexical capture (locals) is the caller's legacy-symbol check.
- * Package values and types use the spellings and the enclosing-package rule of [CallResolver].
+ * Package values and types use the enclosing-package rule of [CallResolver], and every lookup reads the snapshot
+ * preferring the unit's schema ([UnitSnapshots]).
  *
  * @param runSchemas the schemas known to the run, used to read `A.B` as `schema.type` when the project does not know it
  */
 class TypeReferenceResolver(
-    private val snapshot: ProjectSnapshot,
+    private val snapshots: UnitSnapshots,
     private val catalog: DeclarationCatalog,
     private val values: PackageValues,
     private val relationResolver: RelationResolver,
@@ -75,7 +75,7 @@ class TypeReferenceResolver(
     fun named(written: List<String>, unitSchema: String?, enclosingPackage: List<String>?, parsedAsBuiltIn: Boolean = false, synonymTarget: NameTarget? = null): TypeOutcome? {
         val packageName = enclosingPackage?.let { qualifiedName(it) }
         projectType(written, unitSchema, packageName)?.let { return it }
-        if (!parsedAsBuiltIn && isBuiltIn(written, packageName)) return null
+        if (!parsedAsBuiltIn && isBuiltIn(written, unitSchema, packageName)) return null
         if (values.isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
         val names = written.map { normalizeIdentifier(it) }
         if (synonymTarget == null) {
@@ -88,31 +88,30 @@ class TypeReferenceResolver(
         return unknownType(names, unitSchema, synonymTarget)
     }
 
-    /** The project type [written] names, by the first spelling with an answer; null when the project has none. */
+    /** The project type [written] names; null when the project has none. */
     private fun projectType(written: List<String>, unitSchema: String?, packageName: ProjectQualifiedName?): TypeOutcome? {
-        for (names in nameSpellings(written, unitSchema)) {
-            // A one-segment name is a member of the enclosing package first, then a standalone type.
-            val owners = if (names.size == 1 && packageName != null) listOf(packageName, null) else listOf(null)
-            for (owner in owners) {
-                val resolution = snapshot.resolveNamedType(qualifiedName(names), owner)
-                when (resolution.status) {
-                    ProjectNamedTypeResolution.Status.RESOLVED ->
-                        return TypeOutcome(Status.RESOLVED, catalog.keyOf(resolution.declaration.get().id), null)
-                    ProjectNamedTypeResolution.Status.AMBIGUOUS ->
-                        return TypeOutcome(Status.AMBIGUOUS, null, resolution.status.name, resolution.candidates.map { catalog.keyOf(it.id) }.distinct())
-                    // Every lookup is incomplete once a source failed: only a known candidate makes it this name's answer.
-                    ProjectNamedTypeResolution.Status.INCOMPLETE_INDEX -> if (resolution.candidates.isNotEmpty()) return INCOMPLETE_INDEX
-                    else -> Unit
-                }
+        val snapshot = snapshots.of(unitSchema)
+        // A one-segment name is a member of the enclosing package first, then a standalone type.
+        val owners = if (written.size == 1 && packageName != null) listOf(packageName, null) else listOf(null)
+        for (owner in owners) {
+            val resolution = snapshot.resolveNamedType(qualifiedName(written), owner)
+            when (resolution.status) {
+                ProjectNamedTypeResolution.Status.RESOLVED ->
+                    return TypeOutcome(Status.RESOLVED, catalog.keyOf(resolution.declaration.get().id), null)
+                ProjectNamedTypeResolution.Status.AMBIGUOUS ->
+                    return TypeOutcome(Status.AMBIGUOUS, null, resolution.status.name, resolution.candidates.map { catalog.keyOf(it.id) }.distinct())
+                // Every lookup is incomplete once a source failed: only a known candidate makes it this name's answer.
+                ProjectNamedTypeResolution.Status.INCOMPLETE_INDEX -> if (resolution.candidates.isNotEmpty()) return INCOMPLETE_INDEX
+                else -> Unit
             }
         }
         return null
     }
 
     /** A built-in of zpa-core's classifier, or a type of `SYS.STANDARD` it does not list (written in one segment). */
-    private fun isBuiltIn(written: List<String>, packageName: ProjectQualifiedName?): Boolean =
+    private fun isBuiltIn(written: List<String>, unitSchema: String?, packageName: ProjectQualifiedName?): Boolean =
         (written.size == 1 && normalizeIdentifier(written[0]) in STANDARD_TYPES) ||
-            snapshot.describeType(qualifiedName(written), packageName).status == ProjectTypeDescription.Status.BUILT_IN
+            snapshots.of(unitSchema).describeType(qualifiedName(written), packageName).status == ProjectTypeDescription.Status.BUILT_IN
 
     private fun relation(schema: String?, name: String, unitSchema: String?): TypeOutcome {
         val resolved = relationResolver.resolve(WrittenRelation(schema, name, null), unitSchema)

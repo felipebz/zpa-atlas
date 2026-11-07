@@ -5,14 +5,7 @@
 
 package com.felipebz.zpa.atlas.extract
 
-import com.felipebz.zpa.api.project.ProjectDeclarationKind
-import com.felipebz.zpa.api.project.ProjectDeclarationView
-import com.felipebz.zpa.api.project.ProjectPackageCursorView
-import com.felipebz.zpa.api.project.ProjectPackageExceptionView
-import com.felipebz.zpa.api.project.ProjectPackageValueView
-import com.felipebz.zpa.api.project.ProjectQualifiedName
-import com.felipebz.zpa.api.project.ProjectSnapshot
-import com.felipebz.zpa.api.project.ProjectValueResolution
+import com.felipebz.zpa.api.project.*
 import com.felipebz.zpa.atlas.model.Status
 
 /** What a package member found by [PackageValues.packageMember] is, so that callers can pick the role. */
@@ -24,10 +17,10 @@ data class MemberOutcome(val kind: MemberKind, val status: Status, val entityKey
 
 /**
  * Package values (variables and constants of package specifications), package exceptions and cursors, and project
- * packages by written name, shared by anchors, calls and value references so that they use the same spellings and
- * owners ([valueLookups]).
+ * packages by written name, shared by anchors, calls and value references so that they use the same owners
+ * ([valueLookups]). Every lookup reads the snapshot preferring the unit's schema ([UnitSnapshots]).
  */
-class PackageValues(private val snapshot: ProjectSnapshot, private val catalog: DeclarationCatalog) {
+class PackageValues(private val snapshots: UnitSnapshots, private val catalog: DeclarationCatalog) {
     /**
      * The first lookup that identifies a value, exception or cursor of a package specification (or several), or null.
      * A value comes from the resolution itself; an exception or cursor is a candidate of a `NOT_FOUND_IN_PROJECT`
@@ -35,7 +28,8 @@ class PackageValues(private val snapshot: ProjectSnapshot, private val catalog: 
      * only when a candidate is one of these.
      */
     fun packageMember(written: List<String>, unitSchema: String?, packageName: ProjectQualifiedName?): MemberOutcome? {
-        for ((segments, owner) in valueLookups(written, unitSchema, packageName)) {
+        val snapshot = snapshots.of(unitSchema)
+        for ((segments, owner) in valueLookups(written, packageName)) {
             val resolution = snapshot.resolvePackageValue(qualifiedName(segments), owner)
             when (resolution.status) {
                 ProjectValueResolution.Status.RESOLVED ->
@@ -66,36 +60,27 @@ class PackageValues(private val snapshot: ProjectSnapshot, private val catalog: 
         else -> null
     }
 
-    /** Whether a proper prefix of [written], under some spelling, is a package of the project. */
-    fun isPackageMember(written: List<String>, unitSchema: String?): Boolean =
-        (1 until written.size).any { length ->
-            nameSpellings(written.take(length), unitSchema).any { names ->
-                snapshot.findDeclarations(qualifiedName(names)).declarations.any {
-                    it.kind == ProjectDeclarationKind.PACKAGE || it.kind == ProjectDeclarationKind.PACKAGE_BODY
-                }
+    /** Whether a proper prefix of [written] is a package of the project. */
+    fun isPackageMember(written: List<String>, unitSchema: String?): Boolean {
+        val snapshot = snapshots.of(unitSchema)
+        return (1 until written.size).any { length ->
+            snapshot.findDeclarations(qualifiedName(written.take(length))).declarations.any {
+                it.kind == ProjectDeclarationKind.PACKAGE || it.kind == ProjectDeclarationKind.PACKAGE_BODY
             }
         }
+    }
 
     /**
      * The schema-level declarations of the project (packages and their bodies, types, standalone subprograms,
-     * sequences) named by [written] under its first spelling that names any.
+     * sequences) named by [written].
      */
-    fun schemaObjects(written: List<String>, unitSchema: String?): List<ProjectDeclarationView> {
-        for (names in nameSpellings(written, unitSchema)) {
-            val found = snapshot.findDeclarations(qualifiedName(names)).declarations.filter { it.kind in SCHEMA_OBJECTS }
-            if (found.isNotEmpty()) return found
-        }
-        return emptyList()
-    }
+    fun schemaObjects(written: List<String>, unitSchema: String?): List<ProjectDeclarationView> =
+        snapshots.of(unitSchema).findDeclarations(qualifiedName(written)).declarations.filter { it.kind in SCHEMA_OBJECTS }
 
-    /** The project sequence named by [written] under some spelling, as an entity key, or null. */
-    fun sequence(written: List<String>, unitSchema: String?): String? {
-        for (names in nameSpellings(written, unitSchema)) {
-            val declaration = snapshot.findDeclarations(qualifiedName(names)).declarations.firstOrNull { it.kind == ProjectDeclarationKind.SEQUENCE }
-            if (declaration != null) return catalog.keyOf(declaration.id)
-        }
-        return null
-    }
+    /** The project sequence named by [written], as an entity key, or null. */
+    fun sequence(written: List<String>, unitSchema: String?): String? =
+        snapshots.of(unitSchema).findDeclarations(qualifiedName(written)).declarations
+            .firstOrNull { it.kind == ProjectDeclarationKind.SEQUENCE }?.let { catalog.keyOf(it.id) }
 }
 
 private val SCHEMA_OBJECTS = setOf(
