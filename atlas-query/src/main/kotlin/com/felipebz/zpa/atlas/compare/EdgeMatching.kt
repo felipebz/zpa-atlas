@@ -24,11 +24,8 @@ internal fun matchEdges(
     for (dep in dbEdges) {
         val obj = DbObjectId(dep.owner, dep.name, dep.type)
         val unitEdges = edges[obj].orEmpty()
-        val exact = unitEdges.values.firstOrNull { it.target.owner == dep.referencedOwner && it.target.name == dep.referencedName && it.target.link == dep.referencedLink }
-        val byNameEdges = if (exact != null) emptyList() else unitEdges.values.filter {
-            it.target.byName && it.target.link == dep.referencedLink &&
-                (it.target.name == dep.referencedName || (dep.referencedOwner to dep.referencedName) in it.readings)
-        }
+        val exact = exactMatch(dep, unitEdges)
+        val byNameEdges = if (exact != null) emptyList() else byNameMatches(dep, unitEdges)
         val byName = byNameEdges.minByOrNull { it.target }
         // A dependency on an object that does not exist is never an index edge (Oracle records it to invalidate the
         // unit when such an object appears, typically next to a synonym of the same name).
@@ -47,12 +44,7 @@ internal fun matchEdges(
             }
             continue
         }
-        // Oracle records the synonym, not its target: the unit's edge to the target is the evidence.
-        val synonymEdge = if (dep.referencedType == "SYNONYM" && dep.referencedLink == null) {
-            synonymTargets[dep.referencedOwner to dep.referencedName]?.let { unitEdges[it] }
-        } else {
-            null
-        }
+        val synonymEdge = synonymMatch(dep, unitEdges, synonymTargets)
         if (synonymEdge != null) {
             matchedIndex += obj to synonymEdge.target
             matched += MatchedEdge(obj, dep, false, synonymEdge.fromCollapsedOnly, synonymEdge.locations.toList(), synonym = true)
@@ -62,6 +54,27 @@ internal fun matchEdges(
     }
     return Matching(matched, matchedIndex, unmatched)
 }
+
+/** The unit's edge to the owner, name and link of [dep]; null when there is none. */
+private fun exactMatch(dep: DbDependency, unitEdges: Map<Target, IndexEdge>): IndexEdge? =
+    unitEdges.values.firstOrNull { it.target.owner == dep.referencedOwner && it.target.name == dep.referencedName && it.target.link == dep.referencedLink }
+
+/** The unit's by-name edges with the link of [dep] whose name, or one of whose readings, is the object of [dep]. */
+private fun byNameMatches(dep: DbDependency, unitEdges: Map<Target, IndexEdge>): List<IndexEdge> = unitEdges.values.filter {
+    it.target.byName && it.target.link == dep.referencedLink &&
+        (it.target.name == dep.referencedName || (dep.referencedOwner to dep.referencedName) in it.readings)
+}
+
+/**
+ * The unit's edge to the target of the synonym [dep] refers to, when not a remote one: Oracle records the synonym, not
+ * its target, so the unit's edge to the target is the evidence; null for other rows or when the unit has no such edge.
+ */
+private fun synonymMatch(dep: DbDependency, unitEdges: Map<Target, IndexEdge>, synonymTargets: Map<Pair<String, String>, Target>): IndexEdge? =
+    if (dep.referencedType == "SYNONYM" && dep.referencedLink == null) {
+        synonymTargets[dep.referencedOwner to dep.referencedName]?.let { unitEdges[it] }
+    } else {
+        null
+    }
 
 /**
  * The class of each database row the index does not match, the first reason that applies; [dependencies] are all the

@@ -10,8 +10,8 @@ import com.beust.jcommander.ParameterException
 import com.felipebz.zpa.atlas.cli.CliExecutionException
 import com.felipebz.zpa.atlas.cli.CliValidationException
 import com.felipebz.zpa.atlas.cli.applicationHome
-import com.felipebz.zpa.atlas.cli.requireOptions
 import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
+import com.felipebz.zpa.atlas.cli.requireOptions
 import com.felipebz.zpa.atlas.compare.ComparisonReport
 import com.felipebz.zpa.atlas.compare.DatabaseDependencies
 import com.felipebz.zpa.atlas.compare.DependencyComparison
@@ -33,24 +33,10 @@ private fun compareDeps(args: CompareArguments, environment: (String) -> String?
     }
     if (settings != null && settings.schemas.isEmpty()) throw CliValidationException("compare-deps needs --oracle-schemas: the owners of the indexed code")
     if (args.saveDependencies.isNotBlank() && settings == null) throw CliValidationException("--save-dependencies needs the --oracle-* options")
-    val database = if (settings != null) {
-        OracleDependencyReader.read(settings, applicationHome().resolve("drivers")).also { facts ->
-            if (args.saveDependencies.isNotBlank()) {
-                Files.newBufferedWriter(Path.of(args.saveDependencies)).use { facts.write(it) }
-            }
-        }
-    } else {
-        val file = Path.of(args.dependencies)
-        if (!Files.isRegularFile(file)) throw CliValidationException("Dependencies file does not exist: ${args.dependencies}")
-        Files.newBufferedReader(file).use { DatabaseDependencies.read(it) }
-    }
+    val database = readDependencies(args, settings)
     val sources = args.sources.takeIf { it.isNotBlank() }?.let { Path.of(it) }
     if (sources != null && !Files.isDirectory(sources)) throw CliValidationException("Sources folder does not exist: ${args.sources}")
-    val builtins = args.builtins.takeIf { it.isNotBlank() }?.let {
-        val file = Path.of(it)
-        if (!Files.isRegularFile(file)) throw CliValidationException("Built-ins file does not exist: $it")
-        DependencyComparison.readBuiltins(Files.readString(file))
-    } ?: DependencyComparison.DEFAULT_BUILTINS
+    val builtins = args.builtins.takeIf { it.isNotBlank() }?.let(::readBuiltins) ?: DependencyComparison.DEFAULT_BUILTINS
     val result = try {
         DependencyComparison(index, database, sources, args.defaultOwner.trim().ifEmpty { null }, builtins).compare()
     } catch (e: IllegalArgumentException) {
@@ -59,6 +45,27 @@ private fun compareDeps(args: CompareArguments, environment: (String) -> String?
     ComparisonReport.writeCsv(result, Path.of(args.out))
     print(ComparisonReport.summary(result))
     return 0
+}
+
+/** The database's dependencies: read from Oracle with [settings] (and saved when asked), else from the `--dependencies` file. */
+private fun readDependencies(args: CompareArguments, settings: OracleSettings?): DatabaseDependencies {
+    if (settings != null) {
+        return OracleDependencyReader.read(settings, applicationHome().resolve("drivers")).also { facts ->
+            if (args.saveDependencies.isNotBlank()) {
+                Files.newBufferedWriter(Path.of(args.saveDependencies)).use { facts.write(it) }
+            }
+        }
+    }
+    val file = Path.of(args.dependencies)
+    if (!Files.isRegularFile(file)) throw CliValidationException("Dependencies file does not exist: ${args.dependencies}")
+    return Files.newBufferedReader(file).use { DatabaseDependencies.read(it) }
+}
+
+/** The built-in names of the file at [path]. */
+private fun readBuiltins(path: String): Set<String> {
+    val file = Path.of(path)
+    if (!Files.isRegularFile(file)) throw CliValidationException("Built-ins file does not exist: $path")
+    return DependencyComparison.readBuiltins(Files.readString(file))
 }
 
 private fun timings(args: TimingsArguments): Int {

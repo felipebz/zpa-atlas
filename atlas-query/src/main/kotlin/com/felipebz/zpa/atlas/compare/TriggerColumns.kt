@@ -19,39 +19,8 @@ internal fun triggerColumns(connection: Connection, database: DatabaseDependenci
     val compound = connection.query(
         """SELECT DISTINCT t.schema_name, t.name FROM trigger_event e JOIN entity t ON t.id = e.trigger_id WHERE e.timing = 'COMPOUND'"""
     ) { it.getString(1) to it.getString(2) }.toSet()
-    fun usage(trigger: Pair<String, String>, facet: String) = if (trigger in compound) "USED" else facet
-    val index = HashMap<Triple<String, String, String>, MutableMap<String, MutableSet<Location>>>()
-    fun add(owner: String?, trigger: String, column: String, facet: String, location: Location?) {
-        if (owner == null || (owner to trigger) !in triggers) return
-        val locations = index.getOrPut(Triple(owner, trigger, column)) { HashMap() }.getOrPut(facet) { sortedSetOf() }
-        location?.let { locations += it }
-    }
-    connection.forEach(
-        """SELECT t.schema_name, t.name, c.name FROM trigger_event e JOIN entity t ON t.id = e.trigger_id JOIN entity c ON c.id = e.column_id"""
-    ) { add(it.getString(1), it.getString(2), it.getString(3), "LIST", null) }
-    // Correlation columns in the body carry the colon; WHEN-clause names do not, and Oracle does not list them.
-    connection.forEach(
-        """SELECT t.schema_name, t.name, c.name, o.roles, f.path, o.start_line FROM occurrence o JOIN entity t ON t.id = o.container_entity_id
-           JOIN entity c ON c.id = o.entity_id JOIN source_file f ON f.id = o.file_id
-           JOIN relation r ON r.from_id = t.id AND r.kind = 'TRIGGER_ON' AND r.to_id = c.parent_id
-           WHERE t.kind = 'TRIGGER' AND c.kind = 'COLUMN' AND o.written LIKE ':%' AND o.origin = 'STATIC'"""
-    ) { rs ->
-        val trigger = rs.getString(1) to rs.getString(2)
-        val location = Location(rs.getString(5), rs.getInt(6))
-        val roles = rs.getString(4).split(',')
-        if ("READ" in roles) add(trigger.first, trigger.second, rs.getString(3), usage(trigger, "IN"), location)
-        if ("WRITE" in roles) add(trigger.first, trigger.second, rs.getString(3), usage(trigger, "OUT"), location)
-    }
-    val db = HashMap<Triple<String, String, String>, MutableSet<String>>()
-    for (c in database.triggerColumns) {
-        val trigger = c.triggerOwner to c.triggerName
-        val facets = db.getOrPut(Triple(c.triggerOwner, c.triggerName, c.column)) { HashSet() }
-        if (c.columnList) facets += "LIST"
-        val tokens = c.usage.split(' ')
-        if ("IN" in tokens) facets += usage(trigger, "IN")
-        if ("OUT" in tokens) facets += usage(trigger, "OUT")
-        if (trigger in compound && !c.columnList && "NONE" in tokens) facets += "USED"
-    }
+    val index = indexFacets(connection, triggers, compound)
+    val db = databaseFacets(database.triggerColumns, compound)
     val result = ArrayList<TriggerColumnFact>()
     for (key in (index.keys + db.keys)) {
         val obj = DbObjectId(key.first, key.second, "TRIGGER")
@@ -76,4 +45,57 @@ internal fun triggerColumns(connection: Connection, database: DatabaseDependenci
         }
     }
     return result.sortedWith(compareBy({ it.owner }, { it.trigger }, { it.column }, { it.facet }))
+}
+
+/** The facet under which Oracle lists a correlation column use [facet] of [trigger]: `USED` for a compound trigger. */
+private fun usage(compound: Set<Pair<String, String>>, trigger: Pair<String, String>, facet: String) = if (trigger in compound) "USED" else facet
+
+/**
+ * The index facets of each (owner, trigger, column) of the [triggers] with an `ALL_OBJECTS` row, each with the
+ * locations of its correlation column uses: `LIST` from the trigger's events, `IN`/`OUT` (`USED` in a [compound]
+ * trigger) from the body.
+ */
+private fun indexFacets(
+    connection: Connection, triggers: Set<Pair<String, String>>, compound: Set<Pair<String, String>>
+): HashMap<Triple<String, String, String>, MutableMap<String, MutableSet<Location>>> {
+    val index = HashMap<Triple<String, String, String>, MutableMap<String, MutableSet<Location>>>()
+    fun add(owner: String?, trigger: String, column: String, facet: String, location: Location?) {
+        if (owner == null || (owner to trigger) !in triggers) return
+        val locations = index.getOrPut(Triple(owner, trigger, column)) { HashMap() }.getOrPut(facet) { sortedSetOf() }
+        location?.let { locations += it }
+    }
+    connection.forEach(
+        """SELECT t.schema_name, t.name, c.name FROM trigger_event e JOIN entity t ON t.id = e.trigger_id JOIN entity c ON c.id = e.column_id"""
+    ) { add(it.getString(1), it.getString(2), it.getString(3), "LIST", null) }
+    // Correlation columns in the body carry the colon; WHEN-clause names do not, and Oracle does not list them.
+    connection.forEach(
+        """SELECT t.schema_name, t.name, c.name, o.roles, f.path, o.start_line FROM occurrence o JOIN entity t ON t.id = o.container_entity_id
+           JOIN entity c ON c.id = o.entity_id JOIN source_file f ON f.id = o.file_id
+           JOIN relation r ON r.from_id = t.id AND r.kind = 'TRIGGER_ON' AND r.to_id = c.parent_id
+           WHERE t.kind = 'TRIGGER' AND c.kind = 'COLUMN' AND o.written LIKE ':%' AND o.origin = 'STATIC'"""
+    ) { rs ->
+        val trigger = rs.getString(1) to rs.getString(2)
+        val location = Location(rs.getString(5), rs.getInt(6))
+        val roles = rs.getString(4).split(',')
+        if ("READ" in roles) add(trigger.first, trigger.second, rs.getString(3), usage(compound, trigger, "IN"), location)
+        if ("WRITE" in roles) add(trigger.first, trigger.second, rs.getString(3), usage(compound, trigger, "OUT"), location)
+    }
+    return index
+}
+
+/** The `ALL_TRIGGER_COLS` facets of each (owner, trigger, column): `LIST`, `IN`/`OUT`, and `USED` in a [compound] trigger. */
+private fun databaseFacets(
+    columns: List<DbTriggerColumn>, compound: Set<Pair<String, String>>
+): HashMap<Triple<String, String, String>, MutableSet<String>> {
+    val db = HashMap<Triple<String, String, String>, MutableSet<String>>()
+    for (c in columns) {
+        val trigger = c.triggerOwner to c.triggerName
+        val facets = db.getOrPut(Triple(c.triggerOwner, c.triggerName, c.column)) { HashSet() }
+        if (c.columnList) facets += "LIST"
+        val tokens = c.usage.split(' ')
+        if ("IN" in tokens) facets += usage(compound, trigger, "IN")
+        if ("OUT" in tokens) facets += usage(compound, trigger, "OUT")
+        if (trigger in compound && !c.columnList && "NONE" in tokens) facets += "USED"
+    }
+    return db
 }

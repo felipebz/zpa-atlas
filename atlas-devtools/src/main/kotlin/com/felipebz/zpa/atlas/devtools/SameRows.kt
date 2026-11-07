@@ -68,13 +68,19 @@ object SameRows {
             }
             rows++
             for ((index, column) in columns.withIndex()) {
-                val va = a.getObject(index + 1).let { if (column in normalized && it is String) it.replace(ACQUIRED_AT, "") else it }
-                val vb = b.getObject(index + 1).let { if (column in normalized && it is String) it.replace(ACQUIRED_AT, "") else it }
-                val equal = if (va is ByteArray && vb is ByteArray) va.contentEquals(vb) else va == vb
-                if (!equal) return "row $rows differs in $column: $va vs $vb"
+                val va = value(a, index, column, normalized)
+                val vb = value(b, index, column, normalized)
+                if (!same(va, vb)) return "row $rows differs in $column: $va vs $vb"
             }
         }
     }
+
+    /** The value of [column], at [index] (from 0) of the current row, without its acquisition time when it is [normalized]. */
+    private fun value(rs: ResultSet, index: Int, column: String, normalized: Set<String>): Any? =
+        rs.getObject(index + 1).let { if (column in normalized && it is String) it.replace(ACQUIRED_AT, "") else it }
+
+    /** Whether [va] and [vb] are equal, byte arrays (blobs) by content. */
+    private fun same(va: Any?, vb: Any?): Boolean = if (va is ByteArray && vb is ByteArray) va.contentEquals(vb) else va == vb
 
     private fun tables(connection: Connection): List<String> = connection.createStatement().use { statement ->
         statement.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").use { rs ->

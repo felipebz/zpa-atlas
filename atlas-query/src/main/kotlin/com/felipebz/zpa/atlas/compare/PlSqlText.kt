@@ -5,7 +5,8 @@
 
 package com.felipebz.zpa.atlas.compare
 
-import java.util.Locale
+import com.felipebz.zpa.atlas.compare.PlSqlText.isStringStart
+import java.util.*
 
 /**
  * A small PL/SQL token reader for the comparison, independent of zpa-core: it only needs to tell names from comments,
@@ -29,50 +30,79 @@ object PlSqlText {
         val n = text.length
         while (i < n) {
             val c = text[i]
+            val start = i
             when {
                 c.isWhitespace() -> i++
-                c == '-' && i + 1 < n && text[i + 1] == '-' -> { while (i < n && text[i] != '\n') i++ }
-                c == '/' && i + 1 < n && text[i + 1] == '*' -> {
-                    val close = text.indexOf("*/", i + 2)
-                    i = if (close < 0) n else close + 2
-                }
-                (c == 'q' || c == 'Q' || ((c == 'n' || c == 'N') && i + 1 < n && (text[i + 1] == 'q' || text[i + 1] == 'Q'))) &&
-                    quoteStart(text, i) != null -> {
-                    val start = i
-                    i = skipQQuote(text, quoteStart(text, i)!!)
-                    if (literals) tokens += Token(Kind.LITERAL, text.substring(start, i), start, i)
-                }
-                c == '\'' -> {
-                    val start = i
-                    i = skipString(text, i)
+                text.startsWith("--", i) -> i = skipLineComment(text, i)
+                text.startsWith("/*", i) -> i = skipBlockComment(text, i)
+                isStringStart(text, i) -> {
+                    i = skipLiteral(text, i)
                     if (literals) tokens += Token(Kind.LITERAL, text.substring(start, i), start, i)
                 }
                 c == '"' -> {
-                    val close = text.indexOf('"', i + 1)
-                    val end = if (close < 0) n else close + 1
-                    tokens += Token(Kind.QUOTED, text.substring(i, end), i, end)
-                    i = end
+                    i = skipQuoted(text, i)
+                    tokens += Token(Kind.QUOTED, text.substring(start, i), start, i)
                 }
                 c.isLetter() -> {
-                    val start = i
-                    while (i < n && (text[i].isLetterOrDigit() || text[i] == '_' || text[i] == '$' || text[i] == '#')) i++
-                    // N'text' is a string literal, not the word N.
-                    if (i - start == 1 && (c == 'n' || c == 'N') && i < n && text[i] == '\'') {
-                        i = skipString(text, i)
-                        if (literals) tokens += Token(Kind.LITERAL, text.substring(start, i), start, i)
-                    } else {
-                        tokens += Token(Kind.WORD, text.substring(start, i), start, i)
-                    }
+                    i = skipWord(text, i)
+                    tokens += Token(Kind.WORD, text.substring(start, i), start, i)
                 }
                 c.isDigit() -> {
-                    val start = i
-                    while (i < n && (text[i].isLetterOrDigit() || text[i] == '.')) i++
+                    i = skipNumber(text, i)
                     if (literals) tokens += Token(Kind.LITERAL, text.substring(start, i), start, i)
                 }
                 else -> { tokens += Token(Kind.SYMBOL, c.toString(), i, i + 1); i++ }
             }
         }
         return tokens
+    }
+
+    /** The end of the `--` comment at [i]: its line break, or the end of the text. */
+    private fun skipLineComment(text: String, i: Int): Int {
+        val lineBreak = text.indexOf('\n', i)
+        return if (lineBreak < 0) text.length else lineBreak
+    }
+
+    /** The end of the `/* … */` comment at [i], or the end of the text when it is not closed. */
+    private fun skipBlockComment(text: String, i: Int): Int {
+        val close = text.indexOf("*/", i + 2)
+        return if (close < 0) text.length else close + 2
+    }
+
+    /** Whether a string literal starts at [i]: `'…'`, `n'…'`, `q'x…x'` or `nq'x…x'`. */
+    private fun isStringStart(text: String, i: Int): Boolean {
+        val c = text[i]
+        return c == '\'' || ((c == 'n' || c == 'N') && i + 1 < text.length && text[i + 1] == '\'') || quoteStart(text, i) != null
+    }
+
+    /** The end of the string literal at [i] (see [isStringStart]). */
+    private fun skipLiteral(text: String, i: Int): Int {
+        val quote = quoteStart(text, i)
+        return when {
+            quote != null -> skipQQuote(text, quote)
+            text[i] == '\'' -> skipString(text, i)
+            else -> skipString(text, i + 1)
+        }
+    }
+
+    /** The end of the quoted identifier at [i], or the end of the text when it is not closed. */
+    private fun skipQuoted(text: String, i: Int): Int {
+        val close = text.indexOf('"', i + 1)
+        return if (close < 0) text.length else close + 1
+    }
+
+    /** The end of the word at [i]: letters, digits, `_`, `$` and `#`. */
+    private fun skipWord(text: String, i: Int): Int {
+        var end = i
+        while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '_' || text[end] == '$' || text[end] == '#')) end++
+        return end
+    }
+
+    /** The end of the number at [i]: digits, letters and `.`. */
+    private fun skipNumber(text: String, i: Int): Int {
+        var end = i
+        while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '.')) end++
+        return end
     }
 
     /** The index of the opening quote of `q'x...x'` / `nq'x...x'` at [i], or null. */
@@ -231,6 +261,17 @@ object PlSqlText {
      * follows the name, the column list and the clauses of a materialized view.
      */
     private fun viewQuery(tokens: List<Token>): List<Token> {
+        var query = tokens.subList(minOf(queryStart(tokens), tokens.size), tokens.size)
+        while (query.isNotEmpty() && query.last().kind == Kind.SYMBOL && (query.last().text == ";" || query.last().text == "/")) query = query.dropLast(1)
+        val n = query.size
+        if (n >= 5 && query[n - 2].kind == Kind.WORD && query[n - 2].name == "CONSTRAINT" && query[n - 3].name == "OPTION" && query[n - 4].name == "CHECK") {
+            query = query.dropLast(2)
+        }
+        return query
+    }
+
+    /** The index after the first `AS` at depth 0 that follows the header words, or the size when there is none. */
+    private fun queryStart(tokens: List<Token>): Int {
         var i = 0
         while (i < tokens.size && tokens[i].kind == Kind.WORD && tokens[i].name in HEADER_WORDS) i++
         var depth = 0
@@ -241,13 +282,7 @@ object PlSqlText {
             i++
             if (depth == 0 && t.kind == Kind.WORD && t.name == "AS") break
         }
-        var query = tokens.subList(minOf(i, tokens.size), tokens.size)
-        while (query.isNotEmpty() && query.last().kind == Kind.SYMBOL && (query.last().text == ";" || query.last().text == "/")) query = query.dropLast(1)
-        val n = query.size
-        if (n >= 5 && query[n - 2].kind == Kind.WORD && query[n - 2].name == "CONSTRAINT" && query[n - 3].name == "OPTION" && query[n - 4].name == "CHECK") {
-            query = query.dropLast(2)
-        }
-        return query
+        return i
     }
 
     /**

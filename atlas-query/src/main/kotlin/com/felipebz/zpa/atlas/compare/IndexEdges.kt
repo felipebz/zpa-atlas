@@ -49,72 +49,28 @@ internal fun readIndexSide(connection: Connection, runSchema: String?, defaultOw
     val projection = Projection(entities)
 
     // ---- index edges
-    val edges = HashMap<DbObjectId, MutableMap<Target, IndexEdge>>()
-    val evidence = HashMap<DbObjectId, MutableList<Evidence>>()
-    val dynamicCount = HashMap<DbObjectId, Int>()
-    val partialCount = HashMap<DbObjectId, Int>()
-    var scriptEdges = 0
-    var collapsed = 0
-
-    fun isSelf(unit: DbObjectId, target: Target) = target.owner == unit.owner && target.name == unit.name && target.type == unit.type
-    fun addEdge(
-        unit: DbObjectId, target: Target, location: Location, collapsedSource: Boolean, readings: Set<Pair<String, String>> = emptySet(),
-        roles: Set<String> = emptySet()
-    ) {
-        if (isSelf(unit, target)) return
-        val edge = edges.getOrPut(unit) { HashMap() }.getOrPut(target) { IndexEdge(target) }
-        edge.locations += location
-        edge.readings += readings
-        if (!collapsedSource) edge.fromCollapsedOnly = false
-        if (roles != setOf("TYPE_USE")) edge.typeUseOnly = false
-    }
-
     val candidates = connection.query("SELECT occurrence_id, entity_id FROM occurrence_candidate") { it.getLong(1) to it.getLong(2) }
         .groupBy({ it.first }, { it.second })
+    val collector = EdgeCollector(projection, candidates)
+    var scriptEdges = 0
     // Static code only: Oracle records no dependency for the SQL text of a dynamic statement.
     connection.forEach(
         """SELECT o.id, o.unit_id, o.entity_id, o.status, o.written, f.path, o.start_line, o.reason, o.roles
            FROM occurrence o JOIN source_file f ON f.id = o.file_id WHERE o.origin = 'STATIC' ORDER BY o.id"""
     ) { rs ->
         val unit = unitsById.getValue(rs.getLong(2))
-        val entityId = (rs.getObject(3) as Number?)?.toLong()
-        val status = rs.getString(4)
-        val location = Location(rs.getString(6), rs.getInt(7))
-        val roles = rs.getString(9).split(',').filter { it.isNotEmpty() }.toSet()
+        val occurrence = IndexOccurrence(
+            rs.getLong(1), (rs.getObject(3) as Number?)?.toLong(), rs.getString(4), rs.getString(8), rs.getString(5),
+            Location(rs.getString(6), rs.getInt(7)), rs.getString(9).split(',').filter { it.isNotEmpty() }.toSet()
+        )
         // Oracle records no dependency for DDL: the object a DDL statement acts on is neither an edge nor evidence.
-        if (roles.isNotEmpty() && roles.all { it.startsWith("DDL_") }) return@forEach
+        if (occurrence.roles.isNotEmpty() && occurrence.roles.all { it.startsWith("DDL_") }) return@forEach
         val obj = unit.obj
-        // A call the project does not know still names an (external) entity: `db:~.DBMS_OUTPUT.PUT_LINE`, `db:SYS.X`.
-        val edgeStatus = status in EDGE_STATUSES || (status == "UNRESOLVED" && rs.getString(8) == "NOT_IN_PROJECT")
         if (obj == null) {
-            if (edgeStatus && entityId != null && !declaringOnly(roles)) scriptEdges++
+            if (occurrence.namesEntity && occurrence.entityId != null && !declaringOnly(occurrence.roles)) scriptEdges++
             return@forEach
         }
-        when (status) {
-            "DYNAMIC" -> dynamicCount.merge(obj, 1, Int::plus)
-            "PARTIAL_SOURCE" -> partialCount.merge(obj, 1, Int::plus)
-        }
-        // A definition or declaration names the unit's own entity (a parameter may be named like a table): it is
-        // neither an edge (the body -> spec edge comes from IMPLEMENTS) nor evidence about another object.
-        if (declaringOnly(roles)) return@forEach
-        // A routine's own variable, constant or type is inside the unit: it names no object, as Oracle records none.
-        if (entityId != null && projection.isRoutineOwn(entityId)) return@forEach
-        var target: Target? = null
-        var effectiveStatus = status
-        if (edgeStatus && entityId != null) {
-            val (projected, readings) = projection.projectOccurrence(entityId)
-            target = projected
-            addEdge(obj, projected, location, false, readings, roles)
-        } else if (status == "AMBIGUOUS") {
-            val roots = candidates[rs.getLong(1)].orEmpty().map { projection.project(it) }.toSet()
-            if (roots.size == 1) {
-                collapsed++
-                target = roots.single()
-                effectiveStatus = "COLLAPSED"
-                addEdge(obj, target, location, true, roles = roles)
-            }
-        }
-        evidence.getOrPut(obj) { ArrayList() } += Evidence(segments(rs.getString(5)), effectiveStatus, target, location, roles)
+        collector.addOccurrence(obj, occurrence)
     }
 
     // Relations: IMPLEMENTS (body -> spec) and TRIGGER_ON (trigger -> table), from the unit defining the source entity.
@@ -126,7 +82,7 @@ internal fun readIndexSide(connection: Connection, runSchema: String?, defaultOw
            WHERE r.kind IN ('IMPLEMENTS', 'TRIGGER_ON')"""
     ) { rs ->
         val obj = unitsById.getValue(rs.getLong(2)).obj ?: return@forEach
-        addEdge(obj, projection.project(rs.getLong(1)), Location(rs.getString(3), rs.getInt(4)), false)
+        collector.addEdge(obj, projection.project(rs.getLong(1)), Location(rs.getString(3), rs.getInt(4)), false)
     }
 
     // A package body or a type body depends on its specification: the unit's own entity, as Oracle compiles it.
@@ -135,10 +91,79 @@ internal fun readIndexSide(connection: Connection, runSchema: String?, defaultOw
            WHERE u.kind IN ('PACKAGE_BODY', 'TYPE_BODY') AND u.entity_id IS NOT NULL"""
     ) { rs ->
         val obj = unitsById.getValue(rs.getLong(1)).obj ?: return@forEach
-        addEdge(obj, projection.project(rs.getLong(2)), Location(rs.getString(3), rs.getInt(4)), false)
+        collector.addEdge(obj, projection.project(rs.getLong(2)), Location(rs.getString(3), rs.getInt(4)), false)
     }
 
-    return IndexSide(units, edges, evidence, dynamicCount, partialCount, scriptEdges, collapsed, synonymTargets(connection, entities, projection))
+    return IndexSide(
+        units, collector.edges, collector.evidence, collector.dynamicCount, collector.partialCount, scriptEdges, collector.collapsed,
+        synonymTargets(connection, entities, projection)
+    )
+}
+
+/** A static occurrence of the index, as the comparison reads it. */
+private class IndexOccurrence(
+    val id: Long, val entityId: Long?, val status: String, reason: String?, val written: String, val location: Location, val roles: Set<String>
+) {
+    /** A call the project does not know still names an (external) entity: `db:~.DBMS_OUTPUT.PUT_LINE`, `db:SYS.X`. */
+    val namesEntity = status in EDGE_STATUSES || (status == "UNRESOLVED" && reason == "NOT_IN_PROJECT")
+}
+
+/** The edges of the units, the evidence behind them, and their dynamic and partial-source counts, as occurrences and relations add them. */
+private class EdgeCollector(private val projection: Projection, private val candidates: Map<Long, List<Long>>) {
+    val edges = HashMap<DbObjectId, MutableMap<Target, IndexEdge>>()
+    val evidence = HashMap<DbObjectId, MutableList<Evidence>>()
+    val dynamicCount = HashMap<DbObjectId, Int>()
+    val partialCount = HashMap<DbObjectId, Int>()
+    var collapsed = 0
+        private set
+
+    /** Adds the edge [unit] -> [target] seen at [location]; an edge of a unit to itself is not one. */
+    fun addEdge(
+        unit: DbObjectId, target: Target, location: Location, collapsedSource: Boolean, readings: Set<Pair<String, String>> = emptySet(),
+        roles: Set<String> = emptySet()
+    ) {
+        if (target.owner == unit.owner && target.name == unit.name && target.type == unit.type) return
+        val edge = edges.getOrPut(unit) { HashMap() }.getOrPut(target) { IndexEdge(target) }
+        edge.locations += location
+        edge.readings += readings
+        if (!collapsedSource) edge.fromCollapsedOnly = false
+        if (roles != setOf("TYPE_USE")) edge.typeUseOnly = false
+    }
+
+    /**
+     * Adds an occurrence in the unit [obj]: it counts when dynamic or partial-source, and, unless it only declares or
+     * names something the routine declares for itself, adds its edge, if any, and its evidence. An ambiguous occurrence
+     * whose candidates all project to one object is an edge to it, `COLLAPSED`.
+     */
+    fun addOccurrence(obj: DbObjectId, occurrence: IndexOccurrence) {
+        val entityId = occurrence.entityId
+        val roles = occurrence.roles
+        when (occurrence.status) {
+            "DYNAMIC" -> dynamicCount.merge(obj, 1, Int::plus)
+            "PARTIAL_SOURCE" -> partialCount.merge(obj, 1, Int::plus)
+        }
+        // A definition or declaration names the unit's own entity (a parameter may be named like a table): it is
+        // neither an edge (the body -> spec edge comes from IMPLEMENTS) nor evidence about another object.
+        if (declaringOnly(roles)) return
+        // A routine's own variable, constant or type is inside the unit: it names no object, as Oracle records none.
+        if (entityId != null && projection.isRoutineOwn(entityId)) return
+        var target: Target? = null
+        var effectiveStatus = occurrence.status
+        if (occurrence.namesEntity && entityId != null) {
+            val (projected, readings) = projection.projectOccurrence(entityId)
+            target = projected
+            addEdge(obj, projected, occurrence.location, false, readings, roles)
+        } else if (occurrence.status == "AMBIGUOUS") {
+            val roots = candidates[occurrence.id].orEmpty().map { projection.project(it) }.toSet()
+            if (roots.size == 1) {
+                collapsed++
+                target = roots.single()
+                effectiveStatus = "COLLAPSED"
+                addEdge(obj, target, occurrence.location, true, roles = roles)
+            }
+        }
+        evidence.getOrPut(obj) { ArrayList() } += Evidence(segments(occurrence.written), effectiveStatus, target, occurrence.location, roles)
+    }
 }
 
 /** The units of the index, each mapped to its database object when it is one; a unit without any owner is an error. */

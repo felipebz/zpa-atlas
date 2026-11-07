@@ -5,6 +5,7 @@
 
 package com.felipebz.zpa.atlas.cli
 
+import com.beust.jcommander.IDefaultProvider
 import com.beust.jcommander.JCommander
 import com.beust.jcommander.ParameterException
 import com.felipebz.zpa.api.project.ProjectSchemaPaths
@@ -259,32 +260,14 @@ private fun serve(args: ServeArguments, environment: (String) -> String?, launch
     if (!Files.isRegularFile(database)) throw CliValidationException("Index file does not exist: ${args.db}")
     if (args.port !in 1..65535) throw CliValidationException("--port must be between 1 and 65535")
     val tabWidth = tabWidth(args)
-    val sources = if (args.sources.isNotBlank()) {
-        Path.of(args.sources).also { if (!Files.isDirectory(it)) throw CliValidationException("Sources folder does not exist: ${args.sources}") }
-    } else {
-        Path.of(AtlasIndex(database, null).run().result.sourcesRoot).takeIf { Files.isDirectory(it) }
-    }
-    val mcpHosts = args.mcpAllowedHosts.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-    if (mcpHosts.any { it.any { c -> c in "/@?#:" && !(it.startsWith("[") && it.endsWith("]")) } }) {
-        throw CliValidationException("--mcp-allowed-host takes host names or addresses, without scheme or port")
-    }
-    val basePath = try {
-        BasePath.parse(args.basePath.trim())
-    } catch (e: IllegalArgumentException) {
-        throw CliValidationException(e.message ?: "Invalid base path")
-    }
+    val sources = servedSources(args, database)
+    val mcpHosts = mcpAllowedHosts(args)
+    val basePath = basePath(args)
     val auth = authSettings(args, environment, basePath)
     val address = "http://${args.host}:${args.port}"
     System.err.println("Serving ${args.db} on $address${basePath.of("/")} (sources: ${sources ?: "not available"})")
-    System.err.println("MCP at $address${basePath.of("/mcp")}, for Host ${(MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")}")
-    if (auth != null) {
-        System.err.println("Authentication: /mcp and /api need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
-            (auth.scope?.let { " and scope $it" } ?: ""))
-        System.err.println("Protected resource metadata: ${auth.metadataUrl}")
-        auth.page?.let {
-            System.err.println("Page sign-in: client ${it.clientId} (${if (it.clientSecret == null) "public" else "confidential"}), redirect URI ${auth.base}/auth/callback")
-        }
-    }
+    System.err.println("MCP at $address${basePath.of("/mcp")}, for Host ${mcpHostNames(mcpHosts, auth)}")
+    if (auth != null) printAuthentication(auth, "/mcp and /api")
     if (args.host !in MCP_LOCAL_HOSTS && mcpHosts.isEmpty() && auth == null) {
         System.err.println("Warning: /mcp accepts only local host names; clients on other machines need --mcp-allowed-host with the name they use")
     }
@@ -306,15 +289,8 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
     }
     if (args.port !in 1..65535) throw CliValidationException("--port must be between 1 and 65535")
     val tabWidth = tabWidth(args)
-    val mcpHosts = args.mcpAllowedHosts.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-    if (mcpHosts.any { it.any { c -> c in "/@?#:" && !(it.startsWith("[") && it.endsWith("]")) } }) {
-        throw CliValidationException("--mcp-allowed-host takes host names or addresses, without scheme or port")
-    }
-    val basePath = try {
-        BasePath.parse(args.basePath.trim())
-    } catch (e: IllegalArgumentException) {
-        throw CliValidationException(e.message ?: "Invalid base path")
-    }
+    val mcpHosts = mcpAllowedHosts(args)
+    val basePath = basePath(args)
     val auth = authSettings(args, environment, basePath)
     val folder = ProjectFolder.read(Path.of(args.projects.trim()))
     // The servers rebuild module texts for as long as they run: launch returns when they stop.
@@ -327,47 +303,92 @@ private fun serveProjects(args: ServeArguments, environment: (String) -> String?
                 project.tabWidth ?: tabWidth, moduleTexts
             )
         }
-        val defaultProject = args.defaultProject.trim().ifEmpty { null }
-        if (defaultProject != null && projects.none { it.name == defaultProject }) {
-            throw CliValidationException("The default project $defaultProject is not one of the projects: ${projects.joinToString(", ") { it.name }}")
-        }
+        val defaultProject = defaultProject(args, projects)
         val ignored = listOf("--db", "--sources").map(::environmentName).filter { !environment(it).isNullOrBlank() }
         if (ignored.isNotEmpty()) System.err.println("Ignoring ${ignored.joinToString(" and ")}: --projects says what to serve")
         val address = "http://${args.host}:${args.port}"
         System.err.println("Serving ${projects.size} project${if (projects.size == 1) "" else "s"} of ${folder.folder} on $address${basePath.of("/")}")
-        val warnings = ArrayList(folder.warnings)
-        for ((served, file) in projects.zip(folder.projects)) {
-            val summary = served.summary()
-            val state = when (summary.state) {
-                ProjectState.READY -> "indexed ${summary.finishedAt}, ${summary.files} files"
-                ProjectState.NOT_INDEXED -> "not indexed yet"
-                ProjectState.UNAVAILABLE -> "unavailable: ${summary.error}"
-            }
-            System.err.println("Project ${served.name} at $address${basePath.of("/p/${served.name}/")}: index ${served.indexFile}, sources ${served.sources ?: "not available"}; $state")
-            if (summary.state == ProjectState.NOT_INDEXED) {
-                warnings += "Warning: project ${served.name} is not indexed yet: its index ${served.indexFile} does not exist; its API answers 503 until " +
-                    "`zpa-atlas index --project ${file.file}` writes it"
-            }
-            if (served.sources == null) warnings += "Warning: project ${served.name}: sources folder ${file["sources"]} does not exist here; it is served without sources"
-        }
-        System.err.println("MCP at $address${basePath.of("/mcp")}, for Host ${(MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")}: " +
+        val warnings = folder.warnings + printProjects(projects, folder, address, basePath)
+        System.err.println("MCP at $address${basePath.of("/mcp")}, for Host ${mcpHostNames(mcpHosts, auth)}: " +
             "every project, picked by the tools' project argument" + when {
                 defaultProject != null -> "; without it, the default project $defaultProject"
                 projects.size == 1 -> " (optional with one project)"
                 else -> ""
             })
-        if (auth != null) {
-            System.err.println("Authentication: /mcp, /api and every project's API need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
-                (auth.scope?.let { " and scope $it" } ?: ""))
-            System.err.println("Protected resource metadata: ${auth.metadataUrl}")
-            auth.page?.let {
-                System.err.println("Page sign-in: client ${it.clientId} (${if (it.clientSecret == null) "public" else "confidential"}), redirect URI ${auth.base}/auth/callback")
-            }
-        }
+        if (auth != null) printAuthentication(auth, "/mcp, /api and every project's API")
         warnings.forEach { System.err.println(if (it.startsWith("Warning: ")) it else "Warning: $it") }
         launch(ServeLaunch(null, null, args.host, args.port, McpSettings(allowedHosts = mcpHosts), auth, basePath, projects, defaultProject))
     }
     return 0
+}
+
+/** `--default-project`, or null without it; a name that is not one of [projects] is an error. */
+private fun defaultProject(args: ServeArguments, projects: List<ServedProject>): String? {
+    val defaultProject = args.defaultProject.trim().ifEmpty { null }
+    if (defaultProject != null && projects.none { it.name == defaultProject }) {
+        throw CliValidationException("The default project $defaultProject is not one of the projects: ${projects.joinToString(", ") { it.name }}")
+    }
+    return defaultProject
+}
+
+/**
+ * Prints the line of each of [projects], served from the files of [folder] at [address], and returns their warnings:
+ * a project not indexed yet, a project whose sources folder does not exist here.
+ */
+private fun printProjects(projects: List<ServedProject>, folder: ProjectFolder, address: String, basePath: BasePath): List<String> {
+    val warnings = ArrayList<String>()
+    for ((served, file) in projects.zip(folder.projects)) {
+        val summary = served.summary()
+        val state = when (summary.state) {
+            ProjectState.READY -> "indexed ${summary.finishedAt}, ${summary.files} files"
+            ProjectState.NOT_INDEXED -> "not indexed yet"
+            ProjectState.UNAVAILABLE -> "unavailable: ${summary.error}"
+        }
+        System.err.println("Project ${served.name} at $address${basePath.of("/p/${served.name}/")}: index ${served.indexFile}, sources ${served.sources ?: "not available"}; $state")
+        if (summary.state == ProjectState.NOT_INDEXED) {
+            warnings += "Warning: project ${served.name} is not indexed yet: its index ${served.indexFile} does not exist; its API answers 503 until " +
+                "`zpa-atlas index --project ${file.file}` writes it"
+        }
+        if (served.sources == null) warnings += "Warning: project ${served.name}: sources folder ${file["sources"]} does not exist here; it is served without sources"
+    }
+    return warnings
+}
+
+/** `--sources`, which must exist; without it, the sources folder [database] was indexed from, or null when it is not here. */
+private fun servedSources(args: ServeArguments, database: Path): Path? = if (args.sources.isNotBlank()) {
+    Path.of(args.sources).also { if (!Files.isDirectory(it)) throw CliValidationException("Sources folder does not exist: ${args.sources}") }
+} else {
+    Path.of(AtlasIndex(database, null).run().result.sourcesRoot).takeIf { Files.isDirectory(it) }
+}
+
+/** `--mcp-allowed-host`, trimmed and without repeats; a value with a scheme or port is an error. */
+private fun mcpAllowedHosts(args: ServeArguments): List<String> {
+    val hosts = args.mcpAllowedHosts.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    if (hosts.any { it.any { c -> c in "/@?#:" && !(it.startsWith("[") && it.endsWith("]")) } }) {
+        throw CliValidationException("--mcp-allowed-host takes host names or addresses, without scheme or port")
+    }
+    return hosts
+}
+
+/** `--base-path`, the prefix of every path of the server. */
+private fun basePath(args: ServeArguments): BasePath = try {
+    BasePath.parse(args.basePath.trim())
+} catch (e: IllegalArgumentException) {
+    throw CliValidationException(e.message ?: "Invalid base path")
+}
+
+/** The Host names `/mcp` accepts, as listed at startup: the local ones, [mcpHosts] and the host of the public URL of [auth]. */
+private fun mcpHostNames(mcpHosts: List<String>, auth: AuthSettings?): String =
+    (MCP_LOCAL_HOSTS + mcpHosts + listOfNotNull(auth?.publicHost)).distinct().joinToString(", ")
+
+/** Prints the startup lines of [auth]: what needs a token (the [paths]), the metadata and the page's sign-in client. */
+private fun printAuthentication(auth: AuthSettings, paths: String) {
+    System.err.println("Authentication: $paths need an access token of ${auth.issuer}, for audience ${auth.expectedAudience}" +
+        (auth.scope?.let { " and scope $it" } ?: ""))
+    System.err.println("Protected resource metadata: ${auth.metadataUrl}")
+    auth.page?.let {
+        System.err.println("Page sign-in: client ${it.clientId} (${if (it.clientSecret == null) "public" else "confidential"}), redirect URI ${auth.base}/auth/callback")
+    }
 }
 
 /** The authentication [args] ask for, or null without `--oidc-issuer`; the other options without it are an error. */
@@ -429,6 +450,11 @@ internal fun environmentName(option: String) = "ZPA_ATLAS_" + option.removePrefi
 internal val SERVE_OPTIONS: Set<String> = ServeArguments::class.java.declaredFields
     .mapNotNull { it.getAnnotation(com.beust.jcommander.Parameter::class.java) }.flatMap { it.names.toList() }.toSet()
 
+/** The values [environment] gives the options of `serve`: none for other options, and none for a blank variable. */
+private fun serveEnvironment(environment: (String) -> String?) = IDefaultProvider { option ->
+    if (option in SERVE_OPTIONS) environment(environmentName(option))?.takeIf { it.isNotBlank() } else null
+}
+
 fun execute(args: Array<String>, environment: (String) -> String? = System::getenv): Int = execute(args, environment, ::launch)
 
 internal fun execute(args: Array<String>, environment: (String) -> String?, launch: (ServeLaunch) -> Unit): Int {
@@ -446,9 +472,7 @@ internal fun execute(args: Array<String>, environment: (String) -> String?, laun
             // JCommander does not tell the provider which command it parses, and with a provider it no longer enforces
             // `required` on options that have an initial value: only `serve` gets one, so the variables of a server
             // never change what `index` indexes.
-            if (args.firstOrNull { !it.startsWith("-") } == "serve") {
-                defaultProvider { option -> if (option in SERVE_OPTIONS) environment(environmentName(option))?.takeIf { it.isNotBlank() } else null }
-            }
+            if (args.firstOrNull { !it.startsWith("-") } == "serve") defaultProvider(serveEnvironment(environment))
         }
         .build()
     return try {

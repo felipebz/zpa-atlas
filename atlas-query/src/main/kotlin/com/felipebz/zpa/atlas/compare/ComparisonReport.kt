@@ -7,7 +7,7 @@ package com.felipebz.zpa.atlas.compare
 
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.Locale
+import java.util.*
 
 /**
  * The outputs of a comparison: a summary safe to paste in a chat (counts and top-20 name lists only, never source
@@ -15,7 +15,6 @@ import java.util.Locale
  */
 object ComparisonReport {
     fun summary(result: ComparisonResult): String = buildString {
-        fun line(text: String = "") = append(text).append('\n')
         val r = result
         line("compare-deps summary")
         line()
@@ -26,6 +25,31 @@ object ComparisonReport {
         line("  database objects without unit in the index: ${r.objectsWithoutUnit.size}")
         line()
         conditionalCompilation(r.conditionalCompilation)
+        source(r)
+        edges(r)
+        line("Database only: ${r.databaseOnly.size}")
+        for (c in DB_CLASSES) line("  $c: ${r.databaseOnly.count { it.dbClass == c }}")
+        for ((type, count) in r.databaseOnly.filter { it.dbClass == "NOT_EXTRACTED" }.groupingBy { it.reference.referencedType }.eachCount().toSortedMap()) {
+            line("    NOT_EXTRACTED $type: $count")
+        }
+        line()
+        line("Index only: ${r.indexOnly.size}")
+        for (c in INDEX_CLASSES) line("  $c: ${r.indexOnly.count { it.indexClass == c }}")
+        line()
+        triggerColumns(r.triggerColumns)
+        top("Top NOT_EXTRACTED names", r.databaseOnly.filter { it.dbClass == "NOT_EXTRACTED" }.map { it.reference.referencedName })
+        top("Top UNRESOLVED_IN_INDEX names", r.databaseOnly.filter { it.dbClass == "UNRESOLVED_IN_INDEX" }.map { it.reference.referencedName })
+        top("Top INDEX_ONLY names", r.indexOnly.filter { it.indexClass == "INDEX_ONLY" }.map { it.target.toString() })
+        top("Top TRANSITIVE paths", r.databaseOnly.filter { it.dbClass == "TRANSITIVE" && it.via != null }.map {
+            "${it.via} -> ${it.reference.referencedOwner}.${it.reference.referencedName} ${it.reference.referencedType}"
+        })
+    }
+
+    /** Appends [text] and a line break. */
+    private fun StringBuilder.line(text: String = "") = append(text).append('\n')
+
+    /** The source comparison: what was skipped for lack of source, the units per source status and the first that differ. */
+    private fun StringBuilder.source(r: ComparisonResult) {
         line("Source")
         if (!r.sourceReadable) line("  ALL_SOURCE not readable: SOURCE_DIFFERS skipped")
         if (!r.textAvailable) line("  source files not available: NAME_NOT_IN_TEXT and SOURCE_DIFFERS skipped")
@@ -33,6 +57,10 @@ object ComparisonReport {
         val differing = r.units.filter { it.sourceStatus == SourceStatus.DIFFERS }
         for (u in differing.take(20)) line("    ${u.unit}: first difference at stored line ${u.firstDifferentLine}")
         line()
+    }
+
+    /** The edge counts on each side and how they matched, then the match rate overall and per referenced type. */
+    private fun StringBuilder.edges(r: ComparisonResult) {
         val db = r.matched.size + r.databaseOnly.size
         val expected = r.databaseOnly.count { it.dbClass in EXPECTED_CLASSES }
         line("Edges")
@@ -58,17 +86,12 @@ object ComparisonReport {
             line("  $type: ${rate(m, d - b)}; names in the text ${rate(m, d - b - n)}")
         }
         line()
-        line("Database only: ${r.databaseOnly.size}")
-        for (c in DB_CLASSES) line("  $c: ${r.databaseOnly.count { it.dbClass == c }}")
-        for ((type, count) in r.databaseOnly.filter { it.dbClass == "NOT_EXTRACTED" }.groupingBy { it.reference.referencedType }.eachCount().toSortedMap()) {
-            line("    NOT_EXTRACTED $type: $count")
-        }
-        line()
-        line("Index only: ${r.indexOnly.size}")
-        for (c in INDEX_CLASSES) line("  $c: ${r.indexOnly.count { it.indexClass == c }}")
-        line()
+    }
+
+    /** The trigger column comparison: per facet for the compared triggers, then the triggers left out and why. */
+    private fun StringBuilder.triggerColumns(facts: List<TriggerColumnFact>) {
         line("Trigger columns (ALL_TRIGGER_COLS, per trigger, column and facet)")
-        val compared = r.triggerColumns.filter { it.group == "COMPARED" }
+        val compared = facts.filter { it.group == "COMPARED" }
         fun triggers(rows: List<TriggerColumnFact>) = rows.map { it.owner to it.trigger }.toSet()
         line("  compared triggers: ${triggers(compared).size}, compiled with debug: ${triggers(compared.filter { it.debug }).size}")
         fun counts(rows: List<TriggerColumnFact>) =
@@ -77,18 +100,12 @@ object ComparisonReport {
             val rows = compared.filter { it.facet == facet }
             line("  $facet: ${counts(rows)}; without debug: ${counts(rows.filter { !it.debug })}")
         }
-        val triggersDiffering = r.triggerColumns.filter { it.group == "SOURCE_DIFFERS" }
+        val triggersDiffering = facts.filter { it.group == "SOURCE_DIFFERS" }
         line("  SOURCE_DIFFERS (not compared): ${triggers(triggersDiffering).size} trigger(s), ${counts(triggersDiffering)}")
-        val triggersInvalid = r.triggerColumns.filter { it.group == "INVALID" }
+        val triggersInvalid = facts.filter { it.group == "INVALID" }
         line("  INVALID (not compared): ${triggers(triggersInvalid).size} trigger(s), ${counts(triggersInvalid)}")
-        line("  database triggers without unit (not compared): ${triggers(r.triggerColumns.filter { it.group == "NO_UNIT" }).size}")
+        line("  database triggers without unit (not compared): ${triggers(facts.filter { it.group == "NO_UNIT" }).size}")
         line()
-        top("Top NOT_EXTRACTED names", r.databaseOnly.filter { it.dbClass == "NOT_EXTRACTED" }.map { it.reference.referencedName })
-        top("Top UNRESOLVED_IN_INDEX names", r.databaseOnly.filter { it.dbClass == "UNRESOLVED_IN_INDEX" }.map { it.reference.referencedName })
-        top("Top INDEX_ONLY names", r.indexOnly.filter { it.indexClass == "INDEX_ONLY" }.map { it.target.toString() })
-        top("Top TRANSITIVE paths", r.databaseOnly.filter { it.dbClass == "TRANSITIVE" && it.via != null }.map {
-            "${it.via} -> ${it.reference.referencedOwner}.${it.reference.referencedName} ${it.reference.referencedType}"
-        })
     }
 
     /**
@@ -96,7 +113,6 @@ object ComparisonReport {
      * another database version, or for none, and the compared units whose `PLSQL_CCFLAGS` differ from the index's.
      */
     private fun StringBuilder.conditionalCompilation(cc: ConditionalCompilationCheck) {
-        fun line(text: String = "") = append(text).append('\n')
         fun version(version: String?, origin: String?, absent: String) = version?.let { v -> origin?.let { "$v ($it)" } ?: v } ?: absent
         line("Conditional compilation")
         line("  database version: index ${version(cc.indexVersion, cc.indexVersionOrigin, "(none)")}, " +

@@ -5,25 +5,18 @@
 
 package com.felipebz.zpa.atlas.server
 
-import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.ToolJson
-import com.felipebz.zpa.atlas.server.AtlasMcpTools.ToolException
 import com.felipebz.zpa.atlas.query.InvalidQueryException
 import com.felipebz.zpa.atlas.query.QueryTimeoutException
 import com.felipebz.zpa.atlas.query.SchemaMismatchException
+import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.ToolJson
+import com.felipebz.zpa.atlas.server.AtlasMcpTools.ToolException
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.encodeToJsonElement
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 
 /**
  * One MCP server over several [projects]: the tools of [AtlasMcpTools], each with a `project` argument that picks the
@@ -50,12 +43,7 @@ internal fun projectsMcpServer(projects: List<ServedProject>, defaultProject: St
                 val arguments = AtlasMcpTools.Arguments(tool.name, accepted, request.arguments)
                 val named = arguments.string("project")
                 if (named == null && fallback != null) return@call readDefault(fallback) { tools.getValue(fallback.name).getValue(tool.name).body(arguments) }
-                val project = when (named) {
-                    null -> sorted.singleOrNull()
-                        ?: throw ToolException("Missing argument: project. This server holds several projects, separate codebases: $names. " +
-                            "Call list_projects, or ask the user which one.")
-                    else -> sorted.firstOrNull { it.name == named } ?: throw ToolException("Unknown project: $named. The projects are: $names.")
-                }
+                val project = calledProject(sorted, named, names)
                 if (!project.indexed) throw ToolException(notIndexed(project))
                 tools.getValue(project.name).getValue(tool.name).body(arguments)
             }
@@ -63,14 +51,7 @@ internal fun projectsMcpServer(projects: List<ServedProject>, defaultProject: St
     }
     server.addTool(
         "list_projects",
-        "The projects of this server: separate codebases, each indexed apart. For each one its name (the project " +
-            "argument of every other tool), its state (READY, NOT_INDEXED: no index yet, UNAVAILABLE: its index cannot " +
-            "be read, with the error), when its index was written (finishedAt) and its file count." +
-            if (fallback != null || sorted.any { it.title != null || it.description != null }) {
-                " Also its title and description when it has them" + (if (fallback != null) ", and default: true on the default project." else ".")
-            } else {
-                ""
-            },
+        listProjectsDescription(sorted, fallback != null),
         ToolSchema(properties = JsonObject(emptyMap())),
         toolAnnotations = AtlasMcpTools.READ_ONLY
     ) { request ->
@@ -81,6 +62,31 @@ internal fun projectsMcpServer(projects: List<ServedProject>, defaultProject: St
         }
     }
     return server
+}
+
+/**
+ * The description of `list_projects`: the fields of every project, then the title and description when some of
+ * [projects] has them or there is a default, and `default` when [hasDefault].
+ */
+private fun listProjectsDescription(projects: List<ServedProject>, hasDefault: Boolean): String =
+    "The projects of this server: separate codebases, each indexed apart. For each one its name (the project " +
+        "argument of every other tool), its state (READY, NOT_INDEXED: no index yet, UNAVAILABLE: its index cannot " +
+        "be read, with the error), when its index was written (finishedAt) and its file count." +
+        if (hasDefault || projects.any { it.title != null || it.description != null }) {
+            " Also its title and description when it has them" + (if (hasDefault) ", and default: true on the default project." else ".")
+        } else {
+            ""
+        }
+
+/**
+ * The project [named] in a call, or the only one of [projects] when it names none; a [ToolException] listing the
+ * projects ([names]) otherwise.
+ */
+private fun calledProject(projects: List<ServedProject>, named: String?, names: String): ServedProject = when (named) {
+    null -> projects.singleOrNull()
+        ?: throw ToolException("Missing argument: project. This server holds several projects, separate codebases: $names. " +
+            "Call list_projects, or ask the user which one.")
+    else -> projects.firstOrNull { it.name == named } ?: throw ToolException("Unknown project: $named. The projects are: $names.")
 }
 
 /**
