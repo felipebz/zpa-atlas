@@ -5,6 +5,7 @@ import {shownLine} from "./text-search";
 import type {UseMark} from "./uses-view";
 import {parseLabel} from "./entity-html";
 import {setupGoto} from "./goto";
+import {unitLines} from "./forms-view";
 import {esc, fileHref} from "./html";
 import {formatDate, formatShortDate, t} from "./i18n";
 import type {ProjectList} from "./project";
@@ -175,9 +176,11 @@ export async function sourceLine(path: string, line: number, target: HTMLElement
     const pre = document.createElement("pre");
     pre.className = "src";
     const lines = pre.appendChild(Object.assign(document.createElement("span"), { className: "src-lines" }));
+    // Inside Forms code, only the lines of the use's unit, each by its number there, as the code page numbers it.
+    const kept = new Set(unitLines(s.lines, line));
     s.lines.forEach((l, i) => {
+      if (!kept.has(l)) return;
       const row = lines.appendChild(Object.assign(document.createElement("span"), { className: l.number === line ? "sl hl" : "sl" }));
-      // Inside Forms code, the line's number in its unit, as the code page numbers it.
       row.appendChild(Object.assign(document.createElement("span"), { className: "n", textContent: String(l.code?.line ?? l.number) }));
       const code = row.appendChild(Object.assign(document.createElement("span"), { className: "c" }));
       const marks = l.number === line && mark && !s.stale ? mark(l.text) : null;

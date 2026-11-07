@@ -15,7 +15,10 @@ import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.model.*
 
 /** A relation name as written: `[schema.]name[@link]`, each part normalized. */
-data class WrittenRelation(val schema: String?, val name: String, val link: String?)
+data class WrittenRelation(val schema: String?, val name: String, val link: String?) {
+    /** `DUAL` or `SYS.DUAL` without a database link: no table, so the code that names it uses nothing. */
+    val isDual: Boolean get() = link == null && name == "DUAL" && (schema == null || schema == "SYS")
+}
 
 data class ResolvedRelation(
     val entityKey: String,

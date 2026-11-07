@@ -175,7 +175,7 @@ internal class SqlStatements(
         if (statement.context.hasHoles(reference)) return null
         val written = scopes.written(reference)
         if (written.link == null && written.schema == null && written.name in statement.localNames) return null
-        if (written.link == null && written.name == "DUAL" && (written.schema == null || written.schema == "SYS")) return null
+        if (written.isDual) return null
         val resolved = resolver.resolve(written, statement.context.schema)
         statement.occurrence(reference, resolved.entityKey, roles, resolved.status, resolved.reason)
         return Target(reference, written, resolved, alias, written.schema ?: statement.context.schema).also { statement.targets[reference] = it }

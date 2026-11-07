@@ -188,6 +188,21 @@ class FormsPagesTest {
     }
 
     @Test
+    fun `an impact node of Forms code belongs to its module`() {
+        val view = orders.impactView("db:HR.ORDERS.STATUS").result!!
+        assertThat(view.nodes.map { "${view.entities[it.entity!!].key} ${it.owner?.let { owner -> view.entities[owner].key }} ${it.schema}" })
+            .containsExactlyInAnyOrder("forms:ORDER_READ/P_READ forms:ORDER_READ null", "forms:ORDER_READ/WHEN-NEW-FORM-INSTANCE forms:ORDER_READ null")
+    }
+
+    @Test
+    fun `an item and a parameter declare their data type as their places read it, a global nothing`() {
+        fun declared(key: String) = shop.entity(key).result!!.declared?.type
+        assertThat(listOf("CTRL/SHORT_STATUS", "CTRL/WIDE_STATUS", "CTRL/COUNT_ID", "CTRL/BARE_STATUS", "CTRL/STATUS_LIST", "CTRL/STATUS_IMAGE", "PARAMETER/P_STATUS")
+            .map { declared("forms:SHOP_DESK/$it") }).containsExactly("CHAR 5", "CHAR 10 CHAR", "NUMBER", "CHAR 8", null, null, "CHAR")
+        assertThat(shop.entity("forms::GLOBAL.LAST_STATUS").result!!.declared).isNull()
+    }
+
+    @Test
     fun `a column's places name the Forms items it is read into, with their size, the block query's in no code`() {
         val key = "db:SHOP.ORDERS.STATUS"
         val query = shop.columnPlaces(key, PlaceFilter(source = "BLOCK_QUERY")).result!!.rows.single()
@@ -209,5 +224,26 @@ class FormsPagesTest {
         // By routine, the block query's group is the item's.
         val groups = shop.columnPlaceGroups(key, PlaceFilter(source = "BLOCK_QUERY")).result!!.groups
         assertThat(groups.map { "${it.container?.key} ${it.routine} ${it.packageName} ${it.smaller}" }).containsExactly("forms:SHOP_DESK/ORDERS/STATUS STATUS ORDERS 1")
+    }
+
+    @Test
+    fun `the lines around a use in a trigger are its own, numbered as its code page numbers them`() {
+        val root = temp.resolve("itm").createDirectories()
+        Files.writeString(root.resolve("itm_fmb.xml"), """<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms"><FormModule Name="ITM">
+            |<Block Name="A"><Trigger Name="WHEN-NEW-BLOCK-INSTANCE" TriggerText="select status into :a.s5 from orders where id = 1;&amp;#10;null;&amp;#10;:a.s5 := null;"/>
+            |<Item Name="S5" MaximumLength="5"/></Block></FormModule></Module>""".trimMargin())
+        Files.writeString(root.resolve("orders.sql"), "CREATE TABLE orders (id NUMBER, status VARCHAR2(10));\n")
+        val db = temp.resolve("itm.db")
+        Indexer().index(IndexOptions(root, db, compilationSchema = "HR", threads = 1))
+        val itm = AtlasIndex(db, root, moduleTexts = { name, bytes -> FormsModuleReaders.BUILT_IN.text(name, bytes) })
+        val unit = "forms:ITM/A/WHEN-NEW-BLOCK-INSTANCE"
+        val rows = itm.occurrences("forms:ITM/A/S5").result!!.rows
+        assertThat(rows.map { it.code }).containsExactly(CodeAt(unit, 1), CodeAt(unit, 3))
+        for (row in rows) {
+            // The header the module text adds before the code and the END after it belong to no code.
+            val around = itm.source("itm_fmb.xml", row.span!!.startLine, context = 3).result!!.lines
+            assertThat(around.filter { it.code == null }.map { it.text.trim() }).allSatisfy { assertThat(it).matches("BEGIN -- .*|END;|") }
+            assertThat(around.mapNotNull { it.code }.map { "${it.key} ${it.line}" }).containsExactly("$unit 1", "$unit 2", "$unit 3")
+        }
     }
 }

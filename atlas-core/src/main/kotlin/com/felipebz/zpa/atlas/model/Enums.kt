@@ -168,6 +168,8 @@ enum class Reason : StoredEnum {
     PARTIAL_DECLARATIONS,
     // A trigger EXECUTE_TRIGGER names, found by name outside the caller's own item, block and module.
     TRIGGER_FOUND_BY_NAME,
+    // The module's trigger EXECUTE_TRIGGER names from code on no block, when a block or an item has one of that name too.
+    TRIGGER_MAY_BE_OVERRIDDEN,
     INCOMPLETE_INDEX,
     DB_LINK,
     // What became of a dynamic statement's text.

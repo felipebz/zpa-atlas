@@ -22,8 +22,9 @@ import kotlin.io.path.listDirectoryEntries
  * The Forms items, parameters and globals a column's value is read into, on the invented module `SHOP_DESK`
  * (`forms/shop_desk_fmb.xml`, `DUMP=ALL`, and `forms/shop_plain_fmb.xml`, without it, indexed as `SHOP_PLAIN`) and the
  * table and procedure of `forms/shop_desk.sql` (`ORDERS.STATUS` is `VARCHAR2(10 BYTE)`), without a dictionary: its
- * code reads the column into items of every size, by every kind of statement, and into names that are not items; the
- * block `ORDERS` queries the table, `ORDERS_ALT` too, but its `ON-SELECT` replaces the query.
+ * code reads the column into items of every size, by every kind of statement, through its own function `READ_ONE`, and
+ * into names that are not items; the block `ORDERS` queries the table, `ORDERS_ALT` too, but its `ON-SELECT` replaces
+ * the query.
  */
 class FormsPlacesTest {
     @TempDir
@@ -75,10 +76,16 @@ class FormsPlacesTest {
             // frmf2xml does not give a parameter's length; a global has none; :SYSTEM is no object of the module.
             "SELECT_INTO :parameter.p_status forms:SHOP_DESK/PARAMETER/P_STATUS UNKNOWN - - PARAMETER_LENGTH_NOT_GIVEN",
             "SELECT_INTO :global.last_status forms::GLOBAL.LAST_STATUS UNKNOWN - - GLOBAL_LENGTH_NOT_GIVEN",
-            "SELECT_INTO :system.message_level - UNKNOWN - - TARGET_NOT_A_NAME"
+            "SELECT_INTO :system.message_level - UNKNOWN - - TARGET_NOT_A_NAME",
+            // The program unit READ_ONE returns the column it selects: its calls in SHOW_ONE give it to a local and to an item.
+            "SELECT_INTO l forms:SHOP_DESK/READ_ONE.L FIXED_SIZE varchar2(20) 20 BYTE OPTION -",
+            "RETURNED l_status forms:SHOP_DESK/SHOW_ONE.L_STATUS FIXED_SIZE varchar2(20) 20 BYTE OPTION -",
+            "RETURNED :ctrl.default_status forms:SHOP_DESK/CTRL/DEFAULT_STATUS FIXED_SIZE CHAR 30 BYTE OPTION -",
+            // An image holds an image.
+            "SELECT_INTO :ctrl.status_image forms:SHOP_DESK/CTRL/STATUS_IMAGE UNKNOWN - - ITEM_HOLDS_IMAGE"
         )
         // The block's query is in no code; every other place is on a line.
-        assertThat(places("shop_desk_fmb.xml").map { " line " in it }).containsExactly(false, *Array(16) { true })
+        assertThat(places("shop_desk_fmb.xml").map { " line " in it }).containsExactly(false, *Array(20) { true })
     }
 
     @Test

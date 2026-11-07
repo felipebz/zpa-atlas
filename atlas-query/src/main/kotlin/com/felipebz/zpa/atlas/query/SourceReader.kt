@@ -27,7 +27,7 @@ internal class SourceReader(private val connection: Connection, private val sour
         val numbers = first..last
         val colors = colorer?.let { lineColors(it, text, numbers.associateWith { number -> text.lines[number - 1] }) }
         val forms = FormsLines(connection)
-        return SourceSnippet(path, numbers.map { SourceLine(it, text.lines[it - 1], forms.codeAt(path, it)) }, text.stale, colors?.let { byLine -> numbers.map { byLine[it].orEmpty() } })
+        return SourceSnippet(path, numbers.map { SourceLine(it, text.lines[it - 1], forms.codeAt(path, it, header = false)) }, text.stale, colors?.let { byLine -> numbers.map { byLine[it].orEmpty() } })
     }
 
     /**

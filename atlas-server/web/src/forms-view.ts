@@ -40,6 +40,17 @@ export function formsName(entity: Pick<EntitySummary, "key" | "kind" | "name" | 
 }
 
 /**
+ * What the code page's popover says of an item or a parameter, which the module defines and no code declares: the
+ * catalog key of its kind (an item's own, `formsItemKind.TEXT_ITEM`) and its path (`DATA_DESK/EVENTS/CODE`), which
+ * links to its page; null for anything else (a global belongs to no module).
+ */
+export function formsDefinition(entity: Pick<EntityDetail, "kind" | "display" | "formsItem">): { kindKey: string; path: string } | null {
+  if (entity.kind === "FORMS_PARAMETER") return { kindKey: "popover.formsParameter", path: entity.display };
+  if (entity.kind !== "FORMS_ITEM") return null;
+  return { kindKey: entity.formsItem ? "formsItemKind." + entity.formsItem.kind : "kind.FORMS_ITEM", path: entity.display };
+}
+
+/**
  * A row of a Forms global's "Forms that use it": the module and its file, how many of its uses set the global and how
  * many read it, each with the query page's filters listing those uses (null when there are none).
  */
@@ -80,6 +91,15 @@ export type CodeUnit = Pick<CodeAt, "key" | "unitKind">;
 /** Whether [a] and [b] are the same piece of code (a package's specification is not its body). */
 export function sameUnit(a: CodeUnit, b: CodeUnit) {
   return a.key === b.key && (a.unitKind ?? null) === (b.unitKind ?? null);
+}
+
+/**
+ * Which of [lines] around [line] a snippet shows: inside Forms code only those of [line]'s unit, numbered as the
+ * code page numbers them (the lines around it in the module's text belong to other code); all of them elsewhere.
+ */
+export function unitLines<L extends { number: number; code?: CodeUnit | null }>(lines: L[], line: number): L[] {
+  const unit = lines.find(l => l.number === line)?.code ?? null;
+  return unit === null ? lines : lines.filter(l => l.code != null && sameUnit(l.code, unit));
 }
 
 /** The piece of code [node] is; null for an object that is not code (the module, a block, an item, a library). */
@@ -196,15 +216,19 @@ function dataSourceView(source: FormsDataSource): DataSourceView {
 /**
  * What the page of a data block shows of [block]: the relation it queries and the one it writes, each a link (its
  * name as written when the block is not on a table, with its type), each of its four operations done by Forms with
- * no code, replaced by the block's trigger, not allowed or not followed by the index, and its WHERE and ORDER BY.
+ * no code, replaced by the block's trigger or the module's, not allowed or not followed by the index, and its WHERE
+ * and ORDER BY.
  */
 export function blockView(block: FormsBlock): BlockView {
   return {
     source: dataSourceView(block.source),
     target: dataSourceView(block.target),
-    operations: block.operations.map(o => ({
-      operationKey: "formsOperation." + o.operation, stateKey: "formsOperationState." + o.state, trigger: o.state === "REPLACED" ? o.trigger ?? null : null
-    })),
+    operations: block.operations.map(o => {
+      const trigger = o.state === "REPLACED" ? o.trigger ?? null : null;
+      // A module's trigger has one slash in its key (`forms:DEMO0004/ON-INSERT`), a block's or an item's more.
+      const state = trigger !== null && trigger.key.indexOf("/") === trigger.key.lastIndexOf("/") ? "REPLACED_BY_MODULE" : o.state;
+      return { operationKey: "formsOperation." + o.operation, stateKey: "formsOperationState." + state, trigger };
+    }),
     where: block.where.trim() === "" ? null : block.where,
     orderBy: block.orderBy.trim() === "" ? null : block.orderBy
   };

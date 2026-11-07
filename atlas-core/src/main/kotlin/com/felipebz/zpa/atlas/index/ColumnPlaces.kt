@@ -108,7 +108,12 @@ internal class ColumnPlaces(
                 val known = shapes[fact.entityKey]
                 if (known == null || known !is TypeShape.CursorRow && fact.shape is TypeShape.CursorRow) shapes[fact.entityKey] = fact.shape
             }
-            for (text in file.declaredTexts) if (text.datatype != null) texts.putIfAbsent(text.entityKey, text.datatype)
+            // A Forms item's or parameter's text is what its page shows (`CHAR 5`): its place takes the type from its shape.
+            for (text in file.declaredTexts) {
+                if (text.datatype != null && kinds[text.entityKey] != EntityKind.FORMS_ITEM && kinds[text.entityKey] != EntityKind.FORMS_PARAMETER) {
+                    texts.putIfAbsent(text.entityKey, text.datatype)
+                }
+            }
             units[file.path] = file.units
         }
         for (file in facts) for (occurrence in file.occurrences) {

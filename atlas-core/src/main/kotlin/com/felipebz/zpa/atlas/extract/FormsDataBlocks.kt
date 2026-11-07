@@ -51,13 +51,13 @@ internal class FormsDataBlocks(layout: FormsLayout, entities: FormsEntities, pri
                 val sourceName = written(block.source.name)
                 if (sourceName == null) {
                     if (!counted) notANames += displayOf(blockKey)
-                } else if (!isDual(sourceName)) {
+                } else if (!sourceName.isDual) {
                     source = resolver.resolve(sourceName, schema).also { relations += RelationFact(blockKey, RelationKind.FORMS_BLOCK_TABLE, it.entityKey) }
                     if (block.target.type == FormsDataType.TABLE && block.target.name.isNotBlank()) {
                         val targetName = written(block.target.name)
                         if (targetName == null && !counted) notANames += displayOf(blockKey) + " (DML target)"
                         target = when {
-                            targetName == null || isDual(targetName) -> null
+                            targetName == null || targetName.isDual -> null
                             targetName == sourceName -> source
                             else -> resolver.resolve(targetName, schema)
                         }
@@ -128,9 +128,6 @@ internal class FormsDataBlocks(layout: FormsLayout, entities: FormsEntities, pri
         private val NOT_FOLLOWED = setOf(FormsDataType.PROCEDURE, FormsDataType.QUERY, FormsDataType.TRANSACTIONAL_TRIGGERS)
 
         private val SIMPLE_NAME = Regex("[A-Za-z][A-Za-z0-9_$#]*")
-
-        /** `DUAL` or `SYS.DUAL` without a database link: no table, as the module's SQL leaves it out. */
-        private fun isDual(written: WrittenRelation) = written.link == null && written.name == "DUAL" && (written.schema == null || written.schema == "SYS")
 
         /** A relation name as a block writes it, `[schema.]name[@link]`, each part normalized; null when [text] is not one. */
         fun written(text: String): WrittenRelation? {

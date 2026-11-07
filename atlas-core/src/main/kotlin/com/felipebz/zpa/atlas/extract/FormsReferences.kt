@@ -24,8 +24,9 @@ import java.util.*
  *   else a read; in SQL too.
  * - The built-ins named by [BUILT_INS], with a literal first argument, `CALL` the object it names: `GO_BLOCK` the block,
  *   `GO_ITEM` the item (`'BLOCK.ITEM'` or `'ITEM'`, as above), `EXECUTE_TRIGGER` the trigger looked up as Forms does,
- *   from the lowest level up (the item the code runs on, its block, the module; from code on no block, the module's,
- *   else the one trigger of that name, `UNVERIFIED`: the item the cursor is on decides), `CALL_FORM`, `OPEN_FORM` and `NEW_FORM` the module of that name (its last name
+ *   from the lowest level up (the item the code runs on, its block, the module; from code on no block, which does not
+ *   know the item the cursor is on, the module's, `UNVERIFIED` when a block or an item has one of that name too, else
+ *   the one trigger of that name, `UNVERIFIED`), `CALL_FORM`, `OPEN_FORM` and `NEW_FORM` the module of that name (its last name
  *   without its ending: `'/forms/orders.fmx'` is `ORDERS`), whose key [resolveModuleCalls] checks once every module is
  *   known. A first argument that is not a literal is counted in a `FORMS_NAME_NOT_LITERAL` note, by built-in.
  */
@@ -150,9 +151,14 @@ internal class FormsReferences(private val layout: FormsLayout, private val enti
     private fun trigger(name: String, unit: FormsLayout.Unit?): Found {
         val owner = if (unit?.kind == FormsLayout.Kind.TRIGGER && unit.level != FormsTriggerLevel.EVENT) unit.owner.map(::upper) else emptyList()
         if (owner.isEmpty()) {
-            triggers[emptyList()]?.get(name)?.let { return Found(it, Status.RESOLVED) }
-            // Forms looks it up from the item the cursor is on, which code on no block does not know: a guess by name.
-            val found = among(triggersByName[name].orEmpty(), Reason.NO_SUCH_TRIGGER)
+            // Forms looks it up from the item the cursor is on, which code on no block does not know.
+            val named = triggersByName[name].orEmpty()
+            triggers[emptyList()]?.get(name)?.let { module ->
+                // The module's, unless a block or an item has one of that name too, which runs instead when the cursor is there.
+                return if (named.size == 1) Found(module, Status.RESOLVED) else Found(module, Status.UNVERIFIED, Reason.TRIGGER_MAY_BE_OVERRIDDEN.name)
+            }
+            // A guess by name.
+            val found = among(named, Reason.NO_SUCH_TRIGGER)
             return if (found.status == Status.RESOLVED) Found(found.key, Status.UNVERIFIED, Reason.TRIGGER_FOUND_BY_NAME.name) else found
         }
         for (size in owner.size downTo 0) triggers[owner.subList(0, size)]?.get(name)?.let { return Found(it, Status.RESOLVED) }

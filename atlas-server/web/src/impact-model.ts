@@ -243,7 +243,7 @@ export function pathText(view: ImpactView, index: number, fires: (events: string
 
 // ---- groups -------------------------------------------------------------------------------------------------------
 
-/** A group of nodes: of a package or type ([owner]), of the standalone code of a [schema], or the script files. */
+/** A group of nodes: of a package, a type or a Forms module ([owner]), of the standalone code of a [schema], or the script files. */
 export interface NodeGroup {
   id: string;
   owner: EntitySummary | null;
@@ -253,7 +253,7 @@ export interface NodeGroup {
 }
 
 /**
- * [indexes] grouped by the package or type each node belongs to, or by its schema for standalone code; script files
+ * [indexes] grouped by the package, type or Forms module each node belongs to, or by its schema for standalone code; script files
  * are a group of their own, last. Groups are in the order of their names; nodes keep the graph's order.
  */
 export function groupByOwner(view: ImpactView, indexes: number[]): NodeGroup[] {

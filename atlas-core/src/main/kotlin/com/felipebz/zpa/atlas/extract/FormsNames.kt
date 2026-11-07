@@ -40,9 +40,11 @@ internal class FormsEntities(private val layout: FormsLayout) {
     val relations = ArrayList<RelationFact>()
     val objects = ArrayList<FormsObjectFact>()
 
-    /** The module's internal name, when it is not the name it is known by: what its page says it declares. */
-    val declaredTexts = if (layout.internalName.equals(layout.name, ignoreCase = true)) emptyList()
-    else listOf(DeclaredTextFact(FORMS_PREFIX + layout.name, null, layout.internalName, false))
+    /**
+     * What the module's objects declare, as their pages show it: the module's internal name, when it is not the name it
+     * is known by; the data type of each text or display item and parameter ([declaredType]).
+     */
+    val declaredTexts = ArrayList<DeclaredTextFact>()
     private val used = HashSet<String>()
     private val owners = HashMap<List<String>, String>()
     private val programUnits = HashMap<String, String>()
@@ -60,15 +62,19 @@ internal class FormsEntities(private val layout: FormsLayout) {
      * What each item and parameter holds, as the type of a declaration, for the places column values are read into:
      * a text or display item of a character data type holds its maximum length, in its unit (the compile-time
      * `NLS_LENGTH_SEMANTICS` when the item leaves it: what Forms does with `Null`); one of another data type has no
-     * size; a list item, check box, radio group or image holds one of its elements, not a value of a length
-     * (`ITEM_HOLDS_ELEMENT`); any other item holds no value (`ITEM_HOLDS_NO_VALUE`). A character parameter whose length
-     * the file does not give is `PARAMETER_LENGTH_NOT_GIVEN`; a data type the reader did not know `DATA_TYPE_UNKNOWN`.
+     * size; a list item, check box or radio group holds one of its elements, not a value of a length
+     * (`ITEM_HOLDS_ELEMENT`); an image holds an image (`ITEM_HOLDS_IMAGE`); any other item holds no value
+     * (`ITEM_HOLDS_NO_VALUE`). A character parameter whose length the file does not give is
+     * `PARAMETER_LENGTH_NOT_GIVEN`; a data type the reader did not know `DATA_TYPE_UNKNOWN`.
      */
     val shapes = ArrayList<DeclaredShapeFact>()
 
     val moduleKey: String = entity(EntityKind.FORMS_MODULE, layout.name, layout.name, null)
 
     init {
+        if (!layout.internalName.equals(layout.name, ignoreCase = true)) {
+            declaredTexts += DeclaredTextFact(moduleKey, null, layout.internalName, false)
+        }
         objects += FormsObjectFact(moduleKey)
         for (block in layout.blocks) {
             val blockKey = entity(EntityKind.FORMS_BLOCK, "${layout.name}/${block.name.value}", block.name.value, moduleKey)
@@ -80,6 +86,9 @@ internal class FormsEntities(private val layout: FormsLayout) {
                 owners.putIfAbsent(listOf(block.name.value, item.name.value), itemKey)
                 objects += FormsObjectFact(itemKey)
                 shapes += DeclaredShapeFact(itemKey, itemShape(item))
+                if (item.kind == FormsItemKind.TEXT_ITEM || item.kind == FormsItemKind.DISPLAY_ITEM) {
+                    declaredType(item.dataType, item.maximumLength, item.lengthSemantics)?.let { declaredTexts += DeclaredTextFact(itemKey, it, null, false) }
+                }
                 itemKey
             }
         }
@@ -113,6 +122,7 @@ internal class FormsEntities(private val layout: FormsLayout) {
             parameterKeys += key
             objects += FormsObjectFact(key)
             shapes += DeclaredShapeFact(key, valueShape(parameter.dataType, parameter.maximumLength, null))
+            declaredType(parameter.dataType, parameter.maximumLength, null)?.let { declaredTexts += DeclaredTextFact(key, it, null, false) }
         }
     }
 
@@ -156,7 +166,8 @@ internal class FormsEntities(private val layout: FormsLayout) {
     private companion object {
         fun itemShape(item: FormsItem): TypeShape = when (item.kind) {
             FormsItemKind.TEXT_ITEM, FormsItemKind.DISPLAY_ITEM -> valueShape(item.dataType, item.maximumLength, item.lengthSemantics)
-            FormsItemKind.LIST_ITEM, FormsItemKind.CHECK_BOX, FormsItemKind.RADIO_GROUP, FormsItemKind.IMAGE -> TypeShape.Unknown("ITEM_HOLDS_ELEMENT")
+            FormsItemKind.LIST_ITEM, FormsItemKind.CHECK_BOX, FormsItemKind.RADIO_GROUP -> TypeShape.Unknown("ITEM_HOLDS_ELEMENT")
+            FormsItemKind.IMAGE -> TypeShape.Unknown("ITEM_HOLDS_IMAGE")
             else -> TypeShape.Unknown("ITEM_HOLDS_NO_VALUE")
         }
 
@@ -165,6 +176,17 @@ internal class FormsEntities(private val layout: FormsLayout) {
             !type.character -> TypeShape.Unsized(type.name)
             length == null -> TypeShape.Unknown("PARAMETER_LENGTH_NOT_GIVEN")
             else -> TypeShape.Sized(type.name, length, unit?.name ?: TypeShapes.NLS_LENGTH_SEMANTICS)
+        }
+
+        /**
+         * A data type as an item's or parameter's page shows it, read as its places are: the type, with the maximum length
+         * of a character type and the length's unit when the module writes it (`CHAR 5`, `CHAR 10 CHAR`, `NUMBER`); null
+         * for a type the reader did not know.
+         */
+        fun declaredType(type: FormsItemDataType, length: Int?, unit: FormsLengthSemantics?): String? = when {
+            type == FormsItemDataType.UNKNOWN -> null
+            !type.character || length == null -> type.name
+            else -> listOfNotNull(type.name, length.toString(), unit?.name).joinToString(" ")
         }
     }
 }

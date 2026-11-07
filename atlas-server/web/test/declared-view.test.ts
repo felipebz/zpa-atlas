@@ -76,6 +76,8 @@ describe("declaredLine", () => {
     expect(declaredLine("LOCAL_VARIABLE", declared({ type: "varchar2(12)" }))).toBe("varchar2(12)");
     expect(declaredLine("LOCAL_CONSTANT", declared({ type: "number", value: "10" }))).toBe("number := 10");
     expect(declaredLine("PARAMETER", declared({ type: "orders.code%type", value: "'x'" }))).toBe("orders.code%type := 'x'");
+    expect(declaredLine("FORMS_ITEM", declared({ type: "CHAR 5" }))).toBe("CHAR 5");
+    expect(declaredLine("FORMS_PARAMETER", declared({ type: "NUMBER" }))).toBe("NUMBER");
   });
 
   it("says nothing for a routine, a cursor or an undeclared entity", () => {

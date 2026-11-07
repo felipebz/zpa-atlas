@@ -119,7 +119,10 @@ class FormsNamesTest {
             "'CHECK_STOP' CALL forms:ROUTE_DESK/STOPS/STOP_ID/CHECK_STOP UNVERIFIED TRIGGER_FOUND_BY_NAME",
             "'route_view' CALL forms:ROUTE_VIEW RESOLVED -",
             "'/forms/route_view.fmx' CALL forms:ROUTE_VIEW RESOLVED -",
-            "'ROUTE_GONE' CALL - UNRESOLVED MODULE_NOT_INDEXED"
+            "'ROUTE_GONE' CALL - UNRESOLVED MODULE_NOT_INDEXED",
+            // The module's REFRESH_STOP, unless the cursor is on STOPS, whose REFRESH_STOP runs instead; LOG_ROUTE is the module's alone.
+            "'REFRESH_STOP' CALL forms:ROUTE_DESK/REFRESH_STOP UNVERIFIED TRIGGER_MAY_BE_OVERRIDDEN",
+            "'LOG_ROUTE' CALL forms:ROUTE_DESK/LOG_ROUTE RESOLVED -"
         )
         // From the item STOP_ID: its own trigger, then its block's (not the module's REFRESH_STOP), then the module's.
         assertThat(uses("ROUTE_DESK/STOPS/STOP_ID/WHEN-VALIDATE-ITEM").drop(3)).containsExactly(
@@ -138,7 +141,7 @@ class FormsNamesTest {
     }
 
     @Test
-    fun `a trigger a program unit finds by name only, outside its module's own, is not certain`() {
+    fun `a trigger a program unit finds by name only, or the module's when a block has one of that name too, is not certain`() {
         val root = temp.resolve("nam").createDirectories()
         root.resolve("nam_fmb.xml").writeText(NAM)
         val nam = temp.resolve("nam.db")
@@ -152,7 +155,9 @@ class FormsNamesTest {
             // A program unit does not know the cursor's item: B's trigger, found by its name alone.
             "NAM/P 'ONLY_B' forms:NAM/B/ONLY_B UNVERIFIED TRIGGER_FOUND_BY_NAME",
             // The module's own trigger is found wherever the cursor is.
-            "NAM/P 'ON_MODULE' forms:NAM/ON_MODULE RESOLVED -"
+            "NAM/P 'ON_MODULE' forms:NAM/ON_MODULE RESOLVED -",
+            // The module's SHARED, but B's runs instead when the cursor is on B.
+            "NAM/P 'SHARED' forms:NAM/SHARED UNVERIFIED TRIGGER_MAY_BE_OVERRIDDEN"
         )
     }
 
@@ -201,12 +206,16 @@ class FormsNamesTest {
     private companion object {
         const val ROUTE_NEXT = "CREATE OR REPLACE PROCEDURE route_next(p_city OUT VARCHAR2) IS\nBEGIN\n  p_city := 'X';\nEND;\n/\n"
 
-        /** Blocks `A` (item `X`) and `B`; only `B` has the user-named trigger `ONLY_B`, the module has `ON_MODULE`. */
+        /**
+         * Blocks `A` (item `X`) and `B`; only `B` has the user-named trigger `ONLY_B`, the module has `ON_MODULE`, and both
+         * have `SHARED`.
+         */
         const val NAM = """<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms"><FormModule Name="NAM">
 <Trigger Name="ON_MODULE" TriggerText="null;"/>
+<Trigger Name="SHARED" TriggerText="null;"/>
 <Block Name="A"><Item Name="X"><Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="execute_trigger('ONLY_B');"/></Item></Block>
-<Block Name="B"><Trigger Name="ONLY_B" TriggerText="null;"/></Block>
-<ProgramUnit Name="P" ProgramUnitText="PROCEDURE p IS&amp;#10;BEGIN&amp;#10;  execute_trigger('ONLY_B');&amp;#10;  execute_trigger('ON_MODULE');&amp;#10;END;"/>
+<Block Name="B"><Trigger Name="ONLY_B" TriggerText="null;"/><Trigger Name="SHARED" TriggerText="null;"/></Block>
+<ProgramUnit Name="P" ProgramUnitText="PROCEDURE p IS&amp;#10;BEGIN&amp;#10;  execute_trigger('ONLY_B');&amp;#10;  execute_trigger('ON_MODULE');&amp;#10;  execute_trigger('SHARED');&amp;#10;END;"/>
 </FormModule></Module>"""
 
         /** The uses of Forms names of an index, counted by entity kind, status, reason and roles. */

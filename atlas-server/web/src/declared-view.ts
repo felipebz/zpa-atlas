@@ -70,8 +70,9 @@ export function memberType(member: Member): string | null {
   return ["PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "ATTRIBUTE", "COLUMN"].includes(member.entity.kind) ? member.declared?.type ?? null : null;
 }
 
-/** The kinds whose declared type the file page's popover shows. */
-const TYPED_KINDS = ["LOCAL_VARIABLE", "LOCAL_CONSTANT", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "PARAMETER", "RECORD_FIELD", "ATTRIBUTE"];
+/** The kinds whose declared type the file page's popover shows (a Forms item's or parameter's as `CHAR 5`, `NUMBER`). */
+const TYPED_KINDS = ["LOCAL_VARIABLE", "LOCAL_CONSTANT", "PACKAGE_VARIABLE", "PACKAGE_CONSTANT", "PARAMETER", "RECORD_FIELD", "ATTRIBUTE",
+  "FORMS_ITEM", "FORMS_PARAMETER"];
 
 /**
  * A variable's, constant's, parameter's or field's declaration in one line, as the popover shows it: its type, then

@@ -94,7 +94,7 @@ internal class ColumnSources(
             return ColumnSource(reference, alias ?: written.name, null, viewLike = true, viewColumns = factoring?.let { withColumns(statement, it) },
                 query = factoring?.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION), listed = factoring?.let { withList(it) }?.ifEmpty { null }, alias = alias)
         }
-        if (written.link == null && written.name == "DUAL" && (written.schema == null || written.schema == "SYS")) {
+        if (written.isDual) {
             return ColumnSource(reference, alias ?: written.name, null, viewLike = true, viewColumns = setOf("DUMMY"), listed = listOf("DUMMY"), alias = alias)
         }
         val target = statement.targets[reference] ?: return ColumnSource(reference, alias ?: written.name, null, viewLike = false, viewColumns = null, alias = alias)

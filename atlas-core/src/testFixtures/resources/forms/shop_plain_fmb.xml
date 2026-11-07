@@ -10,6 +10,7 @@
          <Item Name="BARE_STATUS" DatabaseItem="false" MaximumLength="8"/>
          <Item Name="ONLY_HERE" DatabaseItem="false" MaximumLength="7"/>
          <Item Name="DUP" DatabaseItem="false" MaximumLength="12"/>
+         <Item Name="STATUS_IMAGE" ItemType="Image" DatabaseItem="false"/>
       </Block>
       <Block Name="INFO" DatabaseBlock="false">
          <Item Name="DUP" DatabaseItem="false" MaximumLength="12"/>
@@ -23,6 +24,8 @@
          <Trigger Name="ON-SELECT" TriggerText="NULL;"/>
       </Block>
       <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="DECLARE&amp;#10;  CURSOR c_ord IS SELECT status FROM orders WHERE order_id = 1;&amp;#10;  r_ord orders%ROWTYPE;&amp;#10;BEGIN&amp;#10;  SELECT status INTO :ctrl.short_status FROM orders WHERE order_id = 1;&amp;#10;  OPEN c_ord;&amp;#10;  FETCH c_ord INTO :ctrl.short_status;&amp;#10;  CLOSE c_ord;&amp;#10;  :ctrl.short_status := r_ord.status;&amp;#10;  :ctrl.short_status := NVL(r_ord.status, '-');&amp;#10;  SELECT status INTO :ctrl.default_status FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :ctrl.wide_status FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :ctrl.count_id FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :ctrl.status_list FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :ctrl.bare_status FROM orders WHERE order_id = 1;&amp;#10;  read_status(1, :ctrl.short_status);&amp;#10;  SELECT status INTO :only_here FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :dup FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :nope.z FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :parameter.p_status FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :global.last_status FROM orders WHERE order_id = 1;&amp;#10;  SELECT status INTO :system.message_level FROM orders WHERE order_id = 1;&amp;#10;END;"/>
+      <ProgramUnit Name="READ_ONE" ProgramUnitType="Function" ProgramUnitText="FUNCTION read_one RETURN varchar2 IS&amp;#10;  l varchar2(20);&amp;#10;BEGIN&amp;#10;  SELECT status INTO l FROM orders WHERE order_id = 1;&amp;#10;  RETURN l;&amp;#10;END;"/>
+      <ProgramUnit Name="SHOW_ONE" ProgramUnitType="Procedure" ProgramUnitText="PROCEDURE show_one IS&amp;#10;  l_status varchar2(20);&amp;#10;BEGIN&amp;#10;  l_status := read_one;&amp;#10;  :ctrl.default_status := read_one;&amp;#10;  SELECT status INTO :ctrl.status_image FROM orders WHERE order_id = 1;&amp;#10;END;"/>
       <ModuleParameter Name="P_STATUS"/>
    </FormModule>
 </Module>

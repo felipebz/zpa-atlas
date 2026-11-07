@@ -235,15 +235,18 @@ internal class FormsReader(private val connection: Connection) {
 internal class FormsLines(private val connection: Connection) {
     private val pieces = HashMap<String, List<Piece>>()
 
-    /** The code line [line] of the file [path] is in, and its line there; null outside Forms code. */
-    fun codeAt(path: String, line: Int): CodeAt? {
+    /**
+     * The code line [line] of the file [path] is in, and its line there; null outside Forms code. A line of the header
+     * the module text adds before the code is its line 1, unless [header] is false: then it is in no code.
+     */
+    fun codeAt(path: String, line: Int, header: Boolean = true): CodeAt? {
         val piece = pieces.getOrPut(path) {
             connection.query(
                 """SELECT e.key, fo.code_kind, fo.code_first_line, fo.code_last_line FROM forms_object fo JOIN entity e ON e.id = fo.entity_id
                    WHERE fo.file_id = (SELECT id FROM source_file WHERE path = ?) AND fo.code_first_line IS NOT NULL ORDER BY fo.code_first_line DESC""",
                 listOf(path)
             ) { Piece(it.getString(1), it.getString(2), it.getInt(3), it.getInt(4)) }
-        }.firstOrNull { it.firstLine - 2 <= line && line <= it.lastLine } ?: return null
+        }.firstOrNull { it.firstLine - (if (header) 2 else 0) <= line && line <= it.lastLine } ?: return null
         return CodeAt(piece.key, maxOf(1, line - piece.firstLine + 1), piece.unitKind)
     }
 

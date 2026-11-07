@@ -217,6 +217,19 @@ class FormsDataBlocksTest {
         )
     }
 
+    @Test
+    fun `DUAL and SYS DUAL are no table in a block as in SQL, another schema's DUAL or one through a link is`() {
+        val root = temp.resolve("dual").createDirectories()
+        root.resolve("dual_desk_fmb.xml").writeText(DUAL_DESK)
+        val dual = temp.resolve("dual.db")
+        Indexer().index(IndexOptions(root, dual, compilationSchema = "HR", threads = 1))
+        assertThat(Fixture.query(dual, """
+            SELECT f.name FROM relation r JOIN entity f ON f.id = r.from_id WHERE r.kind = 'FORMS_BLOCK_TABLE' ORDER BY 1""")).containsExactly("LINKED", "OTHER")
+        assertThat(Fixture.query(dual, """
+            SELECT lower(o.written) FROM occurrence o WHERE o.origin = 'STATIC' AND (',' || o.roles || ',') LIKE '%,SQL_SELECT,%' ORDER BY o.id"""))
+            .containsExactly("hr.dual", "dual@lnk")
+    }
+
     /**
      * The whole Doag corpus of `frmf2xml` exports, when the build is given it (`-PdoagForms=<folder with frm2xml/>`):
      * its blocks on a table, what they do, and their items on a column.
@@ -248,6 +261,15 @@ class FormsDataBlocksTest {
 <Block Name="LISTED" QueryDataSourceName="COMPANY,EVENT_LOG"><Item Name="ID"/></Block>
 <Block Name="WRITES_LIST" QueryDataSourceName="COMPANY" DMLDataName="COMPANY c, EVENT_LOG e"><Item Name="ID"/></Block>
 <Block Name="OWNED" QueryDataSourceName="HR.COMPANY"><Item Name="ID"/></Block>
+</FormModule></Module>"""
+
+        /** A module whose blocks are on DUAL, SYS.DUAL, HR.DUAL and DUAL through a link, and whose trigger selects from the same four. */
+        const val DUAL_DESK = """<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms"><FormModule Name="DUAL_DESK">
+<Block Name="PLAIN" QueryDataSourceName="DUAL"><Item Name="DUMMY"/></Block>
+<Block Name="SYS_OWNED" QueryDataSourceName="SYS.DUAL"><Item Name="DUMMY"/></Block>
+<Block Name="OTHER" QueryDataSourceName="HR.DUAL"><Item Name="DUMMY"/></Block>
+<Block Name="LINKED" QueryDataSourceName="DUAL@LNK"><Item Name="DUMMY"/></Block>
+<Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="DECLARE&amp;#10;  v varchar2(1);&amp;#10;BEGIN&amp;#10;  SELECT dummy INTO v FROM dual;&amp;#10;  SELECT dummy INTO v FROM sys.dual;&amp;#10;  SELECT dummy INTO v FROM hr.dual;&amp;#10;  SELECT dummy INTO v FROM dual@lnk;&amp;#10;END;"/>
 </FormModule></Module>"""
     }
 }

@@ -18,7 +18,7 @@ import {declaredLine} from "./declared-view";
 import type {FormsTreeView} from "./forms";
 import {renderFormsTree} from "./forms";
 import type {CodeUnit} from "./forms-view";
-import {codePageAsk, formsName, nodeId, sameUnit, settledCode, unitKindWord, unitNode, wantedCode} from "./forms-view";
+import {codePageAsk, formsDefinition, formsName, nodeId, sameUnit, settledCode, unitKindWord, unitNode, wantedCode} from "./forms-view";
 import {codeHref, entityHref, getOrPut, langSuffix} from "./html";
 import {formatNumber, initI18n, t} from "./i18n";
 import {fileTitleParts, setPageTitle} from "./project";
@@ -374,7 +374,15 @@ async function definitionLinks(entity: EntitySummary, target: HTMLElement, decla
     // In a popover the file is not the page's: every place names its file.
     const all = places(own).map(p => ({ ...p, file: true }));
     if (all.length === 0) {
-      target.replaceChildren(el("span", "muted", t("popover.noDefinition")));
+      // An item or a parameter is defined by its module, not by code: its kind and its path, leading to its page.
+      const forms = formsDefinition(own);
+      if (forms === null) {
+        target.replaceChildren(el("span", "muted", t("popover.noDefinition")));
+        return;
+      }
+      const path = el("a", "mono", forms.path);
+      path.href = entityHref(own.key);
+      target.replaceChildren(el("span", null, t(forms.kindKey) + " "), path);
       return;
     }
     const list = el("ul");

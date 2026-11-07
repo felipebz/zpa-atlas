@@ -130,11 +130,16 @@ internal class IntoClauses(
      */
     fun function(node: AstNode, key: String?) {
         if (node.type != PlSqlGrammar.FUNCTION_DECLARATION && node.type != PlSqlGrammar.CREATE_FUNCTION) return
-        functions[node] = returnKey(key ?: localKey(node.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: return, true))
+        val returns = returnKey(key ?: localKey(node.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: return, true))
+        functions[node] = returns
+        if (key?.startsWith(FORMS_PREFIX) == true) moduleFunctions += returns
     }
 
     /** The functions of the file, by their declaration: the key of what each returns ([returnKey]). */
     private val functions = IdentityHashMap<AstNode, String>()
+
+    /** What the function program units of the Forms module the file is return ([returnKey]): their calls are followed as a routine's. */
+    private val moduleFunctions = HashSet<String>()
 
     /** The nested functions the calls of the file name, by the call: the key of what each returns. */
     private val localFunctions = IdentityHashMap<AstNode, String>()
@@ -548,7 +553,7 @@ internal class IntoClauses(
     /**
      * The calls of functions in [value], not counting those inside another call's arguments: each with the key of what
      * the function returns ([returnKey]). A function is a routine call the index resolves (with or without an argument
-     * list) or a nested function of the file.
+     * list), a nested function of the file or a function program unit of the Forms module the file is.
      */
     private fun resultCalls(value: AstNode, called: Map<SourceSpan, OccurrenceFact>): List<Pair<AstNode, String>> {
         val result = ArrayList<Pair<AstNode, String>>()
@@ -559,7 +564,7 @@ internal class IntoClauses(
                     called[spanOf(node)]?.takeIf { node.parentOrNull?.type != PlSqlGrammar.METHOD_CALL || node.parentOrNull?.firstChild !== node }?.entityKey
                 else -> null
             }
-            if (key != null && (key.startsWith(LOCAL_PREFIX) || ROUTINE_KEY.containsMatchIn(key))) {
+            if (key != null && (key.startsWith(LOCAL_PREFIX) || ROUTINE_KEY.containsMatchIn(key) || returnKey(key) in moduleFunctions)) {
                 result += node to (if (key.startsWith(LOCAL_PREFIX)) key else returnKey(key))
                 return
             }

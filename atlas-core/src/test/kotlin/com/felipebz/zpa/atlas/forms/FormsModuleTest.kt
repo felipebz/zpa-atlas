@@ -242,6 +242,7 @@ class FormsModuleTest {
             "CTRL.BARE_STATUS TEXT_ITEM CHAR 8 null",
             "CTRL.ONLY_HERE TEXT_ITEM CHAR 7 null",
             "CTRL.DUP TEXT_ITEM CHAR 12 null",
+            "CTRL.STATUS_IMAGE IMAGE CHAR 30 null",
             "INFO.DUP TEXT_ITEM CHAR 12 null",
             "ORDERS.ORDER_ID TEXT_ITEM NUMBER 10 null",
             "ORDERS.STATUS TEXT_ITEM CHAR 4 null",

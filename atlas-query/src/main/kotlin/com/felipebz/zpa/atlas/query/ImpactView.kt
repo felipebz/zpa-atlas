@@ -42,8 +42,8 @@ data class ImpactEntity(val key: String, val kind: String, val display: String?,
 
 /**
  * One node of an [ImpactView]: [entity] an index into [ImpactView.entities], or for a file node [path] into
- * [ImpactView.paths], with [uses] and [firstLine] as in [ImpactNode]. [owner] is the package or type the node belongs
- * to (an index into [ImpactView.entities]), null for standalone code, whose [schema] is given instead.
+ * [ImpactView.paths], with [uses] and [firstLine] as in [ImpactNode]. [owner] is the package, type or Forms module the
+ * node belongs to (an index into [ImpactView.entities]), null for standalone code, whose [schema] is given instead.
  */
 @Serializable
 data class ImpactViewNode(
@@ -123,7 +123,7 @@ internal class ImpactViewBuilder(private val connection: Connection) {
         )
     }
 
-    /** For each of [keys], the package or type it belongs to (its nearest such ancestor, or null) and its schema. */
+    /** For each of [keys], the package, type or Forms module it belongs to (its nearest such ancestor, or null) and its schema. */
     private fun owners(keys: List<String>): Map<String, Pair<EntitySummary?, String?>> {
         if (keys.isEmpty()) return emptyMap()
         val found = HashMap<String, Pair<EntitySummary?, String?>>()
@@ -134,9 +134,9 @@ internal class ImpactViewBuilder(private val connection: Connection) {
                    SELECT n.key, p.id, p.kind FROM n JOIN entity c ON c.id = n.id JOIN entity p ON p.id = c.parent_id
                    UNION ALL
                    SELECT up.key, p.id, p.kind FROM up JOIN entity c ON c.id = up.id JOIN entity p ON p.id = c.parent_id
-                   WHERE up.kind NOT IN ('PACKAGE', 'TYPE'))
+                   WHERE up.kind NOT IN ('PACKAGE', 'TYPE', 'FORMS_MODULE'))
                SELECT n.key, n.schema, o.key, o.kind, o.display, o.external, o.name
-               FROM n LEFT JOIN up ON up.key = n.key AND up.kind IN ('PACKAGE', 'TYPE') LEFT JOIN entity o ON o.id = up.id""",
+               FROM n LEFT JOIN up ON up.key = n.key AND up.kind IN ('PACKAGE', 'TYPE', 'FORMS_MODULE') LEFT JOIN entity o ON o.id = up.id""",
             listOf(json(keys))
         ) {
             val owner = it.getString(3)?.let { key -> EntitySummary(key, it.getString(4), it.getString(5), it.getInt(6) == 1, it.getString(7)) }

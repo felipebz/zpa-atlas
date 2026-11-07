@@ -8,6 +8,7 @@ import {
     filterTree,
     firstUnit,
     formsCrumbs,
+    formsDefinition,
     formsName,
     globalUseRows,
     groupId,
@@ -19,6 +20,7 @@ import {
     sameUnit,
     settledCode,
     unitKindWord,
+    unitLines,
     unitNode,
     visibleRows,
     wantedCode
@@ -125,6 +127,22 @@ describe("Forms names", () => {
     expect(codeUnitName("forms:DEMO0004/STEUERBLOCK/PB_EXIT/WHEN-BUTTON-PRESSED")).toBe("WHEN-BUTTON-PRESSED");
     expect(codeUnitName("forms:DEMO0004/STEUERBLOCK/POST-QUERY#2")).toBe("POST-QUERY");
     expect(codeUnitName("forms:DEMO0004/PK_ACCORDION")).toBe("PK_ACCORDION");
+  });
+
+  it("keeps a snippet inside the use's unit in Forms code, and every line elsewhere", () => {
+    const pre = { key: "forms:DATA_DESK/PRE-FORM", line: 1 };
+    const unit = (line: number) => ({ key: "forms:DATA_DESK/EVENTS/ON-UPDATE", line });
+    const lines = [{ number: 40, code: pre }, { number: 41, code: null }, { number: 42, code: unit(1) }, { number: 43, code: unit(2) }];
+    expect(unitLines(lines, 42).map(l => l.number)).toEqual([42, 43]);
+    expect(unitLines([{ number: 7 }, { number: 8 }], 8).map(l => l.number)).toEqual([7, 8]);
+  });
+
+  it("says of an item and a parameter their kind and path, and nothing of a global or other objects", () => {
+    const code = { kind: "FORMS_ITEM", display: "DATA_DESK/EVENTS/CODE", formsItem: { database: true, kind: "TEXT_ITEM", columnName: "",
+      read: true, insertWrite: true, updateWrite: true } };
+    expect(formsDefinition(code)).toEqual({ kindKey: "formsItemKind.TEXT_ITEM", path: "DATA_DESK/EVENTS/CODE" });
+    expect(formsDefinition({ kind: "FORMS_PARAMETER", display: "DATA_DESK/P_MODE" })).toEqual({ kindKey: "popover.formsParameter", path: "DATA_DESK/P_MODE" });
+    expect(formsDefinition({ kind: "FORMS_GLOBAL", display: ":GLOBAL.ROUTE_USER" })).toBeNull();
   });
 });
 
@@ -296,6 +314,17 @@ describe("a data block's and an item's data", () => {
       { operationKey: "formsOperation.DELETE", stateKey: "formsOperationState.DONE", trigger: null }
     ]);
     expect([view.where, view.orderBy]).toEqual([null, null]);
+  });
+
+  it("says an operation replaced by the module's trigger is the module's", () => {
+    const onInsert = forms("DATA_DESK/ON-INSERT", "FORMS_TRIGGER", "DATA_DESK/ON-INSERT");
+    const view = blockView({
+      source: { type: "TABLE", name: "EVENT_LOG", entity: eventLog }, target: { type: "TABLE", name: "EVENT_LOG", entity: eventLog },
+      operations: [{ operation: "INSERT", state: "REPLACED", trigger: onInsert }, { operation: "UPDATE", state: "REPLACED", trigger: onUpdate }],
+      where: "", orderBy: ""
+    });
+    expect(view.operations.map(o => [o.stateKey, o.trigger])).toEqual([
+      ["formsOperationState.REPLACED_BY_MODULE", onInsert], ["formsOperationState.REPLACED", onUpdate]]);
   });
 
   it("names a source that is no table as written, with its type, and keeps WHERE and ORDER BY as written", () => {

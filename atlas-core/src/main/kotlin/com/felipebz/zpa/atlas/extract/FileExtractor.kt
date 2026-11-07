@@ -547,7 +547,8 @@ class FileExtractor internal constructor(
         when (node.type) {
             PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION,
             PlSqlGrammar.CREATE_PROCEDURE, PlSqlGrammar.CREATE_FUNCTION -> {
-                val key = subprogramAt(node)
+                // A procedure or function program unit of a Forms module is its unit: the unit's entity.
+                val key = subprogramAt(node) ?: context.container.takeIf { forms != null && node.parentOrNull?.type == PlSqlGrammar.COMPILATION_UNIT }
                 key?.let { current = context.inside(it) }
                 if (context.dynamic == null) {
                     places.routine(node, current)
