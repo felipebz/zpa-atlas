@@ -71,6 +71,13 @@ class IndexArguments {
     @Parameter(names = ["--compilation-schema"], description = "Schema in which analyzed units without an explicit schema compile (case-insensitive; \"Name\" for an exact case)")
     var compilationSchema: String = ""
 
+    @Parameter(
+        names = ["--schema-paths"],
+        description = "Schemas of the files by path, as 'pattern=SCHEMA,…': globs relative to --sources with / separators, the first match wins; " +
+            "a unit written without an owner compiles in its file's schema, else in --compilation-schema"
+    )
+    var schemaPaths: String = ""
+
     @Parameter(names = ["--database-version"], description = "Target database version for DBMS_DB_VERSION in conditional compilation, e.g. 19 or 11.2 (default: the version of --oracle-url, else none)")
     var databaseVersion: String = ""
 

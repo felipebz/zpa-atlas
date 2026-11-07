@@ -98,7 +98,8 @@ internal object IncrementalRule {
     private fun omittedCallables(snapshot: ProjectSnapshot): Set<String> = try {
         val result = Rendering.field(snapshot, "preparationResult")!!
         val index = result.javaClass.getMethod("getIndex").invoke(result)
-        (Rendering.field(index, "omittedStandaloneCallables") as Set<*>).mapTo(HashSet()) { Rendering().render(it) }
+        // The root index keeps its derived maps in one `tables` object, shared with its schema views.
+        (Rendering.field(Rendering.field(index, "tables")!!, "omittedStandaloneCallables") as Set<*>).mapTo(HashSet()) { Rendering().render(it) }
     } catch (_: Exception) {
         setOf(UNREADABLE)
     }

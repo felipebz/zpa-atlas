@@ -21,6 +21,7 @@ object Stats {
                     UNION ALL SELECT 'zpa_version', zpa_version FROM run
                     UNION ALL SELECT 'metadata', coalesce(metadata_origin, '(none)') FROM run
                     UNION ALL SELECT 'compilation_schema', coalesce(compilation_schema, '(none)') FROM run
+                    UNION ALL SELECT 'schema_paths', coalesce(schema_paths, '(none)') FROM run
                     UNION ALL SELECT 'source_encoding', source_encoding FROM run
                     UNION ALL SELECT 'database_version', coalesce(database_version, '(none)') FROM run
                     UNION ALL SELECT 'database_version_origin', coalesce(database_version_origin, '(none)') FROM run

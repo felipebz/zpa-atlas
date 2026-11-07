@@ -122,7 +122,7 @@ internal class IncrementalRun private constructor(
             onItsOwnThread("incremental catalog") {
                 val started = System.nanoTime()
                 val snapshot = context.createSnapshot()
-                val catalog = DeclarationCatalog(snapshot, options.compilationSchema)
+                val catalog = DeclarationCatalog(snapshot, options.fileSchemas)
                 val built = System.nanoTime()
                 val digests = catalog.digests(paths)
                 phases?.notes?.add("Plan snapshot and catalog built on their own thread in ${(built - started) / 1_000_000} ms, " +
@@ -185,6 +185,7 @@ internal class IncrementalRun private constructor(
             "ZPA version" to Indexer.version("zpa"),
             "atlas or ZPA build" to CODE,
             "--compilation-schema" to options.compilationSchema.orEmpty(),
+            "--schema-paths" to options.fileSchemas.paths.orEmpty(),
             "--encoding" to options.encoding,
             "--extensions" to options.extensions.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotEmpty() }.sorted().joinToString(","),
             "conditional compilation (--database-version, --ccflags)" to Rendering().render(options.conditionalCompilation),

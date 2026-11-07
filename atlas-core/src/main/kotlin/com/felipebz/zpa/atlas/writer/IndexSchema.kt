@@ -50,6 +50,8 @@ internal fun tableDdl(): List<String> = listOf(
         source_encoding TEXT NOT NULL,
         metadata_origin TEXT NULL,
         compilation_schema TEXT NULL,
+        -- `--schema-paths`: `pattern=SCHEMA,…`, the first pattern matching a file giving its schema.
+        schema_paths TEXT NULL,
         database_version TEXT NULL,
         database_version_origin TEXT NULL CHECK (database_version_origin IN ('OPTION', 'DATABASE', 'JDBC')),
         ccflags TEXT NULL,

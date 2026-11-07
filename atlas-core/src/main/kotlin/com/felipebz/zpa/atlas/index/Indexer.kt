@@ -7,9 +7,7 @@ package com.felipebz.zpa.atlas.index
 
 import com.felipebz.zpa.api.PlSqlFile
 import com.felipebz.zpa.api.checks.PlSqlCheck
-import com.felipebz.zpa.api.project.ProjectExternalContext
 import com.felipebz.zpa.api.project.ProjectExternalRelation
-import com.felipebz.zpa.api.project.ProjectIdentifier
 import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionaryKeys
@@ -46,6 +44,11 @@ data class IndexOptions(
     val extensions: List<String> = DEFAULT_EXTENSIONS,
     /** Exact dictionary name of the schema unqualified units compile in, or null. */
     val compilationSchema: String? = null,
+    /**
+     * `--schema-paths`: `pattern=SCHEMA,…`, the schema of the files each glob matches, relative to [sources] with `/`
+     * separators; the first match wins. Blank for none.
+     */
+    val schemaPaths: String = "",
     val dictionary: AtlasDictionary = AtlasDictionary.NONE,
     val threads: Int = Runtime.getRuntime().availableProcessors(),
     /** `auto` (per file: strict UTF-8, else windows-1252) or a charset name forced for every file. */
@@ -65,6 +68,9 @@ data class IndexOptions(
     /** The readers of Forms modules: a file one of them claims is read by it, whatever [extensions] says. */
     val readers: FormsModuleReaders = FormsModuleReaders.BUILT_IN
 ) {
+    /** The schema each file compiles in, from [compilationSchema] and [schemaPaths]: zpa's rule, for the whole run. */
+    val fileSchemas: FileSchemas by lazy { FileSchemas.of(sources, compilationSchema, schemaPaths) }
+
     companion object {
         /** The default of zpa-cli `--extensions`. */
         val DEFAULT_EXTENSIONS = "sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps".split(',')
@@ -243,6 +249,7 @@ class Indexer internal constructor(
                         sourceEncoding = SourceDecoding.validate(options.encoding),
                         metadataOrigin = dictionary.metadata.origin.orElse(null),
                         compilationSchema = options.compilationSchema,
+                        schemaPaths = options.fileSchemas.paths,
                         databaseVersion = options.conditionalCompilation.databaseVersion?.let { ConditionalCompilationText.version(it) },
                         databaseVersionOrigin = options.databaseVersionOrigin?.takeIf { options.conditionalCompilation.databaseVersion != null }?.name,
                         ccflags = ConditionalCompilationText.flags(options.conditionalCompilation.flags),
@@ -295,13 +302,13 @@ class Indexer internal constructor(
 
         // The project is the database sources: a module's program units are its own, never names of the database.
         val database = sources.filter { it.forms == null }
+        // One context for the run: the index is prepared with the files' schemas, and the scan keeps them.
+        val extractor = ProjectDeclarationExtractor(PlSqlConfiguration(StandardCharsets.UTF_8, true, options.conditionalCompilation))
         val prepared = ProjectAnalysisContext.prepared(
-            ProjectIndexPreparation(ProjectDeclarationExtractor(PlSqlConfiguration(StandardCharsets.UTF_8, true, options.conditionalCompilation)))
+            ProjectIndexPreparation.withSchemas(extractor, options.fileSchemas.context)
                 .prepare(database.map { source -> ProjectSource(FileId(source.relativePath), ProjectSourceReader { source.text }) })
         )
-        val compilationSchema = options.compilationSchema?.let { ProjectIdentifier.fromSource("\"$it\"") }
-        val context = if (!options.dictionary.isAvailable && compilationSchema == null) prepared
-        else prepared.withExternalContext(ProjectExternalContext.of(options.dictionary.metadata, compilationSchema))
+        val context = if (options.dictionary.isAvailable) prepared.withMetadata(options.dictionary.metadata) else prepared
 
         val scanner = AstScanner(emptyList(), null, true, StandardCharsets.UTF_8, context, options.conditionalCompilation)
         val planCatalog = if (incremental) IncrementalRun.catalog(options, context, sources.map { it.relativePath }, phases) else null
@@ -310,7 +317,7 @@ class Indexer internal constructor(
         phases?.start(PhaseTimes.TYPE_MEMBERS)
         for (source in database) {
             if (ObjectTypeMembers.MAY_SPECIFY_OBJECT.containsMatchIn(source.text)) {
-                scanner.scanFile(source, listOf(typeMembers.collector(options.compilationSchema)), source.relativePath)
+                scanner.scanFile(source, listOf(typeMembers.collector(source.relativePath, options.fileSchemas)), source.relativePath)
             }
         }
         val hashes = sources.associate { it.relativePath to it.sha256 }
@@ -324,7 +331,7 @@ class Indexer internal constructor(
         val toWalk = if (run == null) sources else sources.filter { it.relativePath in run.walk }
         phases?.start(PhaseTimes.FILE_WALKS)
         phases?.walkThreads = options.threads.coerceAtLeast(1)
-        val catalogHolder = CatalogHolder(options.compilationSchema)
+        val catalogHolder = CatalogHolder(options.fileSchemas)
         val (walkedFacts, failedWalks) = walk(options, phases, scanner, typeMembers, catalogHolder, toWalk)
         val facts = sources.map { walkedFacts[it.relativePath] ?: run!!.cachedFacts(it.relativePath) }
         val failedFiles = failedWalks +
@@ -357,7 +364,7 @@ class Indexer internal constructor(
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
         fun extractor(source: Source) = FileExtractor(
             source.relativePath, source.sha256, source.size, source.charset.name(), source.lineCount,
-            options.dictionary, options.compilationSchema, catalogHolder::get,
+            options.dictionary, options.fileSchemas, catalogHolder::get,
             jsonBuiltIn = (options.conditionalCompilation.databaseVersion?.version ?: 0) >= JSON_BUILT_IN_VERSION,
             typeMembers = typeMembers, strings = strings, forms = source.forms
         )
@@ -444,7 +451,7 @@ class Indexer internal constructor(
     fun readFactsCache(output: Path): PendingFactsCache = IncrementalRun.readCache(output)
 
     /** The catalog of the run's snapshot, built once by the first file walk (every walk sees the same snapshot). */
-    private class CatalogHolder(private val compilationSchema: String?) {
+    private class CatalogHolder(private val schemas: FileSchemas) {
         @Volatile var snapshot: ProjectSnapshot? = null
         @Volatile var catalog: DeclarationCatalog? = null
 
@@ -455,7 +462,7 @@ class Indexer internal constructor(
                 check(snapshot === current) { "Every file of a run must see the same project snapshot" }
                 return existing
             }
-            return DeclarationCatalog(current, compilationSchema).also {
+            return DeclarationCatalog(current, schemas).also {
                 snapshot = current
                 catalog = it
             }

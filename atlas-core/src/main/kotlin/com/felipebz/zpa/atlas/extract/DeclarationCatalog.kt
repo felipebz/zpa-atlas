@@ -24,7 +24,7 @@ data class DeclarationOccurrence(
  * Subprogram keys carry the written signature; spec and body declarations are distinct entities, the body one
  * suffixed with `@BODY` and linked by `IMPLEMENTS` when the snapshot correlates it with exactly one specification.
  */
-class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchema: String?) {
+class DeclarationCatalog(snapshot: ProjectSnapshot, private val fileSchemas: FileSchemas) {
     val entities = ArrayList<EntityFact>()
     val relations = ArrayList<RelationFact>()
     val coverage = ArrayList<CoverageFact>()
@@ -131,8 +131,8 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
 
     fun schemaAndName(fileId: String, segments: List<String>): Pair<String, List<String>> {
         if (segments.size >= 2) return segments.first() to segments.drop(1)
-        if (compilationSchema != null) return compilationSchema to segments
-        note(fileId, CoverageFact("SCHEMA_UNKNOWN", "No written owner and no --compilation-schema: keys use the placeholder schema '$UNKNOWN_SCHEMA'"))
+        fileSchemas.of(fileId)?.let { return it to segments }
+        note(fileId, CoverageFact("SCHEMA_UNKNOWN", "No written owner, no --schema-paths pattern matching the file and no --compilation-schema: keys use the placeholder schema '$UNKNOWN_SCHEMA'"))
         return UNKNOWN_SCHEMA to segments
     }
 

@@ -11,7 +11,8 @@ zpa-atlas stats atlas.db
 | Option | What it does |
 |---|---|
 | `--sources`, `--out` | The folder to read, and the index file to write. |
-| `--compilation-schema` | The schema of the code that does not name its owner. Without it, keys show `~` for that schema. |
+| `--compilation-schema` | The schema of the code that does not name its owner. Without it (and without a `--schema-paths` match), keys show `~` for that schema. |
+| `--schema-paths` | When the code of several schemas sits in one folder: `pattern=SCHEMA,…`, globs relative to `--sources` with `/` separators (`**` any folders, `*` any characters but `/`). The first pattern that matches a file gives the schema of its code that does not name its owner; other files keep `--compilation-schema`. The same syntax as zpa-cli `--schema-paths` and `sonar.zpa.schemaPaths`. Example: `billing/**=BILLING,shop/**=SHOP`. |
 | `--extensions` | The files to read. Default: `sql,pkg,pks,pkb,fun,pcd,tgg,prc,tpb,trg,typ,tab,tps`. Forms modules (`_fmb.xml`) are read whatever it says: see [Oracle Forms modules](forms.md). |
 | `--encoding` | `auto` (default: each file read as UTF-8, else windows-1252), or one charset for every file. |
 | `--database-version`, `--ccflags` | The values conditional compilation (`$IF`) sees, as on the database. The version defaults to the one of `--oracle-url`. |
@@ -58,6 +59,7 @@ index: ../data/hr.db            # required: the index file to write
 extensions: [sql, pks, pkb]
 encoding: auto
 compilationSchema: HR
+schemaPaths: "billing/**=BILLING,shop/**=SHOP"
 databaseVersion: "19"
 ccflags: "debug:TRUE, level:2"
 nlsLengthSemantics: BYTE

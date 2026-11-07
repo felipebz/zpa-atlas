@@ -9,6 +9,7 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.checks.PlSqlCheck
+import com.felipebz.zpa.api.project.ProjectNamedTypeResolution
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -44,9 +45,13 @@ class ObjectTypeMembers {
         return result
     }
 
-    /** Reads the object type specifications of one file. [defaultSchema] is the schema of names written without one. */
-    fun collector(defaultSchema: String?): PlSqlCheck = object : PlSqlCheck() {
+    /**
+     * Reads the object type specifications of the file [fileId]; [schemas] gives the schema of names written without one.
+     * A supertype is the type zpa resolves `UNDER` to, which may compile in another schema than the subtype.
+     */
+    fun collector(fileId: String, schemas: FileSchemas): PlSqlCheck = object : PlSqlCheck() {
         override fun visitFile(node: AstNode) {
+            val defaultSchema = schemas.of(fileId)
             for (create in node.getDescendants(PlSqlGrammar.CREATE_TYPE)) {
                 val definition = create.getFirstChildOrNull(PlSqlGrammar.OBJECT_TYPE_DEFINITION) ?: continue
                 val key = typeKey(create.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME), defaultSchema) ?: continue
@@ -56,9 +61,21 @@ class ObjectTypeMembers {
                     .mapNotNull { it.getFirstChildOrNull(PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION) }
                     .mapNotNull { it.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) }.map { normalizeIdentifier(it.tokenOriginalValue) }.toSet()
                 val supertype = definition.takeIf { it.firstChild.type == PlSqlKeyword.UNDER }
-                    ?.let { typeKey(it.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME), defaultSchema) }
+                    ?.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)
+                    ?.let { resolvedSupertype(it, schemas) ?: typeKey(it, defaultSchema) }
                 specs[key] = Spec(attributes, methods, supertype)
             }
+        }
+
+        /** The key of the project type zpa resolves [unitName] to, keyed as the catalog keys it; null when none is resolved. */
+        private fun resolvedSupertype(unitName: AstNode, schemas: FileSchemas): String? {
+            val written = unitName.getChildren(PlSqlGrammar.IDENTIFIER_NAME).map { it.tokenOriginalValue }.ifEmpty { return null }
+            val resolution = projectAnalysis().snapshot.resolveNamedType(qualifiedName(written))
+            if (resolution.status != ProjectNamedTypeResolution.Status.RESOLVED) return null
+            val declaration = resolution.declaration.get()
+            val names = declaration.qualifiedName.segments.map { normalizeIdentifier(it.originalSpelling) }
+            val schema = if (names.size >= 2) names[names.size - 2] else schemas.of(declaration.fileId) ?: UNKNOWN_SCHEMA
+            return dbKey(schema, names.last())
         }
     }
 

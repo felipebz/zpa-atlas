@@ -26,7 +26,7 @@ class ViewWriteChainTest {
         DriverManager.getConnection("jdbc:sqlite:$db").use { connection ->
             connection.createStatement().use { s ->
                 (AtlasWriter.tableDdl() + AtlasWriter.indexDdl()).forEach { s.execute(it) }
-                s.execute("INSERT INTO run VALUES (1, ${AtlasWriter.SCHEMA_VERSION}, 'a', 'z', '.', 'UTF-8', NULL, 'HR', NULL, NULL, NULL, 'BYTE', 't0', 't1')")
+                s.execute("INSERT INTO run VALUES (1, ${AtlasWriter.SCHEMA_VERSION}, 'a', 'z', '.', 'UTF-8', NULL, 'HR', NULL, NULL, NULL, NULL, 'BYTE', 't0', 't1')")
                 s.execute("INSERT INTO source_file VALUES (1, 'f.sql', 'DB_SOURCE', 'h', 0, NULL, 'OK', 0, 'UTF-8')")
                 s.execute("INSERT INTO unit VALUES (1, 1, NULL, 'SQL_STATEMENT', 'u', 1, 0, 9, 0, NULL, NULL)")
                 val entities = listOf(

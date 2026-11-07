@@ -53,6 +53,7 @@ class ProjectFile(
             "extensions" to "--extensions",
             "encoding" to "--encoding",
             "compilationSchema" to "--compilation-schema",
+            "schemaPaths" to "--schema-paths",
             "databaseVersion" to "--database-version",
             "ccflags" to "--ccflags",
             "nlsLengthSemantics" to "--nls-length-semantics",

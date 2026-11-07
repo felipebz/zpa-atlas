@@ -14,6 +14,8 @@ data class RunInfo(
     val sourceEncoding: String,
     val metadataOrigin: String?,
     val compilationSchema: String?,
+    /** `--schema-paths` as `pattern=SCHEMA,…`, or null. */
+    val schemaPaths: String? = null,
     /** The target database version of conditional compilation (`11.2`), or null. */
     val databaseVersion: String? = null,
     /** `OPTION`, `DATABASE` or `JDBC` with a [databaseVersion], else null. */

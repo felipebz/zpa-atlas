@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.cli
 
 import com.beust.jcommander.JCommander
 import com.beust.jcommander.ParameterException
+import com.felipebz.zpa.api.project.ProjectSchemaPaths
 import com.felipebz.zpa.atlas.cli.oracle.LoadedMetadata
 import com.felipebz.zpa.atlas.cli.oracle.OracleMetadataLoader
 import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
@@ -48,9 +49,10 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
         val flags = validated("--ccflags") { ConditionalCompilationSettings.parseFlags(args.ccflags) }
         val settings = OracleSettings.from(args.oracle, ::about, environment)
         val compilationSchema = OracleSettings.compilationSchema(args)
+        val schemaPaths = args.schemaPaths.trim().also { validated("--schema-paths") { ProjectSchemaPaths.parse(sources, it) } }
         val lengthSemantics = args.nlsLengthSemantics.trim().uppercase().takeIf { it in LENGTH_SEMANTICS }
             ?: throw CliValidationException(about("--nls-length-semantics", "--nls-length-semantics must be BYTE or CHAR: ${args.nlsLengthSemantics}"))
-        CheckedIndex(sources, encoding, explicitVersion, flags, settings, compilationSchema, lengthSemantics)
+        CheckedIndex(sources, encoding, explicitVersion, flags, settings, compilationSchema, schemaPaths, lengthSemantics)
     } catch (e: CliValidationException) {
         throw CliValidationException(project?.let { inFile(it, taken, e.message.orEmpty()) } ?: e.message.orEmpty())
     }
@@ -73,7 +75,7 @@ private fun index(
     args: IndexArguments, project: ProjectFile?, phases: PhaseTimes?, indexer: Indexer, cache: PendingFactsCache?, read: Indexer.ReadSources,
     extensions: List<String>, checked: CheckedIndex, readers: FormsModuleReaders
 ): Int {
-    val (sources, encoding, explicitVersion, flags, settings, compilationSchema, lengthSemantics) = checked
+    val (sources, encoding, explicitVersion, flags, settings, compilationSchema, schemaPaths, lengthSemantics) = checked
     val oracle = settings?.let {
         phases?.start(PhaseTimes.DICTIONARY_NAMES)
         val writtenNames = SourceIdentifiers.scan(read, args.threads)
@@ -95,6 +97,7 @@ private fun index(
             output = Path.of(args.out),
             extensions = extensions,
             compilationSchema = compilationSchema,
+            schemaPaths = schemaPaths,
             dictionary = dictionary,
             threads = args.threads,
             encoding = encoding,
@@ -130,6 +133,7 @@ private data class CheckedIndex(
     val flags: Map<String, CcValue>,
     val settings: OracleSettings?,
     val compilationSchema: String?,
+    val schemaPaths: String,
     val lengthSemantics: String
 )
 
@@ -151,6 +155,7 @@ private fun IndexArguments.take(project: ProjectFile, given: Set<String>): Map<S
             "--extensions" -> extensions = value
             "--encoding" -> encoding = value
             "--compilation-schema" -> compilationSchema = value
+            "--schema-paths" -> schemaPaths = value
             "--database-version" -> databaseVersion = value
             "--ccflags" -> ccflags = value
             "--nls-length-semantics" -> nlsLengthSemantics = value

@@ -34,7 +34,7 @@ class FileExtractor internal constructor(
     private val encoding: String,
     private val lineCount: Int,
     private val dictionary: AtlasDictionary,
-    private val defaultSchema: String?,
+    private val schemas: FileSchemas,
     private val catalogOf: (ProjectSnapshot) -> DeclarationCatalog,
     /** Whether a bare `json` is always the built-in type: the run targets Oracle 21 or later. */
     private val jsonBuiltIn: Boolean = false,
@@ -45,6 +45,9 @@ class FileExtractor internal constructor(
     /** Where the units of a Forms module's text are, when the file is one; null for a database source. */
     private val forms: FormsLayout? = null
 ) : PlSqlCheck() {
+
+    /** The schema this file's units written without an owner compile in, as zpa gives it; null when none applies. */
+    private val fileSchema: String? = schemas.of(path)
 
     private val state = FileState(strings)
     private lateinit var catalog: DeclarationCatalog
@@ -94,7 +97,7 @@ class FileExtractor internal constructor(
     override fun init() {
         val snapshot = projectAnalysis().snapshot
         catalog = catalogOf(snapshot)
-        runSchemas = catalog.schemas + dictionary.schemas + listOfNotNull(defaultSchema) + setOf("SYS", "SYSTEM")
+        runSchemas = catalog.schemas + dictionary.schemas + schemas.all + setOf("SYS", "SYSTEM")
         values = PackageValues(snapshot, catalog)
         calls = CallResolver(snapshot, catalog, values, synonyms, state.entities, state.relations, runSchemas)
         types = TypeReferenceResolver(snapshot, catalog, values, resolver, synonyms, state.entities, state.relations, runSchemas)
@@ -154,7 +157,7 @@ class FileExtractor internal constructor(
                 PlSqlGrammar.RECOVERY -> {
                     state.recoveredRegions++
                     inRecovered = true
-                    state.addUnit(UnitFact(UnitKind.UNPARSED, "", null, spanOf(child), defaultSchema), partial = true)
+                    state.addUnit(UnitFact(UnitKind.UNPARSED, "", null, spanOf(child), fileSchema), partial = true)
                 }
                 PlSqlGrammar.EXECUTE_PLSQL_BUFFER -> inRecovered = false
                 PlSqlGrammar.COMPILATION_UNIT -> {
@@ -223,7 +226,7 @@ class FileExtractor internal constructor(
     fun failedFacts(catalog: DeclarationCatalog?, note: CoverageFact): FileFacts {
         if (catalog != null) this.catalog = catalog
         state.coverage += note
-        state.addUnit(UnitFact(UnitKind.UNPARSED, "", null, SourceSpan(1, 0, lineCount + 1, 0), defaultSchema), partial = true)
+        state.addUnit(UnitFact(UnitKind.UNPARSED, "", null, SourceSpan(1, 0, lineCount + 1, 0), fileSchema), partial = true)
         return build(ParseStatus.FAILED)
     }
 
@@ -248,7 +251,7 @@ class FileExtractor internal constructor(
         var formsObjects = emptyList<FormsObjectFact>()
         var formsUses = emptyList<FormsUseFact>()
         formsEntities?.let {
-            val blocks = FormsDataBlocks(forms!!, it, resolver, defaultSchema)
+            val blocks = FormsDataBlocks(forms!!, it, resolver, fileSchema)
             state.entities += it.entities
             state.relations += it.relations
             state.relations += blocks.relations
@@ -261,7 +264,7 @@ class FileExtractor internal constructor(
         }
         forms?.notes?.forEach { state.coverage += CoverageFact(it.kind, it.message) }
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
-        return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, defaultSchema, state.units, state.statements, state.occurrences,
+        return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, fileSchema, state.units, state.statements, state.occurrences,
             LinkedHashSet(state.entities).toList(), LinkedHashSet(state.relations).toList(), state.coverage, resolver.dictionaryRelations.toList(),
             synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts + state.columnTypes, docComments, usesGaps, membersGaps,
             declaredShapes, intos, state.placesLeftOut.toMap(), if (forms == null) FileKind.DB_SOURCE else FileKind.FORMS_MODULE, formsObjects, formsUses)
@@ -283,14 +286,14 @@ class FileExtractor internal constructor(
     // ---- units --------------------------------------------------------------------------------------------------
 
     private fun sqlUnit(node: AstNode, partial: Boolean) {
-        val index = state.addUnit(UnitFact(UnitKind.SQL_STATEMENT, "", null, spanOf(node), defaultSchema), partial)
-        walk(node, Context(index, partial, defaultSchema, null, null))
+        val index = state.addUnit(UnitFact(UnitKind.SQL_STATEMENT, "", null, spanOf(node), fileSchema), partial)
+        walk(node, Context(index, partial, fileSchema, null, null))
     }
 
     private fun compilationUnit(node: AstNode, partial: Boolean) {
         val unitName = node.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)
         val written = names(unitName)
-        val schema = if (written.size >= 2) written.first() else defaultSchema
+        val schema = if (written.size >= 2) written.first() else fileSchema
         val span = spanOf(node)
         // A subprogram split off by recovery is a top-level declaration named by an IDENTIFIER_NAME, not a UNIT_NAME.
         val displayName = if (unitName == null && (node.type == PlSqlGrammar.PROCEDURE_DECLARATION || node.type == PlSqlGrammar.FUNCTION_DECLARATION)) {
@@ -319,7 +322,7 @@ class FileExtractor internal constructor(
         } else {
             emptySet()
         }
-        val objectType = if (kind == UnitKind.TYPE_BODY) ObjectTypeMembers.typeKey(unitName, defaultSchema) else null
+        val objectType = if (kind == UnitKind.TYPE_BODY) ObjectTypeMembers.typeKey(unitName, fileSchema) else null
         walk(node, Context(index, partial, schema, entityKey, trigger, enclosingPackage, bodyNames, objectType))
         view = null
     }
@@ -447,12 +450,12 @@ class FileExtractor internal constructor(
         state.recoveredRegions++
         val span = spanOf(node)
         val overlapped = layout.units.filter { it.firstLine <= span.endLine && it.lastLine >= span.startLine }
-        if (overlapped.isEmpty()) state.addUnit(UnitFact(UnitKind.UNPARSED, "", null, span, defaultSchema), partial = true)
+        if (overlapped.isEmpty()) state.addUnit(UnitFact(UnitKind.UNPARSED, "", null, span, fileSchema), partial = true)
         for (part in overlapped) {
             val start = if (part.firstLine > span.startLine) SourceSpan(part.firstLine, 0, 0, 0) else span
             val end = if (part.lastLine < span.endLine) SourceSpan(0, 0, part.lastLine + 1, 0) else span
             state.addUnit(UnitFact(UnitKind.UNPARSED, part.path, formsEntities!!.keyOf(part),
-                SourceSpan(start.startLine, start.startCol, end.endLine, end.endCol), defaultSchema), partial = true)
+                SourceSpan(start.startLine, start.startCol, end.endLine, end.endCol), fileSchema), partial = true)
         }
     }
 
@@ -473,7 +476,7 @@ class FileExtractor internal constructor(
             }
         }
         val span = spanOf(node)
-        val index = state.addUnit(UnitFact(kind, unit?.path.orEmpty(), key, span, defaultSchema), partial = false)
+        val index = state.addUnit(UnitFact(kind, unit?.path.orEmpty(), key, span, fileSchema), partial = false)
         if (key != null) {
             val name = when (node.type) {
                 PlSqlGrammar.CREATE_PACKAGE, PlSqlGrammar.CREATE_PACKAGE_BODY -> node.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)
@@ -488,7 +491,7 @@ class FileExtractor internal constructor(
             unitDefinitions += UnitDefinition(key, span, node.type == PlSqlGrammar.CREATE_PACKAGE_BODY, node)
             formsDeclarations(node, key, index)
         }
-        walk(node, Context(index, false, defaultSchema, key, null))
+        walk(node, Context(index, false, fileSchema, key, null))
     }
 
     /**

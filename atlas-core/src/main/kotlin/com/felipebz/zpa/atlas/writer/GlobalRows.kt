@@ -12,7 +12,7 @@ import java.sql.PreparedStatement
 /** The rows that belong to the whole run: the run, the entities, the relations and the trigger events. */
 internal class GlobalRows(private val connection: Connection) {
     fun insertRun(run: RunInfo) {
-        prepare("INSERT INTO run(id, schema_version, atlas_version, zpa_version, sources_root, source_encoding, metadata_origin, compilation_schema, database_version, database_version_origin, ccflags, nls_length_semantics, started_at, finished_at) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?)").use {
+        prepare("INSERT INTO run(id, schema_version, atlas_version, zpa_version, sources_root, source_encoding, metadata_origin, compilation_schema, schema_paths, database_version, database_version_origin, ccflags, nls_length_semantics, started_at, finished_at) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").use {
             it.setInt(1, AtlasWriter.SCHEMA_VERSION)
             it.setString(2, run.atlasVersion)
             it.setString(3, run.zpaVersion)
@@ -20,12 +20,13 @@ internal class GlobalRows(private val connection: Connection) {
             it.setString(5, run.sourceEncoding)
             it.setNullableString(6, run.metadataOrigin)
             it.setNullableString(7, run.compilationSchema)
-            it.setNullableString(8, run.databaseVersion)
-            it.setNullableString(9, run.databaseVersionOrigin)
-            it.setNullableString(10, run.ccflags)
-            it.setString(11, run.nlsLengthSemantics)
-            it.setString(12, run.startedAt)
-            it.setString(13, run.finishedAt)
+            it.setNullableString(8, run.schemaPaths)
+            it.setNullableString(9, run.databaseVersion)
+            it.setNullableString(10, run.databaseVersionOrigin)
+            it.setNullableString(11, run.ccflags)
+            it.setString(12, run.nlsLengthSemantics)
+            it.setString(13, run.startedAt)
+            it.setString(14, run.finishedAt)
             it.executeUpdate()
         }
     }

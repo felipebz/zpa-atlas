@@ -15,8 +15,9 @@ import com.felipebz.zpa.atlas.model.Status
  * The spellings a name is looked up with, in order: with the unit schema [schema] as first segment, as written then
  * without it; else, for one or two segments with a known schema, as written then prefixed with it; else as written.
  *
- * The project index keys each declaration by the name written in its CREATE, owner included, and never applies a
- * compilation schema, so every lookup by name tries both spellings; the first that the project knows wins.
+ * zpa prepares the project with each file's schema (`--compilation-schema`, `--schema-paths`): `S.x` reaches an
+ * unowned `x` that compiles in `S`, and an unqualified name prefers the declarations of its unit's schema. The lookups
+ * by name still try both spellings, as they did when the index applied no schema; the first that the project knows wins.
  */
 internal fun nameSpellings(written: List<String>, schema: String?): List<List<String>> = when {
     schema == null -> listOf(written)

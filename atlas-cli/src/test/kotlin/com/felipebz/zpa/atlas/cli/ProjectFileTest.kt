@@ -153,7 +153,7 @@ class ProjectFileTest {
     @Test
     fun `an unknown key is refused with the known keys, at the top and under oracle`() {
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\nsorces: src")).endsWith(
-            "hr.yaml, line 3: unknown key 'sorces'; the keys are: sources, index, extensions, encoding, compilationSchema, databaseVersion, ccflags, nlsLengthSemantics, oracle, title, description, tabWidth"
+            "hr.yaml, line 3: unknown key 'sorces'; the keys are: sources, index, extensions, encoding, compilationSchema, schemaPaths, databaseVersion, ccflags, nlsLengthSemantics, oracle, title, description, tabWidth"
         )
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\noracle:\n  urll: x")).endsWith(
             "hr.yaml, line 4: unknown key 'oracle.urll'; the keys are: oracle.url, oracle.user, oracle.passwordEnv, oracle.schemas, oracle.relations"
@@ -185,7 +185,7 @@ class ProjectFileTest {
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\nextensions: []")).endsWith("hr.yaml, line 3: extensions has no value")
         assertThat(refusal("hr.yaml", "sources: src\nindex: x.db\ncompilationSchema: \"\"")).endsWith("hr.yaml, line 3: compilationSchema has no value")
         assertThat(refusal("hr.yaml", "index: x.db")).endsWith("hr.yaml: the key 'sources' is required")
-        assertThat(refusal("hr.yaml", "- sources")).endsWith("hr.yaml: a project file is a map of keys: sources, index, extensions, encoding, compilationSchema, databaseVersion, ccflags, nlsLengthSemantics, oracle, title, description, tabWidth")
+        assertThat(refusal("hr.yaml", "- sources")).endsWith("hr.yaml: a project file is a map of keys: sources, index, extensions, encoding, compilationSchema, schemaPaths, databaseVersion, ccflags, nlsLengthSemantics, oracle, title, description, tabWidth")
         assertThat(refusal("hr.yaml", "sources: src\nsources: other\nindex: x.db")).contains("hr.yaml, line 2: Duplicate key 'sources'")
     }
 
