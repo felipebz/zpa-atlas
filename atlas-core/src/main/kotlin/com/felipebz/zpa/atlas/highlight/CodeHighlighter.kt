@@ -38,31 +38,39 @@ object CodeHighlighter {
      * `run.database_version`); null when the lexer cannot read the text.
      */
     fun spans(text: String, ccflags: String? = null, databaseVersion: String? = null): List<HighlightSpan>? {
-        val settings = try {
-            ConditionalCompilationSettings.of(ccflags, databaseVersion)
-        } catch (_: IllegalArgumentException) {
-            ConditionalCompilationSettings.NONE
-        }
-        val tokens = try {
-            PlSqlLexer.create(PlSqlConfiguration(StandardCharsets.UTF_8, false, settings)).lex(text)
-        } catch (_: Exception) {
-            return null
-        } catch (_: StackOverflowError) {
-            return null
-        }
+        val tokens = tokens(text, settings(ccflags, databaseVersion)) ?: return null
         val spans = ArrayList<HighlightSpan>()
-        for (token in tokens) {
-            for (trivia in token.trivia) {
-                if (trivia.isComment) {
-                    val comment = trivia.token
-                    spans += span(comment, if (comment.value.startsWith("/**")) Highlight.DOC_COMMENT else Highlight.COMMENT)
-                }
-            }
-            val type = token.type
-            if (type is PlSqlTokenType && type !in SKIPPED) spans += span(token, Highlight.LITERAL)
-            if (type is PlSqlKeyword) spans += span(token, Highlight.KEYWORD)
-        }
+        for (token in tokens) addSpans(token, spans)
         return spans
+    }
+
+    /** The conditional compilation of [ccflags] and [databaseVersion]; none when they cannot be read. */
+    private fun settings(ccflags: String?, databaseVersion: String?) = try {
+        ConditionalCompilationSettings.of(ccflags, databaseVersion)
+    } catch (_: IllegalArgumentException) {
+        ConditionalCompilationSettings.NONE
+    }
+
+    /** The tokens of [text] read with [settings]; null when the lexer cannot read it. */
+    private fun tokens(text: String, settings: ConditionalCompilationSettings) = try {
+        PlSqlLexer.create(PlSqlConfiguration(StandardCharsets.UTF_8, false, settings)).lex(text)
+    } catch (_: Exception) {
+        null
+    } catch (_: StackOverflowError) {
+        null
+    }
+
+    /** Adds to [spans] the spans of [token]: its comments first, then the token itself. */
+    private fun addSpans(token: Token, spans: MutableList<HighlightSpan>) {
+        for (trivia in token.trivia) {
+            if (trivia.isComment) {
+                val comment = trivia.token
+                spans += span(comment, if (comment.value.startsWith("/**")) Highlight.DOC_COMMENT else Highlight.COMMENT)
+            }
+        }
+        val type = token.type
+        if (type is PlSqlTokenType && type !in SKIPPED) spans += span(token, Highlight.LITERAL)
+        if (type is PlSqlKeyword) spans += span(token, Highlight.KEYWORD)
     }
 
     private fun span(token: Token, highlight: Highlight) = HighlightSpan(token.line, token.column, token.endLine, token.endColumn, highlight)

@@ -11,6 +11,7 @@ import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.semantics.FieldBinding
 import com.felipebz.zpa.api.semantics.NameBinding
 import com.felipebz.zpa.atlas.model.Role
+import com.felipebz.zpa.atlas.model.SourceSpan
 import com.felipebz.zpa.atlas.model.Status
 import java.util.*
 
@@ -65,35 +66,42 @@ internal class FieldUses(
     fun record() {
         // A chain that starts with a call works on the function's result, a copy: its fields are read, never written.
         val calls = state.occurrences.filter { Role.CALL in it.roles }.mapTo(HashSet()) { it.span }
-        for (chain in chains.values) {
-            // In a type body, a name written alone or first may be an attribute read through the implicit `SELF`.
-            val first = when (chain.start.type) {
-                PlSqlGrammar.MEMBER_EXPRESSION -> chain.start.firstChild
-                PlSqlGrammar.VARIABLE_NAME -> chain.start
-                else -> null
-            }
-            val segments = listOfNotNull(first) + segmentsOf(chain.root)
-            var valueRoles: Set<Role>? = null
-            var status: Status? = null
-            for (segment in segments) {
-                when (val binding = fieldBinding(segment)) {
-                    is FieldBinding.Field -> {
-                        val declaration = binding.declaration
-                        val key = catalog.fieldAt(declaration.fileId ?: path, declaration.line, declaration.column)
-                            ?: (if (declaration.fileId == null) bodyFieldAt(declaration.line, declaration.column) else null) ?: continue
-                        val roles = valueRoles ?: (if (spanOf(chain.start) in calls) setOf(Role.READ) else roles.valueRoles(chain.start, chain.segments))
-                            .also { valueRoles = it }
-                        val decided = status ?: startStatus(chain).also { status = it }
-                        state.valueOccurrence(spanOf(segment), writtenText(segment), chain.context, chain.statementId, decided, key,
-                            if (decided == Status.UNVERIFIED) "COLUMN_NOT_EXCLUDED" else null, emptyList(), roles)
-                    }
-                    // Unknown also answers methods, sequences and package members after an undecided value: a count of
-                    // them would not count fields, so no note.
-                    is FieldBinding.Unknown, is FieldBinding.Unavailable -> Unit
-                }
-            }
+        for (chain in chains.values) recordChain(chain, calls)
+    }
+
+    /** Records the field uses of [chain]: one value occurrence for each of its segments that names a known field. */
+    private fun recordChain(chain: Chain, calls: Set<SourceSpan>) {
+        // In a type body, a name written alone or first may be an attribute read through the implicit `SELF`.
+        val first = when (chain.start.type) {
+            PlSqlGrammar.MEMBER_EXPRESSION -> chain.start.firstChild
+            PlSqlGrammar.VARIABLE_NAME -> chain.start
+            else -> null
+        }
+        val segments = listOfNotNull(first) + segmentsOf(chain.root)
+        var valueRoles: Set<Role>? = null
+        var status: Status? = null
+        for (segment in segments) {
+            // Unknown also answers methods, sequences and package members after an undecided value: a count of them
+            // would not count fields, so no note; nor is one given when unavailable.
+            val binding = fieldBinding(segment) as? FieldBinding.Field ?: continue
+            val key = fieldKey(binding) ?: continue
+            val roles = valueRoles ?: chainRoles(chain, calls).also { valueRoles = it }
+            val decided = status ?: startStatus(chain).also { status = it }
+            state.valueOccurrence(spanOf(segment), writtenText(segment), chain.context, chain.statementId, decided, key,
+                if (decided == Status.UNVERIFIED) "COLUMN_NOT_EXCLUDED" else null, emptyList(), roles)
         }
     }
+
+    /** The key of the field [binding] declares, from the catalog or, declared in this file, from the body's own types. */
+    private fun fieldKey(binding: FieldBinding.Field): String? {
+        val declaration = binding.declaration
+        return catalog.fieldAt(declaration.fileId ?: path, declaration.line, declaration.column)
+            ?: (if (declaration.fileId == null) bodyFieldAt(declaration.line, declaration.column) else null)
+    }
+
+    /** The roles of the value [chain] names: only read when it starts with a call ([calls]). */
+    private fun chainRoles(chain: Chain, calls: Set<SourceSpan>): Set<Role> =
+        if (spanOf(chain.start) in calls) setOf(Role.READ) else roles.valueRoles(chain.start, chain.segments)
 
     /** In SQL a relation's column may take the chain's first name: the field is as uncertain as that name. */
     private fun startStatus(chain: Chain): Status {

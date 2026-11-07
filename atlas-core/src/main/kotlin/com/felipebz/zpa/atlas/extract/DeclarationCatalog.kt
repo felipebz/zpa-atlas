@@ -137,94 +137,123 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val compilationSchem
     }
 
     private fun register(declaration: ProjectDeclarationView, usedKeys: MutableMap<String, Int>, snapshot: ProjectSnapshot): String? {
-        val fileId = declaration.fileId
         val role = if (declaration.role == ProjectDeclarationRole.SPECIFICATION) Role.DECLARATION else Role.DEFINITION
-        val span = declaration.sourceRange.toSpan()
-        val names = declaration.qualifiedName.segments.map { normalizeIdentifier(it.originalSpelling) }
-        val local = declaration.qualifiedName.last.originalSpelling
         return when (declaration.kind) {
-            ProjectDeclarationKind.PACKAGE, ProjectDeclarationKind.PACKAGE_BODY, ProjectDeclarationKind.SEQUENCE, ProjectDeclarationKind.STANDALONE_TYPE -> {
-                val (schema, rest) = schemaAndName(fileId, names)
-                val key = dbKey(schema, *rest.toTypedArray())
-                val kind = when (declaration.kind) {
-                    ProjectDeclarationKind.SEQUENCE -> EntityKind.SEQUENCE
-                    ProjectDeclarationKind.STANDALONE_TYPE -> EntityKind.TYPE
-                    else -> EntityKind.PACKAGE
-                }
-                entity(key, kind, schema, rest.last(), null)
-                occurrence(fileId, span, local, key, role, null)
-                if (declaration is ProjectStandaloneTypeView) attributes(declaration, key, schema, snapshot)
-                key
-            }
+            ProjectDeclarationKind.PACKAGE, ProjectDeclarationKind.PACKAGE_BODY, ProjectDeclarationKind.SEQUENCE, ProjectDeclarationKind.STANDALONE_TYPE ->
+                registerObject(declaration, role, snapshot)
             ProjectDeclarationKind.PACKAGE_TYPE, ProjectDeclarationKind.PACKAGE_SUBTYPE,
             ProjectDeclarationKind.PACKAGE_VARIABLE, ProjectDeclarationKind.PACKAGE_CONSTANT,
-            ProjectDeclarationKind.PACKAGE_EXCEPTION, ProjectDeclarationKind.PACKAGE_CURSOR -> {
-                val (schema, rest) = memberName(fileId, names)
-                val packageKey = dbKey(schema, *rest.dropLast(1).toTypedArray())
-                val key = dbKey(schema, *rest.toTypedArray())
-                val kind = when (declaration.kind) {
-                    ProjectDeclarationKind.PACKAGE_VARIABLE -> EntityKind.PACKAGE_VARIABLE
-                    ProjectDeclarationKind.PACKAGE_CONSTANT -> EntityKind.PACKAGE_CONSTANT
-                    ProjectDeclarationKind.PACKAGE_EXCEPTION -> EntityKind.EXCEPTION
-                    ProjectDeclarationKind.PACKAGE_CURSOR -> EntityKind.CURSOR
-                    else -> EntityKind.TYPE
-                }
-                ensurePackage(packageKey, schema, rest.dropLast(1).last())
-                entity(key, kind, schema, rest.last(), packageKey)
-                occurrence(fileId, span, local, key, role, null)
-                if (declaration is ProjectPackageTypeView) {
-                    for (field in declaration.recordFields) {
-                        val fieldName = normalizeIdentifier(field.name.originalSpelling)
-                        val fieldKey = "$key.$fieldName"
-                        entity(fieldKey, EntityKind.RECORD_FIELD, schema, fieldName, key)
-                        val fieldSpan = field.sourceRange.toSpan()
-                        occurrence(fileId, fieldSpan, field.name.originalSpelling, fieldKey, role, null)
-                        fieldsByStart.putIfAbsent(Triple(fileId, fieldSpan.startLine, fieldSpan.startCol), fieldKey)
-                    }
-                }
-                if (declaration is ProjectPackageCursorView) {
-                    for (parameter in declaration.parameters) {
-                        val parameterName = normalizeIdentifier(parameter.name.originalSpelling)
-                        val parameterKey = "$key.$parameterName"
-                        parameterKeys.getOrPut(key) { HashMap() }.putIfAbsent(parameterName, parameterKey)
-                        entity(parameterKey, EntityKind.PARAMETER, schema, parameterName, key)
-                        occurrence(fileId, parameter.sourceRange.toSpan(), parameter.name.originalSpelling, parameterKey, role, key)
-                    }
-                }
-                key
-            }
+            ProjectDeclarationKind.PACKAGE_EXCEPTION, ProjectDeclarationKind.PACKAGE_CURSOR -> registerMember(declaration, role)
             ProjectDeclarationKind.PACKAGE_PROCEDURE, ProjectDeclarationKind.PACKAGE_FUNCTION,
-            ProjectDeclarationKind.STANDALONE_PROCEDURE, ProjectDeclarationKind.STANDALONE_FUNCTION -> {
-                val subprogram = declaration as? ProjectSubprogramView ?: return null
-                val (schema, rest) = if (declaration is ProjectPackageSubprogramView) memberName(fileId, names) else schemaAndName(fileId, names)
-                val packageKey = if (declaration is ProjectPackageSubprogramView) dbKey(schema, *rest.dropLast(1).toTypedArray()) else null
-                if (packageKey != null) ensurePackage(packageKey, schema, rest.dropLast(1).last())
-                val signature = subprogram.parameters.joinToString(",", "(", ")") { parameter ->
-                    "${normalizeIdentifier(parameter.name.originalSpelling)} ${mode(parameter.mode)} ${typeText(parameter.typeRef)}"
-                }
-                val body = if (declaration.role == ProjectDeclarationRole.BODY) "@BODY" else ""
-                val base = dbKey(schema, *rest.toTypedArray()) + signature + body
-                val count = (usedKeys[base] ?: 0) + 1
-                usedKeys[base] = count
-                val key = if (count == 1) base else "$base#$count"
-                if (count > 1) {
-                    coverage += CoverageFact("OVERLOAD_KEY_COLLISION", "Declarations with the same written signature: $base (this one is #$count, ${declaration.sourceRange})")
-                }
-                val kind = if (declaration.kind == ProjectDeclarationKind.PACKAGE_FUNCTION || declaration.kind == ProjectDeclarationKind.STANDALONE_FUNCTION) EntityKind.FUNCTION else EntityKind.PROCEDURE
-                entity(key, kind, schema, rest.last(), packageKey)
-                occurrence(fileId, span, local, key, role, null)
-                subprogramsByStart[Triple(fileId, span.startLine, span.startCol)] = key
-                for (parameter in subprogram.parameters) {
-                    val parameterName = normalizeIdentifier(parameter.name.originalSpelling)
-                    val parameterKey = "$key.$parameterName"
-                    parameterKeys.getOrPut(key) { HashMap() }.putIfAbsent(parameterName, parameterKey)
-                    entity(parameterKey, EntityKind.PARAMETER, schema, parameterName, key)
-                    occurrence(fileId, parameter.sourceRange.toSpan(), parameter.name.originalSpelling, parameterKey, role, key)
-                }
-                key
-            }
+            ProjectDeclarationKind.STANDALONE_PROCEDURE, ProjectDeclarationKind.STANDALONE_FUNCTION -> registerSubprogram(declaration, role, usedKeys)
         }
     }
+
+    /** Registers a package, package body, sequence or standalone type, with a type's attributes; returns its key. */
+    private fun registerObject(declaration: ProjectDeclarationView, role: Role, snapshot: ProjectSnapshot): String {
+        val fileId = declaration.fileId
+        val (schema, rest) = schemaAndName(fileId, namesOf(declaration))
+        val key = dbKey(schema, *rest.toTypedArray())
+        val kind = when (declaration.kind) {
+            ProjectDeclarationKind.SEQUENCE -> EntityKind.SEQUENCE
+            ProjectDeclarationKind.STANDALONE_TYPE -> EntityKind.TYPE
+            else -> EntityKind.PACKAGE
+        }
+        entity(key, kind, schema, rest.last(), null)
+        occurrence(fileId, declaration.sourceRange.toSpan(), declaration.qualifiedName.last.originalSpelling, key, role, null)
+        if (declaration is ProjectStandaloneTypeView) attributes(declaration, key, schema, snapshot)
+        return key
+    }
+
+    /**
+     * Registers a package member (type, subtype, variable, constant, exception or cursor), with a record type's fields
+     * and a cursor's parameters, and its package if not declared; returns its key.
+     */
+    private fun registerMember(declaration: ProjectDeclarationView, role: Role): String {
+        val fileId = declaration.fileId
+        val (schema, rest) = memberName(fileId, namesOf(declaration))
+        val packageKey = dbKey(schema, *rest.dropLast(1).toTypedArray())
+        val key = dbKey(schema, *rest.toTypedArray())
+        val kind = when (declaration.kind) {
+            ProjectDeclarationKind.PACKAGE_VARIABLE -> EntityKind.PACKAGE_VARIABLE
+            ProjectDeclarationKind.PACKAGE_CONSTANT -> EntityKind.PACKAGE_CONSTANT
+            ProjectDeclarationKind.PACKAGE_EXCEPTION -> EntityKind.EXCEPTION
+            ProjectDeclarationKind.PACKAGE_CURSOR -> EntityKind.CURSOR
+            else -> EntityKind.TYPE
+        }
+        ensurePackage(packageKey, schema, rest.dropLast(1).last())
+        entity(key, kind, schema, rest.last(), packageKey)
+        occurrence(fileId, declaration.sourceRange.toSpan(), declaration.qualifiedName.last.originalSpelling, key, role, null)
+        if (declaration is ProjectPackageTypeView) recordFields(declaration, key, schema, role)
+        if (declaration is ProjectPackageCursorView) parameters(fileId, declaration.parameters, key, schema, role)
+        return key
+    }
+
+    /** The fields of the package record type [type] (whose entity is [key]): each a `RECORD_FIELD` entity `key.NAME`. */
+    private fun recordFields(type: ProjectPackageTypeView, key: String, schema: String, role: Role) {
+        val fileId = type.fileId
+        for (field in type.recordFields) {
+            val fieldName = normalizeIdentifier(field.name.originalSpelling)
+            val fieldKey = "$key.$fieldName"
+            entity(fieldKey, EntityKind.RECORD_FIELD, schema, fieldName, key)
+            val fieldSpan = field.sourceRange.toSpan()
+            occurrence(fileId, fieldSpan, field.name.originalSpelling, fieldKey, role, null)
+            fieldsByStart.putIfAbsent(Triple(fileId, fieldSpan.startLine, fieldSpan.startCol), fieldKey)
+        }
+    }
+
+    /**
+     * Registers a package or standalone subprogram, with its parameters and its package if not declared; returns its
+     * key, or null when the declaration is not a subprogram view.
+     */
+    private fun registerSubprogram(declaration: ProjectDeclarationView, role: Role, usedKeys: MutableMap<String, Int>): String? {
+        val subprogram = declaration as? ProjectSubprogramView ?: return null
+        val fileId = declaration.fileId
+        val names = namesOf(declaration)
+        val member = declaration is ProjectPackageSubprogramView
+        val (schema, rest) = if (member) memberName(fileId, names) else schemaAndName(fileId, names)
+        val packageKey = if (member) dbKey(schema, *rest.dropLast(1).toTypedArray()) else null
+        if (packageKey != null) ensurePackage(packageKey, schema, rest.dropLast(1).last())
+        val key = subprogramKey(subprogram, schema, rest, usedKeys)
+        val kind = if (declaration.kind == ProjectDeclarationKind.PACKAGE_FUNCTION || declaration.kind == ProjectDeclarationKind.STANDALONE_FUNCTION) EntityKind.FUNCTION else EntityKind.PROCEDURE
+        val span = declaration.sourceRange.toSpan()
+        entity(key, kind, schema, rest.last(), packageKey)
+        occurrence(fileId, span, declaration.qualifiedName.last.originalSpelling, key, role, null)
+        subprogramsByStart[Triple(fileId, span.startLine, span.startCol)] = key
+        parameters(fileId, subprogram.parameters, key, schema, role)
+        return key
+    }
+
+    /**
+     * The key of [subprogram], named [rest] in [schema]: its written signature, `@BODY` for a body, and `#2` on for a
+     * key already in [usedKeys], which is noted as a collision.
+     */
+    private fun subprogramKey(subprogram: ProjectSubprogramView, schema: String, rest: List<String>, usedKeys: MutableMap<String, Int>): String {
+        val signature = subprogram.parameters.joinToString(",", "(", ")") { parameter ->
+            "${normalizeIdentifier(parameter.name.originalSpelling)} ${mode(parameter.mode)} ${typeText(parameter.typeRef)}"
+        }
+        val body = if (subprogram.role == ProjectDeclarationRole.BODY) "@BODY" else ""
+        val base = dbKey(schema, *rest.toTypedArray()) + signature + body
+        val count = (usedKeys[base] ?: 0) + 1
+        usedKeys[base] = count
+        if (count == 1) return base
+        coverage += CoverageFact("OVERLOAD_KEY_COLLISION", "Declarations with the same written signature: $base (this one is #$count, ${subprogram.sourceRange})")
+        return "$base#$count"
+    }
+
+    /** The [parameters] of the subprogram or cursor [ownerKey]: each a `PARAMETER` entity `ownerKey.NAME`, its occurrence contained by the owner. */
+    private fun parameters(fileId: String, parameters: List<ProjectParameterView>, ownerKey: String, schema: String, role: Role) {
+        for (parameter in parameters) {
+            val parameterName = normalizeIdentifier(parameter.name.originalSpelling)
+            val parameterKey = "$ownerKey.$parameterName"
+            parameterKeys.getOrPut(ownerKey) { HashMap() }.putIfAbsent(parameterName, parameterKey)
+            entity(parameterKey, EntityKind.PARAMETER, schema, parameterName, ownerKey)
+            occurrence(fileId, parameter.sourceRange.toSpan(), parameter.name.originalSpelling, parameterKey, role, ownerKey)
+        }
+    }
+
+    /** The segments of the name of [declaration], normalized. */
+    private fun namesOf(declaration: ProjectDeclarationView): List<String> = declaration.qualifiedName.segments.map { normalizeIdentifier(it.originalSpelling) }
 
     /**
      * The attributes [type] (whose entity is [key]) writes in its `CREATE TYPE`, as zpa extracts them: each an

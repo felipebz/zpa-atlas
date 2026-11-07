@@ -126,26 +126,36 @@ internal class SourceReader(private val connection: Connection, private val sour
      * [file], read once, when it is served as indexed; from each line alone when the file changed since indexing or
      * cannot be read (the whole text would not be the one the line came from). A line the colorer cannot read has none.
      */
-    fun lineColors(colorer: CodeColorer, file: SourceText?, lines: Map<Int, String>): Map<Int, List<List<Int>>> {
+    fun lineColors(colorer: CodeColorer, file: SourceText?, lines: Map<Int, String>): Map<Int, List<List<Int>>> =
+        if (file != null && !file.stale) wholeTextColors(colorer, file.text, lines) else eachLineColors(colorer, lines)
+
+    /** The colors of [lines] cut from those of the whole [text]; none at all when the colorer cannot read it. */
+    private fun wholeTextColors(colorer: CodeColorer, text: String, lines: Map<Int, String>): Map<Int, List<List<Int>>> {
         val result = HashMap<Int, List<List<Int>>>()
-        if (file != null && !file.stale) {
-            val spans = colorsOf(colorer, file.text) ?: return result
-            val byLine = HashMap<Int, MutableList<List<Int>>>()
-            for (span in spans) {
-                val (startLine, startCol, endLine, endCol, color) = span
-                for (line in startLine..endLine) {
-                    val text = lines[line] ?: continue
-                    val from = if (line == startLine) startCol else 0
-                    val to = if (line == endLine) endCol else text.length
-                    if (to > from) byLine.getOrPut(line) { ArrayList() } += listOf(from, to, color)
-                }
-            }
-            for (line in lines.keys) result[line] = byLine[line].orEmpty()
-        } else {
-            for ((line, text) in lines) {
-                val spans = colorsOf(colorer, text) ?: continue
-                result[line] = spans.filter { it[0] == 1 }.map { listOf(it[1], if (it[2] == 1) it[3] else text.length, it[4]) }
-            }
+        val spans = colorsOf(colorer, text) ?: return result
+        val byLine = HashMap<Int, MutableList<List<Int>>>()
+        for (span in spans) addSpan(byLine, span, lines)
+        for (line in lines.keys) result[line] = byLine[line].orEmpty()
+        return result
+    }
+
+    /** Adds to [byLine] the part of [span] on each of [lines] it covers, as `[startCol, endCol, color]`, when not empty. */
+    private fun addSpan(byLine: MutableMap<Int, MutableList<List<Int>>>, span: List<Int>, lines: Map<Int, String>) {
+        val (startLine, startCol, endLine, endCol, color) = span
+        for (line in startLine..endLine) {
+            val text = lines[line] ?: continue
+            val from = if (line == startLine) startCol else 0
+            val to = if (line == endLine) endCol else text.length
+            if (to > from) byLine.getOrPut(line) { ArrayList() } += listOf(from, to, color)
+        }
+    }
+
+    /** The colors of each of [lines] read alone; a line the colorer cannot read has none. */
+    private fun eachLineColors(colorer: CodeColorer, lines: Map<Int, String>): Map<Int, List<List<Int>>> {
+        val result = HashMap<Int, List<List<Int>>>()
+        for ((line, text) in lines) {
+            val spans = colorsOf(colorer, text) ?: continue
+            result[line] = spans.filter { it[0] == 1 }.map { listOf(it[1], if (it[2] == 1) it[3] else text.length, it[4]) }
         }
         return result
     }

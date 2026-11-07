@@ -13,50 +13,6 @@ import com.felipebz.zpa.atlas.model.*
 import java.util.Collections
 import java.util.IdentityHashMap
 import kotlin.collections.ArrayDeque
-import kotlin.collections.ArrayList
-import kotlin.collections.Collection
-import kotlin.collections.HashMap
-import kotlin.collections.HashSet
-import kotlin.collections.LinkedHashMap
-import kotlin.collections.LinkedHashSet
-import kotlin.collections.List
-import kotlin.collections.Map
-import kotlin.collections.MutableList
-import kotlin.collections.MutableMap
-import kotlin.collections.MutableSet
-import kotlin.collections.any
-import kotlin.collections.component1
-import kotlin.collections.component2
-import kotlin.collections.contains
-import kotlin.collections.distinct
-import kotlin.collections.distinctBy
-import kotlin.collections.emptyList
-import kotlin.collections.filter
-import kotlin.collections.firstOrNull
-import kotlin.collections.flatMapTo
-import kotlin.collections.getOrNull
-import kotlin.collections.getOrPut
-import kotlin.collections.getValue
-import kotlin.collections.hashSetOf
-import kotlin.collections.indexOfFirst
-import kotlin.collections.isNotEmpty
-import kotlin.collections.iterator
-import kotlin.collections.listOf
-import kotlin.collections.listOfNotNull
-import kotlin.collections.map
-import kotlin.collections.mapNotNull
-import kotlin.collections.mapTo
-import kotlin.collections.orEmpty
-import kotlin.collections.plus
-import kotlin.collections.plusAssign
-import kotlin.collections.set
-import kotlin.collections.setOf
-import kotlin.collections.single
-import kotlin.collections.singleOrNull
-import kotlin.collections.sortedWith
-import kotlin.collections.takeWhile
-import kotlin.collections.toList
-import kotlin.collections.withIndex
 
 /**
  * The places column values are read into ([ColumnPlaceFact]), decided once every file is scanned, since a target, its
@@ -151,62 +107,89 @@ internal class ColumnPlaces(
     fun of(file: FileFacts): Pair<List<ColumnPlaceFact>, Map<String, Int>> {
         val places = ArrayList<ColumnPlaceFact>()
         val leftOut = HashMap<String, Int>()
+        blockQueries(file, places)
+        for (into in file.intos) intoPlaces(file.path, into, places, leftOut)
+        // The same column at the same target more than once (two branches of a compound query reading it, a field
+        // concatenated twice): one place.
+        return places.distinctBy { it.copy(functions = rowFunctions(it.functions)) } to leftOut
+    }
+
+    /** The places of the Forms items of [file] whose block's query reads a column into them. */
+    private fun blockQueries(file: FileFacts, places: MutableList<ColumnPlaceFact>) {
         for (use in file.formsUses) {
             if (Role.IMPLICIT !in use.roles || Role.READ !in use.roles || kinds[use.containerKey] != EntityKind.FORMS_ITEM || use.status !in COLUMN_STATUSES) continue
             places += blockQuery(file.path, use.containerKey, use.entityKey?.takeIf { kinds[it] == EntityKind.COLUMN } ?: continue)
         }
-        for (into in file.intos) {
-            if (into.source == PlaceSource.ASSIGNMENT) {
-                assignment(file.path, into, places, leftOut)
-                continue
-            }
-            // The arguments of OUT parameters are followed from the places of their parameters, the values passed to IN
-            // parameters from their calls ([followed]).
-            if (into.source == PlaceSource.OUT_ARGUMENT || into.source == PlaceSource.IN_ARGUMENT) continue
-            // A FETCH from a cursor variable, which has no entity: its row is not known.
-            if (into.source == PlaceSource.FETCH && into.cursorKey == null && into.branches.isEmpty()) {
-                leftOut.merge(fetchNotKnown(into, null), into.targets.size, Int::plus)
-                continue
-            }
-            val branches = if (into.cursorKey != null) {
-                val row = shapes[into.cursorKey] as? TypeShape.CursorRow
-                if (row == null) {
-                    leftOut.merge(fetchNotKnown(into, into.cursorKey), into.targets.size, Int::plus)
-                    continue
-                }
-                listOf(row.items)
-            } else {
-                into.branches
-            }
-            for (items in branches) {
-                // A `*` whose columns are not known: no position can be told after it.
-                val known = items.takeWhile { !it.opaque }
-                // From a cursor variable, a single target takes several items only when it is a record.
-                val record = into.targets.size == 1 &&
-                    if (into.cursorKind != null) isRow(into.targets[0], into.bulk) else items.size > 1 || known.size < items.size || isRow(into.targets[0], into.bulk)
-                // A `*` over a relation or collection whose columns are not known: the positions after it cannot be told,
-                // those before it only for a record.
-                if (into.source == PlaceSource.FETCH && known.size < items.size) {
-                    leftOut.merge(FETCH_CURSOR_STAR_NOT_KNOWN, into.targets.size, Int::plus)
-                    if (known.isEmpty() || !record) continue
-                }
-                // A cursor variable's query its targets do not match: Oracle raises at the FETCH, or the query is another one.
-                if (into.cursorKind != null && !record && into.targets.size != known.size) {
-                    leftOut.merge(FETCH_CURSOR_ITEMS_NOT_MATCHED, into.targets.size, Int::plus)
-                    continue
-                }
-                for ((index, item) in known.withIndex()) {
-                    val target = if (record) into.targets[0] else into.targets.getOrNull(index) ?: break
-                    if (item.expression != null) leftOut.merge("EXPRESSION_${item.expression}", 1, Int::plus)
-                    for (part in listOf(item) + item.parts) {
-                        places += place(file.path, into, target, if (record) index else null, part.columnKey ?: continue, part.functions)
-                    }
-                }
+    }
+
+    /** The places [into], a statement of the file [path], reads columns into, and what it reads without following it, in [leftOut]. */
+    private fun intoPlaces(path: String, into: IntoFact, places: MutableList<ColumnPlaceFact>, leftOut: MutableMap<String, Int>) {
+        if (into.source == PlaceSource.ASSIGNMENT) {
+            assignment(path, into, places, leftOut)
+            return
+        }
+        // The arguments of OUT parameters are followed from the places of their parameters, the values passed to IN
+        // parameters from their calls ([followed]).
+        if (into.source == PlaceSource.OUT_ARGUMENT || into.source == PlaceSource.IN_ARGUMENT) return
+        // A FETCH from a cursor variable, which has no entity: its row is not known.
+        if (into.source == PlaceSource.FETCH && into.cursorKey == null && into.branches.isEmpty()) {
+            leftOut.merge(fetchNotKnown(into, null), into.targets.size, Int::plus)
+            return
+        }
+        for (items in branchesOf(into, leftOut) ?: return) branchPlaces(path, into, items, places, leftOut)
+    }
+
+    /** The branches of the query [into] reads: its cursor's row, for a cursor; null, counted in [leftOut], when that row is not known. */
+    private fun branchesOf(into: IntoFact, leftOut: MutableMap<String, Int>): List<List<QueryItem>>? {
+        val cursorKey = into.cursorKey ?: return into.branches
+        val row = shapes[cursorKey] as? TypeShape.CursorRow
+        if (row == null) {
+            leftOut.merge(fetchNotKnown(into, cursorKey), into.targets.size, Int::plus)
+            return null
+        }
+        return listOf(row.items)
+    }
+
+    /** The places of the select [items] of one branch of the query [into] reads, at the targets that take them. */
+    private fun branchPlaces(
+        path: String, into: IntoFact, items: List<QueryItem>, places: MutableList<ColumnPlaceFact>, leftOut: MutableMap<String, Int>
+    ) {
+        // A `*` whose columns are not known: no position can be told after it.
+        val known = items.takeWhile { !it.opaque }
+        val record = takesRecord(into, items, known.size)
+        // A `*` over a relation or collection whose columns are not known: the positions after it cannot be told,
+        // those before it only for a record.
+        if (into.source == PlaceSource.FETCH && known.size < items.size) {
+            leftOut.merge(FETCH_CURSOR_STAR_NOT_KNOWN, into.targets.size, Int::plus)
+            if (known.isEmpty() || !record) return
+        }
+        // A cursor variable's query its targets do not match: Oracle raises at the FETCH, or the query is another one.
+        if (into.cursorKind != null && !record && into.targets.size != known.size) {
+            leftOut.merge(FETCH_CURSOR_ITEMS_NOT_MATCHED, into.targets.size, Int::plus)
+            return
+        }
+        itemPlaces(path, into, known, record, places, leftOut)
+    }
+
+    /**
+     * Whether the target of [into] is a single record that takes the [items] field by field, [known] of them before a `*`
+     * whose columns are not known. From a cursor variable, a single target takes several items only when it is a record.
+     */
+    private fun takesRecord(into: IntoFact, items: List<QueryItem>, known: Int): Boolean = into.targets.size == 1 &&
+        if (into.cursorKind != null) isRow(into.targets[0], into.bulk) else items.size > 1 || known < items.size || isRow(into.targets[0], into.bulk)
+
+    /** The places of the [known] items of [into], each at its target, or at its field of the single target when that is a [record]. */
+    private fun itemPlaces(
+        path: String, into: IntoFact, known: List<QueryItem>, record: Boolean, places: MutableList<ColumnPlaceFact>, leftOut: MutableMap<String, Int>
+    ) {
+        for ((index, item) in known.withIndex()) {
+            val target = if (record) into.targets[0] else into.targets.getOrNull(index) ?: break
+            if (item.expression != null) leftOut.merge("EXPRESSION_${item.expression}", 1, Int::plus)
+            val field = index.takeIf { record }
+            for (part in listOf(item) + item.parts) {
+                places += place(path, into, target, field, part.columnKey ?: continue, part.functions)
             }
         }
-        // The same column at the same target more than once (two branches of a compound query reading it, a field
-        // concatenated twice): one place.
-        return places.distinctBy { it.copy(functions = rowFunctions(it.functions)) } to leftOut
     }
 
     /**
@@ -316,87 +299,164 @@ internal class ColumnPlaces(
      * an expression or a name zpa binds to nothing), and a call whose routine is not decided among candidates that have
      * such a parameter (`OUT_CALL_NOT_DECIDED`).
      */
-    fun followed(facts: List<FileFacts>, found: Map<String, List<ColumnPlaceFact>>): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
-        val places = HashMap<String, MutableList<ColumnPlaceFact>>()
-        val leftOut = HashMap<String, MutableMap<String, Int>>()
-        fun count(path: String, shape: String) {
-            leftOut.getOrPut(path) { HashMap() }.merge(shape, 1, Int::plus)
-        }
-        // The routines whose body the sources have, as calls name them.
-        val defined = HashSet<String>()
-        for (file in facts) for (occurrence in file.occurrences) {
-            if (Role.DEFINITION in occurrence.roles && occurrence.entityKey != null) defined += occurrence.entityKey.removeSuffix("@BODY")
-        }
-        // The parameters of routines whose body is not PL/SQL: what calls give them is counted at each call.
-        val outside = HashSet<String>()
-        for (file in facts) for (into in file.intos) {
-            if (into.fromParameter != null && into.expression == IntoClauses.BODY_NOT_PLSQL) outside += parameterKey(file.path, into.fromParameter)
-        }
-        // A nested subprogram's parameter (its file's) has its body where it is declared.
-        fun isDefined(parameter: String) = parameter !in outside && ('|' in parameter || parameter.substringBeforeLast('.') in defined)
-        val flows = HashMap<String, MutableList<Pair<String, IntoFact>>>()
-        // The arguments callers pass for each OUT or IN OUT parameter.
-        val byParameter = HashMap<String, MutableList<Pair<String, IntoFact>>>()
-        for (file in facts) for (into in file.intos) if (into.source == PlaceSource.OUT_ARGUMENT && into.parameterKey != null) {
-            byParameter.getOrPut(parameterKey(file.path, into.parameterKey)) { ArrayList() } += file.path to into
-        }
-        val seeds = LinkedHashMap<Triple<String, String, List<String>>, MutableList<Pair<String, IntoFact>>>()
-        for (file in facts) for (into in file.intos) {
-            if (into.source != PlaceSource.IN_ARGUMENT) continue
-            if (into.fromParameter != null) {
-                if (into.expression == IntoClauses.BODY_NOT_PLSQL) continue
-                flows.getOrPut(parameterKey(file.path, into.fromParameter)) { ArrayList() } += file.path to into
-                continue
-            }
-            val columns = if (into.row != null) {
-                val row = structure(targetNode(into.row, false), 0)
-                if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) continue
-                val found = field(row, null, into.rowField).first as? Node.Column
-                if (found == null) {
-                    count(file.path, notKnown("ARGUMENT_COLUMN_NOT_KNOWN_", row, into.rowField))
-                    continue
-                }
-                found.all.map { (key, functions) -> key to (into.functions + functions) }
-            } else {
-                val item = into.branches.single().single()
-                listOf((item.columnKey ?: continue) to item.functions)
-            }
-            val reason = into.targets.single().reason
-            if (reason != null) {
-                count(file.path, reason)
-                continue
-            }
-            val parameter = parameterKey(file.path, into.parameterKey ?: continue)
-            if (!isDefined(parameter)) {
-                count(file.path, "ARGUMENT_ROUTINE_OUTSIDE")
-                continue
-            }
-            for ((column, functions) in columns) seeds.getOrPut(Triple(parameter, column, functions)) { ArrayList() } += file.path to into
-        }
+    fun followed(facts: List<FileFacts>, found: Map<String, List<ColumnPlaceFact>>): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> =
+        Following(facts, found).result()
+
+    /** One following of [followed] over [facts], from the places in [found]: what it reached, and the work left. */
+    private inner class Following(private val facts: List<FileFacts>, private val found: Map<String, List<ColumnPlaceFact>>) {
+        private val places = HashMap<String, MutableList<ColumnPlaceFact>>()
+        private val leftOut = HashMap<String, MutableMap<String, Int>>()
+
+        /** The routines whose body the sources have, as calls name them. */
+        private val defined = definedRoutines()
+
+        /** The parameters of routines whose body is not PL/SQL: what calls give them is counted at each call. */
+        private val outside = notPlsqlParameters()
+
+        /** Where the value of each routine's parameter goes: the statements of the routine that write it or pass it on. */
+        private val flows = HashMap<String, MutableList<Pair<String, IntoFact>>>()
+
+        /** The arguments callers pass for each OUT or IN OUT parameter. */
+        private val byParameter = outArguments()
+
+        /** The calls that pass each column, through its functions, to a parameter. */
+        private val seeds = LinkedHashMap<Triple<String, String, List<String>>, MutableList<Pair<String, IntoFact>>>()
+
         // The work: a value at a node, or what reached a function's return given back to one call that brought its entry in;
         // once none is left, an OUT parameter's value given back to its callers (all of them, or one call that came in later).
-        val queue = ArrayDeque<Any>()
-        val outQueue = ArrayDeque<Pair<OutValue, Incoming?>>()
-        val seen = HashSet<Pair<Entry?, Triple<String, String, List<String>>>>()
-        fun reach(node: String, column: String, functions: List<String>, calls: List<Pair<String, IntoFact>>, entry: Entry?, previous: Reached?) {
-            if (seen.add(entry to Triple(node, column, functions))) queue += Reached(node, column, functions, calls, entry, previous)
-        }
+        private val queue = ArrayDeque<Any>()
+        private val outQueue = ArrayDeque<Pair<OutValue, Incoming?>>()
+        private val seen = HashSet<Pair<Entry?, Triple<String, String, List<String>>>>()
+
         // The calls each entry came in through; what reached the return of its routine, and what its OUT parameters were
         // given: given back to each call that brings it in, now or later.
-        val incoming = HashMap<Entry, MutableList<Incoming>>()
-        val exits = HashMap<Entry, MutableList<Reached>>()
-        val outs = HashMap<Entry, MutableList<OutValue>>()
-        val calledWith = HashSet<List<Any?>>()
-        fun call(entry: Entry, coming: Incoming) {
+        private val incoming = HashMap<Entry, MutableList<Incoming>>()
+        private val exits = HashMap<Entry, MutableList<Reached>>()
+        private val outs = HashMap<Entry, MutableList<OutValue>>()
+        private val calledWith = HashSet<List<Any?>>()
+
+        private val outSeen = HashSet<OutValue>()
+        private val notFollowedOut = HashSet<List<Any?>>()
+        private val placed = HashMap<List<Any>, Pair<String, Int>>()
+
+        /** The places found directly (a row record's field assigned to the target): not made again through a variable. */
+        private val direct = found.flatMapTo(HashSet()) { (path, list) -> list.map { placeKey(path, it) } }
+
+        /** The calls each place of a function's result was written by: another call of it into the same target counts once more. */
+        private val placedCalls = HashMap<List<Any>, MutableSet<SourceSpan?>>()
+        private val counted = HashSet<List<Any>>()
+        private val outPlaced = HashSet<List<Any?>>()
+        private val undecided = HashSet<Pair<String, SourceSpan>>()
+        private val notFollowed = HashSet<List<Any>>()
+
+        /** The places followed, by file path, and what is not followed, counted by shape in each file. */
+        fun result(): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
+            collectArguments()
+            enterSeeds()
+            enterFound()
+            drain()
+            countUndecidedCalls()
+            return places to leftOut
+        }
+
+        private fun count(path: String, shape: String) {
+            leftOut.getOrPut(path) { HashMap() }.merge(shape, 1, Int::plus)
+        }
+
+        /** The routines of [facts] whose body the sources have, as calls name them. */
+        private fun definedRoutines(): Set<String> {
+            val defined = HashSet<String>()
+            for (file in facts) for (occurrence in file.occurrences) {
+                if (Role.DEFINITION in occurrence.roles && occurrence.entityKey != null) defined += occurrence.entityKey.removeSuffix("@BODY")
+            }
+            return defined
+        }
+
+        /** The parameters of the routines of [facts] whose body is not PL/SQL. */
+        private fun notPlsqlParameters(): Set<String> {
+            val outside = HashSet<String>()
+            for (file in facts) for (into in file.intos) {
+                if (into.fromParameter != null && into.expression == IntoClauses.BODY_NOT_PLSQL) outside += parameterKey(file.path, into.fromParameter)
+            }
+            return outside
+        }
+
+        /** The arguments the calls of [facts] pass for each OUT or IN OUT parameter. */
+        private fun outArguments(): Map<String, List<Pair<String, IntoFact>>> {
+            val byParameter = HashMap<String, MutableList<Pair<String, IntoFact>>>()
+            for (file in facts) for (into in file.intos) if (into.source == PlaceSource.OUT_ARGUMENT && into.parameterKey != null) {
+                byParameter.getOrPut(parameterKey(file.path, into.parameterKey)) { ArrayList() } += file.path to into
+            }
+            return byParameter
+        }
+
+        /** Whether the body of [parameter]'s routine is in the sources: a nested subprogram's parameter (its file's) has it where declared. */
+        private fun isDefined(parameter: String) = parameter !in outside && ('|' in parameter || parameter.substringBeforeLast('.') in defined)
+
+        /** The `IN` arguments of [facts]: into [flows], those within a routine, and into [seeds], the columns calls pass. */
+        private fun collectArguments() {
+            for (file in facts) for (into in file.intos) if (into.source == PlaceSource.IN_ARGUMENT) inArgument(file.path, into)
+        }
+
+        /** The `IN` argument [into] of the file [path]: a flow of its routine's parameter, or a column a call passes. */
+        private fun inArgument(path: String, into: IntoFact) {
+            if (into.fromParameter == null) {
+                seed(path, into)
+                return
+            }
+            if (into.expression != IntoClauses.BODY_NOT_PLSQL) flows.getOrPut(parameterKey(path, into.fromParameter)) { ArrayList() } += path to into
+        }
+
+        /** The columns the call argument [into] of the file [path] passes to its parameter, into [seeds]; counted when not followed. */
+        private fun seed(path: String, into: IntoFact) {
+            val columns = passedColumns(path, into) ?: return
+            val reason = into.targets.single().reason
+            if (reason != null) {
+                count(path, reason)
+                return
+            }
+            val parameter = parameterKey(path, into.parameterKey ?: return)
+            if (!isDefined(parameter)) {
+                count(path, "ARGUMENT_ROUTINE_OUTSIDE")
+                return
+            }
+            for ((column, functions) in columns) seeds.getOrPut(Triple(parameter, column, functions)) { ArrayList() } += path to into
+        }
+
+        /**
+         * The columns, with their functions, the argument [into] of the file [path] passes: those of a row record's field, or
+         * its item's; null when none is known, a field whose column is not known counted.
+         */
+        private fun passedColumns(path: String, into: IntoFact): List<Pair<String, List<String>>>? {
+            if (into.row == null) {
+                val item = into.branches.single().single()
+                return listOf((item.columnKey ?: return null) to item.functions)
+            }
+            val row = structure(targetNode(into.row, false), 0)
+            if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) return null
+            val column = field(row, null, into.rowField).first as? Node.Column
+            if (column == null) {
+                count(path, notKnown("ARGUMENT_COLUMN_NOT_KNOWN_", row, into.rowField))
+                return null
+            }
+            return column.all.map { (key, functions) -> key to (into.functions + functions) }
+        }
+
+        /** The value [column], through [functions], at [node], come in at [entry]: queued, unless it was there already. */
+        private fun reach(node: String, column: String, functions: List<String>, calls: List<Pair<String, IntoFact>>, entry: Entry?, previous: Reached?) {
+            if (seen.add(entry to Triple(node, column, functions))) queue += Reached(node, column, functions, calls, entry, previous)
+        }
+
+        /** [entry] brought in by [coming]: what reached the return of its routine, and what its OUT parameters were given, go back to it. */
+        private fun call(entry: Entry, coming: Incoming) {
             if (!calledWith.add(listOf(entry, coming.path, coming.call, coming.entry))) return
             incoming.getOrPut(entry) { ArrayList() } += coming
             for (exit in exits[entry].orEmpty()) queue += exit to coming
             for (out in outs[entry].orEmpty()) outQueue += out to coming
         }
-        // An OUT parameter's value ([place] in [path], whose parameter it is), come into its routine at each of [entries].
-        val outSeen = HashSet<OutValue>()
-        val notFollowedOut = HashSet<List<Any?>>()
-        fun follow(path: String, place: ColumnPlaceFact, entries: Collection<Entry?>) {
+
+        /** An OUT parameter's value ([place] in [path], whose parameter it is), come into its routine at each of [entries]. */
+        private fun follow(path: String, place: ColumnPlaceFact, entries: Collection<Entry?>) {
             val parameter = place.targetKey ?: place.localParameter
             if (parameter == null) {
                 // A CALLER_DECIDES place whose parameter can be told neither by its entity nor by its declaration.
@@ -410,17 +470,15 @@ internal class ColumnPlaces(
                 outQueue += value to null
             }
         }
-        for ((key, calls) in seeds) {
-            val entry = Entry(key.first, key.second, key.third)
-            for ((path, into) in calls) call(entry, Incoming(path, into.call, null, null))
-            reach(key.first, key.second, key.third, calls.sortedWith(compareBy({ it.first }, { it.second.targets.single().span })), entry, null)
-        }
-        // A variable or field holding a column's value ([place], made by [flow]) that the routine returns or writes into
-        // its OUT parameters: what its places hold goes there, with the [calls] that brought it. A variable that outlives
-        // the call the value came in at (a package variable, a variable of the routine around a nested subprogram) holds
-        // it for every caller: what returns it gives it back to every call, as a column the routine reads itself. A
-        // variable of the subprogram the value came into ([IntoFact.keeps]) keeps the call.
-        fun held(path: String, flow: IntoFact?, place: ColumnPlaceFact, entry: Entry?, previous: Reached?, calls: List<Pair<String, IntoFact>>) {
+
+        /**
+         * A variable or field holding a column's value ([place], made by [flow]) that the routine returns or writes into
+         * its OUT parameters: what its places hold goes there, with the [calls] that brought it. A variable that outlives
+         * the call the value came in at (a package variable, a variable of the routine around a nested subprogram) holds
+         * it for every caller: what returns it gives it back to every call, as a column the routine reads itself. A
+         * variable of the subprogram the value came into ([IntoFact.keeps]) keeps the call.
+         */
+        private fun held(path: String, flow: IntoFact?, place: ColumnPlaceFact, entry: Entry?, previous: Reached?, calls: List<Pair<String, IntoFact>>) {
             val key = place.targetKey ?: return
             val kept = entry?.takeIf { flow?.keeps == true }
             val held = listOfNotNull(place.field?.let { "$key.$it" }, key).map { parameterKey(path, it) }
@@ -429,22 +487,29 @@ internal class ColumnPlaces(
                 reach(node, place.columnKey, place.functions, calls, kept, previous)
             }
         }
-        for ((path, list) in found) for (place in list) {
-            held(path, null, place, null, null, emptyList())
-            if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, listOf(null))
+
+        /** Each column calls pass to a parameter, at the parameter, come in through those calls. */
+        private fun enterSeeds() {
+            for ((key, calls: List<Pair<String, IntoFact>>) in seeds) {
+                val entry = Entry(key.first, key.second, key.third)
+                for ((path, into) in calls) call(entry, Incoming(path, into.call, null, null))
+                reach(key.first, key.second, key.third, calls.sortedWith(compareBy({ it.first }, { it.second.targets.single().span })), entry, null)
+            }
         }
-        val placed = HashMap<List<Any>, Pair<String, Int>>()
-        // The places found directly (a row record's field assigned to the target): not made again through a variable.
-        val direct = found.flatMapTo(HashSet()) { (path, list) -> list.map { placeKey(path, it) } }
-        // The calls each place of a function's result was written by: another call of it into the same target counts once more.
-        val placedCalls = HashMap<List<Any>, MutableSet<SourceSpan?>>()
-        val counted = HashSet<List<Any>>()
+
+        /** The places in [found]: what holds their values goes on, and an OUT parameter's value goes back to its callers. */
+        private fun enterFound() {
+            for ((path, list) in found) for (place in list) {
+                held(path, null, place, null, null, emptyList())
+                if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, listOf(null))
+            }
+        }
+
         /**
          * [flow] of [path] taking the value [reached] has ([reached] at a function's return: the flow is at a call of it), in
          * a routine whose values came in at [entry], [previous] the path to it.
          */
-        fun along(path: String, flow: IntoFact, reached: Reached, entry: Entry?, previous: Reached) {
-            val returns = reached.parameter.endsWith(".$RETURN")
+        private fun along(path: String, flow: IntoFact, reached: Reached, entry: Entry?, previous: Reached) {
             // A function the value already went through adds nothing when it comes again (`||` of a value already
             // concatenated, `upper` of an upper-cased one): kept once, so that a value that goes round through an `OUT`
             // parameter it is written back into (`o_msg := o_msg || …`) reaches a node already seen instead of a new one
@@ -453,66 +518,83 @@ internal class ColumnPlaces(
             val site = flow.targets.single().span
             when {
                 flow.expression != null -> if (counted.add(listOf(path, site, reached.column))) count(path, flow.expression)
-                flow.parameterKey != null -> {
-                    val next = parameterKey(path, flow.parameterKey)
-                    // A function's result passed to a parameter: that call is the one that passes the column.
-                    val calls = if (returns && !next.endsWith(".$RETURN")) listOf(path to flow) else reached.calls
-                    // A cycle (a routine passing its parameter to itself, a function returning its own result) only
-                    // wraps the value in more functions on each turn: what it reaches, the path without it reached.
-                    val again = if (isDefined(next)) previous.at(next) else null
-                    when {
-                        !isDefined(next) -> if (counted.add(listOf(path, site, reached.column))) count(path, "ARGUMENT_ROUTINE_OUTSIDE")
-                        // Into a parameter already on the path (a routine reached again within itself, or the same function
-                        // nested in its own argument): not walked again, but what its entry there gives back comes back
-                        // out at this call too.
-                        again != null -> if (!next.endsWith(".$RETURN")) again.entry?.let { call(it, Incoming(path, flow.call, entry, previous)) }
-                        next.endsWith(".$RETURN") -> reach(next, reached.column, functions, calls, entry, previous)
-                        else -> {
-                            // Into another routine through this call: what comes back out of it, back here.
-                            val into = Entry(next, reached.column, functions)
-                            call(into, Incoming(path, flow.call, entry, previous))
-                            reach(next, reached.column, functions, calls, into, previous)
-                        }
-                    }
-                }
+                flow.parameterKey != null -> passedOn(path, flow, parameterKey(path, flow.parameterKey), reached, entry, previous, functions)
+                else -> intoTarget(path, flow, reached, entry, previous, functions)
+            }
+        }
+
+        /** [flow] of [path] passing the value [reached] has, through [functions], on to the parameter [next], as [along] takes it. */
+        private fun passedOn(
+            path: String, flow: IntoFact, next: String, reached: Reached, entry: Entry?, previous: Reached, functions: List<String>
+        ) {
+            val returns = reached.parameter.endsWith(".$RETURN")
+            // A function's result passed to a parameter: that call is the one that passes the column.
+            val calls = if (returns && !next.endsWith(".$RETURN")) listOf(path to flow) else reached.calls
+            // A cycle (a routine passing its parameter to itself, a function returning its own result) only
+            // wraps the value in more functions on each turn: what it reaches, the path without it reached.
+            val again = if (isDefined(next)) previous.at(next) else null
+            when {
+                !isDefined(next) -> if (counted.add(listOf(path, flow.targets.single().span, reached.column))) count(path, "ARGUMENT_ROUTINE_OUTSIDE")
+                // Into a parameter already on the path (a routine reached again within itself, or the same function
+                // nested in its own argument): not walked again, but what its entry there gives back comes back
+                // out at this call too.
+                again != null -> if (!next.endsWith(".$RETURN")) again.entry?.let { call(it, Incoming(path, flow.call, entry, previous)) }
+                next.endsWith(".$RETURN") -> reach(next, reached.column, functions, calls, entry, previous)
                 else -> {
-                    val key = listOf(path, site, reached.column, written(functions))
-                    if (!returns && key in direct) return
-                    val earlier = placed[key]
-                    val place = if (earlier != null) {
-                        // Another call of a function writing its result into the same target.
-                        if (returns && placedCalls.getValue(key).add(flow.resultOf)) places.getValue(earlier.first)[earlier.second].let { place ->
-                            places.getValue(earlier.first)[earlier.second] = place.copy(callCount = (place.callCount ?: 1) + 1)
-                        }
-                        places.getValue(earlier.first)[earlier.second]
-                    } else {
-                        // Read by an INTO with a single target: a record takes the item as its field, as for a column.
-                        val target = flow.targets.single()
-                        val items = flow.branches.singleOrNull()
-                        val field = items?.takeIf { it.size > 1 || isRow(target, flow.bulk) }?.indexOfFirst { it.columnKey == flow.fromParameter }
-                        val made = place(path, flow, target, field, reached.column, functions)
-                        val place = if (returns) {
-                            made.copy(source = PlaceSource.RETURNED, argumentOf = specKey(reached.parameter), callCount = 1, callPath = path, callLine = site.startLine)
-                        } else {
-                            // A column read in the routine itself, held by a variable written here: no call brought it,
-                            // the value lands by the statement that writes the target (`p_out := l`), as any other.
-                            val (callPath, call) = reached.calls.firstOrNull() ?: (null to null)
-                            if (call == null) made.copy(source = if (flow.branches.isEmpty()) PlaceSource.ASSIGNMENT else PlaceSource.SELECT_INTO)
-                            else made.copy(argumentOf = call.parameterKey, callCount = reached.calls.size, callPath = callPath, callLine = call.targets.single().span.startLine)
-                        }
-                        val list = places.getOrPut(path) { ArrayList() }
-                        placed[key] = path to list.size
-                        placedCalls[key] = hashSetOf(flow.resultOf)
-                        list += place
-                        place
-                    }
-                    if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, listOf(entry))
-                    held(path, flow, place, entry, previous, if (returns) listOf(path to flow) else reached.calls)
+                    // Into another routine through this call: what comes back out of it, back here.
+                    val into = Entry(next, reached.column, functions)
+                    call(into, Incoming(path, flow.call, entry, previous))
+                    reach(next, reached.column, functions, calls, into, previous)
                 }
             }
         }
+
+        /** [flow] of [path] writing the value [reached] has, through [functions], into its target, as [along] takes it: a place. */
+        private fun intoTarget(path: String, flow: IntoFact, reached: Reached, entry: Entry?, previous: Reached, functions: List<String>) {
+            val returns = reached.parameter.endsWith(".$RETURN")
+            val key = listOf(path, flow.targets.single().span, reached.column, written(functions))
+            if (!returns && key in direct) return
+            val earlier = placed[key]
+            val place = if (earlier != null) placedAgain(key, earlier, flow, returns) else newPlace(path, flow, reached, functions, key)
+            if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, listOf(entry))
+            held(path, flow, place, entry, previous, if (returns) listOf(path to flow) else reached.calls)
+        }
+
+        /** The place made before for [key] ([earlier]: its file and position), one call more when another call of a function writes there. */
+        private fun placedAgain(key: List<Any>, earlier: Pair<String, Int>, flow: IntoFact, returns: Boolean): ColumnPlaceFact {
+            val list = places.getValue(earlier.first)
+            if (returns && placedCalls.getValue(key).add(flow.resultOf)) {
+                val place = list[earlier.second]
+                list[earlier.second] = place.copy(callCount = (place.callCount ?: 1) + 1)
+            }
+            return list[earlier.second]
+        }
+
+        /** The new place, kept as [key], [flow] of [path] makes of the value [reached] has through [functions]. */
+        private fun newPlace(path: String, flow: IntoFact, reached: Reached, functions: List<String>, key: List<Any>): ColumnPlaceFact {
+            // Read by an INTO with a single target: a record takes the item as its field, as for a column.
+            val target = flow.targets.single()
+            val items = flow.branches.singleOrNull()
+            val field = items?.takeIf { it.size > 1 || isRow(target, flow.bulk) }?.indexOfFirst { it.columnKey == flow.fromParameter }
+            val made = place(path, flow, target, field, reached.column, functions)
+            val place = if (reached.parameter.endsWith(".$RETURN")) {
+                made.copy(source = PlaceSource.RETURNED, argumentOf = specKey(reached.parameter), callCount = 1, callPath = path, callLine = target.span.startLine)
+            } else {
+                // A column read in the routine itself, held by a variable written here: no call brought it,
+                // the value lands by the statement that writes the target (`p_out := l`), as any other.
+                val (callPath, call) = reached.calls.firstOrNull() ?: (null to null)
+                if (call == null) made.copy(source = if (flow.branches.isEmpty()) PlaceSource.ASSIGNMENT else PlaceSource.SELECT_INTO)
+                else made.copy(argumentOf = call.parameterKey, callCount = reached.calls.size, callPath = callPath, callLine = call.targets.single().span.startLine)
+            }
+            val list = places.getOrPut(path) { ArrayList() }
+            placed[key] = path to list.size
+            placedCalls[key] = hashSetOf(flow.resultOf)
+            list += place
+            return place
+        }
+
         /** What reached a function's return ([exit]) goes back to the calls of it [to] names (all, for a value with no entry). */
-        fun back(exit: Reached, to: Incoming?) {
+        private fun back(exit: Reached, to: Incoming?) {
             val calls = flows[exit.parameter].orEmpty().filter { (path, flow) -> to == null || isCall(to, path, flow.resultOf) }
             // A function that returns a record, a collection or an object: its callers are not followed, each counted.
             if (!isScalar(exit.parameter)) {
@@ -523,67 +605,85 @@ internal class ColumnPlaces(
             val joined = if (to?.reached == null) exit else Reached(exit.parameter, exit.column, exit.functions, exit.calls, to.entry, exit, to.reached)
             for ((path, flow) in calls) along(path, flow, exit, to?.entry, joined)
         }
-        // The arguments callers pass for the OUT parameter of [value]: the calls the value came into the routine through take
-        // it ([to] alone, a call that came in after the value was given; all, for a value with no entry), each going on in
-        // its caller with the caller's entry and value at the call.
-        val outPlaced = HashSet<List<Any?>>()
-        val undecided = HashSet<Pair<String, SourceSpan>>()
-        val notFollowed = HashSet<List<Any>>()
-        fun outBack(value: OutValue, to: Incoming?) {
-            val (parameter, column, functions, entry) = value
-            for ((path, into) in byParameter[parameter].orEmpty()) {
-                val back = when {
-                    entry == null -> listOf(null)
-                    to != null -> listOf(to).filter { isCall(it, path, into.call) }
-                    else -> incoming[entry].orEmpty().filter { isCall(it, path, into.call) }
-                }
-                if (back.isEmpty()) continue
-                val target = into.targets.single()
-                if (target.reason == "OUT_CALL_NOT_DECIDED") {
-                    if (undecided.add(path to target.span)) count(path, "OUT_CALL_NOT_DECIDED")
+
+        /**
+         * The arguments callers pass for the OUT parameter of [value]: the calls the value came into the routine through take
+         * it ([to] alone, a call that came in after the value was given; all, for a value with no entry), each going on in
+         * its caller with the caller's entry and value at the call.
+         */
+        private fun outBack(value: OutValue, to: Incoming?) {
+            for ((path, into) in byParameter[value.parameter].orEmpty()) outArgument(value, to, path, into)
+        }
+
+        /** The argument [into] of the file [path] for the OUT parameter of [value], as [outBack] takes it. */
+        private fun outArgument(value: OutValue, to: Incoming?, path: String, into: IntoFact) {
+            val (_, column, functions, entry) = value
+            val back = callsBack(entry, to, path, into.call)
+            if (back.isEmpty()) return
+            val target = into.targets.single()
+            if (target.reason == "OUT_CALL_NOT_DECIDED") {
+                if (undecided.add(path to target.span)) count(path, "OUT_CALL_NOT_DECIDED")
+                return
+            }
+            if (target.entityKey == null && target.local == null) {
+                if (notFollowed.add(listOf(path, target.span, column, written(functions)))) count(path, "OUT_ARGUMENT_NOT_FOLLOWED")
+                return
+            }
+            val place = place(path, into, target, null, column, functions)
+            if (outPlaced.add(placeKey(path, place))) places.getOrPut(path) { ArrayList() } += place
+            if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, back.mapTo(LinkedHashSet()) { it?.entry })
+            else for (coming in back) held(path, into, place, coming?.entry, coming?.reached, listOf(path to into))
+        }
+
+        /**
+         * The calls the call site [path]/[call] takes a value come in at [entry] back through: [to] alone when given, else
+         * every call [entry] came in through; one with no call (null) for a value with no entry.
+         */
+        private fun callsBack(entry: Entry?, to: Incoming?, path: String, call: SourceSpan?): List<Incoming?> = when {
+            entry == null -> listOf(null)
+            to != null -> listOf(to).filter { isCall(it, path, call) }
+            else -> incoming[entry].orEmpty().filter { isCall(it, path, call) }
+        }
+
+        /** Follows the work in [queue] and, whenever none is left there, the next value in [outQueue], until neither has any. */
+        private fun drain() {
+            while (queue.isNotEmpty() || outQueue.isNotEmpty()) {
+                if (queue.isEmpty()) {
+                    val (value, to) = outQueue.removeFirst()
+                    outBack(value, to)
                     continue
                 }
-                if (target.entityKey == null && target.local == null) {
-                    if (notFollowed.add(listOf(path, target.span, column, written(functions)))) count(path, "OUT_ARGUMENT_NOT_FOLLOWED")
-                    continue
+                val work = queue.removeFirst()
+                if (work is Pair<*, *>) back(work.first as Reached, work.second as Incoming) else step(work as Reached)
+            }
+        }
+
+        /** The value [reached] at its node: at a function's return, given back to its calls; else along the node's flows. */
+        private fun step(reached: Reached) {
+            if (reached.parameter.endsWith(".$RETURN")) returned(reached)
+            else for ((path, flow) in flows[reached.parameter].orEmpty()) along(path, flow, reached, reached.entry, reached)
+        }
+
+        /** What reached a function's return: given back to each call that brought its entry in, now or later (all, with no entry). */
+        private fun returned(reached: Reached) {
+            val entry = reached.entry
+            if (entry == null) {
+                back(reached, null)
+                return
+            }
+            exits.getOrPut(entry) { ArrayList() } += reached
+            for (coming in incoming[entry].orEmpty().toList()) back(reached, coming)
+        }
+
+        /** Counts each call the index could not decide among routines, one of which leaves a column's size to its callers. */
+        private fun countUndecidedCalls() {
+            val routines = outSeen.filter { !it.parameter.contains('|') }.mapTo(HashSet()) { it.parameter.substringBeforeLast('.') }
+            for (file in facts) for (occurrence in file.occurrences) {
+                if (Role.CALL in occurrence.roles && occurrence.entityKey == null && occurrence.candidateKeys.any { it in routines }) {
+                    count(file.path, "OUT_CALL_NOT_DECIDED")
                 }
-                val place = place(path, into, target, null, column, functions)
-                if (outPlaced.add(placeKey(path, place))) places.getOrPut(path) { ArrayList() } += place
-                if (place.placeClass == PlaceClass.CALLER_DECIDES) follow(path, place, back.mapTo(LinkedHashSet()) { it?.entry })
-                else for (coming in back) held(path, into, place, coming?.entry, coming?.reached, listOf(path to into))
             }
         }
-        while (queue.isNotEmpty() || outQueue.isNotEmpty()) {
-            if (queue.isEmpty()) {
-                val (value, to) = outQueue.removeFirst()
-                outBack(value, to)
-                continue
-            }
-            val work = queue.removeFirst()
-            if (work is Pair<*, *>) {
-                back(work.first as Reached, work.second as Incoming)
-                continue
-            }
-            val reached = work as Reached
-            if (reached.parameter.endsWith(".$RETURN")) {
-                val entry = reached.entry
-                if (entry == null) back(reached, null)
-                else {
-                    exits.getOrPut(entry) { ArrayList() } += reached
-                    for (coming in incoming[entry].orEmpty().toList()) back(reached, coming)
-                }
-                continue
-            }
-            for ((path, flow) in flows[reached.parameter].orEmpty()) along(path, flow, reached, reached.entry, reached)
-        }
-        val routines = outSeen.filter { !it.parameter.contains('|') }.mapTo(HashSet()) { it.parameter.substringBeforeLast('.') }
-        // A call the index could not decide among routines, one of which leaves a column's size to its callers.
-        for (file in facts) for (occurrence in file.occurrences) {
-            if (Role.CALL in occurrence.roles && occurrence.entityKey == null && occurrence.candidateKeys.any { it in routines }) {
-                count(file.path, "OUT_CALL_NOT_DECIDED")
-            }
-        }
-        return places to leftOut
     }
 
     /**

@@ -5,14 +5,9 @@
 
 package com.felipebz.zpa.atlas.cli
 
-import com.charleskorn.kaml.Yaml
-import com.charleskorn.kaml.YamlException
-import com.charleskorn.kaml.YamlList
-import com.charleskorn.kaml.YamlMap
-import com.charleskorn.kaml.YamlNode
-import com.charleskorn.kaml.YamlNull
-import com.charleskorn.kaml.YamlScalar
-import com.charleskorn.kaml.YamlTaggedNode
+import com.charleskorn.kaml.*
+import com.felipebz.zpa.atlas.cli.ProjectFile.Companion.DESCRIPTIVE
+import com.felipebz.zpa.atlas.cli.ProjectFile.Companion.TAB_WIDTH
 import com.felipebz.zpa.atlas.server.TAB_WIDTHS
 import java.io.IOException
 import java.nio.file.Files
@@ -124,41 +119,49 @@ class ProjectFile(
                     if (prefix.isEmpty()) "$shown: a project file is a map of keys: ${topKeys().joinToString(", ")}"
                     else "$shown, line ${node.location.line}: ${prefix.removeSuffix(".")} is a map of keys: ${keysUnder(prefix).joinToString(", ")}"
                 )
-            for ((keyNode, valueNode) in map.entries) {
-                val key = prefix + keyNode.content
-                val line = keyNode.location.line
-                MACHINE_OPTIONS[keyNode.content]?.let { option ->
-                    throw CliValidationException("$shown, line $line: $key belongs to the machine, not to the project: give $option to index instead")
-                }
-                if (keyNode.content.contains("password", ignoreCase = true) && keyNode.content != "passwordEnv") {
-                    throw CliValidationException(
-                        "$shown, line $line: $key: the password never goes in the file; " +
-                            "name the environment variable that holds it in oracle.passwordEnv"
-                    )
-                }
-                val value = untagged(valueNode)
-                if (key == "oracle") {
-                    read(shown, value, "oracle.", folder, values)
-                    continue
-                }
-                DESCRIPTIVE[key]?.let { max ->
-                    values[key] = descriptive(shown, key, value, max)
-                    continue
-                }
-                if (key == TAB_WIDTH) {
-                    val width = text(shown, key, value, Path.of("")).trim()
-                    if (width.toIntOrNull() !in TAB_WIDTHS) {
-                        throw CliValidationException("$shown, line ${value.location.line}: $key is 2, 4 or 8, the spaces a tab shows as; it is '$width'")
-                    }
-                    values[key] = width
-                    continue
-                }
-                if (key !in KEYS) {
-                    val known = if (prefix.isEmpty()) topKeys() else keysUnder(prefix).map { prefix + it }
-                    throw CliValidationException("$shown, line $line: unknown key '$key'; the keys are: ${known.joinToString(", ")}")
-                }
-                values[key] = text(shown, key, value, folder)
+            for ((keyNode, valueNode) in map.entries) readEntry(shown, keyNode, valueNode, prefix, folder, values)
+        }
+
+        /** Puts in [values] the option of the key [keyNode] under [prefix], or of each key of its map for `oracle`. */
+        private fun readEntry(shown: String, keyNode: YamlScalar, valueNode: YamlNode, prefix: String, folder: Path, values: MutableMap<String, String>) {
+            val key = prefix + keyNode.content
+            val line = keyNode.location.line
+            MACHINE_OPTIONS[keyNode.content]?.let { option ->
+                throw CliValidationException("$shown, line $line: $key belongs to the machine, not to the project: give $option to index instead")
             }
+            if (keyNode.content.contains("password", ignoreCase = true) && keyNode.content != "passwordEnv") {
+                throw CliValidationException(
+                    "$shown, line $line: $key: the password never goes in the file; " +
+                        "name the environment variable that holds it in oracle.passwordEnv"
+                )
+            }
+            val value = untagged(valueNode)
+            if (key == "oracle") {
+                read(shown, value, "oracle.", folder, values)
+                return
+            }
+            DESCRIPTIVE[key]?.let { max ->
+                values[key] = descriptive(shown, key, value, max)
+                return
+            }
+            if (key == TAB_WIDTH) {
+                values[key] = tabWidthValue(shown, key, value)
+                return
+            }
+            if (key !in KEYS) {
+                val known = if (prefix.isEmpty()) topKeys() else keysUnder(prefix).map { prefix + it }
+                throw CliValidationException("$shown, line $line: unknown key '$key'; the keys are: ${known.joinToString(", ")}")
+            }
+            values[key] = text(shown, key, value, folder)
+        }
+
+        /** The text of [TAB_WIDTH]: one of [TAB_WIDTHS]. */
+        private fun tabWidthValue(shown: String, key: String, node: YamlNode): String {
+            val width = text(shown, key, node, Path.of("")).trim()
+            if (width.toIntOrNull() !in TAB_WIDTHS) {
+                throw CliValidationException("$shown, line ${node.location.line}: $key is 2, 4 or 8, the spaces a tab shows as; it is '$width'")
+            }
+            return width
         }
 
         /** The option's text of the value of [key]: a scalar, or for a list key a YAML list or comma-separated text. */

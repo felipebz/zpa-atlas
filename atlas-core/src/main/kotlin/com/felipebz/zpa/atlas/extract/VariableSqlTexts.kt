@@ -349,41 +349,59 @@ internal class VariableSqlTexts(
 
     /** What the occurrence [name] of the variable's name does to it: null for a read. */
     private fun write(name: AstNode): Write? {
-        var expression = name
-        while (true) {
-            val parent = expression.parentOrNull ?: return null
-            val climbs = parent.firstChild === expression && parent.type in COMPOSITES ||
-                parent.type == PlSqlGrammar.MEMBER_EXPRESSION && parent.lastChild === expression
-            if (!climbs) break
-            expression = parent
-        }
+        val expression = writtenExpression(name) ?: return null
         val parent = expression.parentOrNull ?: return null
-        val plain = expression === name || expression.type == PlSqlGrammar.MEMBER_EXPRESSION && expression.lastChild === name ||
-            expression.type == PlSqlGrammar.OBJECT_REFERENCE && expression.numberOfChildren == 1
+        val plain = isPlainTarget(expression, name)
         return when (parent.type) {
-            PlSqlGrammar.ASSIGNMENT_STATEMENT -> {
-                val assignment = parent.children.indexOfFirst { it.type == PlSqlPunctuator.ASSIGNMENT }
-                when {
-                    parent.children.indexOf(expression) > assignment -> null
-                    plain -> Write.Value(parent.children[assignment + 1])
-                    else -> Write.Unseen(name)
-                }
-            }
+            PlSqlGrammar.ASSIGNMENT_STATEMENT -> assignmentWrite(parent, expression, name, plain)
             DmlGrammar.INTO_CLAUSE -> if (plain) Write.NotInCode(name) else Write.Unseen(name)
             PlSqlGrammar.UNNAMED_ACTUAL_PAMETER -> when {
                 parent.lastChild !== expression -> null
                 parent.hasDirectChildren(PlSqlKeyword.OUT) -> Write.NotInCode(name)
                 else -> null
             }
-            PlSqlGrammar.ARGUMENT -> when {
-                parent.lastChild !== expression || expression in statementTexts -> null
-                else -> when (state.argumentModes[expression] ?: state.argumentModes[parent]) {
-                    ProjectParameterMode.IN -> null
-                    ProjectParameterMode.OUT, ProjectParameterMode.IN_OUT -> Write.NotInCode(name)
-                    null -> Write.Unseen(name)
-                }
-            }
+            PlSqlGrammar.ARGUMENT -> argumentWrite(parent, expression, name)
             else -> null
+        }
+    }
+
+    /**
+     * The expression [name] is the target part of: climbed while it is the first part of a composite or the member of
+     * a member expression. Null when the climb reaches the root.
+     */
+    private fun writtenExpression(name: AstNode): AstNode? {
+        var expression = name
+        while (true) {
+            val parent = expression.parentOrNull ?: return null
+            val climbs = parent.firstChild === expression && parent.type in COMPOSITES ||
+                parent.type == PlSqlGrammar.MEMBER_EXPRESSION && parent.lastChild === expression
+            if (!climbs) return expression
+            expression = parent
+        }
+    }
+
+    /** Whether [expression], the target holding [name], writes the whole variable, not a part of it. */
+    private fun isPlainTarget(expression: AstNode, name: AstNode): Boolean =
+        expression === name || expression.type == PlSqlGrammar.MEMBER_EXPRESSION && expression.lastChild === name ||
+            expression.type == PlSqlGrammar.OBJECT_REFERENCE && expression.numberOfChildren == 1
+
+    /** What the assignment [assignment] does to the variable at [expression]: null when it is on the right side. */
+    private fun assignmentWrite(assignment: AstNode, expression: AstNode, name: AstNode, plain: Boolean): Write? {
+        val operator = assignment.children.indexOfFirst { it.type == PlSqlPunctuator.ASSIGNMENT }
+        return when {
+            assignment.children.indexOf(expression) > operator -> null
+            plain -> Write.Value(assignment.children[operator + 1])
+            else -> Write.Unseen(name)
+        }
+    }
+
+    /** What the call argument [argument] holding [expression] does to the variable, by its formal's mode: null for a read. */
+    private fun argumentWrite(argument: AstNode, expression: AstNode, name: AstNode): Write? {
+        if (argument.lastChild !== expression || expression in statementTexts) return null
+        return when (state.argumentModes[expression] ?: state.argumentModes[argument]) {
+            ProjectParameterMode.IN -> null
+            ProjectParameterMode.OUT, ProjectParameterMode.IN_OUT -> Write.NotInCode(name)
+            null -> Write.Unseen(name)
         }
     }
 

@@ -21,36 +21,52 @@ internal class FileRows(private val connection: Connection) {
         sortedFiles: List<FileFacts>, entityIds: Map<String, Long>, globalCoverage: List<CoverageFact>,
         places: Map<String, List<ColumnPlaceFact>> = emptyMap(), placesLeftOut: Map<String, Map<String, Int>> = emptyMap()
     ) {
-        val fileIds = HashMap<String, Long>()
-        val fileInsert = prepare("INSERT INTO source_file(id, path, kind, sha256, size_bytes, compilation_schema, parse_status, recovered_regions, encoding) VALUES (?,?,?,?,?,?,?,?,?)")
-        val unitInsert = prepare("INSERT INTO unit(id, file_id, entity_id, kind, name, start_line, start_col, end_line, end_col, origin_path, origin_line_offset) VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL)")
-        val statementInsert = prepare("INSERT INTO sql_statement(id, file_id, unit_id, container_entity_id, kind, start_line, start_col, end_line, end_col, normalized_hash) VALUES (?,?,?,?,?,?,?,?,?,?)")
-        val occurrenceInsert = prepare("INSERT INTO occurrence(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line, end_col, written, entity_id, roles, status, origin, reason, name_start_line, name_start_col, name_end_line, name_end_col) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-        val candidateInsert = prepare("INSERT INTO occurrence_candidate(occurrence_id, entity_id) VALUES (?,?)")
-        val writtenValueInsert = prepare("INSERT INTO written_value(occurrence_id, row_number, value_kind, value, start_line, start_col, end_line, end_col) VALUES (?,?,?,?,?,?,?,?)")
-        val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col, value_kind, value) VALUES (?,?,?,?,?,?,?,?,?,?)")
-        val coverageInsert = prepare("INSERT INTO coverage_note(id, file_id, kind, message) VALUES (?,?,?,?)")
-        val docInsert = prepare("INSERT INTO doc_comment(entity_id, file_id, in_body, shape, start_line, text, text_cut) VALUES (?,?,?,?,?,?,?)")
-        val placeInsert = prepare("""INSERT INTO column_place(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line,
+        val rows = Rows(entityIds)
+        for ((index, file) in sortedFiles.withIndex()) rows.writeFile(index + 1L, file, places[file.path].orEmpty())
+        rows.writeNotes(notesOf(sortedFiles, globalCoverage, placesLeftOut))
+        rows.finish()
+    }
+
+    /** The coverage notes with the path of their file, in id order: the run's, the files', then the counts of [placesLeftOut]. */
+    private fun notesOf(
+        sortedFiles: List<FileFacts>, globalCoverage: List<CoverageFact>, placesLeftOut: Map<String, Map<String, Int>>
+    ): List<Pair<String?, CoverageFact>> =
+        globalCoverage.distinct().sortedWith(compareBy({ it.kind }, { it.message })).map { null to it } +
+            sortedFiles.flatMap { file -> file.coverage.distinct().sortedWith(compareBy({ it.kind }, { it.message })).map { file.path to it } } +
+            sortedFiles.flatMap { file -> placesLeftOut[file.path].orEmpty().map { (shape, count) -> file.path to leftOutNote(shape, count) } }
+
+    /** The inserts of one [write] and the ids handed out so far; [entityIds] are the ids of the entities by key. */
+    private inner class Rows(private val entityIds: Map<String, Long>) {
+        private val fileIds = HashMap<String, Long>()
+        private val fileInsert = prepare("INSERT INTO source_file(id, path, kind, sha256, size_bytes, compilation_schema, parse_status, recovered_regions, encoding) VALUES (?,?,?,?,?,?,?,?,?)")
+        private val unitInsert = prepare("INSERT INTO unit(id, file_id, entity_id, kind, name, start_line, start_col, end_line, end_col, origin_path, origin_line_offset) VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL)")
+        private val statementInsert = prepare("INSERT INTO sql_statement(id, file_id, unit_id, container_entity_id, kind, start_line, start_col, end_line, end_col, normalized_hash) VALUES (?,?,?,?,?,?,?,?,?,?)")
+        private val occurrenceInsert = prepare("INSERT INTO occurrence(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line, end_col, written, entity_id, roles, status, origin, reason, name_start_line, name_start_col, name_end_line, name_end_col) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        private val candidateInsert = prepare("INSERT INTO occurrence_candidate(occurrence_id, entity_id) VALUES (?,?)")
+        private val writtenValueInsert = prepare("INSERT INTO written_value(occurrence_id, row_number, value_kind, value, start_line, start_col, end_line, end_col) VALUES (?,?,?,?,?,?,?,?)")
+        private val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col, value_kind, value) VALUES (?,?,?,?,?,?,?,?,?,?)")
+        private val coverageInsert = prepare("INSERT INTO coverage_note(id, file_id, kind, message) VALUES (?,?,?,?)")
+        private val docInsert = prepare("INSERT INTO doc_comment(entity_id, file_id, in_body, shape, start_line, text, text_cut) VALUES (?,?,?,?,?,?,?)")
+        private val placeInsert = prepare("""INSERT INTO column_place(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line,
             end_col, column_id, source, bulk, target_entity_id, target_written, field, class, declared_type, length, length_unit, type_source_id, reason,
             scale, parameter_mode, functions, argument_parameter_id, argument_routine_id, call_count, call_path, call_line, concatenated,
             unit_source, unit_compiled_owner, unit_compiled_name, unit_compiled_type)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
-        val formsInsert = prepare("INSERT INTO forms_object(file_id, position, entity_id, code_first_line, code_last_line, code_kind) VALUES (?,?,?,?,?,?)")
-        val blockInsert = prepare("""INSERT INTO forms_block(entity_id, database, source_type, source_name, source_entity_id, target_type, target_name,
+        private val formsInsert = prepare("INSERT INTO forms_object(file_id, position, entity_id, code_first_line, code_last_line, code_kind) VALUES (?,?,?,?,?,?)")
+        private val blockInsert = prepare("""INSERT INTO forms_block(entity_id, database, source_type, source_name, source_entity_id, target_type, target_name,
             target_entity_id, query_allowed, insert_allowed, update_allowed, delete_allowed, where_clause, order_by_clause) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
-        val itemInsert = prepare("""INSERT INTO forms_item(entity_id, database, column_name, kind, insert_allowed, update_allowed, column_id, target_column_id)
+        private val itemInsert = prepare("""INSERT INTO forms_item(entity_id, database, column_name, kind, insert_allowed, update_allowed, column_id, target_column_id)
             VALUES (?,?,?,?,?,?,?,?)""")
-        val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert, coverageInsert,
-            docInsert, placeInsert, formsInsert, blockInsert, itemInsert)
-        var placeId = 0L
+        private val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert,
+            coverageInsert, docInsert, placeInsert, formsInsert, blockInsert, itemInsert)
+        private var placeId = 0L
+        private var unitId = 0L
+        private var statementId = 0L
+        private var occurrenceId = 0L
+        private var coverageId = 0L
 
-        var unitId = 0L
-        var statementId = 0L
-        var occurrenceId = 0L
-        var coverageId = 0L
-        for ((index, file) in sortedFiles.withIndex()) {
-            val fileId = index + 1L
+        /** Writes [file] as [fileId], then its units, statements, occurrences, Forms rows, doc comments and [places]. */
+        fun writeFile(fileId: Long, file: FileFacts, places: List<ColumnPlaceFact>) {
             fileIds[file.path] = fileId
             fileInsert.setLong(1, fileId)
             fileInsert.setString(2, file.path)
@@ -63,8 +79,42 @@ internal class FileRows(private val connection: Connection) {
             fileInsert.setString(9, file.encoding)
             batches.add(fileInsert)
 
-            val unitIds = LongArray(file.units.size)
-            for ((u, unit) in file.units.withIndex()) {
+            val unitIds = writeUnits(fileId, file.units)
+            val statementIds = writeStatements(fileId, file.statements, unitIds)
+            for (occurrence in file.occurrences.sortedWith(OCCURRENCE_ORDER)) writeOccurrence(fileId, occurrence, unitIds, statementIds)
+            for (use in file.formsUses) writeFormsUse(fileId, use)
+            for ((position, formsObject) in file.formsObjects.withIndex()) writeFormsObject(fileId, position, formsObject)
+            for (doc in file.docComments.sortedWith(compareBy({ it.line }, { it.entityKey }))) writeDoc(fileId, doc)
+            // A key the run has no entity for (a column the index never mentioned) is left out of the place.
+            for (place in places.sortedWith(PLACE_ORDER)) {
+                val column = entityIds[place.columnKey] ?: continue
+                writePlace(fileId, place, column, unitIds, statementIds)
+            }
+            // At a file boundary, so that the rows of one file go out together.
+            batches.flushIfFull()
+        }
+
+        /** Writes the coverage [notes], each with the id of its file when it has a path. */
+        fun writeNotes(notes: List<Pair<String?, CoverageFact>>) {
+            for ((path, note) in notes) {
+                coverageInsert.setLong(1, ++coverageId)
+                coverageInsert.setNullableLong(2, path?.let { fileIds.getValue(it) })
+                coverageInsert.setString(3, note.kind)
+                coverageInsert.setString(4, note.message)
+                batches.add(coverageInsert)
+            }
+        }
+
+        /** Executes the pending rows and closes the inserts. */
+        fun finish() {
+            batches.flush()
+            batches.close()
+        }
+
+        /** Writes the [units] of the file [fileId]; returns their ids, by index. */
+        private fun writeUnits(fileId: Long, units: List<UnitFact>): LongArray {
+            val unitIds = LongArray(units.size)
+            for ((u, unit) in units.withIndex()) {
                 unitIds[u] = ++unitId
                 unitInsert.setLong(1, unitId)
                 unitInsert.setLong(2, fileId)
@@ -74,9 +124,13 @@ internal class FileRows(private val connection: Connection) {
                 unitInsert.setSpan(6, unit.span)
                 batches.add(unitInsert)
             }
+            return unitIds
+        }
 
+        /** Writes the [statements] of the file [fileId] in span order; returns their ids, by local id. */
+        private fun writeStatements(fileId: Long, statements: List<StatementFact>, unitIds: LongArray): Map<Int, Long> {
             val statementIds = HashMap<Int, Long>()
-            for (statement in file.statements.sortedWith(compareBy({ it.span }, { it.kind }))) {
+            for (statement in statements.sortedWith(compareBy({ it.span }, { it.kind }))) {
                 statementIds[statement.localId] = ++statementId
                 statementInsert.setLong(1, statementId)
                 statementInsert.setLong(2, fileId)
@@ -87,164 +141,169 @@ internal class FileRows(private val connection: Connection) {
                 statementInsert.setString(10, statement.normalizedHash)
                 batches.add(statementInsert)
             }
+            return statementIds
+        }
 
-            for (occurrence in file.occurrences.sortedWith(OCCURRENCE_ORDER)) {
-                occurrenceInsert.setLong(1, ++occurrenceId)
-                occurrenceInsert.setLong(2, fileId)
-                occurrenceInsert.setLong(3, unitIds[occurrence.unitIndex])
-                occurrenceInsert.setNullableLong(4, occurrence.containerKey?.let { entityIds.getValue(it) })
-                occurrenceInsert.setNullableLong(5, occurrence.statementLocalId?.let { statementIds.getValue(it) })
-                occurrenceInsert.setSpan(6, occurrence.span)
-                occurrenceInsert.setString(10, occurrence.written)
-                occurrenceInsert.setNullableLong(11, occurrence.entityKey?.let { entityIds.getValue(it) })
-                occurrenceInsert.setString(12, occurrence.roles.encode())
-                occurrenceInsert.setString(13, occurrence.status.name)
-                occurrenceInsert.setString(14, occurrence.origin.name)
-                occurrenceInsert.setNullableString(15, occurrence.reason)
-                val nameSpan = occurrence.nameSpan?.takeIf { it != occurrence.span }
-                occurrenceInsert.setNullableLong(16, nameSpan?.startLine?.toLong())
-                occurrenceInsert.setNullableLong(17, nameSpan?.startCol?.toLong())
-                occurrenceInsert.setNullableLong(18, nameSpan?.endLine?.toLong())
-                occurrenceInsert.setNullableLong(19, nameSpan?.endCol?.toLong())
-                batches.add(occurrenceInsert)
-                for (candidate in occurrence.candidateKeys.map { entityIds.getValue(it) }.distinct().sorted()) {
-                    candidateInsert.setLong(1, occurrenceId)
-                    candidateInsert.setLong(2, candidate)
-                    batches.add(candidateInsert)
-                }
-                for (argument in occurrence.arguments) {
-                    argumentInsert.setLong(1, occurrenceId)
-                    argumentInsert.setInt(2, argument.ordinal)
-                    argumentInsert.setNullableString(3, argument.label)
-                    argumentInsert.setNullableLong(4, argument.parameterKey?.let { entityIds.getValue(it) })
-                    argumentInsert.setSpan(5, argument.span)
-                    argumentInsert.setString(9, argument.valueKind.name)
-                    argumentInsert.setNullableString(10, argument.value)
-                    batches.add(argumentInsert)
-                }
-                for (written in occurrence.writtenValues) {
-                    writtenValueInsert.setLong(1, occurrenceId)
-                    writtenValueInsert.setInt(2, written.row)
-                    writtenValueInsert.setString(3, written.valueKind.name)
-                    writtenValueInsert.setNullableString(4, written.value)
-                    writtenValueInsert.setSpan(5, written.span)
-                    batches.add(writtenValueInsert)
-                }
+        /** Writes [occurrence] of the file [fileId], then its candidates, arguments and written values. */
+        private fun writeOccurrence(fileId: Long, occurrence: OccurrenceFact, unitIds: LongArray, statementIds: Map<Int, Long>) {
+            occurrenceInsert.setLong(1, ++occurrenceId)
+            occurrenceInsert.setLong(2, fileId)
+            occurrenceInsert.setLong(3, unitIds[occurrence.unitIndex])
+            occurrenceInsert.setNullableLong(4, occurrence.containerKey?.let { entityIds.getValue(it) })
+            occurrenceInsert.setNullableLong(5, occurrence.statementLocalId?.let { statementIds.getValue(it) })
+            occurrenceInsert.setSpan(6, occurrence.span)
+            occurrenceInsert.setString(10, occurrence.written)
+            occurrenceInsert.setNullableLong(11, occurrence.entityKey?.let { entityIds.getValue(it) })
+            occurrenceInsert.setString(12, occurrence.roles.encode())
+            occurrenceInsert.setString(13, occurrence.status.name)
+            occurrenceInsert.setString(14, occurrence.origin.name)
+            occurrenceInsert.setNullableString(15, occurrence.reason)
+            val nameSpan = occurrence.nameSpan?.takeIf { it != occurrence.span }
+            occurrenceInsert.setNullableLong(16, nameSpan?.startLine?.toLong())
+            occurrenceInsert.setNullableLong(17, nameSpan?.startCol?.toLong())
+            occurrenceInsert.setNullableLong(18, nameSpan?.endLine?.toLong())
+            occurrenceInsert.setNullableLong(19, nameSpan?.endCol?.toLong())
+            batches.add(occurrenceInsert)
+            for (candidate in occurrence.candidateKeys.map { entityIds.getValue(it) }.distinct().sorted()) {
+                candidateInsert.setLong(1, occurrenceId)
+                candidateInsert.setLong(2, candidate)
+                batches.add(candidateInsert)
             }
-            // The uses Forms makes without code: no unit, no statement, no span.
-            for (use in file.formsUses) {
-                occurrenceInsert.setLong(1, ++occurrenceId)
-                occurrenceInsert.setLong(2, fileId)
-                for (parameter in listOf(3, 5, 6, 7, 8, 9, 16, 17, 18, 19)) occurrenceInsert.setNullableLong(parameter, null)
-                occurrenceInsert.setLong(4, entityIds.getValue(use.containerKey))
-                occurrenceInsert.setString(10, use.written)
-                occurrenceInsert.setNullableLong(11, use.entityKey?.let { entityIds.getValue(it) })
-                occurrenceInsert.setString(12, use.roles.encode())
-                occurrenceInsert.setString(13, use.status.name)
-                occurrenceInsert.setString(14, Origin.FORMS_IMPLICIT.name)
-                occurrenceInsert.setNullableString(15, use.reason)
-                batches.add(occurrenceInsert)
-            }
-            for ((position, formsObject) in file.formsObjects.withIndex()) {
-                val entityId = entityIds.getValue(formsObject.entityKey)
-                formsInsert.setLong(1, fileId)
-                formsInsert.setInt(2, position)
-                formsInsert.setLong(3, entityId)
-                formsInsert.setNullableLong(4, formsObject.codeFirstLine?.toLong())
-                formsInsert.setNullableLong(5, formsObject.codeLastLine?.toLong())
-                formsInsert.setNullableString(6, formsObject.unitKind?.name)
-                batches.add(formsInsert)
-                formsObject.block?.let { block ->
-                    blockInsert.setLong(1, entityId)
-                    blockInsert.setInt(2, if (block.database) 1 else 0)
-                    blockInsert.setString(3, block.sourceType.name)
-                    blockInsert.setString(4, block.sourceName)
-                    blockInsert.setNullableLong(5, block.sourceKey?.let { entityIds.getValue(it) })
-                    blockInsert.setString(6, block.targetType.name)
-                    blockInsert.setString(7, block.targetName)
-                    blockInsert.setNullableLong(8, block.targetKey?.let { entityIds.getValue(it) })
-                    blockInsert.setInt(9, if (block.queryAllowed) 1 else 0)
-                    blockInsert.setInt(10, if (block.insertAllowed) 1 else 0)
-                    blockInsert.setInt(11, if (block.updateAllowed) 1 else 0)
-                    blockInsert.setInt(12, if (block.deleteAllowed) 1 else 0)
-                    blockInsert.setString(13, block.where)
-                    blockInsert.setString(14, block.orderBy)
-                    batches.add(blockInsert)
-                }
-                formsObject.item?.let { item ->
-                    itemInsert.setLong(1, entityId)
-                    itemInsert.setInt(2, if (item.database) 1 else 0)
-                    itemInsert.setString(3, item.columnName)
-                    itemInsert.setString(4, item.kind.name)
-                    itemInsert.setInt(5, if (item.insertAllowed) 1 else 0)
-                    itemInsert.setInt(6, if (item.updateAllowed) 1 else 0)
-                    itemInsert.setNullableLong(7, item.columnKey?.let { entityIds.getValue(it) })
-                    itemInsert.setNullableLong(8, item.targetColumnKey?.let { entityIds.getValue(it) })
-                    batches.add(itemInsert)
-                }
-            }
-            for (doc in file.docComments.sortedWith(compareBy({ it.line }, { it.entityKey }))) {
-                docInsert.setLong(1, entityIds.getValue(doc.entityKey))
-                docInsert.setLong(2, fileId)
-                docInsert.setInt(3, if (doc.inBody) 1 else 0)
-                docInsert.setString(4, doc.shape.name)
-                docInsert.setInt(5, doc.line)
-                docInsert.setString(6, doc.text)
-                docInsert.setInt(7, if (doc.textCut) 1 else 0)
-                batches.add(docInsert)
-            }
-            // A key the run has no entity for (a column the index never mentioned) is left out of the place.
-            for (place in places[file.path].orEmpty().sortedWith(PLACE_ORDER)) {
-                val column = entityIds[place.columnKey] ?: continue
-                placeInsert.setLong(1, ++placeId)
-                placeInsert.setLong(2, fileId)
-                placeInsert.setNullableLong(3, place.unitIndex?.let { unitIds[it] })
-                placeInsert.setNullableLong(4, place.containerKey?.let { entityIds[it] })
-                placeInsert.setNullableLong(5, place.statementLocalId?.let { statementIds[it] })
-                // A place in no code (a block's query): no lines.
-                if (place.span != null) placeInsert.setSpan(6, place.span) else for (parameter in 6..9) placeInsert.setNullableLong(parameter, null)
-                placeInsert.setLong(10, column)
-                placeInsert.setString(11, place.source.name)
-                placeInsert.setInt(12, if (place.bulk) 1 else 0)
-                placeInsert.setNullableLong(13, place.targetKey?.let { entityIds[it] })
-                placeInsert.setString(14, place.targetWritten)
-                placeInsert.setNullableString(15, place.field)
-                placeInsert.setString(16, place.placeClass.name)
-                placeInsert.setNullableString(17, place.declaredType)
-                placeInsert.setNullableLong(18, place.length?.toLong())
-                placeInsert.setNullableString(19, place.unit)
-                placeInsert.setNullableLong(20, place.typeSourceKey?.let { entityIds[it] })
-                placeInsert.setNullableString(21, place.reason)
-                placeInsert.setNullableLong(22, place.scale?.toLong())
-                placeInsert.setNullableString(23, place.parameterMode)
-                placeInsert.setNullableString(24, place.functions.filter { it != CONCATENATED }.takeIf { it.isNotEmpty() }?.joinToString(","))
-                placeInsert.setNullableLong(25, place.argumentOf?.let { entityIds[it] })
-                placeInsert.setNullableLong(26, place.argumentOf?.let { entityIds[it.substringBeforeLast('.')] })
-                placeInsert.setNullableLong(27, place.callCount?.toLong())
-                placeInsert.setNullableString(28, place.callPath)
-                placeInsert.setNullableLong(29, place.callLine?.toLong())
-                placeInsert.setInt(30, if (CONCATENATED in place.functions) 1 else 0)
-                placeInsert.setNullableString(31, place.unitSource?.name)
-                placeInsert.setNullableString(32, place.unitCompiledIn?.owner)
-                placeInsert.setNullableString(33, place.unitCompiledIn?.name)
-                placeInsert.setNullableString(34, place.unitCompiledIn?.type)
-                batches.add(placeInsert)
-            }
-            // At a file boundary, so that the rows of one file go out together.
-            batches.flushIfFull()
+            for (argument in occurrence.arguments) writeArgument(argument)
+            for (written in occurrence.writtenValues) writeWrittenValue(written)
         }
-        val notes = globalCoverage.distinct().sortedWith(compareBy({ it.kind }, { it.message })).map { null to it } +
-            sortedFiles.flatMap { file -> file.coverage.distinct().sortedWith(compareBy({ it.kind }, { it.message })).map { file.path to it } } +
-            sortedFiles.flatMap { file -> placesLeftOut[file.path].orEmpty().map { (shape, count) -> file.path to leftOutNote(shape, count) } }
-        for ((path, note) in notes) {
-            coverageInsert.setLong(1, ++coverageId)
-            coverageInsert.setNullableLong(2, path?.let { fileIds.getValue(it) })
-            coverageInsert.setString(3, note.kind)
-            coverageInsert.setString(4, note.message)
-            batches.add(coverageInsert)
+
+        /** Writes [argument] of the last occurrence written. */
+        private fun writeArgument(argument: CallArgumentFact) {
+            argumentInsert.setLong(1, occurrenceId)
+            argumentInsert.setInt(2, argument.ordinal)
+            argumentInsert.setNullableString(3, argument.label)
+            argumentInsert.setNullableLong(4, argument.parameterKey?.let { entityIds.getValue(it) })
+            argumentInsert.setSpan(5, argument.span)
+            argumentInsert.setString(9, argument.valueKind.name)
+            argumentInsert.setNullableString(10, argument.value)
+            batches.add(argumentInsert)
         }
-        batches.flush()
-        batches.close()
+
+        /** Writes [written], a value the last occurrence written writes. */
+        private fun writeWrittenValue(written: WrittenValueFact) {
+            writtenValueInsert.setLong(1, occurrenceId)
+            writtenValueInsert.setInt(2, written.row)
+            writtenValueInsert.setString(3, written.valueKind.name)
+            writtenValueInsert.setNullableString(4, written.value)
+            writtenValueInsert.setSpan(5, written.span)
+            batches.add(writtenValueInsert)
+        }
+
+        /** Writes [use], a use Forms makes without code in the file [fileId]: no unit, no statement, no span. */
+        private fun writeFormsUse(fileId: Long, use: FormsUseFact) {
+            occurrenceInsert.setLong(1, ++occurrenceId)
+            occurrenceInsert.setLong(2, fileId)
+            for (parameter in listOf(3, 5, 6, 7, 8, 9, 16, 17, 18, 19)) occurrenceInsert.setNullableLong(parameter, null)
+            occurrenceInsert.setLong(4, entityIds.getValue(use.containerKey))
+            occurrenceInsert.setString(10, use.written)
+            occurrenceInsert.setNullableLong(11, use.entityKey?.let { entityIds.getValue(it) })
+            occurrenceInsert.setString(12, use.roles.encode())
+            occurrenceInsert.setString(13, use.status.name)
+            occurrenceInsert.setString(14, Origin.FORMS_IMPLICIT.name)
+            occurrenceInsert.setNullableString(15, use.reason)
+            batches.add(occurrenceInsert)
+        }
+
+        /** Writes [formsObject] at [position] in the file [fileId], then its block or item. */
+        private fun writeFormsObject(fileId: Long, position: Int, formsObject: FormsObjectFact) {
+            val entityId = entityIds.getValue(formsObject.entityKey)
+            formsInsert.setLong(1, fileId)
+            formsInsert.setInt(2, position)
+            formsInsert.setLong(3, entityId)
+            formsInsert.setNullableLong(4, formsObject.codeFirstLine?.toLong())
+            formsInsert.setNullableLong(5, formsObject.codeLastLine?.toLong())
+            formsInsert.setNullableString(6, formsObject.unitKind?.name)
+            batches.add(formsInsert)
+            formsObject.block?.let { writeBlock(entityId, it) }
+            formsObject.item?.let { writeItem(entityId, it) }
+        }
+
+        /** Writes [block], the data block of the Forms object [entityId]. */
+        private fun writeBlock(entityId: Long, block: FormsBlockFact) {
+            blockInsert.setLong(1, entityId)
+            blockInsert.setInt(2, if (block.database) 1 else 0)
+            blockInsert.setString(3, block.sourceType.name)
+            blockInsert.setString(4, block.sourceName)
+            blockInsert.setNullableLong(5, block.sourceKey?.let { entityIds.getValue(it) })
+            blockInsert.setString(6, block.targetType.name)
+            blockInsert.setString(7, block.targetName)
+            blockInsert.setNullableLong(8, block.targetKey?.let { entityIds.getValue(it) })
+            blockInsert.setInt(9, if (block.queryAllowed) 1 else 0)
+            blockInsert.setInt(10, if (block.insertAllowed) 1 else 0)
+            blockInsert.setInt(11, if (block.updateAllowed) 1 else 0)
+            blockInsert.setInt(12, if (block.deleteAllowed) 1 else 0)
+            blockInsert.setString(13, block.where)
+            blockInsert.setString(14, block.orderBy)
+            batches.add(blockInsert)
+        }
+
+        /** Writes [item], the item of the Forms object [entityId]. */
+        private fun writeItem(entityId: Long, item: FormsItemFact) {
+            itemInsert.setLong(1, entityId)
+            itemInsert.setInt(2, if (item.database) 1 else 0)
+            itemInsert.setString(3, item.columnName)
+            itemInsert.setString(4, item.kind.name)
+            itemInsert.setInt(5, if (item.insertAllowed) 1 else 0)
+            itemInsert.setInt(6, if (item.updateAllowed) 1 else 0)
+            itemInsert.setNullableLong(7, item.columnKey?.let { entityIds.getValue(it) })
+            itemInsert.setNullableLong(8, item.targetColumnKey?.let { entityIds.getValue(it) })
+            batches.add(itemInsert)
+        }
+
+        /** Writes [doc], a doc comment of the file [fileId]. */
+        private fun writeDoc(fileId: Long, doc: DocCommentFact) {
+            docInsert.setLong(1, entityIds.getValue(doc.entityKey))
+            docInsert.setLong(2, fileId)
+            docInsert.setInt(3, if (doc.inBody) 1 else 0)
+            docInsert.setString(4, doc.shape.name)
+            docInsert.setInt(5, doc.line)
+            docInsert.setString(6, doc.text)
+            docInsert.setInt(7, if (doc.textCut) 1 else 0)
+            batches.add(docInsert)
+        }
+
+        /** Writes [place] of the file [fileId], a place the value of the column [column] is read into. */
+        private fun writePlace(fileId: Long, place: ColumnPlaceFact, column: Long, unitIds: LongArray, statementIds: Map<Int, Long>) {
+            placeInsert.setLong(1, ++placeId)
+            placeInsert.setLong(2, fileId)
+            placeInsert.setNullableLong(3, place.unitIndex?.let { unitIds[it] })
+            placeInsert.setNullableLong(4, place.containerKey?.let { entityIds[it] })
+            placeInsert.setNullableLong(5, place.statementLocalId?.let { statementIds[it] })
+            // A place in no code (a block's query): no lines.
+            if (place.span != null) placeInsert.setSpan(6, place.span) else for (parameter in 6..9) placeInsert.setNullableLong(parameter, null)
+            placeInsert.setLong(10, column)
+            placeInsert.setString(11, place.source.name)
+            placeInsert.setInt(12, if (place.bulk) 1 else 0)
+            placeInsert.setNullableLong(13, place.targetKey?.let { entityIds[it] })
+            placeInsert.setString(14, place.targetWritten)
+            placeInsert.setNullableString(15, place.field)
+            placeInsert.setString(16, place.placeClass.name)
+            placeInsert.setNullableString(17, place.declaredType)
+            placeInsert.setNullableLong(18, place.length?.toLong())
+            placeInsert.setNullableString(19, place.unit)
+            placeInsert.setNullableLong(20, place.typeSourceKey?.let { entityIds[it] })
+            placeInsert.setNullableString(21, place.reason)
+            placeInsert.setNullableLong(22, place.scale?.toLong())
+            placeInsert.setNullableString(23, place.parameterMode)
+            placeInsert.setNullableString(24, place.functions.filter { it != CONCATENATED }.takeIf { it.isNotEmpty() }?.joinToString(","))
+            placeInsert.setNullableLong(25, place.argumentOf?.let { entityIds[it] })
+            placeInsert.setNullableLong(26, place.argumentOf?.let { entityIds[it.substringBeforeLast('.')] })
+            placeInsert.setNullableLong(27, place.callCount?.toLong())
+            placeInsert.setNullableString(28, place.callPath)
+            placeInsert.setNullableLong(29, place.callLine?.toLong())
+            placeInsert.setInt(30, if (CONCATENATED in place.functions) 1 else 0)
+            placeInsert.setNullableString(31, place.unitSource?.name)
+            placeInsert.setNullableString(32, place.unitCompiledIn?.owner)
+            placeInsert.setNullableString(33, place.unitCompiledIn?.name)
+            placeInsert.setNullableString(34, place.unitCompiledIn?.type)
+            batches.add(placeInsert)
+        }
     }
 
     private fun prepare(sql: String): PreparedStatement = connection.prepareStatement(sql)

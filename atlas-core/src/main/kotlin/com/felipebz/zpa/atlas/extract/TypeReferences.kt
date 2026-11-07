@@ -48,29 +48,51 @@ internal class TypeReferences(
             state.coverage += CoverageFact("TYPE_NOT_A_NAME", "Datatype at line ${name.tokenLine} is not a plain name")
             return
         }
-        if (node.type == PlSqlGrammar.CUSTOM_DATATYPE) bound.typeOf(name, context)?.let { key ->
-            state.typeTargets[node] = key
-            state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), key,
-                setOf(Role.TYPE_USE), status(Status.RESOLVED, context.partial), context.origin, null)
-            return
-        }
-        val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild
-        val symbol = (first as? SemanticAstNode)?.symbol?.takeUnless { isOwnDeclaration(it, node) }
-        if (symbol != null && plsql.isLocalDeclaration(symbol) ||
-            symbol == null && node.type == PlSqlGrammar.CUSTOM_DATATYPE && segments.size == 1 && isLocalRefCursorType(node, normalizeIdentifier(segments[0]))) {
+        if (node.type == PlSqlGrammar.CUSTOM_DATATYPE && boundTypeUse(node, name, context, statementId)) return
+        val symbol = bindingOf(node, name)
+        if (isLocalType(node, symbol, segments)) {
             state.localTypeReferences++
             return
         }
-        if (forms != null) {
-            // A type or value of a module package is the package; a Forms built-in type gives nothing.
-            forms.own(name, segments)?.let { target ->
-                state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name),
-                    target.key.takeIf { target.known }, setOf(Role.TYPE_USE), status(if (target.known) Status.RESOLVED else Status.UNRESOLVED, context.partial),
-                    context.origin, if (target.known) null else "UNKNOWN_MEMBER")
-                return
-            }
-            if (node.type != PlSqlGrammar.ANCHORED_DATATYPE && forms.isBuiltInType(segments)) return
-        }
+        if (formsTypeUse(node, name, segments, context, statementId)) return
+        projectTypeUse(node, name, segments, symbol, context, statementId)
+    }
+
+    /** Records the use of a type of the package body that zpa binds [name] to; false when it binds none. */
+    private fun boundTypeUse(node: AstNode, name: AstNode, context: Context, statementId: Int?): Boolean {
+        val key = bound.typeOf(name, context) ?: return false
+        state.typeTargets[node] = key
+        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), key,
+            setOf(Role.TYPE_USE), status(Status.RESOLVED, context.partial), context.origin, null)
+        return true
+    }
+
+    /** The legacy table's symbol of the first segment of [name]; null when it has none or it is the declaration [node] belongs to. */
+    private fun bindingOf(node: AstNode, name: AstNode): Symbol? {
+        val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild
+        return (first as? SemanticAstNode)?.symbol?.takeUnless { isOwnDeclaration(it, node) }
+    }
+
+    /** Whether the datatype [node] names a local declaration: by its [symbol], or without one, a local REF CURSOR type. */
+    private fun isLocalType(node: AstNode, symbol: Symbol?, segments: List<String>): Boolean =
+        symbol != null && plsql.isLocalDeclaration(symbol) ||
+            symbol == null && node.type == PlSqlGrammar.CUSTOM_DATATYPE && segments.size == 1 && isLocalRefCursorType(node, normalizeIdentifier(segments[0]))
+
+    /**
+     * In a Forms module, records the use of a type or value of a module package (the package) and returns true; also
+     * true for a Forms built-in type, which gives nothing. False otherwise and outside a Forms module.
+     */
+    private fun formsTypeUse(node: AstNode, name: AstNode, segments: List<String>, context: Context, statementId: Int?): Boolean {
+        val forms = forms ?: return false
+        val target = forms.own(name, segments) ?: return node.type != PlSqlGrammar.ANCHORED_DATATYPE && forms.isBuiltInType(segments)
+        state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name),
+            target.key.takeIf { target.known }, setOf(Role.TYPE_USE), status(if (target.known) Status.RESOLVED else Status.UNRESOLVED, context.partial),
+            context.origin, if (target.known) null else "UNKNOWN_MEMBER")
+        return true
+    }
+
+    /** Records the use of the project or dictionary type, or the anchored object, that [segments] names; nothing for a built-in. */
+    private fun projectTypeUse(node: AstNode, name: AstNode, segments: List<String>, symbol: Symbol?, context: Context, statementId: Int?) {
         val outcome = if (node.type == PlSqlGrammar.ANCHORED_DATATYPE) {
             val enclosingMember = symbol != null && symbol.scope.type == PlSqlGrammar.CREATE_PACKAGE
             types.anchored(segments, node.lastChild.type == PlSqlKeyword.ROWTYPE, context.schema, context.enclosingPackage, enclosingMember)

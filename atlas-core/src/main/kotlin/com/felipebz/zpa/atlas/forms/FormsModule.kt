@@ -164,28 +164,37 @@ enum class FormsProgramUnitKind {
     companion object {
         /** The kind [text] declares: its first words, past blanks and comments (`PACKAGE BODY x IS`, `FUNCTION f`). */
         fun of(text: String): FormsProgramUnitKind {
-            var at = 0
-            fun skip() {
-                while (at < text.length) {
-                    when {
-                        text[at].isWhitespace() -> at++
-                        text.startsWith("--", at) -> at = text.indexOf('\n', at).let { if (it < 0) text.length else it + 1 }
-                        text.startsWith("/*", at) -> at = text.indexOf("*/", at + 2).let { if (it < 0) text.length else it + 2 }
-                        else -> return
-                    }
-                }
-            }
-            fun word(): String {
-                skip()
-                val start = at
-                while (at < text.length && (text[at].isLetterOrDigit() || text[at] == '_')) at++
-                return text.substring(start, at).uppercase()
-            }
-            return when (word()) {
+            val words = UnitTextWords(text)
+            return when (words.next()) {
                 "PROCEDURE" -> PROCEDURE
                 "FUNCTION" -> FUNCTION
-                "PACKAGE" -> if (word() == "BODY") PACKAGE_BODY else PACKAGE
+                "PACKAGE" -> if (words.next() == "BODY") PACKAGE_BODY else PACKAGE
                 else -> UNKNOWN
+            }
+        }
+    }
+}
+
+/** The words of a program unit's [text], read one after the other past blanks and comments. */
+private class UnitTextWords(private val text: String) {
+    private var at = 0
+
+    /** The next word, in upper case; empty when what follows is not a word. */
+    fun next(): String {
+        skip()
+        val start = at
+        while (at < text.length && (text[at].isLetterOrDigit() || text[at] == '_')) at++
+        return text.substring(start, at).uppercase()
+    }
+
+    /** Moves past the blanks and comments that follow. */
+    private fun skip() {
+        while (at < text.length) {
+            when {
+                text[at].isWhitespace() -> at++
+                text.startsWith("--", at) -> at = text.indexOf('\n', at).let { if (it < 0) text.length else it + 1 }
+                text.startsWith("/*", at) -> at = text.indexOf("*/", at + 2).let { if (it < 0) text.length else it + 2 }
+                else -> return
             }
         }
     }

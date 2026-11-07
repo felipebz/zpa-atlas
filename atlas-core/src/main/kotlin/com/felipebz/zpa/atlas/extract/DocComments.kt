@@ -204,6 +204,26 @@ internal class DocComments(root: AstNode, private val ignoredLines: Set<Int> = e
          * trailing spaces.
          */
         private fun keptLines(block: List<Comment>, dropSeparators: Boolean = true): List<String> {
+            val lines = markedLines(block)
+            // Separator lines often start at the marker: they never set the indentation of the words.
+            val indent = lines.filter { (line, dedent) -> dedent && line.isNotBlank() && !separatorLine(line) }
+                .minOfOrNull { (line) -> line.length - line.trimStart().length } ?: 0
+            val result = ArrayList<String>()
+            for ((line, dedent) in lines) {
+                val text = dedented(line, dedent, indent)
+                if (dropSeparators && separatorLine(text)) continue
+                if (text.isEmpty() && (result.isEmpty() || result.last().isEmpty())) continue
+                result += text
+            }
+            while (result.isNotEmpty() && result.last().isEmpty()) result.removeAt(result.lastIndex)
+            return result
+        }
+
+        /**
+         * The lines of [block] without their comment markers, annotation comments left out, each with whether it takes
+         * part in the common indentation.
+         */
+        private fun markedLines(block: List<Comment>): List<Pair<String, Boolean>> {
             // A block comment's first line follows its opening marker: it is never part of the common indentation.
             val lines = ArrayList<Pair<String, Boolean>>()
             for (comment in block) {
@@ -218,19 +238,12 @@ internal class DocComments(root: AstNode, private val ignoredLines: Set<Int> = e
                     lines += if (i == 0) line.trimStart() to false else stripStar(line) to true
                 }
             }
-            // Separator lines often start at the marker: they never set the indentation of the words.
-            val indent = lines.filter { (line, dedent) -> dedent && line.isNotBlank() && !separatorLine(line) }
-                .minOfOrNull { (line) -> line.length - line.trimStart().length } ?: 0
-            val result = ArrayList<String>()
-            for ((line, dedent) in lines) {
-                val text = (if (dedent) line.drop(minOf(indent, line.length - line.trimStart().length)) else line).trimEnd()
-                if (dropSeparators && separatorLine(text)) continue
-                if (text.isEmpty() && (result.isEmpty() || result.last().isEmpty())) continue
-                result += text
-            }
-            while (result.isNotEmpty() && result.last().isEmpty()) result.removeAt(result.lastIndex)
-            return result
+            return lines
         }
+
+        /** [line] without trailing spaces and, when it takes part in the common indentation, up to [indent] leading ones. */
+        private fun dedented(line: String, dedent: Boolean, indent: Int): String =
+            (if (dedent) line.drop(minOf(indent, line.length - line.trimStart().length)) else line).trimEnd()
 
         /** A block comment's line without a leading `*` and the space after it, its indentation before the star kept. */
         private fun stripStar(line: String): String {

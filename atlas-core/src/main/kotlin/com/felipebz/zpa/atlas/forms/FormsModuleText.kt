@@ -34,13 +34,8 @@ class FormsModuleText private constructor(val text: String, val units: List<Unit
     companion object {
         /** The text of [module], known as [name]. */
         fun of(module: FormsModule, name: String): FormsModuleText {
-            val text = StringBuilder()
+            val text = ModuleTextBuilder()
             val units = ArrayList<Unit>()
-            var line = 1
-            fun append(part: String) {
-                text.append(part)
-                for (c in part) if (c == '\n') line++
-            }
             for ((index, code) in module.code.withIndex()) {
                 val path = path(name, code)
                 val body = when (code) {
@@ -49,38 +44,10 @@ class FormsModuleText private constructor(val text: String, val units: List<Unit
                     is FormsRecordGroup -> code.query.value
                 }
                 if (body.isBlank()) continue
-                if (units.isNotEmpty()) append("\n")
-                val first = line
-                var codeFirst = first + 1
-                var codeLast: Int
-                when (code) {
-                    is FormsTrigger -> {
-                        append("BEGIN -- $path\n")
-                        if (code.isFormula) {
-                            // An expression: the value of an assignment to the item, so that it is parsed as one.
-                            append(":${code.owner.joinToString(".")} :=\n")
-                            codeFirst = line
-                            append(body.trimEnd('\n') + "\n")
-                            codeLast = line - 1
-                            append(";\n")
-                        } else {
-                            append(body)
-                            if (!body.endsWith('\n')) append("\n")
-                            codeLast = line - 1
-                        }
-                        append("END;\n")
-                    }
-                    is FormsProgramUnit -> {
-                        append("-- $path\n" + body.trimEnd('\n') + "\n")
-                        codeLast = line - 1
-                    }
-                    is FormsRecordGroup -> {
-                        append("-- $path\n" + body.trimEnd('\n') + "\n")
-                        codeLast = line - 1
-                        append(";\n")
-                    }
-                }
-                units += Unit(index, path, first, line - 1, codeFirst, codeLast)
+                if (units.isNotEmpty()) text.append("\n")
+                val first = text.line
+                val (codeFirst, codeLast) = text.appendCode(code, path, body)
+                units += Unit(index, path, first, text.line - 1, codeFirst, codeLast)
             }
             return FormsModuleText(text.toString(), units)
         }
@@ -91,4 +58,57 @@ class FormsModuleText private constructor(val text: String, val units: List<Unit
             return (listOf(name) + owner + code.name.value).joinToString("/")
         }
     }
+}
+
+/** The text of a module as it is built, and the number of the line it is at. */
+private class ModuleTextBuilder {
+    private val text = StringBuilder()
+    var line = 1
+        private set
+
+    /** Appends [part], counting its lines. */
+    fun append(part: String) {
+        text.append(part)
+        for (c in part) if (c == '\n') line++
+    }
+
+    /** Appends [code], at [path] and with the text [body], with its header; returns the first and last lines of its own text. */
+    fun appendCode(code: FormsCode, path: String, body: String): Pair<Int, Int> = when (code) {
+        is FormsTrigger -> if (code.isFormula) appendFormula(code, path, body) else appendTrigger(path, body)
+        is FormsProgramUnit -> appendHeaded(path, body)
+        is FormsRecordGroup -> appendHeaded(path, body).also { append(";\n") }
+    }
+
+    /** Appends a trigger's [body] as a block; returns the first and last lines of [body]. */
+    private fun appendTrigger(path: String, body: String): Pair<Int, Int> {
+        val codeFirst = line + 1
+        append("BEGIN -- $path\n")
+        append(body)
+        if (!body.endsWith('\n')) append("\n")
+        val codeLast = line - 1
+        append("END;\n")
+        return codeFirst to codeLast
+    }
+
+    /** Appends the formula [formula] whose expression is [body]; returns the first and last lines of [body]. */
+    private fun appendFormula(formula: FormsTrigger, path: String, body: String): Pair<Int, Int> {
+        append("BEGIN -- $path\n")
+        // An expression: the value of an assignment to the item, so that it is parsed as one.
+        append(":${formula.owner.joinToString(".")} :=\n")
+        val codeFirst = line
+        append(body.trimEnd('\n') + "\n")
+        val codeLast = line - 1
+        append(";\n")
+        append("END;\n")
+        return codeFirst to codeLast
+    }
+
+    /** Appends `-- path` and then [body]; returns the first and last lines of [body]. */
+    private fun appendHeaded(path: String, body: String): Pair<Int, Int> {
+        val codeFirst = line + 1
+        append("-- $path\n" + body.trimEnd('\n') + "\n")
+        return codeFirst to line - 1
+    }
+
+    override fun toString() = text.toString()
 }

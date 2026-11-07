@@ -6,7 +6,8 @@
 package com.felipebz.zpa.atlas.query
 
 import java.sql.Connection
-import java.util.Locale
+import java.sql.ResultSet
+import java.util.*
 
 /**
  * The places a column's value is read into in PL/SQL (`column_place`): those of the column itself and, marked, those of
@@ -196,41 +197,9 @@ internal class PlaceReader(private val connection: Connection) {
                LEFT JOIN entity a ON a.id = p.argument_parameter_id LEFT JOIN entity g ON g.id = p.argument_routine_id
                WHERE p.column_id IN (SELECT id FROM viewed)""",
             listOf(id, id)
-        ) { rs ->
-            fun summary(first: Int) = rs.getString(first)?.let { EntitySummary(it, rs.getString(first + 1), rs.getString(first + 2), rs.getInt(first + 3) == 1, rs.getString(first + 4)) }
-            fun int(index: Int) = (rs.getObject(index) as Number?)?.toInt()
-            val placeClass = rs.getString(24)
-            val length = int(26)
-            val unit = rs.getString(27)
-            val concatenated = rs.getInt(50) == 1
-            val other = if (placeClass == "ANCHORED_ELSEWHERE") PlaceVerdicts.size(rs.getString(55), optionUnit) else null
-            val decided = PlaceVerdicts.decide(placeClass, length, unit, other, size, column.unit, concatenated)
-            val (shown, shownUnit, unitSource) = when {
-                placeClass == "FIXED_SIZE" -> Triple(length, unit, rs.getString(51))
-                other?.length != null -> Triple(other.length, other.unit,
-                    if (other.unit == "BYTE" || other.unit == "CHAR") if (other.unitWritten) "WRITTEN" else "OPTION" else null)
-                else -> Triple(null, null, null)
-            }
-            val compiledIn = rs.getString(52)?.let { CompiledIn(it, rs.getString(53), rs.getString(54)) }
-            val place = ColumnPlace(
-                summary(1)!!, rs.getInt(6) == 1, rs.getString(7), rs.getInt(8) == 1, rs.getString(9), int(10), int(11),
-                summary(12), rs.getString(17), summary(18), rs.getString(23), placeClass, rs.getString(25), length, unit, summary(28),
-                rs.getString(33), int(34), rs.getString(35), rs.getString(36)?.split(',').orEmpty(), summary(37), summary(42),
-                int(47), rs.getString(48), int(49), concatenated,
-                decided.verdict.name, decided.reason?.name, shown, shownUnit, unitSource, compiledIn, decided.room
-            )
-            Row(rs.getLong(57), place, rs.getString(56)).also { placeIds[place] = it.id }
-        }
+        ) { rs -> row(rs, optionUnit, size, column) }
         val words = filter.text?.lowercase(Locale.ROOT)?.split(WHITESPACE)?.filter { it.isNotEmpty() }.orEmpty()
-        fun matches(row: Row): Boolean {
-            if (filter.source != null && row.place.source != filter.source) return false
-            if (words.isEmpty()) return true
-            val place = row.place
-            val text = listOfNotNull(place.targetWritten, place.field, place.container?.display, row.packageName, place.path)
-                .joinToString("\u0000").lowercase(Locale.ROOT)
-            return words.all { it in text }
-        }
-        val matching = rows.filter(::matches)
+        val matching = rows.filter { matches(it, filter, words) }
         val filtered = if (filter.concatenated) matching else matching.filter { !it.place.concatenated }
         val byVerdict = filtered.groupingBy { it.place.verdict }.eachCount()
         val named = Verdict.entries.filter { it != Verdict.OWN_SIZE || size == null }
@@ -240,6 +209,43 @@ internal class PlaceReader(private val connection: Connection) {
             filtered, filtered.filter { Verdict.valueOf(it.place.verdict) in listed }, matching.count { it.place.concatenated }, optionUnit,
             filtered.count { it.place.unitSource == "OPTION" }
         )
+    }
+
+    /** The place on the current row of [rs], with its verdict against [size] and [column], recorded in [placeIds]. */
+    private fun row(rs: ResultSet, optionUnit: String, size: Int?, column: ColumnSize): Row {
+        fun summary(first: Int) = rs.getString(first)?.let { EntitySummary(it, rs.getString(first + 1), rs.getString(first + 2), rs.getInt(first + 3) == 1, rs.getString(first + 4)) }
+        fun int(index: Int) = (rs.getObject(index) as Number?)?.toInt()
+        val placeClass = rs.getString(24)
+        val length = int(26)
+        val unit = rs.getString(27)
+        val concatenated = rs.getInt(50) == 1
+        val other = if (placeClass == "ANCHORED_ELSEWHERE") PlaceVerdicts.size(rs.getString(55), optionUnit) else null
+        val decided = PlaceVerdicts.decide(placeClass, length, unit, other, size, column.unit, concatenated)
+        val (shown, shownUnit, unitSource) = when {
+            placeClass == "FIXED_SIZE" -> Triple(length, unit, rs.getString(51))
+            other?.length != null -> Triple(other.length, other.unit,
+                if (other.unit == "BYTE" || other.unit == "CHAR") if (other.unitWritten) "WRITTEN" else "OPTION" else null)
+            else -> Triple(null, null, null)
+        }
+        val compiledIn = rs.getString(52)?.let { CompiledIn(it, rs.getString(53), rs.getString(54)) }
+        val place = ColumnPlace(
+            summary(1)!!, rs.getInt(6) == 1, rs.getString(7), rs.getInt(8) == 1, rs.getString(9), int(10), int(11),
+            summary(12), rs.getString(17), summary(18), rs.getString(23), placeClass, rs.getString(25), length, unit, summary(28),
+            rs.getString(33), int(34), rs.getString(35), rs.getString(36)?.split(',').orEmpty(), summary(37), summary(42),
+            int(47), rs.getString(48), int(49), concatenated,
+            decided.verdict.name, decided.reason?.name, shown, shownUnit, unitSource, compiledIn, decided.room
+        )
+        return Row(rs.getLong(57), place, rs.getString(56)).also { placeIds[place] = it.id }
+    }
+
+    /** Whether [row] is of the source of [filter] and has every one of [words] in its target, field, routine, package or path. */
+    private fun matches(row: Row, filter: PlaceFilter, words: List<String>): Boolean {
+        if (filter.source != null && row.place.source != filter.source) return false
+        if (words.isEmpty()) return true
+        val place = row.place
+        val text = listOfNotNull(place.targetWritten, place.field, place.container?.display, row.packageName, place.path)
+            .joinToString("\u0000").lowercase(Locale.ROOT)
+        return words.all { it in text }
     }
 
     /** The parameters of the routine [name] in [display] (`PK_LV.SHOW_LV(P_ID IN NUMBER,P_OUT OUT VARCHAR2)`): `(P_ID IN NUMBER, P_OUT OUT VARCHAR2)`. */

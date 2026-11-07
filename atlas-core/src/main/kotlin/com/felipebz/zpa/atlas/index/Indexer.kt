@@ -16,6 +16,7 @@ import com.felipebz.zpa.atlas.dictionary.DictionaryKeys
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.extract.*
 import com.felipebz.zpa.atlas.forms.FormsLayout
+import com.felipebz.zpa.atlas.forms.FormsModuleReader
 import com.felipebz.zpa.atlas.forms.FormsModuleReaders
 import com.felipebz.zpa.atlas.forms.FormsModuleText
 import com.felipebz.zpa.atlas.model.*
@@ -479,21 +480,12 @@ class Indexer internal constructor(
      */
     private fun discover(root: Path, extensions: List<String>, encoding: String, readers: FormsModuleReaders): Discovered {
         require(Files.isDirectory(root)) { "Sources folder does not exist or is not a directory: $root" }
-        val accepted = extensions.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotEmpty() }.toSet()
         val realRoot = root.toRealPath()
-        val found = Files.walk(root).use { paths ->
-            paths.filter { path ->
-                path.isRegularFile() && path.fileName.toString().let { name ->
-                    readers.readerOf(name) != null || readers.skipped(name) != null || path.extension.lowercase(Locale.ROOT) in accepted
-                }
-            }.toList()
-        }.sortedBy { root.relativize(it).invariantSeparatorsPathString }
+        val found = candidates(root, extensions, readers)
         val outside = ArrayList<String>()
         val sources = ArrayList<Source>()
         val skipped = TreeMap<String, MutableList<String>>()
-        val notModules = ArrayList<String>()
-        val modules = HashMap<String, String>()
-        val duplicates = ArrayList<String>()
+        val modules = ModuleFiles(readers)
         for (path in found) {
             val relative = root.relativize(path).invariantSeparatorsPathString
             val real = path.toRealPath()
@@ -509,42 +501,77 @@ class Indexer internal constructor(
             val reader = readers.readerOf(name)
             if (reader == null) {
                 sources += Source.database(relative, path, Files.readAllBytes(real), encoding)
-                continue
+            } else {
+                modules.read(relative, path, real, reader)?.let { sources += it }
             }
+        }
+        val notes = skipped.entries.map { CoverageFact("FORMS_FILE_SKIPPED", "${it.value.size} ${it.key} file(s) not indexed: ${shown(it.value)}") } +
+            modules.notes()
+        return Discovered(sources, outside.sorted(), notes)
+    }
+
+    /**
+     * The regular files under [root] that one of [readers] reads or skips, or with one of [extensions], in relative path
+     * order.
+     */
+    private fun candidates(root: Path, extensions: List<String>, readers: FormsModuleReaders): List<Path> {
+        val accepted = extensions.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotEmpty() }.toSet()
+        return Files.walk(root).use { paths ->
+            paths.filter { path ->
+                path.isRegularFile() && path.fileName.toString().let { name ->
+                    readers.readerOf(name) != null || readers.skipped(name) != null || path.extension.lowercase(Locale.ROOT) in accepted
+                }
+            }.toList()
+        }.sortedBy { root.relativize(it).invariantSeparatorsPathString }
+    }
+
+    /**
+     * The Forms module files [discover] reads with [readers]: the first file by path of each module identity, and the
+     * files left out because they held no module or a module already read.
+     */
+    private inner class ModuleFiles(private val readers: FormsModuleReaders) {
+        private val modules = HashMap<String, String>()
+        private val notModules = ArrayList<String>()
+        private val duplicates = ArrayList<String>()
+
+        /** The source of the module [reader] reads in the file [path] ([relative] to the sources, [real] its real path); null when left out. */
+        fun read(relative: String, path: Path, real: Path, reader: FormsModuleReader): Source? {
+            val name = path.fileName.toString()
             // Known by its identity: two files with the same one are the same module.
             val moduleName = readers.moduleName(name)
             if (moduleName == null) {
                 notModules += "$relative (${reader.name}: no module name)"
-                continue
+                return null
             }
             modules[moduleName]?.let { first ->
                 duplicates += "$relative (indexed from $first)"
-                continue
+                return null
             }
             val bytes = Files.readAllBytes(real)
             val module = try {
                 reader.read(name, bytes)
             } catch (e: Exception) {
                 notModules += "$relative (${reader.name}: ${e.javaClass.simpleName}: ${e.message?.lineSequence()?.firstOrNull().orEmpty()})"
-                continue
+                return null
             }
             if (module == null) {
                 notModules += "$relative (${reader.name})"
-                continue
+                return null
             }
             modules[moduleName] = relative
             val text = FormsModuleText.of(module, moduleName)
-            sources += Source(relative, path, text.text, StandardCharsets.UTF_8, sha256(bytes), bytes.size.toLong(), FormsLayout.of(module, moduleName, text))
+            return Source(relative, path, text.text, StandardCharsets.UTF_8, sha256(bytes), bytes.size.toLong(), FormsLayout.of(module, moduleName, text))
         }
-        val notes = ArrayList<CoverageFact>()
-        for ((what, paths) in skipped) {
-            notes += CoverageFact("FORMS_FILE_SKIPPED", "${paths.size} $what file(s) not indexed: ${shown(paths)}")
+
+        /** The notes of the files that held no module, then of the module files left out for a module already read. */
+        fun notes(): List<CoverageFact> {
+            val notes = ArrayList<CoverageFact>()
+            if (notModules.isNotEmpty()) notes += CoverageFact("FORMS_FILE_NOT_READ", "${notModules.size} file(s) held no module their reader could read: ${shown(notModules)}")
+            if (duplicates.isNotEmpty()) {
+                notes += CoverageFact("FORMS_MODULE_DUPLICATED", "${duplicates.size} module file(s) not indexed: a file of the same module, first by path, is: ${shown(duplicates)}")
+            }
+            return notes
         }
-        if (notModules.isNotEmpty()) notes += CoverageFact("FORMS_FILE_NOT_READ", "${notModules.size} file(s) held no module their reader could read: ${shown(notModules)}")
-        if (duplicates.isNotEmpty()) {
-            notes += CoverageFact("FORMS_MODULE_DUPLICATED", "${duplicates.size} module file(s) not indexed: a file of the same module, first by path, is: ${shown(duplicates)}")
-        }
-        return Discovered(sources, outside.sorted(), notes)
     }
 
     /** The first items of [items], for a note. */

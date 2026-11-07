@@ -110,26 +110,10 @@ object OracleMetadataLoader {
      *   targets of synonyms named there are acquired (all of them would add seconds for thousands of public synonyms)
      */
     fun load(settings: OracleSettings, compilationSchema: String?, driversDirectory: Path?, writtenNames: Set<String>): LoadedMetadata {
-        val driver = try {
-            JdbcDrivers.find(settings.url, driversDirectory)
-        } catch (e: JdbcDrivers.NoDriverException) {
-            throw CliExecutionException(e.message!!)
-        } catch (e: SQLException) {
-            throw CliExecutionException("JDBC driver lookup failed${errorCode(e)}: ${redact(e.message, settings)}")
-        } catch (e: RuntimeException) {
-            throw CliExecutionException("JDBC driver lookup failed: ${redact(e.message, settings)}")
-        }
+        val driver = findDriver(settings, driversDirectory)
         val dataSource = JdbcDriverDataSource(driver, settings.url, settings.user, settings.password)
         val schemas = (settings.schemas + settings.relations.map { it.first } + listOfNotNull(compilationSchema)).distinct()
-        val missing = try {
-            missingSchemas(dataSource, schemas)
-        } catch (e: SQLException) {
-            throw CliExecutionException("Checking the requested schemas failed${errorCode(e)}: ${redact(e.message, settings)}")
-        }
-        if (missing.isNotEmpty()) {
-            throw CliValidationException("Schema(s) not found in the database: ${missing.joinToString()}. " +
-                "Unquoted names are case-insensitive; a schema created with a quoted name needs the exact case, e.g. \"Name\"")
-        }
+        checkSchemas(dataSource, schemas, settings)
 
         val databaseVersion = try {
             dataSource.connection.use { DatabaseVersionReader.read(it) }
@@ -139,14 +123,7 @@ object OracleMetadataLoader {
 
         val owners = (listOf(AtlasDictionary.PUBLIC) + settings.schemas + listOfNotNull(compilationSchema)).distinct()
         val started = System.nanoTime()
-        val synonyms = try {
-            val standard = standardNames(dataSource)
-            synonyms(dataSource, owners).filterNot { it.owner == AtlasDictionary.PUBLIC && it.name in standard }
-        } catch (e: SQLException) {
-            throw CliExecutionException("Reading the synonyms failed${errorCode(e)}: ${redact(e.message, settings)}")
-        } catch (e: RuntimeException) {
-            throw CliExecutionException("Reading the synonyms failed: ${redact(e.message, settings)}")
-        }
+        val synonyms = readSynonyms(dataSource, owners, settings)
         val objectsStarted = System.nanoTime()
         val objects = try {
             objects(dataSource, (settings.schemas + listOfNotNull(compilationSchema)).distinct())
@@ -159,15 +136,7 @@ object OracleMetadataLoader {
 
         LOG.info("Reading Oracle metadata as ${settings.user} (schemas ${settings.schemas}, relations ${settings.relations.map { "${it.first}.${it.second}" }})...")
         val acquisitionStarted = System.nanoTime()
-        val result = try {
-            OracleMetadataAcquisition.acquire(dataSource, settings.request(targets))
-        } catch (e: OracleMetadataException) {
-            throw CliExecutionException("Oracle metadata acquisition failed: ${redact(e.message, settings)}")
-        } catch (e: SQLException) {
-            throw CliExecutionException("Oracle metadata acquisition failed${errorCode(e)}: ${redact(e.message, settings)}")
-        } catch (e: RuntimeException) {
-            throw CliExecutionException("Oracle metadata acquisition failed: ${redact(e.message, settings)}")
-        }
+        val result = acquire(dataSource, settings, targets)
         val requested = settings.relations.toSet()
         val (notVisible, synonymTargetsNotVisible) = result.notVisible.partition { (it.schema to it.name) in requested }
         LOG.info("Oracle metadata: ${result.relationCount} relations, ${result.columnCount} columns in ${(System.nanoTime() - acquisitionStarted) / 1_000_000} ms; " +
@@ -190,6 +159,51 @@ object OracleMetadataLoader {
             throw CliExecutionException("Reading the PL/SQL compilation settings failed${errorCode(e)}: ${redact(e.message, settings)}")
         }
         return LoadedMetadata(result, synonyms, objects, databaseVersion, keys, notNull, seesEveryTable, lengthSemantics)
+    }
+
+    /** The JDBC driver of the [settings]' URL, found in [driversDirectory] or on the class path. */
+    private fun findDriver(settings: OracleSettings, driversDirectory: Path?) = try {
+        JdbcDrivers.find(settings.url, driversDirectory)
+    } catch (e: JdbcDrivers.NoDriverException) {
+        throw CliExecutionException(e.message!!)
+    } catch (e: SQLException) {
+        throw CliExecutionException("JDBC driver lookup failed${errorCode(e)}: ${redact(e.message, settings)}")
+    } catch (e: RuntimeException) {
+        throw CliExecutionException("JDBC driver lookup failed: ${redact(e.message, settings)}")
+    }
+
+    /** Fails unless every one of [schemas] exists in the database of [dataSource]. */
+    private fun checkSchemas(dataSource: DataSource, schemas: List<String>, settings: OracleSettings) {
+        val missing = try {
+            missingSchemas(dataSource, schemas)
+        } catch (e: SQLException) {
+            throw CliExecutionException("Checking the requested schemas failed${errorCode(e)}: ${redact(e.message, settings)}")
+        }
+        if (missing.isNotEmpty()) {
+            throw CliValidationException("Schema(s) not found in the database: ${missing.joinToString()}. " +
+                "Unquoted names are case-insensitive; a schema created with a quoted name needs the exact case, e.g. \"Name\"")
+        }
+    }
+
+    /** The synonyms of [owners], without the public synonyms of the standard names. */
+    private fun readSynonyms(dataSource: DataSource, owners: List<String>, settings: OracleSettings) = try {
+        val standard = standardNames(dataSource)
+        synonyms(dataSource, owners).filterNot { it.owner == AtlasDictionary.PUBLIC && it.name in standard }
+    } catch (e: SQLException) {
+        throw CliExecutionException("Reading the synonyms failed${errorCode(e)}: ${redact(e.message, settings)}")
+    } catch (e: RuntimeException) {
+        throw CliExecutionException("Reading the synonyms failed: ${redact(e.message, settings)}")
+    }
+
+    /** The relations and columns of the [settings]' request with the synonym [targets]. */
+    private fun acquire(dataSource: DataSource, settings: OracleSettings, targets: Set<Pair<String, String>>) = try {
+        OracleMetadataAcquisition.acquire(dataSource, settings.request(targets))
+    } catch (e: OracleMetadataException) {
+        throw CliExecutionException("Oracle metadata acquisition failed: ${redact(e.message, settings)}")
+    } catch (e: SQLException) {
+        throw CliExecutionException("Oracle metadata acquisition failed${errorCode(e)}: ${redact(e.message, settings)}")
+    } catch (e: RuntimeException) {
+        throw CliExecutionException("Oracle metadata acquisition failed: ${redact(e.message, settings)}")
     }
 
     /** Runs [read] and logs how long it took and how many [rows] it read, as [what]. */

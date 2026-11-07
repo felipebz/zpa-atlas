@@ -6,7 +6,7 @@
 package com.felipebz.zpa.atlas.forms
 
 import java.io.ByteArrayInputStream
-import java.util.Locale
+import java.util.*
 import javax.xml.stream.XMLInputFactory
 import javax.xml.stream.XMLStreamConstants
 import javax.xml.stream.XMLStreamException
@@ -121,24 +121,31 @@ object Frmf2xmlReader : FormsModuleReader {
             when (kind) {
                 "Module" -> dumpAll = attributes["Dump"]?.value.equals("All", ignoreCase = true)
                 "FormModule" -> if (moduleName == null) moduleName = name
-                "Block" -> if (parent() == "FormModule" && name != null) {
+                "Trigger" -> trigger(name, attributes["TriggerText"])
+                "Block", "Item", "ProgramUnit", "RecordGroup", "AttachedLibrary", "ModuleParameter" -> if (name != null) startNamed(kind, name, attributes)
+            }
+            open += Open(kind, name?.value)
+        }
+
+        /** Takes the element [kind] named [name], with its [attributes]: a block, an item, code, a library or a parameter. */
+        private fun startNamed(kind: String, name: FormsValue, attributes: Map<String, FormsValue>) {
+            when (kind) {
+                "Block" -> if (parent() == "FormModule") {
                     block = name
                     blockAttributes = attributes
                     items = ArrayList()
                 }
-                "Item" -> if (parent() == "Block" && name != null) {
+                "Item" -> if (parent() == "Block") {
                     items += item(name, attributes)
                     attributes["Formula"]?.takeIf { it.value.isNotBlank() }?.let { formula ->
                         code += FormsTrigger(FormsTriggerLevel.ITEM, listOf(open.last().name.orEmpty(), name.value), FormsValue(FormsTrigger.FORMULA), formula)
                     }
                 }
-                "Trigger" -> trigger(name, attributes["TriggerText"])
-                "ProgramUnit" -> if (name != null) attributes["ProgramUnitText"]?.let { code += FormsProgramUnit(name, it) }
-                "RecordGroup" -> if (name != null) attributes["RecordGroupQuery"]?.takeIf { it.value.isNotBlank() }?.let { code += FormsRecordGroup(name, it) }
-                "AttachedLibrary" -> if (name != null) libraries += FormsLibrary(name, attributes["LibraryLocation"])
-                "ModuleParameter" -> if (parent() == "FormModule" && name != null) parameters += parameter(name, attributes)
+                "ProgramUnit" -> attributes["ProgramUnitText"]?.let { code += FormsProgramUnit(name, it) }
+                "RecordGroup" -> attributes["RecordGroupQuery"]?.takeIf { it.value.isNotBlank() }?.let { code += FormsRecordGroup(name, it) }
+                "AttachedLibrary" -> libraries += FormsLibrary(name, attributes["LibraryLocation"])
+                "ModuleParameter" -> if (parent() == "FormModule") parameters += parameter(name, attributes)
             }
-            open += Open(kind, name?.value)
         }
 
         private fun end() {

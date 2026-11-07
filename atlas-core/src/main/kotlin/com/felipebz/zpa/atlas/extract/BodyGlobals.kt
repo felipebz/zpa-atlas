@@ -95,36 +95,17 @@ internal class BodyGlobals(private val bound: BoundNames, private val recordFiel
         routine: AstNode, parentKey: String, keyBase: String, schema: String?, unitIndex: Int, partial: Boolean, state: FileState,
         taken: (String) -> Boolean
     ) {
-        val used = HashSet<String>()
-        fun entity(key: String, kind: EntityKind, name: String, parentKey: String) {
-            state.entities += EntityFact(key, kind, schema, name, parentKey, displayOf(key), external = false, precedence = Precedence.DECLARED)
-            state.relations += RelationFact(parentKey, RelationKind.CONTAINS, key)
-        }
-        fun section(section: AstNode, prefix: String) {
-            for (item in section.children) {
-                val type = item.type in TYPE_DECLARATIONS
-                if (!type && (item.type != PlSqlGrammar.VARIABLE_DECLARATION || item.hasDirectChildren(PlSqlKeyword.EXCEPTION))) continue
-                val name = item.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
-                val normalized = normalizeIdentifier(name.tokenOriginalValue)
-                val base = "$prefix.$normalized"
-                var count = 1
-                while ((if (count == 1) base else "$base#$count").let { it in used || taken(it) }) count++
-                val key = if (count == 1) base else "$base#$count"
-                used += key
-                if (type) {
-                    entity(key, EntityKind.TYPE, normalized, parentKey)
-                    types += Member(key, parentKey, item, name, unitIndex, partial)
-                    bound.add(NameDeclarationKind.TYPE, name.token.line, name.token.column, key)
-                    if (item.type == PlSqlGrammar.RECORD_DECLARATION) fields(item, key, parentKey, unitIndex, partial, ::entity)
-                    continue
-                }
-                val kind = if (item.hasDirectChildren(PlSqlKeyword.CONSTANT)) EntityKind.LOCAL_CONSTANT else EntityKind.LOCAL_VARIABLE
-                entity(key, kind, normalized, parentKey)
-                declared += Global(key, parentKey, routine, item, name, unitIndex, partial)
-                bound.add(NameDeclarationKind.VARIABLE, name.token.line, name.token.column, key)
-            }
-        }
-        // Every declare section of the routine, an inner block's included; a nested subprogram adds its name.
+        RoutineDeclarations(routine, parentKey, schema, unitIndex, partial, state, taken).visit(routine, keyBase)
+    }
+
+    /** The declarations of one routine as [declareRoutine] registers them, with the keys given so far. */
+    private inner class RoutineDeclarations(
+        private val routine: AstNode, private val parentKey: String, private val schema: String?, private val unitIndex: Int,
+        private val partial: Boolean, private val state: FileState, private val taken: (String) -> Boolean
+    ) {
+        private val used = HashSet<String>()
+
+        /** Registers every declare section under [node], an inner block's included; a nested subprogram adds its name to [prefix]. */
         fun visit(node: AstNode, prefix: String) {
             for (child in node.children) {
                 when (child.type) {
@@ -132,15 +113,59 @@ internal class BodyGlobals(private val bound: BoundNames, private val recordFiel
                         section(child, prefix)
                         visit(child, prefix)
                     }
-                    PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION -> {
-                        val name = child.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { normalizeIdentifier(it.tokenOriginalValue) }
-                        if (name != null) visit(child, "$prefix.$name${signature(child)}")
-                    }
+                    PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION -> visitSubprogram(child, prefix)
                     else -> visit(child, prefix)
                 }
             }
         }
-        visit(routine, keyBase)
+
+        /** Visits the nested subprogram [subprogram] under its name and signature after [prefix]; nothing when it has no name. */
+        private fun visitSubprogram(subprogram: AstNode, prefix: String) {
+            val name = subprogram.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: return
+            visit(subprogram, "$prefix.${normalizeIdentifier(name.tokenOriginalValue)}${signature(subprogram)}")
+        }
+
+        /** Registers the variables, constants and types of the declare section [section], keyed after [prefix]. */
+        private fun section(section: AstNode, prefix: String) {
+            for (item in section.children) {
+                val type = item.type in TYPE_DECLARATIONS
+                if (!type && (item.type != PlSqlGrammar.VARIABLE_DECLARATION || item.hasDirectChildren(PlSqlKeyword.EXCEPTION))) continue
+                val name = item.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
+                val normalized = normalizeIdentifier(name.tokenOriginalValue)
+                val key = uniqueKey("$prefix.$normalized")
+                used += key
+                if (type) registerType(item, name, key, normalized) else registerVariable(item, name, key, normalized)
+            }
+        }
+
+        /** [base], or with the first `#2` on that is neither used in this routine nor [taken]. */
+        private fun uniqueKey(base: String): String {
+            var count = 1
+            while ((if (count == 1) base else "$base#$count").let { it in used || taken(it) }) count++
+            return if (count == 1) base else "$base#$count"
+        }
+
+        /** Registers the type [item] named [name], with a record type's fields. */
+        private fun registerType(item: AstNode, name: AstNode, key: String, normalized: String) {
+            entity(key, EntityKind.TYPE, normalized, parentKey)
+            types += Member(key, parentKey, item, name, unitIndex, partial)
+            bound.add(NameDeclarationKind.TYPE, name.token.line, name.token.column, key)
+            if (item.type == PlSqlGrammar.RECORD_DECLARATION) fields(item, key, parentKey, unitIndex, partial, ::entity)
+        }
+
+        /** Registers the variable or constant [item] named [name]. */
+        private fun registerVariable(item: AstNode, name: AstNode, key: String, normalized: String) {
+            val kind = if (item.hasDirectChildren(PlSqlKeyword.CONSTANT)) EntityKind.LOCAL_CONSTANT else EntityKind.LOCAL_VARIABLE
+            entity(key, kind, normalized, parentKey)
+            declared += Global(key, parentKey, routine, item, name, unitIndex, partial)
+            bound.add(NameDeclarationKind.VARIABLE, name.token.line, name.token.column, key)
+        }
+
+        /** Adds the entity [key] and its `CONTAINS` relation from [parentKey]. */
+        private fun entity(key: String, kind: EntityKind, name: String, parentKey: String) {
+            state.entities += EntityFact(key, kind, schema, name, parentKey, displayOf(key), external = false, precedence = Precedence.DECLARED)
+            state.relations += RelationFact(parentKey, RelationKind.CONTAINS, key)
+        }
     }
 
     /** The fields zpa gives the record type [record] (whose entity is [typeKey]), each at its written declaration. */
