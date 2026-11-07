@@ -5,7 +5,10 @@
 
 package com.felipebz.zpa.atlas.extract
 
-import com.felipebz.zpa.api.project.*
+import com.felipebz.zpa.api.project.ProjectNamedTypeResolution
+import com.felipebz.zpa.api.project.ProjectQualifiedName
+import com.felipebz.zpa.api.project.ProjectSnapshot
+import com.felipebz.zpa.api.project.ProjectTypeDescription
 import com.felipebz.zpa.atlas.model.EntityFact
 import com.felipebz.zpa.atlas.model.EntityKind
 import com.felipebz.zpa.atlas.model.RelationFact
@@ -71,6 +74,22 @@ class TypeReferenceResolver(
      */
     fun named(written: List<String>, unitSchema: String?, enclosingPackage: List<String>?, parsedAsBuiltIn: Boolean = false, synonymTarget: NameTarget? = null): TypeOutcome? {
         val packageName = enclosingPackage?.let { qualifiedName(it) }
+        projectType(written, unitSchema, packageName)?.let { return it }
+        if (!parsedAsBuiltIn && isBuiltIn(written, packageName)) return null
+        if (values.isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
+        val names = written.map { normalizeIdentifier(it) }
+        if (synonymTarget == null) {
+            val targetTypes = if (names.size == 1) SynonymResolver.TYPES else SynonymResolver.PACKAGES_AND_TYPES
+            synonyms.follow(names[0], unitSchema, targetTypes)?.let { target ->
+                return named(SynonymResolver.written(target, names.drop(1)), unitSchema, null, synonymTarget = target)
+            }
+        }
+        if (parsedAsBuiltIn && synonymTarget == null) return null
+        return unknownType(names, unitSchema, synonymTarget)
+    }
+
+    /** The project type [written] names, by the first spelling with an answer; null when the project has none. */
+    private fun projectType(written: List<String>, unitSchema: String?, packageName: ProjectQualifiedName?): TypeOutcome? {
         for (names in nameSpellings(written, unitSchema)) {
             // A one-segment name is a member of the enclosing package first, then a standalone type.
             val owners = if (names.size == 1 && packageName != null) listOf(packageName, null) else listOf(null)
@@ -87,17 +106,7 @@ class TypeReferenceResolver(
                 }
             }
         }
-        if (!parsedAsBuiltIn && isBuiltIn(written, packageName)) return null
-        if (values.isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
-        val names = written.map { normalizeIdentifier(it) }
-        if (synonymTarget == null) {
-            val targetTypes = if (names.size == 1) SynonymResolver.TYPES else SynonymResolver.PACKAGES_AND_TYPES
-            synonyms.follow(names[0], unitSchema, targetTypes)?.let { target ->
-                return named(SynonymResolver.written(target, names.drop(1)), unitSchema, null, synonymTarget = target)
-            }
-        }
-        if (parsedAsBuiltIn && synonymTarget == null) return null
-        return unknownType(names, unitSchema, synonymTarget)
+        return null
     }
 
     /** A built-in of zpa-core's classifier, or a type of `SYS.STANDARD` it does not list (written in one segment). */

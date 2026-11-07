@@ -7,9 +7,7 @@ package com.felipebz.zpa.atlas.index
 
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
-import java.util.IdentityHashMap
-import java.util.Locale
-import java.util.Optional
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -44,32 +42,35 @@ internal class Rendering(private val skipped: Set<String> = emptySet()) {
             is Map<*, *> -> sequence(out, "{", "}", value.entries.map { render(it.key) + "=" + render(it.value) }.sorted())
             is Pair<*, *> -> sequence(out, "(", ")", listOf(render(value.first), render(value.second)))
             is Array<*> -> sequence(out, "[", "]", value.map { render(it) })
-            else -> {
-                val type = value.javaClass
-                if (type.name.startsWith("java.") || type.name.startsWith("kotlin.")) {
-                    out.append(value.toString())
-                    return
-                }
-                if (open.containsKey(value)) {
-                    out.append("<cycle>")
-                    return
-                }
-                open[value] = Unit
-                out.append(type.name).append('(')
-                var first = true
-                for (field in fieldsOf(type)) {
-                    if (field.type.name in skipped) continue
-                    val fieldValue = field.get(value)
-                    if (fieldValue is Lazy<*> || fieldValue != null && fieldValue.javaClass.name in skipped) continue
-                    if (!first) out.append(',')
-                    first = false
-                    out.append(field.name).append('=')
-                    append(out, fieldValue)
-                }
-                out.append(')')
-                open.remove(value)
-            }
+            else -> appendObject(out, value)
         }
+    }
+
+    /** Appends [value], an object of none of the types above, by its fields; a `java.` or `kotlin.` one by its `toString`. */
+    private fun appendObject(out: StringBuilder, value: Any) {
+        val type = value.javaClass
+        if (type.name.startsWith("java.") || type.name.startsWith("kotlin.")) {
+            out.append(value.toString())
+            return
+        }
+        if (open.containsKey(value)) {
+            out.append("<cycle>")
+            return
+        }
+        open[value] = Unit
+        out.append(type.name).append('(')
+        var first = true
+        for (field in fieldsOf(type)) {
+            if (field.type.name in skipped) continue
+            val fieldValue = field.get(value)
+            if (fieldValue is Lazy<*> || fieldValue != null && fieldValue.javaClass.name in skipped) continue
+            if (!first) out.append(',')
+            first = false
+            out.append(field.name).append('=')
+            append(out, fieldValue)
+        }
+        out.append(')')
+        open.remove(value)
     }
 
     private fun sequence(out: StringBuilder, start: String, end: String, items: List<String>) {

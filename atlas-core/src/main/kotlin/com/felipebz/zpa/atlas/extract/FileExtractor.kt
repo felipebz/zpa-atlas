@@ -298,6 +298,40 @@ class FileExtractor internal constructor(
         } else {
             written.joinToString(".")
         }
+        val (kind, entityKey, trigger) = unitHead(node, written, schema)
+        val index = state.addUnit(UnitFact(kind, displayName, entityKey, span, schema), partial)
+        // A package body's own variables, constants and types, and each routine's, before the walk that finds their uses.
+        if (kind == UnitKind.PACKAGE_BODY) entityKey?.let { bodyGlobals.declare(node, it, catalog.schemaAndName(path, written).first, index, partial, state) }
+        declareRoutines(node, kind, entityKey, written, index, partial)
+        if (definedByAst(kind, entityKey)) {
+            // Package bodies, type bodies, triggers and views are not in the project index; their definition comes from the AST.
+            state.occurrences += OccurrenceFact(index, entityKey, null, span, writtenText(unitName ?: node), entityKey,
+                setOf(Role.DEFINITION), status(Status.RESOLVED, partial), Origin.STATIC, null, nameSpan = unitName?.let(::spanOf))
+            entityKey?.let { unitDefinitions += UnitDefinition(it, span, kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY, node) }
+        }
+        val enclosingPackage = if (kind == UnitKind.PACKAGE || kind == UnitKind.PACKAGE_BODY) {
+            unitName?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.map { it.tokenOriginalValue }?.takeIf { it.isNotEmpty() }
+        } else {
+            null
+        }
+        val bodyNames = if (kind == UnitKind.PACKAGE_BODY) {
+            unitDeclarations(node).filter { !it.subprogram }.mapTo(HashSet()) { it.name }
+        } else {
+            emptySet()
+        }
+        val objectType = if (kind == UnitKind.TYPE_BODY) ObjectTypeMembers.typeKey(unitName, defaultSchema) else null
+        walk(node, Context(index, partial, schema, entityKey, trigger, enclosingPackage, bodyNames, objectType))
+        view = null
+    }
+
+    /** What a unit is: its kind, its entity and its trigger scope. */
+    private data class UnitHead(val kind: UnitKind, val entityKey: String?, val trigger: TriggerScope?)
+
+    /**
+     * The kind and entity of the unit [node] named [written] in [schema]; a trigger's scope, and a view's [view], are
+     * read on the way.
+     */
+    private fun unitHead(node: AstNode, written: List<String>, schema: String?): UnitHead {
         var entityKey: String? = null
         var trigger: TriggerScope? = null
         val kind = when (node.type) {
@@ -325,30 +359,13 @@ class FileExtractor internal constructor(
             PlSqlGrammar.ANONYMOUS_BLOCK -> UnitKind.ANONYMOUS_BLOCK
             else -> UnitKind.SQL_STATEMENT
         }
-        val index = state.addUnit(UnitFact(kind, displayName, entityKey, span, schema), partial)
-        // A package body's own variables, constants and types, and each routine's, before the walk that finds their uses.
-        if (kind == UnitKind.PACKAGE_BODY) entityKey?.let { bodyGlobals.declare(node, it, catalog.schemaAndName(path, written).first, index, partial, state) }
-        declareRoutines(node, kind, entityKey, written, index, partial)
-        if (kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY || kind == UnitKind.TRIGGER || (kind == UnitKind.VIEW || kind == UnitKind.MATERIALIZED_VIEW) && entityKey != null) {
-            // Package bodies, type bodies, triggers and views are not in the project index; their definition comes from the AST.
-            state.occurrences += OccurrenceFact(index, entityKey, null, span, writtenText(unitName ?: node), entityKey,
-                setOf(Role.DEFINITION), status(Status.RESOLVED, partial), Origin.STATIC, null, nameSpan = unitName?.let(::spanOf))
-            entityKey?.let { unitDefinitions += UnitDefinition(it, span, kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY, node) }
-        }
-        val enclosingPackage = if (kind == UnitKind.PACKAGE || kind == UnitKind.PACKAGE_BODY) {
-            unitName?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.map { it.tokenOriginalValue }?.takeIf { it.isNotEmpty() }
-        } else {
-            null
-        }
-        val bodyNames = if (kind == UnitKind.PACKAGE_BODY) {
-            unitDeclarations(node).filter { !it.subprogram }.mapTo(HashSet()) { it.name }
-        } else {
-            emptySet()
-        }
-        val objectType = if (kind == UnitKind.TYPE_BODY) ObjectTypeMembers.typeKey(unitName, defaultSchema) else null
-        walk(node, Context(index, partial, schema, entityKey, trigger, enclosingPackage, bodyNames, objectType))
-        view = null
+        return UnitHead(kind, entityKey, trigger)
     }
+
+    /** Whether a unit of [kind] takes its definition from the AST: package bodies, type bodies, triggers and views with an entity. */
+    private fun definedByAst(kind: UnitKind, entityKey: String?): Boolean =
+        kind == UnitKind.PACKAGE_BODY || kind == UnitKind.TYPE_BODY || kind == UnitKind.TRIGGER ||
+            (kind == UnitKind.VIEW || kind == UnitKind.MATERIALIZED_VIEW) && entityKey != null
 
     /**
      * The routines of the unit [node] of [kind] whose entity is [entityKey]: a package body's subprograms, a standalone

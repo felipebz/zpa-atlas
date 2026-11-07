@@ -36,6 +36,14 @@ internal class NameRoles(private val state: FileState) {
      * `READ` and `WRITE` for an `IN OUT` formal or bind; else `READ`.
      */
     fun valueRoles(name: AstNode, segments: List<String>): Set<Role> {
+        val expression = writtenChain(name)
+        expression.parentOrNull?.let { parent -> parentRoles(expression, parent)?.let { return it } }
+        if (endsInModifyingMethod(expression, segments)) return setOf(Role.WRITE)
+        return setOf(Role.READ)
+    }
+
+    /** The whole written chain [name] starts: its method call, then every object reference it is the first part of. */
+    private fun writtenChain(name: AstNode): AstNode {
         var expression = name
         name.parentOrNull?.takeIf { it.type == PlSqlGrammar.METHOD_CALL && it.firstChild === name }?.let { expression = it }
         while (true) {
@@ -43,26 +51,26 @@ internal class NameRoles(private val state: FileState) {
             if (parent.type != PlSqlGrammar.OBJECT_REFERENCE || parent.firstChild !== expression) break
             expression = parent
         }
-        val parent = expression.parentOrNull
-        if (parent != null) {
-            if (parent.type == PlSqlGrammar.ASSIGNMENT_STATEMENT) {
-                val assignment = parent.children.indexOfFirst { it.type == PlSqlPunctuator.ASSIGNMENT }
-                if (parent.children.indexOf(expression) < assignment) return setOf(Role.WRITE)
-            }
-            if (parent.type == DmlGrammar.INTO_CLAUSE) return setOf(Role.WRITE)
-            // A bind of `EXECUTE IMMEDIATE … USING` (or `OPEN … FOR … USING`), with its written mode, as an actual of a call.
-            if (parent.type == PlSqlGrammar.UNNAMED_ACTUAL_PAMETER && parent.hasDirectChildren(PlSqlKeyword.OUT)) {
-                return if (parent.hasDirectChildren(PlSqlKeyword.IN)) setOf(Role.READ, Role.WRITE) else setOf(Role.WRITE)
-            }
-            val mode = state.argumentModes[expression] ?: if (parent.type == PlSqlGrammar.ARGUMENT) state.argumentModes[parent] else null
-            when (mode) {
-                ProjectParameterMode.OUT -> return setOf(Role.WRITE)
-                ProjectParameterMode.IN_OUT -> return setOf(Role.READ, Role.WRITE)
-                else -> Unit
-            }
+        return expression
+    }
+
+    /** The roles the [parent] of the chain [expression] gives it; null when it gives none of its own. */
+    private fun parentRoles(expression: AstNode, parent: AstNode): Set<Role>? {
+        if (parent.type == PlSqlGrammar.ASSIGNMENT_STATEMENT) {
+            val assignment = parent.children.indexOfFirst { it.type == PlSqlPunctuator.ASSIGNMENT }
+            if (parent.children.indexOf(expression) < assignment) return setOf(Role.WRITE)
         }
-        if (endsInModifyingMethod(expression, segments)) return setOf(Role.WRITE)
-        return setOf(Role.READ)
+        if (parent.type == DmlGrammar.INTO_CLAUSE) return setOf(Role.WRITE)
+        // A bind of `EXECUTE IMMEDIATE … USING` (or `OPEN … FOR … USING`), with its written mode, as an actual of a call.
+        if (parent.type == PlSqlGrammar.UNNAMED_ACTUAL_PAMETER && parent.hasDirectChildren(PlSqlKeyword.OUT)) {
+            return if (parent.hasDirectChildren(PlSqlKeyword.IN)) setOf(Role.READ, Role.WRITE) else setOf(Role.WRITE)
+        }
+        val mode = state.argumentModes[expression] ?: if (parent.type == PlSqlGrammar.ARGUMENT) state.argumentModes[parent] else null
+        return when (mode) {
+            ProjectParameterMode.OUT -> setOf(Role.WRITE)
+            ProjectParameterMode.IN_OUT -> setOf(Role.READ, Role.WRITE)
+            else -> null
+        }
     }
 
     /**

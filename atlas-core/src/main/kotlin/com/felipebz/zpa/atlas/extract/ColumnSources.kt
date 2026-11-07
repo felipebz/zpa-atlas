@@ -10,8 +10,6 @@ import com.felipebz.zpa.api.DmlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.PlSqlPunctuator
-import com.felipebz.zpa.api.squid.SemanticAstNode
-import com.felipebz.zpa.atlas.model.*
 
 /**
  * A column source of an SQL scope: a named relation ([target]), an inline view or `WITH` name ([viewColumns],
@@ -73,16 +71,21 @@ internal class ColumnSources(
         }
         for (clause in scope.getDescendants(DmlGrammar.DML_TABLE_EXPRESSION_CLAUSE)) {
             if (scopes.sqlScope(clause) !== scope) continue
-            val alias = clause.getFirstChildOrNull(DmlGrammar.ALIAS)?.let { normalizeIdentifier(it.tokenOriginalValue) }
-            val reference = clause.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE)
-            val subquery = clause.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION)
-            result += when {
-                reference != null -> namedSource(statement, reference, alias)
-                subquery != null -> ColumnSource(clause, alias, null, viewLike = true, viewColumns = selectNames(statement, subquery), query = subquery, alias = alias)
-                else -> ColumnSource(clause, alias, null, viewLike = false, viewColumns = null, alias = alias)
-            }
+            result += tableExpressionSource(statement, clause)
         }
         result
+    }
+
+    /** A `FROM` item as a source: a named relation, an inline view, or a source of unknown columns. */
+    private fun tableExpressionSource(statement: Statement, clause: AstNode): ColumnSource {
+        val alias = clause.getFirstChildOrNull(DmlGrammar.ALIAS)?.let { normalizeIdentifier(it.tokenOriginalValue) }
+        val reference = clause.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE)
+        val subquery = clause.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION)
+        return when {
+            reference != null -> namedSource(statement, reference, alias)
+            subquery != null -> ColumnSource(clause, alias, null, viewLike = true, viewColumns = selectNames(statement, subquery), query = subquery, alias = alias)
+            else -> ColumnSource(clause, alias, null, viewLike = false, viewColumns = null, alias = alias)
+        }
     }
 
     /** A relation reference as a source: a `WITH` name, `DUAL` (one column, `DUMMY`), or the relation [target] resolved. */

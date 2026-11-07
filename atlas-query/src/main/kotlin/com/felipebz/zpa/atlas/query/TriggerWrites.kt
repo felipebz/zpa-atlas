@@ -74,32 +74,9 @@ internal class TriggerWrites(private val connection: Connection) {
     fun firing(triggerIds: Collection<Long>): List<FiringWrite> {
         val tableOf = tables(triggerIds)
         if (tableOf.isEmpty()) return emptyList()
-        val events = HashMap<Long, Events>()
-        connection.query(
-            "SELECT trigger_id, event, column_id, timing FROM trigger_event WHERE trigger_id IN (SELECT value FROM json_each(?))",
-            listOf(json(tableOf.keys))
-        ) { listOf(it.getLong(1), it.getString(2), (it.getObject(3) as Number?)?.toLong(), it.getString(4)) }.forEach { (trigger, event, column, timing) ->
-            val its = events.getOrPut(trigger as Long) { Events() }
-            if (timing == "INSTEAD_OF") its.insteadOf = true
-            when (event) {
-                "INSERT" -> its.insert = true
-                "DELETE" -> its.delete = true
-                "UPDATE" -> if (column == null) its.updateAll = true else its.updateColumns += column as Long
-            }
-        }
+        val events = events(tableOf.keys)
         val tables = tableOf.values.toSet()
-        // By kind of write, each view column whose writes of that kind reach a column of the tables: the base column, its
-        // table and the view.
-        val chains = listOf(ViewWrite.INSERT, ViewWrite.UPDATE, ViewWrite.DELETE, ViewWrite.MERGE).associateWith { kind ->
-            connection.query(
-                """WITH RECURSIVE reach(id, base) AS (
-                     SELECT id, id FROM entity WHERE parent_id IN (SELECT value FROM json_each(?)) AND kind = 'COLUMN'
-                     UNION ${UsageReader.writtenThroughViews("reach", kind)})
-                   SELECT reach.id, reach.base, b.parent_id, c.parent_id FROM reach
-                   JOIN entity b ON b.id = reach.base JOIN entity c ON c.id = reach.id WHERE reach.id <> reach.base""",
-                listOf(json(tables))
-            ) { it.getLong(1) to Triple(it.getLong(2), it.getLong(3), it.getLong(4)) }.toMap()
-        }
+        val chains = viewChains(tables)
         val views = chains.values.flatMap { chain -> chain.values.map { it.third } }.toSet()
         val writes = connection.query(
             """WITH r(id) AS (SELECT value FROM json_each(?))
@@ -151,43 +128,11 @@ internal class TriggerWrites(private val connection: Connection) {
         for ((trigger, table) in tableOf) {
             val its = events[trigger] ?: continue
             for (write in (setOf(table) + viewsOf[table].orEmpty()).flatMap { byRelation[it].orEmpty() }) {
-                val merge = "SQL_MERGE" in write.roles
                 // A MERGE never runs an INSTEAD OF trigger: it is refused, or goes on to the base table.
-                if (merge && its.insteadOf) continue
+                if ("SQL_MERGE" in write.roles && its.insteadOf) continue
                 val statementColumns = if (write.origin == FORMS_IMPLICIT) itemColumns[write.container] else columns[write.statement]
                 val written = statementColumns.orEmpty().filter { it.parent == null || it.parent == write.relation }
-
-                /** The columns of [table] that [cols] write by [event] (or as a MERGE), and whether every one reaches it. */
-                fun reach(cols: List<Column>, event: ViewWrite): Pair<Set<Long>, Boolean> {
-                    if (write.relation == table) return cols.mapNotNull { it.entity }.toSet() to true
-                    val chain = chains.getValue(if (merge) ViewWrite.MERGE else event)
-                    val bases = cols.mapNotNull { c -> c.entity?.let { chain[it] }?.takeIf { it.second == table }?.first }
-                    return bases.toSet() to (bases.size == cols.size)
-                }
-
-                val fired = ArrayList<Pair<String, Boolean>>()
-                if (its.insert && "SQL_INSERT" in write.roles) {
-                    val (bases, all) = reach(written.filter { "SQL_INSERT" in it.roles }, ViewWrite.INSERT)
-                    if (write.relation == table || bases.isNotEmpty()) fired += "INSERT" to all
-                }
-                if (its.delete && "SQL_DELETE" in write.roles) {
-                    val (bases, all) = reach(viewColumns[write.relation].orEmpty(), ViewWrite.DELETE)
-                    if (write.relation == table || bases.isNotEmpty()) fired += "DELETE" to all
-                }
-                if (its.update && "SQL_UPDATE" in write.roles) {
-                    val set = written.filter { "SQL_UPDATE" in it.roles }
-                    val (bases, all) = reach(set, ViewWrite.UPDATE)
-                    if (write.relation == table || bases.isNotEmpty()) {
-                        // `UPDATE OF`: a known column list sets one of its columns or does not; `SET ROW`, an unresolved
-                        // column or a column outside the chain leaves it unknown, and the hop is not sure.
-                        val known = set.isNotEmpty() && set.none { "IMPLICIT" in it.roles || it.entity == null } && all
-                        when {
-                            its.updateAll -> fired += "UPDATE" to all
-                            !known -> fired += "UPDATE" to false
-                            bases.any { it in its.updateColumns } -> fired += "UPDATE" to true
-                        }
-                    }
-                }
+                val fired = fired(write, table, its, written, viewColumns[write.relation].orEmpty(), chains)
                 if (fired.isEmpty()) continue
                 found += FiringWrite(
                     trigger, write.occurrence, write.container, write.status, write.candidate, write.path, write.line, write.origin,
@@ -196,6 +141,90 @@ internal class TriggerWrites(private val connection: Connection) {
             }
         }
         return found
+    }
+
+    /**
+     * By kind of write, each view column whose writes of that kind reach a column of [tables]: the base column, its table
+     * and the view.
+     */
+    private fun viewChains(tables: Set<Long>): Map<ViewWrite, Map<Long, Triple<Long, Long, Long>>> =
+        listOf(ViewWrite.INSERT, ViewWrite.UPDATE, ViewWrite.DELETE, ViewWrite.MERGE).associateWith { kind ->
+            connection.query(
+                """WITH RECURSIVE reach(id, base) AS (
+                     SELECT id, id FROM entity WHERE parent_id IN (SELECT value FROM json_each(?)) AND kind = 'COLUMN'
+                     UNION ${UsageReader.writtenThroughViews("reach", kind)})
+                   SELECT reach.id, reach.base, b.parent_id, c.parent_id FROM reach
+                   JOIN entity b ON b.id = reach.base JOIN entity c ON c.id = reach.id WHERE reach.id <> reach.base""",
+                listOf(json(tables))
+            ) { it.getLong(1) to Triple(it.getLong(2), it.getLong(3), it.getLong(4)) }.toMap()
+        }
+
+    /** The events of each of [triggers], read from `trigger_event`. */
+    private fun events(triggers: Collection<Long>): Map<Long, Events> {
+        val events = HashMap<Long, Events>()
+        connection.query(
+            "SELECT trigger_id, event, column_id, timing FROM trigger_event WHERE trigger_id IN (SELECT value FROM json_each(?))",
+            listOf(json(triggers))
+        ) { listOf(it.getLong(1), it.getString(2), (it.getObject(3) as Number?)?.toLong(), it.getString(4)) }.forEach { (trigger, event, column, timing) ->
+            val its = events.getOrPut(trigger as Long) { Events() }
+            if (timing == "INSTEAD_OF") its.insteadOf = true
+            when (event) {
+                "INSERT" -> its.insert = true
+                "DELETE" -> its.delete = true
+                "UPDATE" -> if (column == null) its.updateAll = true else its.updateColumns += column as Long
+            }
+        }
+        return events
+    }
+
+    /**
+     * The events of a trigger with events [its] on [table] that [write] fires, each with whether the hop is sure.
+     * [written] are the columns the write sets, [deleted] the columns of its relation, [chains] the view chains by kind.
+     */
+    private fun fired(
+        write: Write, table: Long, its: Events, written: List<Column>, deleted: List<Column>,
+        chains: Map<ViewWrite, Map<Long, Triple<Long, Long, Long>>>
+    ): List<Pair<String, Boolean>> {
+        val fired = ArrayList<Pair<String, Boolean>>()
+        if (its.insert && "SQL_INSERT" in write.roles) {
+            val (bases, all) = reach(write, table, written.filter { "SQL_INSERT" in it.roles }, chains, ViewWrite.INSERT)
+            if (write.relation == table || bases.isNotEmpty()) fired += "INSERT" to all
+        }
+        if (its.delete && "SQL_DELETE" in write.roles) {
+            val (bases, all) = reach(write, table, deleted, chains, ViewWrite.DELETE)
+            if (write.relation == table || bases.isNotEmpty()) fired += "DELETE" to all
+        }
+        if (its.update && "SQL_UPDATE" in write.roles) {
+            updateFired(write, table, its, written.filter { "SQL_UPDATE" in it.roles }, chains)?.let { fired += "UPDATE" to it }
+        }
+        return fired
+    }
+
+    /** Whether an UPDATE [write] setting [set] fires a trigger with events [its] on [table] surely, or null if it does not fire it. */
+    private fun updateFired(
+        write: Write, table: Long, its: Events, set: List<Column>, chains: Map<ViewWrite, Map<Long, Triple<Long, Long, Long>>>
+    ): Boolean? {
+        val (bases, all) = reach(write, table, set, chains, ViewWrite.UPDATE)
+        if (write.relation != table && bases.isEmpty()) return null
+        // `UPDATE OF`: a known column list sets one of its columns or does not; `SET ROW`, an unresolved
+        // column or a column outside the chain leaves it unknown, and the hop is not sure.
+        val known = set.isNotEmpty() && set.none { "IMPLICIT" in it.roles || it.entity == null } && all
+        return when {
+            its.updateAll -> all
+            !known -> false
+            bases.any { it in its.updateColumns } -> true
+            else -> null
+        }
+    }
+
+    /** The columns of [table] that [cols] of [write] write by [event] (or as a MERGE), and whether every one reaches it. */
+    private fun reach(
+        write: Write, table: Long, cols: List<Column>, chains: Map<ViewWrite, Map<Long, Triple<Long, Long, Long>>>, event: ViewWrite
+    ): Pair<Set<Long>, Boolean> {
+        if (write.relation == table) return cols.mapNotNull { it.entity }.toSet() to true
+        val chain = chains.getValue(if ("SQL_MERGE" in write.roles) ViewWrite.MERGE else event)
+        val bases = cols.mapNotNull { c -> c.entity?.let { chain[it] }?.takeIf { it.second == table }?.first }
+        return bases.toSet() to (bases.size == cols.size)
     }
 
     private fun json(ids: Collection<Long>) = ids.joinToString(",", "[", "]")

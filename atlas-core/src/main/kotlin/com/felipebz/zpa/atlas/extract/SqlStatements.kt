@@ -40,77 +40,9 @@ internal class SqlStatements(
         val statement = Statement(root, context, id, state)
         val targets = HashSet<AstNode>()
         when (kind) {
-            StatementKind.UPDATE, StatementKind.DELETE -> {
-                val clause = root.getFirstChildOrNull(DmlGrammar.DML_TABLE_EXPRESSION_CLAUSE)
-                if (clause != null) targets += clause
-                val reference = clause?.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE)
-                if (reference == null) {
-                    subqueryTarget(root)
-                } else {
-                    val role = if (kind == StatementKind.UPDATE) Role.SQL_UPDATE else Role.SQL_DELETE
-                    val alias = clause.getFirstChildOrNull(DmlGrammar.ALIAS)?.let { normalizeIdentifier(it.tokenOriginalValue) }
-                    val target = target(statement, reference, setOf(role), alias)
-                    if (target != null && kind == StatementKind.UPDATE) {
-                        root.getChildren(DmlGrammar.UPDATE_COLUMN).forEach { setColumn(statement, it, target, Role.SQL_UPDATE, allowRow = true) }
-                    }
-                }
-            }
-            StatementKind.INSERT -> for (clause in root.getDescendants(DmlGrammar.INSERT_INTO_CLAUSE)) {
-                val reference = clause.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE)
-                if (reference == null) {
-                    subqueryTarget(clause)
-                    continue
-                }
-                val alias = clause.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { normalizeIdentifier(it.tokenOriginalValue) }
-                val target = target(statement, reference, setOf(Role.SQL_INSERT), alias) ?: continue
-                val columns = clause.getFirstChildOrNull(DmlGrammar.INSERT_COLUMNS)
-                val setClause = clause.nextSiblingOrNull?.takeIf { it.type == DmlGrammar.INSERT_SET_CLAUSE }
-                // Each INTO with its own VALUES, else the query of the insert.
-                val source = clause.nextSiblingOrNull?.takeIf { it.type == DmlGrammar.VALUES_CLAUSE }?.let { WrittenValues.valuesClause(it) }
-                    ?: WriteSource.Query(WrittenValues.insertQuery(clause))
-                when {
-                    columns != null -> {
-                        val listed = columns.children.filter { !isPunctuation(it) }
-                        val values = source.forColumns(listed.size)
-                        listed.forEachIndexed { position, it -> column(statement, it, target, Role.SQL_INSERT, statement.writtenValues(values, position)) }
-                    }
-                    setClause != null -> setClause.getChildren(DmlGrammar.UPDATE_COLUMN).forEach { setColumn(statement, it, target, Role.SQL_INSERT, allowRow = false) }
-                    else -> columnReads.implicitColumns(statement, target, setOf(Role.SQL_INSERT, Role.WRITE, Role.IMPLICIT), written = source)
-                }
-            }
-            StatementKind.MERGE -> {
-                val reference = root.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE)
-                if (reference == null) {
-                    subqueryTarget(root)
-                } else {
-                    val update = root.getFirstChildOrNull(DmlGrammar.MERGE_UPDATE_CLAUSE)
-                    val insert = root.getFirstChildOrNull(DmlGrammar.MERGE_INSERT_CLAUSE)
-                    val roles = buildSet {
-                        add(Role.SQL_MERGE)
-                        if (update != null) add(Role.SQL_UPDATE)
-                        if (update != null && update.hasDirectChildren(PlSqlKeyword.DELETE)) add(Role.SQL_DELETE)
-                        if (insert != null) add(Role.SQL_INSERT)
-                    }
-                    val alias = root.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { normalizeIdentifier(it.tokenOriginalValue) }
-                    val target = target(statement, reference, roles, alias)
-                    if (target != null) {
-                        update?.getChildren(DmlGrammar.UPDATE_COLUMN)?.forEach { setColumn(statement, it, target, Role.SQL_UPDATE, allowRow = false) }
-                        if (insert != null) {
-                            val children = insert.children
-                            val start = children.indexOfFirst { it.type == PlSqlKeyword.INSERT }
-                            val end = children.indexOfFirst { it.type == PlSqlKeyword.VALUES }
-                            val columns = children.subList(start + 1, end).filter { !isPunctuation(it) }
-                            val source = WrittenValues.mergeValues(insert)
-                            if (columns.isEmpty()) {
-                                columnReads.implicitColumns(statement, target, setOf(Role.SQL_INSERT, Role.WRITE, Role.IMPLICIT), written = source)
-                            } else {
-                                val values = source.forColumns(columns.size)
-                                columns.forEachIndexed { position, it -> column(statement, it, target, Role.SQL_INSERT, statement.writtenValues(values, position)) }
-                            }
-                        }
-                    }
-                }
-            }
+            StatementKind.UPDATE, StatementKind.DELETE -> updateOrDelete(statement, kind)?.let { targets += it }
+            StatementKind.INSERT -> root.getDescendants(DmlGrammar.INSERT_INTO_CLAUSE).forEach { insertInto(statement, it) }
+            StatementKind.MERGE -> merge(statement)
             StatementKind.LOCK -> root.getChildren(DmlGrammar.TABLE_REFERENCE).forEach { target(statement, it, setOf(Role.SQL_LOCK), null) }
             else -> Unit
         }
@@ -139,6 +71,87 @@ internal class SqlStatements(
         root.getDescendants(DmlGrammar.SELECT_COLUMN).forEach { columnReads.selectStar(statement, it) }
         places.statement(statement)
         return statement
+    }
+
+    /** The target of an `UPDATE` or `DELETE` and the columns an `UPDATE` sets; returns its table expression clause. */
+    private fun updateOrDelete(statement: Statement, kind: StatementKind): AstNode? {
+        val root = statement.root
+        val clause = root.getFirstChildOrNull(DmlGrammar.DML_TABLE_EXPRESSION_CLAUSE)
+        val reference = clause?.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE)
+        if (reference == null) {
+            subqueryTarget(root)
+            return clause
+        }
+        val role = if (kind == StatementKind.UPDATE) Role.SQL_UPDATE else Role.SQL_DELETE
+        val alias = clause.getFirstChildOrNull(DmlGrammar.ALIAS)?.let { normalizeIdentifier(it.tokenOriginalValue) }
+        val target = target(statement, reference, setOf(role), alias)
+        if (target != null && kind == StatementKind.UPDATE) {
+            root.getChildren(DmlGrammar.UPDATE_COLUMN).forEach { setColumn(statement, it, target, Role.SQL_UPDATE, allowRow = true) }
+        }
+        return clause
+    }
+
+    /** One `INTO` of an insert: its target and the columns it writes, listed, set or implicit. */
+    private fun insertInto(statement: Statement, clause: AstNode) {
+        val reference = clause.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE)
+        if (reference == null) {
+            subqueryTarget(clause)
+            return
+        }
+        val alias = clause.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { normalizeIdentifier(it.tokenOriginalValue) }
+        val target = target(statement, reference, setOf(Role.SQL_INSERT), alias) ?: return
+        val columns = clause.getFirstChildOrNull(DmlGrammar.INSERT_COLUMNS)
+        val setClause = clause.nextSiblingOrNull?.takeIf { it.type == DmlGrammar.INSERT_SET_CLAUSE }
+        // Each INTO with its own VALUES, else the query of the insert.
+        val source = clause.nextSiblingOrNull?.takeIf { it.type == DmlGrammar.VALUES_CLAUSE }?.let { WrittenValues.valuesClause(it) }
+            ?: WriteSource.Query(WrittenValues.insertQuery(clause))
+        when {
+            columns != null -> insertColumns(statement, columns.children.filter { !isPunctuation(it) }, target, source)
+            setClause != null -> setClause.getChildren(DmlGrammar.UPDATE_COLUMN).forEach { setColumn(statement, it, target, Role.SQL_INSERT, allowRow = false) }
+            else -> columnReads.implicitColumns(statement, target, setOf(Role.SQL_INSERT, Role.WRITE, Role.IMPLICIT), written = source)
+        }
+    }
+
+    /** The target of a `MERGE`, with the columns its update and insert branches write. */
+    private fun merge(statement: Statement) {
+        val root = statement.root
+        val reference = root.getFirstChildOrNull(DmlGrammar.TABLE_REFERENCE)
+        if (reference == null) {
+            subqueryTarget(root)
+            return
+        }
+        val update = root.getFirstChildOrNull(DmlGrammar.MERGE_UPDATE_CLAUSE)
+        val insert = root.getFirstChildOrNull(DmlGrammar.MERGE_INSERT_CLAUSE)
+        val roles = buildSet {
+            add(Role.SQL_MERGE)
+            if (update != null) add(Role.SQL_UPDATE)
+            if (update != null && update.hasDirectChildren(PlSqlKeyword.DELETE)) add(Role.SQL_DELETE)
+            if (insert != null) add(Role.SQL_INSERT)
+        }
+        val alias = root.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.let { normalizeIdentifier(it.tokenOriginalValue) }
+        val target = target(statement, reference, roles, alias) ?: return
+        update?.getChildren(DmlGrammar.UPDATE_COLUMN)?.forEach { setColumn(statement, it, target, Role.SQL_UPDATE, allowRow = false) }
+        if (insert != null) mergeInsert(statement, insert, target)
+    }
+
+    /** The columns the insert branch of a `MERGE` writes: those listed between `INSERT` and `VALUES`, else all. */
+    private fun mergeInsert(statement: Statement, insert: AstNode, target: Target) {
+        val children = insert.children
+        val start = children.indexOfFirst { it.type == PlSqlKeyword.INSERT }
+        val end = children.indexOfFirst { it.type == PlSqlKeyword.VALUES }
+        val columns = children.subList(start + 1, end).filter { !isPunctuation(it) }
+        val source = WrittenValues.mergeValues(insert)
+        if (columns.isEmpty()) {
+            columnReads.implicitColumns(statement, target, setOf(Role.SQL_INSERT, Role.WRITE, Role.IMPLICIT), written = source)
+        } else {
+            insertColumns(statement, columns, target, source)
+        }
+    }
+
+    /** The listed columns of an insert, each with the value at its position. */
+    private fun insertColumns(statement: Statement, listed: List<AstNode>, target: Target, source: WriteSource) {
+        val values = source.forColumns(listed.size)
+        listed.forEachIndexed { position, it -> column(statement, it, target, Role.SQL_INSERT, statement.writtenValues(values, position)) }
     }
 
     private fun isPunctuation(node: AstNode) = node.type is PlSqlPunctuator

@@ -183,22 +183,21 @@ internal class ImpactReader(private val connection: Connection) {
             return component
         }
 
-        fun graph(root: EntitySummary, scopes: List<Scope>, maxDepth: Int, stop: ImpactStop?, offset: Int, limit: Int): ImpactGraph {
-            val byId = nodes.values.filter { it.id != null }.associateBy { it.id!! }
-            fun depthOf(from: Long?) = if (from == null) 0 else byId.getValue(from).depth
-            val unentered = unentered()
-            // Followed, a trigger stops by the rules of any node unless it is a system trigger, which no write fires.
-            val dml = if (followTriggers) TriggerWrites(connection).tables(nodes.values.filter { it.kind == "TRIGGER" }.map { it.id!! }).keys else emptySet()
-            fun stopOf(node: Node) = when {
-                node.id == null -> ImpactStop.NO_CONTAINER
-                node.kind == "PACKAGE" -> ImpactStop.PACKAGE_LEVEL
-                node.kind == "TRIGGER" && node.id !in dml -> ImpactStop.TRIGGER
-                !node.read -> ImpactStop.DEPTH_LIMIT
-                node in callers && node !in unentered -> ImpactStop.FOLLOWED
-                else -> ImpactStop.ENTRY_POINT
-            }
-            // Certain: reached from the entity through RESOLVED uses only, at any depth; a write that may not fire its
-            // trigger is not one.
+        /** Why the walk stopped at [node], given the [dml] triggers and the [unentered] nodes. */
+        private fun stopOf(node: Node, dml: Set<Long>, unentered: Set<Any>) = when {
+            node.id == null -> ImpactStop.NO_CONTAINER
+            node.kind == "PACKAGE" -> ImpactStop.PACKAGE_LEVEL
+            node.kind == "TRIGGER" && node.id !in dml -> ImpactStop.TRIGGER
+            !node.read -> ImpactStop.DEPTH_LIMIT
+            node in callers && node !in unentered -> ImpactStop.FOLLOWED
+            else -> ImpactStop.ENTRY_POINT
+        }
+
+        /**
+         * The nodes reached from the entity through RESOLVED uses only, at any depth; a write that may not fire its
+         * trigger is not one. [byId] gives the node of each container id.
+         */
+        private fun certain(byId: Map<Long, Node>): Set<Node> {
             val certain = HashSet<Node>()
             val resolved = edges.filter { (use, _) -> use.status == "RESOLVED" && !use.candidate && use.sure }
             var grown = true
@@ -208,9 +207,19 @@ internal class ImpactReader(private val connection: Connection) {
                     if (node !in certain && (use.from == null || byId.getValue(use.from) in certain)) grown = certain.add(node) || grown
                 }
             }
+            return certain
+        }
+
+        fun graph(root: EntitySummary, scopes: List<Scope>, maxDepth: Int, stop: ImpactStop?, offset: Int, limit: Int): ImpactGraph {
+            val byId = nodes.values.filter { it.id != null }.associateBy { it.id!! }
+            fun depthOf(from: Long?) = if (from == null) 0 else byId.getValue(from).depth
+            val unentered = unentered()
+            // Followed, a trigger stops by the rules of any node unless it is a system trigger, which no write fires.
+            val dml = if (followTriggers) TriggerWrites(connection).tables(nodes.values.filter { it.kind == "TRIGGER" }.map { it.id!! }).keys else emptySet()
+            val certain = certain(byId)
             val into = edges.groupBy({ it.second }, { it.first })
             val ordered = nodes.values.sortedWith(compareBy<Node>({ it.depth }, { it.entity?.key ?: it.path }))
-            val stops = ordered.associateWith { stopOf(it) }
+            val stops = ordered.associateWith { stopOf(it, dml, unentered) }
             val kept = ordered.filter { stop == null || stops.getValue(it) == stop }
             val page = kept.drop(offset).take(limit)
             val triggers = triggers(page.filter { it.kind == "TRIGGER" }.map { it.id!! })

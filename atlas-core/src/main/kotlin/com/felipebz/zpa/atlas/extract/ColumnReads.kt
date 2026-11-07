@@ -67,44 +67,16 @@ internal class ColumnReads(
      */
     fun qualifiedColumn(statement: Statement, name: AstNode, segments: List<String>, method: Boolean = false): Boolean {
         val names = segments.map { normalizeIdentifier(it) }.let { if (method) it.dropLast(1) else it }
-        fun readAt(target: Target, column: String, columnIndex: Int) {
-            if (!method) return read(statement, name, target, column)
-            val parts = name.children.filter { it.type != PlSqlPunctuator.DOT }
-            val last = parts[columnIndex]
-            val text = name.children.takeWhile { it !== last }.joinToString("") { writtenText(it) } + writtenText(last)
-            read(statement, name, target, column, spanOf(parts.first(), last), text)
+        val lacking = when (val capture = qualifiedCapture(statement, name, names, method)) {
+            QualifiedCapture.Read -> return true
+            is QualifiedCapture.Lacking -> capture
+            null -> return scopes.isSqlQualified(name, segments)
         }
-        var lackingIndex = 0
-        var lacking: Pair<Target, String>? = null
-        var scope = scopes.sqlScope(name)
-        scopes@ while (scope != null) {
-            val current: AstNode = scope
-            for (source in scopeSources(statement, current, name, qualified = true)) {
-                val columnIndex = when {
-                    source.qualifier != null && source.qualifier == names[0] -> 1
-                    names.size >= 3 && source.target != null && source.qualifier == source.target.written.name &&
-                        scopes.qualifierMatches(names.subList(0, 2), source.target) -> 2
-                    else -> continue
-                }
-                val column = names.getOrNull(columnIndex) ?: return true
-                if (column in SQL_PSEUDOCOLUMNS || source.target == null) return true
-                if (resolver.hasColumn(source.target.resolved, column) == false) {
-                    if (lacking == null) {
-                        lacking = source.target to column
-                        lackingIndex = columnIndex
-                    }
-                    scope = scopes.sqlScope(current)
-                    continue@scopes
-                }
-                readAt(source.target, column, columnIndex)
-                return true
-            }
-            scope = scopes.sqlScope(current)
-        }
-        val (target, column) = lacking ?: return scopes.isSqlQualified(name, segments)
+        val target = lacking.target
+        val column = lacking.column
         if (method) {
             val first = name.firstChild
-            if ((first as? SemanticAstNode)?.symbol == null) readAt(target, column, lackingIndex)
+            if ((first as? SemanticAstNode)?.symbol == null) qualifiedRead(statement, name, target, column, lacking.index, method)
             return true
         }
         val before = state.occurrences.size
@@ -112,6 +84,58 @@ internal class ColumnReads(
         val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild
         if (state.occurrences.size == before && (first as? SemanticAstNode)?.symbol == null) read(statement, name, target, column)
         return true
+    }
+
+    /** What the scopes make of a qualified name: a read done, the first source lacking the column, or null for no match. */
+    private sealed interface QualifiedCapture {
+        /** The name was captured (and read when it is a column of a known relation). */
+        object Read : QualifiedCapture
+
+        /** The innermost matching source is complete but has no [column]. */
+        class Lacking(val target: Target, val column: String, val index: Int) : QualifiedCapture
+    }
+
+    /**
+     * Walks the scopes from the innermost out, reading the column from the first source whose qualifier matches and
+     * that has it; a complete source without the column passes the name on to the next scope.
+     */
+    private fun qualifiedCapture(statement: Statement, name: AstNode, names: List<String>, method: Boolean): QualifiedCapture? {
+        var lacking: QualifiedCapture.Lacking? = null
+        var scope = scopes.sqlScope(name)
+        scopes@ while (scope != null) {
+            val current: AstNode = scope
+            for (source in scopeSources(statement, current, name, qualified = true)) {
+                val columnIndex = qualifierIndex(source, names) ?: continue
+                val column = names.getOrNull(columnIndex) ?: return QualifiedCapture.Read
+                if (column in SQL_PSEUDOCOLUMNS || source.target == null) return QualifiedCapture.Read
+                if (resolver.hasColumn(source.target.resolved, column) == false) {
+                    lacking = lacking ?: QualifiedCapture.Lacking(source.target, column, columnIndex)
+                    scope = scopes.sqlScope(current)
+                    continue@scopes
+                }
+                qualifiedRead(statement, name, source.target, column, columnIndex, method)
+                return QualifiedCapture.Read
+            }
+            scope = scopes.sqlScope(current)
+        }
+        return lacking
+    }
+
+    /** The index of the column segment when [source] matches the qualifier of [names] (`q.col`, `schema.t.col`), else null. */
+    private fun qualifierIndex(source: ColumnSource, names: List<String>): Int? = when {
+        source.qualifier != null && source.qualifier == names[0] -> 1
+        names.size >= 3 && source.target != null && source.qualifier == source.target.written.name &&
+            scopes.qualifierMatches(names.subList(0, 2), source.target) -> 2
+        else -> null
+    }
+
+    /** A read of [column] by a qualified name; with [method], the read spans the segments up to the column only. */
+    private fun qualifiedRead(statement: Statement, name: AstNode, target: Target, column: String, columnIndex: Int, method: Boolean) {
+        if (!method) return read(statement, name, target, column)
+        val parts = name.children.filter { it.type != PlSqlPunctuator.DOT }
+        val last = parts[columnIndex]
+        val text = name.children.takeWhile { it !== last }.joinToString("") { writtenText(it) } + writtenText(last)
+        read(statement, name, target, column, spanOf(parts.first(), last), text)
     }
 
     /**

@@ -28,15 +28,24 @@ internal class OwnNames(private val typeMembers: ObjectTypeMembers) {
      */
     fun ownName(name: AstNode, segments: List<String>, context: Context): OwnName? {
         val names = segments.map { normalizeIdentifier(it) }
-        context.objectType?.let { type ->
-            val members = typeMembers.of(type)
-            val methods = typeMembers.methods(type)
-            if (names[0] == "SELF") {
-                val member = names.getOrNull(1) ?: return OwnName.VALUE
-                return if (names.size == 2 && (member in methods || isUnitSubprogram(name, member, context))) OwnName.SUBPROGRAM else OwnName.VALUE
-            }
-            if (names[0] in members) return if (names.size == 1 && names[0] in methods) OwnName.SUBPROGRAM else OwnName.VALUE
+        context.objectType?.let { type -> typeMemberName(name, names, type, context)?.let { return it } }
+        return unitQualifiedName(name, names, context)
+    }
+
+    /** In the body of [type], `SELF.x` or a name whose first segment is an attribute or method of the type; null otherwise. */
+    private fun typeMemberName(name: AstNode, names: List<String>, type: String, context: Context): OwnName? {
+        val members = typeMembers.of(type)
+        val methods = typeMembers.methods(type)
+        if (names[0] == "SELF") {
+            val member = names.getOrNull(1) ?: return OwnName.VALUE
+            return if (names.size == 2 && (member in methods || isUnitSubprogram(name, member, context))) OwnName.SUBPROGRAM else OwnName.VALUE
         }
+        if (names[0] in members) return if (names.size == 1 && names[0] in methods) OwnName.SUBPROGRAM else OwnName.VALUE
+        return null
+    }
+
+    /** A name qualified by enclosing units of the place it is written, declared in the innermost unit named; null otherwise. */
+    private fun unitQualifiedName(name: AstNode, names: List<String>, context: Context): OwnName? {
         if (names.size < 2) return null
         val units = enclosingUnits(name)
         if (units.isEmpty()) return null

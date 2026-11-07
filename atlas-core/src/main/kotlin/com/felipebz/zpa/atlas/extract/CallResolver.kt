@@ -9,7 +9,6 @@ import com.felipebz.zpa.api.project.*
 import com.felipebz.zpa.atlas.model.EntityFact
 import com.felipebz.zpa.atlas.model.EntityKind
 import com.felipebz.zpa.atlas.model.RelationFact
-import com.felipebz.zpa.atlas.model.RelationKind
 import com.felipebz.zpa.atlas.model.Status
 
 /**
@@ -122,16 +121,8 @@ class CallResolver(
         val callArguments = ProjectCallArguments.of(arguments.map { argument ->
             argument.label?.let { ProjectCallArgument.named(ProjectIdentifier.fromSource(it)) } ?: ProjectCallArgument.positional()
         })
-        if (packageName != null) {
-            for (names in variants) {
-                if (names.size != 1 && !(names.size == 2 && normalizeIdentifier(names[0]) == normalizeIdentifier(enclosingPackage.last()))) continue
-                val member = ProjectIdentifier.fromSource(names.last())
-                val inventory = snapshot.findPackageSubprograms(packageName, member).declarations
-                if (inventory.isNotEmpty()) {
-                    val resolution = snapshot.resolveCall(ProjectCallTarget.packageMember(packageName, member), kind, callArguments)
-                    return packageMember(inventory, resolution, arguments)
-                }
-            }
+        if (enclosingPackage != null && packageName != null) {
+            enclosingPackageMember(variants, enclosingPackage, packageName, kind, callArguments, arguments)?.let { return it }
         }
         for (names in variants) {
             val resolution = snapshot.resolveCall(ProjectCallTarget.written(qualifiedName(names)), kind, callArguments)
@@ -155,6 +146,30 @@ class CallResolver(
                 ?: CallOutcome.Call(Status.UNRESOLVED, null, "NOT_IN_PROJECT")
         }
         return notInProject(names, kind, unitSchema, synonymTarget)
+    }
+
+    /**
+     * A member of the enclosing package [packageName]: the first spelling, one segment or qualified with the package's
+     * own name, that the package declares; null when none does.
+     */
+    private fun enclosingPackageMember(
+        variants: List<List<String>>,
+        enclosingPackage: List<String>,
+        packageName: ProjectQualifiedName,
+        kind: ProjectCallKind,
+        callArguments: ProjectCallArguments,
+        arguments: List<WrittenArgument>
+    ): CallOutcome? {
+        for (names in variants) {
+            if (names.size != 1 && !(names.size == 2 && normalizeIdentifier(names[0]) == normalizeIdentifier(enclosingPackage.last()))) continue
+            val member = ProjectIdentifier.fromSource(names.last())
+            val inventory = snapshot.findPackageSubprograms(packageName, member).declarations
+            if (inventory.isNotEmpty()) {
+                val resolution = snapshot.resolveCall(ProjectCallTarget.packageMember(packageName, member), kind, callArguments)
+                return packageMember(inventory, resolution, arguments)
+            }
+        }
+        return null
     }
 
     /**

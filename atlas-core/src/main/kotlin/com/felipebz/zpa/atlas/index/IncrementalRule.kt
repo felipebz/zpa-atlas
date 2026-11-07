@@ -12,44 +12,6 @@ import com.felipebz.zpa.atlas.extract.ObjectTypeMembers
 import com.felipebz.zpa.atlas.extract.sha256
 import java.util.Locale
 import kotlin.collections.ArrayDeque
-import kotlin.collections.ArrayList
-import kotlin.collections.Collection
-import kotlin.collections.HashMap
-import kotlin.collections.HashSet
-import kotlin.collections.LinkedHashSet
-import kotlin.collections.List
-import kotlin.collections.Map
-import kotlin.collections.MutableList
-import kotlin.collections.Set
-import kotlin.collections.all
-import kotlin.collections.associateBy
-import kotlin.collections.component1
-import kotlin.collections.component2
-import kotlin.collections.contains
-import kotlin.collections.eachCount
-import kotlin.collections.emptyList
-import kotlin.collections.filter
-import kotlin.collections.filterTo
-import kotlin.collections.forEach
-import kotlin.collections.getOrPut
-import kotlin.collections.getValue
-import kotlin.collections.groupingBy
-import kotlin.collections.isNotEmpty
-import kotlin.collections.iterator
-import kotlin.collections.map
-import kotlin.collections.mapTo
-import kotlin.collections.mapValues
-import kotlin.collections.minus
-import kotlin.collections.minusAssign
-import kotlin.collections.orEmpty
-import kotlin.collections.plus
-import kotlin.collections.plusAssign
-import kotlin.collections.setOf
-import kotlin.collections.sorted
-import kotlin.collections.take
-import kotlin.collections.toHashSet
-import kotlin.collections.toMap
-import kotlin.collections.toSet
 
 /**
  * Which files an incremental run walks.
@@ -167,14 +129,7 @@ internal object IncrementalRule {
         }
 
         val touched = LinkedHashSet<String>()
-        // Declarations that appeared, disappeared or changed in the files whose text changed.
-        for (path in changed + new + removed) {
-            val old = before[path]?.declarations.orEmpty().groupingBy { it.rendering }.eachCount()
-            val now = declarations[path].orEmpty().groupingBy { it.rendering }.eachCount()
-            for (declaration in before[path]?.declarations.orEmpty() + declarations[path].orEmpty()) {
-                if (old[declaration.rendering] != now[declaration.rendering]) touched += declaration.name
-            }
-        }
+        addChangedDeclarations(touched, changed + new + removed, before, declarations)
         for (name in global.omitted.symmetricDifference(cached.global.omitted)) touched += Rendering().also { it.render(name) }.strings
         touched += changedTypes(cached.global.typeMembers, global.typeMembers).map { it.substringAfterLast('.') }
         val catalogChanged = current.filter {
@@ -186,16 +141,7 @@ internal object IncrementalRule {
         if (touched.isEmpty()) {
             return Plan(changed + new + reread + catalogChanged, changed.size, new.size, catalogChanged.size, removed.size, null, emptyList(), reread.size)
         }
-        // Close over the snapshot and the synonyms: what refers to a touched name, or names it, is touched.
-        val byReference = HashMap<String, MutableList<String>>()
-        for (list in declarations.values) for (declaration in list) for (name in declaration.references) byReference.getOrPut(name) { ArrayList() } += declaration.name
-        for (synonym in synonyms) byReference.getOrPut(synonym.targetName.uppercase(Locale.ROOT)) { ArrayList() } += synonym.name.uppercase(Locale.ROOT)
-        val queue = ArrayDeque(touched)
-        while (queue.isNotEmpty()) {
-            for (name in byReference[queue.removeFirst()].orEmpty()) {
-                if (touched.add(name)) queue += name
-            }
-        }
+        closeOverReferences(touched, declarations, synonyms)
 
         val affected = run {
             val lengths = touched.mapTo(HashSet()) { it.length }
@@ -207,6 +153,39 @@ internal object IncrementalRule {
     }
 
     private const val TOUCHED_SHOWN = 5
+
+    /** Adds to [touched] the declarations that appeared, disappeared or changed in [paths], files whose text changed. */
+    private fun addChangedDeclarations(
+        touched: MutableSet<String>,
+        paths: Set<String>,
+        before: Map<String, CachedFile>,
+        declarations: Map<String, List<CachedDeclaration>>
+    ) {
+        for (path in paths) {
+            val old = before[path]?.declarations.orEmpty().groupingBy { it.rendering }.eachCount()
+            val now = declarations[path].orEmpty().groupingBy { it.rendering }.eachCount()
+            for (declaration in before[path]?.declarations.orEmpty() + declarations[path].orEmpty()) {
+                if (old[declaration.rendering] != now[declaration.rendering]) touched += declaration.name
+            }
+        }
+    }
+
+    /** Closes [touched] over the snapshot and the synonyms: what refers to a touched name, or names it, is touched. */
+    private fun closeOverReferences(
+        touched: MutableSet<String>,
+        declarations: Map<String, List<CachedDeclaration>>,
+        synonyms: List<DictionarySynonym>
+    ) {
+        val byReference = HashMap<String, MutableList<String>>()
+        for (list in declarations.values) for (declaration in list) for (name in declaration.references) byReference.getOrPut(name) { ArrayList() } += declaration.name
+        for (synonym in synonyms) byReference.getOrPut(synonym.targetName.uppercase(Locale.ROOT)) { ArrayList() } += synonym.name.uppercase(Locale.ROOT)
+        val queue = ArrayDeque(touched)
+        while (queue.isNotEmpty()) {
+            for (name in byReference[queue.removeFirst()].orEmpty()) {
+                if (touched.add(name)) queue += name
+            }
+        }
+    }
 
     /**
      * The names in the lines that differ between two catalog digests of a file (see [DeclarationCatalog.digests]): the

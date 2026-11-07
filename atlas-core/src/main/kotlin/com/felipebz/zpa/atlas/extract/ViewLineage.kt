@@ -225,36 +225,35 @@ internal class ViewLineage(
      */
     private fun itemBases(statement: Statement, item: AstNode): Set<String>? {
         val result = HashSet<String>()
-        var known = true
-        fun visit(node: AstNode) {
-            val reads: List<OccurrenceFact>? = statement.columnReads[node]
-            if (reads != null) {
-                for (read in reads) if (read.entityKey != null && read.status in LINEAGE_STATUSES) result += read.entityKey
-                return
-            }
-            if (node.type in NAMED_DATATYPES) return
-            // `REF(x)` has no base column; `VALUE(x)` has every column of the relation, when the dictionary lists them.
-            columnReads.correlationCall(statement, node)?.let { (function, source) ->
-                if (function == "VALUE") {
-                    val relation = source.target?.resolved?.relation?.takeIf { it.isColumnsComplete }
-                    if (relation == null) known = false
-                    else relation.rowFields.forEach { result += source.target.resolved.entityKey + "." + it.name.exact() }
-                }
-                return
-            }
-            if (makeRefRelation(node) != null) {
-                node.getFirstChild(PlSqlGrammar.ARGUMENTS).getChildren(PlSqlGrammar.ARGUMENT).drop(1).forEach(::visit)
-                return
-            }
-            if ((node.type == PlSqlGrammar.VARIABLE_NAME || node.type == PlSqlGrammar.MEMBER_EXPRESSION) && plsql.isValueName(node) && plsql.nameSegments(node) != null) {
-                val followed = nameLineage(statement, node)
-                if (followed == null) known = false else result += followed
-                return
-            }
-            node.children.forEach(::visit)
+        return if (collectBases(statement, item, result)) result else null
+    }
+
+    /** Adds the base columns read under [node] to [result]; false when one of them cannot be followed. */
+    private fun collectBases(statement: Statement, node: AstNode, result: MutableSet<String>): Boolean {
+        val reads: List<OccurrenceFact>? = statement.columnReads[node]
+        if (reads != null) {
+            for (read in reads) if (read.entityKey != null && read.status in LINEAGE_STATUSES) result += read.entityKey
+            return true
         }
-        visit(item)
-        return if (known) result else null
+        if (node.type in NAMED_DATATYPES) return true
+        // `REF(x)` has no base column; `VALUE(x)` has every column of the relation, when the dictionary lists them.
+        columnReads.correlationCall(statement, node)?.let { (function, source) ->
+            if (function != "VALUE") return true
+            val relation = source.target?.resolved?.relation?.takeIf { it.isColumnsComplete } ?: return false
+            relation.rowFields.forEach { result += source.target.resolved.entityKey + "." + it.name.exact() }
+            return true
+        }
+        val children = if (makeRefRelation(node) != null) {
+            node.getFirstChild(PlSqlGrammar.ARGUMENTS).getChildren(PlSqlGrammar.ARGUMENT).drop(1)
+        } else if ((node.type == PlSqlGrammar.VARIABLE_NAME || node.type == PlSqlGrammar.MEMBER_EXPRESSION) && plsql.isValueName(node) &&
+            plsql.nameSegments(node) != null) {
+            val followed = nameLineage(statement, node) ?: return false
+            result += followed
+            return true
+        } else {
+            node.children
+        }
+        return children.fold(true) { known, child -> collectBases(statement, child, result) && known }
     }
 
     /**
