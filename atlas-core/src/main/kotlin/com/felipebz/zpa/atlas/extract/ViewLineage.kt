@@ -227,7 +227,7 @@ internal class ViewLineage(
         val result = HashSet<String>()
         var known = true
         fun visit(node: AstNode) {
-            val reads = statement.columnReads[node]
+            val reads: List<OccurrenceFact>? = statement.columnReads[node]
             if (reads != null) {
                 for (read in reads) if (read.entityKey != null && read.status in LINEAGE_STATUSES) result += read.entityKey
                 return

@@ -69,7 +69,7 @@ internal class RemoteNames(private val state: FileState, private val scopes: Sql
                 val children = name.children
                 val remoteAt = children.indexOfFirst { it.type == PlSqlPunctuator.REMOTE }
                 val lastDot = children.subList(0, remoteAt).indexOfLast { it.type == PlSqlPunctuator.DOT }
-                val parts = children.subList(0, lastDot)
+                val parts: List<AstNode> = children.subList(0, lastDot)
                 state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(parts.first(), parts.last()),
                     parts.joinToString("") { writtenText(it) }, key, setOf(Role.READ), status(Status.EXTERNAL, context.partial), context.origin, "DB_LINK")
             }

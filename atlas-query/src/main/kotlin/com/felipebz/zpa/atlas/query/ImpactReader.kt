@@ -5,6 +5,8 @@
 
 package com.felipebz.zpa.atlas.query
 
+import com.felipebz.zpa.atlas.query.ImpactReader.Companion.ROOT
+import com.felipebz.zpa.atlas.query.ImpactReader.Companion.STOPPING_KINDS
 import java.sql.Connection
 
 /** The transitive impact of an entity, over one open connection: see [AtlasIndex.impact]. */
@@ -133,7 +135,7 @@ internal class ImpactReader(private val connection: Connection) {
         fun unentered(): Set<Any> {
             val component = components()
             val entered = HashSet<Int>()
-            for ((vertex, its) in callers) {
+            for ((vertex, its: Set<Any>) in callers) {
                 val own = component.getValue(vertex)
                 if (its.any { component[it] != own }) entered += own
             }

@@ -83,9 +83,8 @@ class FormsModuleReaders private constructor(
             for ((ending, reader) in endings) {
                 require(ending.isNotEmpty()) { "The module reader ${reader.name} claims an empty file name ending" }
                 for ((other, otherReader) in endings) {
-                    if (otherReader !== reader && ending.endsWith(other)) {
-                        throw IllegalArgumentException(
-                            "The module readers ${reader.name} and ${otherReader.name} both read the files whose name ends with '$ending'")
+                    require(otherReader === reader || !ending.endsWith(other)) {
+                        "The module readers ${reader.name} and ${otherReader.name} both read the files whose name ends with '$ending'"
                     }
                 }
             }

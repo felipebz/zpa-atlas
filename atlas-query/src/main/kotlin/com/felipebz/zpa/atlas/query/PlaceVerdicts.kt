@@ -41,11 +41,11 @@ object PlaceVerdicts {
     /** How many bytes a character may take: a target counting bytes holds any value of `S` characters from `4·S` bytes. */
     private const val BYTES_PER_CHARACTER = 4
 
-    private val CHARACTER = Regex(
-        """^\s*(NVARCHAR2|NCHAR|VARCHAR2|VARCHAR|CHARACTER\s+VARYING|CHAR\s+VARYING|CHARACTER|CHAR|RAW)\b\s*(?:\(\s*(\d+)\s*(BYTE|CHAR)?\s*\))?""",
-        RegexOption.IGNORE_CASE
-    )
-    private val NUMBER = Regex("""^\s*(NUMBER|NUMERIC|DECIMAL|DEC)\b\s*(?:\(\s*(\d+|\*)\s*(?:,\s*(-?\d+)\s*)?\))?""", RegexOption.IGNORE_CASE)
+    // A type's name, then its size right after it when written: read apart, each pattern stays simple.
+    private val CHARACTER = Regex("""^\s*(NVARCHAR2|NCHAR|VARCHAR2|VARCHAR|CHARACTER\s+VARYING|CHAR\s+VARYING|CHARACTER|CHAR|RAW)\b""", RegexOption.IGNORE_CASE)
+    private val CHARACTER_SIZE = Regex("""\s*\(\s*(\d+)\s*(BYTE|CHAR)?\s*\)""", RegexOption.IGNORE_CASE)
+    private val NUMBER = Regex("""^\s*(NUMBER|NUMERIC|DECIMAL|DEC)\b""", RegexOption.IGNORE_CASE)
+    private val NUMBER_SIZE = Regex("""\s*\(\s*(\d+|\*)\s*(?:,\s*(-?\d+)\s*)?\)""")
     private val INTEGER = Regex("""^\s*(INTEGER|INT|SMALLINT)\b""", RegexOption.IGNORE_CASE)
 
     /**
@@ -56,8 +56,9 @@ object PlaceVerdicts {
         val text = datatype?.trim()?.removeSuffix(" NOT NULL")?.trim() ?: return null
         CHARACTER.find(text)?.let { match ->
             val name = match.groupValues[1].uppercase().replace(Regex("\\s+"), " ")
-            val written = match.groups[3]?.value?.uppercase()
-            val length = match.groups[2]?.value?.toInt() ?: if (name == "CHAR" || name == "CHARACTER" || name == "NCHAR") 1 else null
+            val size = CHARACTER_SIZE.matchAt(text, match.range.last + 1)
+            val written = size?.groups?.get(2)?.value?.uppercase()
+            val length = size?.groups?.get(1)?.value?.toInt() ?: if (name == "CHAR" || name == "CHARACTER" || name == "NCHAR") 1 else null
             return when {
                 name == "RAW" -> TypeSize(text, length, "BYTE", null, true)
                 name.startsWith("N") -> TypeSize(text, length, "CHAR", null, true)
@@ -67,9 +68,10 @@ object PlaceVerdicts {
         }
         NUMBER.find(text)?.let { match ->
             // NUMBER alone has no size; NUMERIC, DECIMAL and DEC alone are NUMBER(38,0).
-            val precision = match.groups[2]?.value
+            val size = NUMBER_SIZE.matchAt(text, match.range.last + 1)
+            val precision = size?.groups?.get(1)?.value
                 ?: return if (match.groupValues[1].equals("NUMBER", true)) TypeSize(text, null, null, null, true) else TypeSize(text, 38, "DIGITS", 0, true)
-            val scale = match.groups[3]?.value?.toInt() ?: 0
+            val scale = size.groups[2]?.value?.toInt() ?: 0
             val digits = (if (precision == "*") 38 else precision.toInt()) - scale
             return TypeSize(text, digits.coerceAtLeast(0), "DIGITS", scale, true)
         }

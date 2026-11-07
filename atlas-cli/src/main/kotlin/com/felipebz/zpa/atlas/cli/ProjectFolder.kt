@@ -23,7 +23,7 @@ class ProjectFolder(val folder: Path, val projects: List<ProjectFile>, val warni
          */
         fun read(folder: Path): ProjectFolder {
             if (!Files.isDirectory(folder)) throw CliValidationException("Projects folder does not exist or is not a directory: $folder")
-            val files = Files.list(folder).use { entries -> entries.filter { Files.isRegularFile(it) }.sorted().toList() }
+            val files: List<Path> = Files.list(folder).use { entries -> entries.filter { Files.isRegularFile(it) }.sorted().toList() }
             val warnings = files.filter { it.name.endsWith(".yml") }.map {
                 "Not read: $it; a project file is named <name>.yaml: rename it to ${it.name.removeSuffix(".yml")}.yaml"
             }

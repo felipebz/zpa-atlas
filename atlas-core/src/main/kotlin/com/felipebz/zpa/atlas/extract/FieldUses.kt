@@ -109,11 +109,7 @@ internal class FieldUses(
         fun visit(node: AstNode, first: Boolean) {
             when (node.type) {
                 PlSqlGrammar.ARGUMENTS -> return
-                PlSqlGrammar.VARIABLE_NAME -> {
-                    if (!first) result += node
-                    return
-                }
-                PlSqlGrammar.IDENTIFIER_NAME -> {
+                PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.IDENTIFIER_NAME -> {
                     if (!first) result += node
                     return
                 }

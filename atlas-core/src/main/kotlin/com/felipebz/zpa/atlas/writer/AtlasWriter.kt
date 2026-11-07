@@ -20,7 +20,7 @@ import java.sql.DriverManager
  * schema change means re-indexing. Ids are assigned in a sorted order (entity key; file path, then source position),
  * never in thread-completion order, so two runs over the same input produce identical rows.
  */
-class AtlasWriter private constructor(private val connection: Connection, private val textIndex: SourceTextIndex) : AutoCloseable {
+class AtlasWriter private constructor(private val connection: Connection, private val textIndex: SourceTextIndex) : AutoCloseable by connection {
 
     /**
      * Writes every row; the caller ([writeAtomically]) owns the transaction, the indexes and the commit. [texts] gives
@@ -56,8 +56,6 @@ class AtlasWriter private constructor(private val connection: Connection, privat
         val subprogramKeys = entities.filter { it.kind == EntityKind.PROCEDURE || it.kind == EntityKind.FUNCTION }.map { it.key }.toSet()
         SourceLines(connection).write(sortedFiles, entityIds, containerKeys, subprogramKeys, texts, textIndex)
     }
-
-    override fun close() = connection.close()
 
     companion object {
         const val SCHEMA_VERSION = 32

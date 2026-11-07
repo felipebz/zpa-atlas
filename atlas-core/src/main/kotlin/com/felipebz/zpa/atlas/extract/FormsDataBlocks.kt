@@ -73,10 +73,10 @@ internal class FormsDataBlocks(layout: FormsLayout, entities: FormsEntities, pri
             val insert = target != null && block.insertAllowed && "ON-INSERT" !in replaced
             val update = target != null && block.updateAllowed && "ON-UPDATE" !in replaced
             val delete = target != null && block.deleteAllowed && "ON-DELETE" !in replaced
-            if (query) use(blockKey, block.source.name, source!!, Role.SQL_SELECT)
-            if (insert) use(blockKey, block.target.name, target!!, Role.SQL_INSERT)
-            if (update) use(blockKey, block.target.name, target!!, Role.SQL_UPDATE)
-            if (delete) use(blockKey, block.target.name, target!!, Role.SQL_DELETE)
+            if (query) use(blockKey, block.source.name, source, Role.SQL_SELECT)
+            if (insert) use(blockKey, block.target.name, target, Role.SQL_INSERT)
+            if (update) use(blockKey, block.target.name, target, Role.SQL_UPDATE)
+            if (delete) use(blockKey, block.target.name, target, Role.SQL_DELETE)
             properties[blockKey] = FormsObjectFact(blockKey, block = FormsBlockFact(block.database, block.source.type, block.source.name, source?.entityKey,
                 block.target.type, block.target.name, target?.entityKey, block.queryAllowed, block.insertAllowed, block.updateAllowed, block.deleteAllowed,
                 block.where, block.orderBy))

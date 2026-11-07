@@ -437,13 +437,13 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
 
     private fun referencingSchema() = schema(listOf("key")) {
         string("key", "A TABLE, VIEW or COLUMN key, as search_entities or another answer gives it.")
-        integer("offset", 0..Int.MAX_VALUE, 0, "The nextOffset of the previous page.")
+        integer("offset", 0..Int.MAX_VALUE, 0, OFFSET_DESCRIPTION)
         integer("limit", 1..REFERENCING_MAX, REFERENCING_DEFAULT)
     }
 
     private fun placesSchema() = schema(listOf("key")) {
         string("key", "A COLUMN key (a table's or a view's), as search_entities or another answer gives it.")
-        integer("offset", 0..Int.MAX_VALUE, 0, "The nextOffset of the previous page.")
+        integer("offset", 0..Int.MAX_VALUE, 0, OFFSET_DESCRIPTION)
         integer("limit", 1..PLACES_MAX, PLACES_DEFAULT)
         integer("size", 1..Int.MAX_VALUE, null, "The size to compare each place with, in the column's unit; the column's by default.")
         enumArray("verdicts", Verdict.entries.map { it.name }, "The verdicts to list; all but FOLLOWS by default.", minItems = 1)
@@ -476,7 +476,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         enumArray("statuses", produced(codes.statuses), "The first hop's uses have one of these statuses.")
         integer("max_depth", 1..IMPACT_DEPTH_MAX, IMPACT_DEPTH_DEFAULT, "Hops followed; nodes at this depth stop with DEPTH_LIMIT.")
         enumString("stop", ImpactStop.entries.map { it.name }, "Only the nodes that stop for this reason, such as ENTRY_POINT; levels and stops still count the whole graph.")
-        integer("offset", 0..Int.MAX_VALUE, 0, "The nextOffset of the previous page.")
+        integer("offset", 0..Int.MAX_VALUE, 0, OFFSET_DESCRIPTION)
         integer("limit", 1..IMPACT_MAX, IMPACT_DEFAULT)
         boolean("keys", "Every node gives its full key, and via.uses is a key, as the index answers; use it with stop or offset to get the keys of the nodes another tool will be called on. Default false: n and name.")
         boolean("follow_triggers", "Default true: a DML trigger node is followed through the writes that fire it. False: every trigger stops with TRIGGER, as calls alone reach code.")
@@ -635,6 +635,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     companion object {
         private const val KEY_DESCRIPTION = "An entity key, as search_entities or another answer gives it."
         private const val AFTER_DESCRIPTION = "The nextAfter of the previous page."
+        private const val OFFSET_DESCRIPTION = "The nextOffset of the previous page."
         private const val GROUP_LIMIT_DESCRIPTION = "The first groups by count; totalGroups counts them all."
 
         // The limits keep an answer within what an agent reads at once: a typical page under about 10,000 tokens, the

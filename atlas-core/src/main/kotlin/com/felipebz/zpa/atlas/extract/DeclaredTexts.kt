@@ -41,7 +41,7 @@ internal object DeclaredTexts {
         val value = node.getFirstChildOrNull(PlSqlGrammar.DEFAULT_VALUE_ASSIGNMENT)?.lastChild?.let { text(tokensOf(it)) }
         if (type == null && value == null) return null
         val cut = value != null && value.codePointCount(0, value.length) > VALUE_LIMIT
-        return DeclaredTextFact(entityKey, type, if (cut) cutText(value!!) + "…" else value, cut)
+        return DeclaredTextFact(entityKey, type, if (cut) cutText(value) + "…" else value, cut)
     }
 
     /**

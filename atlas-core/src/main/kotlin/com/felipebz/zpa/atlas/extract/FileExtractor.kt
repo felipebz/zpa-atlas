@@ -435,7 +435,7 @@ class FileExtractor internal constructor(
         }
         val span = spanOf(node)
         val index = state.addUnit(UnitFact(kind, unit?.path.orEmpty(), key, span, defaultSchema), partial = false)
-        if (key != null && unit != null) {
+        if (key != null) {
             val name = when (node.type) {
                 PlSqlGrammar.CREATE_PACKAGE, PlSqlGrammar.CREATE_PACKAGE_BODY -> node.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)
                 PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION -> node.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)

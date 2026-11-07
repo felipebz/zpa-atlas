@@ -127,7 +127,8 @@ class Indexer internal constructor(
 
     /**
      * The sources of a run, read, with the build of their text index started: it needs only their texts, in path
-     * order. Read before the dictionary loads ([readSources]), the build overlaps that load as well.
+     * order. Read before the dictionary loads ([readSources]), the build overlaps that load as well. Closing it waits for
+     * the build and deletes its file.
      */
     class ReadSources internal constructor(
         internal val root: Path,
@@ -142,10 +143,7 @@ class Indexer internal constructor(
         internal val textIndex: SourceTextIndex,
         internal val startedAt: Instant,
         internal val started: Long
-    ) : AutoCloseable {
-        /** Waits for the build and deletes its file. */
-        override fun close() = textIndex.close()
-    }
+    ) : AutoCloseable by textIndex
 
     /**
      * Reads the sources [index] will index with the same folder, extensions, encoding and readers, and starts their text

@@ -5,9 +5,9 @@
 
 package com.felipebz.zpa.atlas.extract
 
-import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.*
+import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
 import com.felipebz.zpa.api.project.ProjectParameterMode
 import com.felipebz.zpa.api.semantics.NameBinding
 import com.felipebz.zpa.api.semantics.NameDeclarationKind
@@ -172,13 +172,13 @@ internal class IntoClauses(
     }
 
     /**
-     * What a `FETCH` ([fetch]) reads from the cursor variable [cursor], and the entity of its type when it names one.
+     * What a `FETCH` ([fetch]) reads from its cursor variable [cursor], and the entity of its type when it names one.
      * zpa binds no name of a `FETCH` or `OPEN`: the variable is the declaration of that name nearest the `FETCH`. The
      * kind: `STRONG` for a `REF CURSOR` type of this file with `RETURN`, `OPENED_STATIC` when the routine opens it `FOR`
      * static queries only, `OPENED_DYNAMIC` when it opens it `FOR` a string, `PARAMETER` for a parameter it does not
      * open (the routine or block that declares the variable); null for anything else.
      */
-    private fun cursorKind(fetch: AstNode, cursor: AstNode, shapes: TypeShapes): Pair<String?, String?> {
+    private fun cursorKind(cursor: AstNode, shapes: TypeShapes): Pair<String?, String?> {
         val declaration = cursorDeclaration(cursor) ?: return null to null
         var shape = shapes.of(declaration, null)
         if (shape is TypeShape.OutParameter) shape = shape.type
@@ -419,15 +419,8 @@ internal class IntoClauses(
     private fun parameterNames(value: AstNode) = (sequenceOf(value) + value.getDescendants(PlSqlGrammar.VARIABLE_NAME).asSequence()).filter(::isParameterName).toList()
 
     /** Whether [query] is the query of a cursor `FOR` loop (`for r in (select …)`). */
-    private fun isLoopQuery(query: AstNode): Boolean {
-        var node = query.parentOrNull
-        repeat(6) {
-            if (node == null) return false
-            if (node!!.type == PlSqlGrammar.ITERATOR) return true
-            node = node!!.parentOrNull
-        }
-        return false
-    }
+    private fun isLoopQuery(query: AstNode): Boolean =
+        generateSequence(query.parentOrNull) { it.parentOrNull }.take(6).any { it.type == PlSqlGrammar.ITERATOR }
 
     /**
      * A PL/SQL call resolved to a routine: a field of a `%ROWTYPE` or cursor loop record it is passed is counted per
@@ -470,7 +463,7 @@ internal class IntoClauses(
     private fun passedValue(argument: AstNode, parameter: String?, reason: String?, context: Context, call: SourceSpan) {
         callArguments += CallArgument(argument, parameter, reason, context, call)
         val field = if (isFieldOfName(argument)) argument
-            else argument.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).filter { isFieldOfName(it) && !inDroppedArgument(argument, it) }.singleOrNull()
+            else argument.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).singleOrNull { isFieldOfName(it) && !inDroppedArgument(argument, it) }
         if (field != null) {
             valueChain(argument) { it === field }?.let { passes += Pass(argument, null, field, it, parameter, reason, context, null, call) }
             return
@@ -1088,7 +1081,7 @@ internal class IntoClauses(
             val variable = into.cursor?.let(::cursorDeclaration)
             val opens = variable?.let { reachingOpens(into.fetch!!, it) }.orEmpty()
             if (opens.isNotEmpty()) {
-                val (kind, type) = cursorKind(into.fetch!!, into.cursor!!, shapes)
+                val (kind, type) = cursorKind(into.cursor!!, shapes)
                 val read = opens.map(::opened)
                 // One of them not followed: the FETCH's targets counted once, by the first such.
                 read.firstNotNullOfOrNull { it as? Opened.NotFollowed }?.let { state.leftOut(FETCH_CURSOR_NOT_KNOWN + it.shape, into.targets.size) }
@@ -1106,14 +1099,14 @@ internal class IntoClauses(
                     val items = query?.let { state.cursorItems[it] }
                     // Not known: counted once the types of other files are known ([ColumnPlaces]), by the cursor it is.
                     if (items == null) {
-                        val (kind, type) = cursorKind(into.fetch!!, cursor, shapes)
+                        val (kind, type) = cursorKind(cursor, shapes)
                         return@mapNotNullTo IntoFact(into.source, into.bulk, into.context.unitIndex, into.context.container, null, emptyList(), null,
                             targets, cursorKind = kind, cursorType = type)
                     }
                     branches = listOf(items)
                 }
             }
-            val (kind, type) = if (into.fetch != null && cursorKey != null && into.cursor != null) cursorKind(into.fetch, into.cursor, shapes) else null to null
+            val (kind, type) = if (cursorKey != null && into.cursor != null) cursorKind(into.cursor, shapes) else null to null
             IntoFact(into.source, into.bulk, into.context.unitIndex, into.context.container, into.statementId, branches, cursorKey, targets,
                 cursorKind = kind, cursorType = type)
         }
@@ -1231,7 +1224,7 @@ internal class IntoClauses(
             return state.cursorItems[query]?.let { TypeShape.CursorRow(it) } ?: unknown
         }
         var cursor = iterator.children.dropWhile { it.type != PlSqlKeyword.IN }.drop(1).firstOrNull() ?: return unknown
-        while (cursor.type != PlSqlGrammar.VARIABLE_NAME && cursor.type != PlSqlGrammar.MEMBER_EXPRESSION) cursor = cursor.firstChild ?: return unknown
+        while (cursor.type != PlSqlGrammar.VARIABLE_NAME && cursor.type != PlSqlGrammar.MEMBER_EXPRESSION) cursor = cursor.firstChildOrNull ?: return unknown
         (local(cursor, shapes)?.takeIf { it.type == PlSqlGrammar.CURSOR_DECLARATION } ?: enclosingCursor(iterator, cursor))
             ?.let { shapes.of(it, null) }?.let { return it }
         return bySpan[spanOf(cursor)]?.firstOrNull()?.entityKey?.let { TypeShape.Anchored(true, it, null, emptyList(), null) } ?: unknown

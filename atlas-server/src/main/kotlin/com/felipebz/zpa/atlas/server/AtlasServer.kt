@@ -47,6 +47,9 @@ internal suspend inline fun <reified T> ApplicationCall.respondJson(value: T, st
 val TAB_WIDTHS = listOf(2, 4, 8)
 const val DEFAULT_TAB_WIDTH = 8
 
+/** The error of `/api/source`, `/api/forms-file` and `/api/file` when the server cannot read the file. */
+private const val SOURCE_NOT_AVAILABLE = "Source not available"
+
 /**
  * `/api/run`: the run and its counts, as [AtlasIndex.run] answers them, and [tabWidth], the width the page shows a tab
  * with unless the reader picks another. It is the server's setting, not the index's.
@@ -230,7 +233,7 @@ internal fun Route.indexApi(index: AtlasIndex, tabWidth: Int) {
     get("/source") {
         val answer = index.source(call.required("path"), call.int("line") ?: throw InvalidQueryException("Missing parameter: line"),
             call.int("context") ?: 3, colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false)
-        if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
+        if (answer.result == null) call.respondJson(ApiError(SOURCE_NOT_AVAILABLE), HttpStatusCode.NotFound) else call.respondJson(answer)
     }
     // The lines of a page of uses, with their colors: one request per page, not per row.
     get("/occurrence-lines") {
@@ -252,12 +255,12 @@ internal fun Route.indexApi(index: AtlasIndex, tabWidth: Int) {
     get("/forms-file") {
         val answer = index.formsFile(call.required("path"), call.optional("key"), call.optional("unitKind"),
             colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false)
-        if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
+        if (answer.result == null) call.respondJson(ApiError(SOURCE_NOT_AVAILABLE), HttpStatusCode.NotFound) else call.respondJson(answer)
     }
     get("/file") {
         // The page asks for the colors; other readers of the answer do not pay for them.
         val answer = index.file(call.required("path"), colors = call.optional("colors")?.toBooleanStrictOrNull() ?: false)
-        if (answer.result == null) call.respondJson(ApiError("Source not available"), HttpStatusCode.NotFound) else call.respondJson(answer)
+        if (answer.result == null) call.respondJson(ApiError(SOURCE_NOT_AVAILABLE), HttpStatusCode.NotFound) else call.respondJson(answer)
     }
 }
 

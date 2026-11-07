@@ -83,7 +83,7 @@ internal class FormsReader(private val connection: Connection) {
      */
     fun item(entityId: Long): FormsItemData? = connection.query(
         """SELECT i.database, i.kind, i.column_name, c.key, c.kind, c.display, c.external, c.name, t.key, t.kind, t.display, t.external, t.name,
-                  ${implicitUse("i.entity_id", "READ")}, ${implicitUse("i.entity_id", "SQL_INSERT")}, ${implicitUse("i.entity_id", "SQL_UPDATE")}
+                  ${implicitUse(ITEM_ID, "READ")}, ${implicitUse(ITEM_ID, "SQL_INSERT")}, ${implicitUse(ITEM_ID, "SQL_UPDATE")}
            FROM forms_item i LEFT JOIN entity c ON c.id = i.column_id LEFT JOIN entity t ON t.id = i.target_column_id
            WHERE i.entity_id = ?""", listOf(entityId)
     ) { rs ->
@@ -194,6 +194,9 @@ internal class FormsReader(private val connection: Connection) {
 
     companion object {
         private const val MAX_DEPTH = 10
+
+        /** The item's entity in the `forms_item` rows of [item]. */
+        private const val ITEM_ID = "i.entity_id"
 
         /** The block trigger whose code Forms runs instead of each operation. */
         private val REPLACING_TRIGGERS = mapOf(

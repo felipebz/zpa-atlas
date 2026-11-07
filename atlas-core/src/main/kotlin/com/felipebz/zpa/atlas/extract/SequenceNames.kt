@@ -32,7 +32,7 @@ internal class SequenceNames(
         val written = segments.dropLast(1)
         val children = name.children
         val lastDot = children.indexOfLast { it.type == PlSqlPunctuator.DOT }
-        val nameParts = children.subList(0, lastDot)
+        val nameParts: List<AstNode> = children.subList(0, lastDot)
         val text = nameParts.joinToString("") { writtenText(it) }
         val span = spanOf(nameParts.first(), nameParts.last())
         val (key, status) = sequenceEntity(written, context.schema, followSynonym = true)
