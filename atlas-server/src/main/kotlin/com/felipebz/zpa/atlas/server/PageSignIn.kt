@@ -6,27 +6,14 @@
 package com.felipebz.zpa.atlas.server
 
 import com.auth0.jwt.interfaces.DecodedJWT
-import io.ktor.client.HttpClient
-import io.ktor.client.request.basicAuth
-import io.ktor.client.request.forms.submitForm
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.CookieEncoding
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.URLBuilder
-import io.ktor.http.encodeURLParameter
-import io.ktor.http.parameters
-import io.ktor.http.renderSetCookieHeader
-import io.ktor.server.application.Application
-import io.ktor.server.application.ApplicationCall
-import io.ktor.server.application.log
-import io.ktor.server.response.header
-import io.ktor.server.response.respondRedirect
-import io.ktor.server.response.respondText
-import io.ktor.server.routing.get
-import io.ktor.server.routing.post
-import io.ktor.server.routing.routing
+import io.ktor.client.*
+import io.ktor.client.request.*
+import io.ktor.client.request.forms.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
@@ -37,7 +24,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Duration
 import java.time.Instant
-import java.util.Base64
+import java.util.*
 
 /**
  * The client the page signs in with: [clientId] at the provider, and [clientSecret] for a confidential client; without
@@ -270,7 +257,9 @@ internal class PageSessions(
                 val dots = segment.lowercase().replace("%2e", ".")
                 when (dots) {
                     ".." -> resolved.removeLastOrNull()
-                    "." -> {}
+                    "." -> {
+                        // The current folder: nothing to add.
+                    }
                     else -> resolved += segment
                 }
                 // A path that ends in a dot segment names a folder: it keeps its trailing `/`.
@@ -292,15 +281,92 @@ internal fun ApplicationCall.cookieValues(name: String): List<String> =
         .filter { it.startsWith("$name=") }.map { it.substring(name.length + 1) }
 
 internal fun Application.pageSignIn(auth: AuthSettings, sessions: PageSessions) {
-    val secure = URI(auth.publicUrl).scheme == "https"
-    val origin = URI(auth.publicUrl).let { "${it.scheme}://${it.rawAuthority}" }
+    val page = SignInPage(auth, sessions)
     val base = auth.basePath
-    val home = base.of("/")
-    // The cookies go only to this server's paths: another application on the host, or another base path, never gets them.
-    val cookiePath = base.path.ifEmpty { "/" }
-    val loginCookiePath = base.of("/auth")
+    routing {
+        get(base.of("/auth/login")) { page.login(call) }
+        get(base.of(PageSessions.CALLBACK)) { page.callback(call) }
+        post(base.of("/auth/logout")) { page.logout(call) }
+        get(base.of("/auth/me")) { page.me(call) }
+    }
+}
 
-    fun ApplicationCall.cookie(name: String, value: String, path: String, maxAge: Int? = null) = response.headers.append(
+/** The answers of the page sign-in routes of [pageSignIn], with the cookies they set. */
+private class SignInPage(private val auth: AuthSettings, private val sessions: PageSessions) {
+    private val secure = URI(auth.publicUrl).scheme == "https"
+    private val origin = URI(auth.publicUrl).let { "${it.scheme}://${it.rawAuthority}" }
+    private val home = auth.basePath.of("/")
+
+    // The cookies go only to this server's paths: another application on the host, or another base path, never gets them.
+    private val cookiePath = auth.basePath.path.ifEmpty { "/" }
+    private val loginCookiePath = auth.basePath.of("/auth")
+
+    /** Starts a sign-in: the login cookie bound to its state, and the redirect to the provider. */
+    suspend fun login(call: ApplicationCall) {
+        val (state, url) = sessions.login(PageSessions.safeReturn(call.request.queryParameters["return"], auth.basePath))
+        call.cookie(PageSessions.LOGIN_COOKIE, state, loginCookiePath, maxAge = 600)
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        call.respondRedirect(url)
+    }
+
+    /** Finishes a sign-in the provider sends back: the session cookie and the redirect to the page, or a refusal. */
+    suspend fun callback(call: ApplicationCall) {
+        val query = call.request.queryParameters
+        val bound = call.request.cookies[PageSessions.LOGIN_COOKIE]
+        call.cookie(PageSessions.LOGIN_COOKIE, "", loginCookiePath, maxAge = 0)
+        query["error"]?.let { return call.refuse(HttpStatusCode.Forbidden, "The identity provider refused the sign-in: $it.") }
+        val state = query["state"]
+        val code = query["code"]
+        if (state == null || code == null || bound != state) {
+            return call.refuse(HttpStatusCode.BadRequest, "The sign-in expired or was not started here. Sign in again.")
+        }
+        query["iss"]?.let { if (it != auth.issuer) return call.refuse(HttpStatusCode.BadRequest, "The sign-in answer came from another issuer.") }
+        val result = try {
+            sessions.callback(state, code)
+        } catch (e: ProviderUnavailableException) {
+            call.application.log.warn("Sign-in not finished: the token endpoint cannot be reached: {}", e.message)
+            PageSessions.SignIn.Refused(HttpStatusCode.ServiceUnavailable, "The identity provider cannot be reached. Try again later.")
+        }
+        when (result) {
+            is PageSessions.SignIn.Refused -> {
+                call.application.log.debug("Sign-in refused: {}", result.message)
+                call.refuse(result.status, result.message)
+            }
+            is PageSessions.SignIn.Done -> {
+                call.cookie(PageSessions.COOKIE, result.sessionId, cookiePath)
+                call.respondRedirect("${auth.base}${result.returnTo}")
+            }
+        }
+    }
+
+    /** Ends the session of a sign-out posted from this server's page, and sends the browser to the provider's logout. */
+    suspend fun logout(call: ApplicationCall) {
+        if (!fromThisSite(call)) return call.respondJson(ApiError("Sign out from the page of this server"), HttpStatusCode.Forbidden)
+        val ended = call.cookieValues(PageSessions.COOKIE).firstNotNullOfOrNull { sessions.end(it) }
+        call.cookie(PageSessions.COOKIE, "", cookiePath, maxAge = 0)
+        call.response.header(HttpHeaders.Location, sessions.logoutUrl(ended))
+        call.respondText("", status = HttpStatusCode.SeeOther)
+    }
+
+    /** Who is signed in, or 401. */
+    suspend fun me(call: ApplicationCall) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        val session = try {
+            call.cookieValues(PageSessions.COOKIE).firstNotNullOfOrNull { sessions.access(it) }
+        } catch (_: ProviderUnavailableException) {
+            null
+        }
+        if (session == null) call.respondJson(ApiError("Not signed in"), HttpStatusCode.Unauthorized) else call.respondJson(SignedIn(session.name))
+    }
+
+    /** Whether [call] comes from this server's pages: by its `Origin`, else by its `Referer`. */
+    private fun fromThisSite(call: ApplicationCall): Boolean {
+        val requestOrigin = call.request.headers[HttpHeaders.Origin]
+        val referer = call.request.headers[HttpHeaders.Referrer]
+        return if (requestOrigin != null) requestOrigin == origin else referer != null && (referer == auth.base || referer.startsWith("${auth.base}/"))
+    }
+
+    private fun ApplicationCall.cookie(name: String, value: String, path: String, maxAge: Int? = null) = response.headers.append(
         HttpHeaders.SetCookie,
         renderSetCookieHeader(
             name, value, CookieEncoding.RAW, maxAge = maxAge, path = path, secure = secure, httpOnly = true,
@@ -308,69 +374,13 @@ internal fun Application.pageSignIn(auth: AuthSettings, sessions: PageSessions) 
         )
     )
 
-    suspend fun ApplicationCall.refuse(status: HttpStatusCode, message: String) {
+    private suspend fun ApplicationCall.refuse(status: HttpStatusCode, message: String) {
         response.header(HttpHeaders.CacheControl, "no-store")
         respondText(
             "<!doctype html><html><head><meta charset=\"utf-8\"><title>zpa-atlas</title></head><body>" +
                 "<h1>Sign-in refused</h1><p>${escapeHtml(message)}</p><p><a href=\"${escapeHtml(home)}\">zpa-atlas</a></p></body></html>",
             ContentType.Text.Html.withParameter("charset", "utf-8"), status
         )
-    }
-
-    routing {
-        get(base.of("/auth/login")) {
-            val (state, url) = sessions.login(PageSessions.safeReturn(call.request.queryParameters["return"], base))
-            call.cookie(PageSessions.LOGIN_COOKIE, state, loginCookiePath, maxAge = 600)
-            call.response.header(HttpHeaders.CacheControl, "no-store")
-            call.respondRedirect(url)
-        }
-        get(base.of(PageSessions.CALLBACK)) {
-            val query = call.request.queryParameters
-            val bound = call.request.cookies[PageSessions.LOGIN_COOKIE]
-            call.cookie(PageSessions.LOGIN_COOKIE, "", loginCookiePath, maxAge = 0)
-            query["error"]?.let { return@get call.refuse(HttpStatusCode.Forbidden, "The identity provider refused the sign-in: $it.") }
-            val state = query["state"]
-            val code = query["code"]
-            if (state == null || code == null || bound != state) {
-                return@get call.refuse(HttpStatusCode.BadRequest, "The sign-in expired or was not started here. Sign in again.")
-            }
-            query["iss"]?.let { if (it != auth.issuer) return@get call.refuse(HttpStatusCode.BadRequest, "The sign-in answer came from another issuer.") }
-            val result = try {
-                sessions.callback(state, code)
-            } catch (e: ProviderUnavailableException) {
-                call.application.log.warn("Sign-in not finished: the token endpoint cannot be reached: {}", e.message)
-                PageSessions.SignIn.Refused(HttpStatusCode.ServiceUnavailable, "The identity provider cannot be reached. Try again later.")
-            }
-            when (result) {
-                is PageSessions.SignIn.Refused -> {
-                    call.application.log.debug("Sign-in refused: {}", result.message)
-                    call.refuse(result.status, result.message)
-                }
-                is PageSessions.SignIn.Done -> {
-                    call.cookie(PageSessions.COOKIE, result.sessionId, cookiePath)
-                    call.respondRedirect("${auth.base}${result.returnTo}")
-                }
-            }
-        }
-        post(base.of("/auth/logout")) {
-            val requestOrigin = call.request.headers[HttpHeaders.Origin]
-            val referer = call.request.headers[HttpHeaders.Referrer]
-            val sameSite = if (requestOrigin != null) requestOrigin == origin else referer != null && (referer == auth.base || referer.startsWith("${auth.base}/"))
-            if (!sameSite) return@post call.respondJson(ApiError("Sign out from the page of this server"), HttpStatusCode.Forbidden)
-            val ended = call.cookieValues(PageSessions.COOKIE).firstNotNullOfOrNull { sessions.end(it) }
-            call.cookie(PageSessions.COOKIE, "", cookiePath, maxAge = 0)
-            call.response.header(HttpHeaders.Location, sessions.logoutUrl(ended))
-            call.respondText("", status = HttpStatusCode.SeeOther)
-        }
-        get(base.of("/auth/me")) {
-            call.response.header(HttpHeaders.CacheControl, "no-store")
-            val session = try {
-                call.cookieValues(PageSessions.COOKIE).firstNotNullOfOrNull { sessions.access(it) }
-            } catch (_: ProviderUnavailableException) {
-                null
-            }
-            if (session == null) call.respondJson(ApiError("Not signed in"), HttpStatusCode.Unauthorized) else call.respondJson(SignedIn(session.name))
-        }
     }
 }
 

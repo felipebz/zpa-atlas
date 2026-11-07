@@ -5,29 +5,17 @@
 
 package com.felipebz.zpa.atlas.server
 
-import com.auth0.jwk.Jwk
-import com.auth0.jwk.JwkException
-import com.auth0.jwk.NetworkException
-import com.auth0.jwk.RateLimitReachedException
-import com.auth0.jwk.SigningKeyNotFoundException
+import com.auth0.jwk.*
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import com.auth0.jwt.exceptions.JWTDecodeException
-import com.auth0.jwt.exceptions.IncorrectClaimException
-import com.auth0.jwt.exceptions.JWTVerificationException
-import com.auth0.jwt.exceptions.MissingClaimException
-import com.auth0.jwt.exceptions.SignatureVerificationException
-import com.auth0.jwt.exceptions.TokenExpiredException
+import com.auth0.jwt.exceptions.*
 import com.auth0.jwt.interfaces.DecodedJWT
 import com.auth0.jwt.interfaces.Verification
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.decodeURLPart
-import io.ktor.server.application.ApplicationCall
-import io.ktor.server.application.createApplicationPlugin
-import io.ktor.server.application.log
-import io.ktor.server.request.path
-import io.ktor.server.response.header
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.interfaces.ECPublicKey
@@ -111,7 +99,11 @@ internal sealed interface TokenVerdict {
  * JWKS, `iss`, `aud` (one of [audience]), an `exp` that has not passed (a minute of clock skew is allowed), and that
  * it is not an ID token, by its `typ` header or `token_use` claim when the provider sets them.
  */
-internal class AccessTokenVerifier(private val identity: Identity, private val audience: String) {
+internal class AccessTokenVerifier(
+    private val identity: Identity,
+    private val audience: String,
+    private val io: CoroutineDispatcher = Dispatchers.IO
+) {
     suspend fun verify(authorization: List<String>?): TokenVerdict =
         bearer(authorization)?.let { verifyAccessToken(it) } ?: TokenVerdict.Invalid("no bearer token")
 
@@ -138,7 +130,7 @@ internal class AccessTokenVerifier(private val identity: Identity, private val a
         val name = jwt.algorithm
         if (name == null || name !in ALGORITHMS) return TokenVerdict.Invalid("algorithm $name is not accepted")
         val jwk = try {
-            withContext(Dispatchers.IO) { identity.keys().get(jwt.keyId) }
+            withContext(io) { identity.keys()[jwt.keyId] }
         } catch (e: NetworkException) {
             return TokenVerdict.Unavailable("the JWKS cannot be read: ${e.message}")
         } catch (e: RateLimitReachedException) {
@@ -190,23 +182,26 @@ internal class AccessTokenVerifier(private val identity: Identity, private val a
         if (jwk.algorithm != null && jwk.algorithm != name) return null
         val key = try { jwk.publicKey } catch (_: Exception) { return null }
         return when {
-            jwk.type == "RSA" && key is RSAPublicKey -> when (name) {
-                "RS256" -> Algorithm.RSA256(key, null)
-                "RS384" -> Algorithm.RSA384(key, null)
-                "RS512" -> Algorithm.RSA512(key, null)
-                else -> null
-            }
-            jwk.type == "EC" && key is ECPublicKey -> {
-                val curve = jwk.additionalAttributes["crv"] as? String
-                when {
-                    name == "ES256" && (curve == null || curve == "P-256") -> Algorithm.ECDSA256(key, null)
-                    name == "ES384" && (curve == null || curve == "P-384") -> Algorithm.ECDSA384(key, null)
-                    name == "ES512" && (curve == null || curve == "P-521") -> Algorithm.ECDSA512(key, null)
-                    else -> null
-                }
-            }
+            jwk.type == "RSA" && key is RSAPublicKey -> rsa(name, key)
+            jwk.type == "EC" && key is ECPublicKey -> ecdsa(name, key, jwk.additionalAttributes["crv"] as? String)
             else -> null
         }
+    }
+
+    /** The RSA algorithm [name] with [key]; null for another name. */
+    private fun rsa(name: String, key: RSAPublicKey): Algorithm? = when (name) {
+        "RS256" -> Algorithm.RSA256(key, null)
+        "RS384" -> Algorithm.RSA384(key, null)
+        "RS512" -> Algorithm.RSA512(key, null)
+        else -> null
+    }
+
+    /** The ECDSA algorithm [name] with [key], when the key's [curve] (null: not said) is the algorithm's; else null. */
+    private fun ecdsa(name: String, key: ECPublicKey, curve: String?): Algorithm? = when {
+        name == "ES256" && (curve == null || curve == "P-256") -> Algorithm.ECDSA256(key, null)
+        name == "ES384" && (curve == null || curve == "P-384") -> Algorithm.ECDSA384(key, null)
+        name == "ES512" && (curve == null || curve == "P-521") -> Algorithm.ECDSA512(key, null)
+        else -> null
     }
 
     private fun scopes(jwt: DecodedJWT): Set<String> {
