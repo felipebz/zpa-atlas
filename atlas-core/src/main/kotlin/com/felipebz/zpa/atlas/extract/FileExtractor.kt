@@ -138,7 +138,7 @@ class FileExtractor internal constructor(
         ddl = DdlTargets(path, state, dictionary, resolver, values, catalog, plsql)
         if (forms != null) formsUnits(node, forms) else databaseUnits(node)
         variableTexts()
-        // zpa resolves the members after an element, a call result or another file's package variable once it walked the file.
+        // The field uses of the chains the walk gathered, once every call of the file is known (a chain starting with a call is read).
         fields.record()
         shapes = TypeShapes(state, bound, context::typeBinding, node)
         for ((key, datatype) in returnTypes) declaredShapes += DeclaredShapeFact(key, shapes.datatype(datatype))

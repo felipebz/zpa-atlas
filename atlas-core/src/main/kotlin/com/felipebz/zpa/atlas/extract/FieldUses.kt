@@ -22,9 +22,10 @@ import java.util.*
  * may itself be an attribute read through the implicit `SELF` (`items.extend`, `tag := 'x'`): zpa answers it as it
  * answers `self.items`.
  *
- * zpa resolves the members after an element, a call result or a package variable of another file when the file is
- * left: the chains are gathered during the walk ([chain]) and asked in [record], from `leaveFile`. A segment whose value
- * zpa could not decide records nothing, and so does a field of a type without an entity (declared in a subprogram).
+ * The chains are gathered during the walk ([chain]) and asked in [record], once the file is walked. A segment whose
+ * value zpa could not decide records nothing, and so does a field of a type without an entity (declared in a
+ * subprogram). zpa leaves undecided a member after a value whose type is declared in another file when text this file
+ * may hold differently (a `$IF` the settings do not decide, a substitution) could change how that value is looked up.
  */
 internal class FieldUses(
     private val state: FileState,

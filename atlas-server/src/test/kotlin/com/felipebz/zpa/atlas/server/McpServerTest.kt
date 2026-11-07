@@ -349,8 +349,8 @@ class McpServerTest {
         assertThat(pack).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.PACK_PROCESS",
             scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN), limit = AtlasMcpTools.FIND_DEFAULT)), "IMPLEMENTATIONS", "CHILDREN"))
         // The members include the body's own globals (`pack_process.g_private :=` in the body), the routines'
-        // parameters, read and written in the body, and the record fields (`g_rec.msg`).
-        assertThat(total(pack)).isEqualTo(69)
+        // parameters, read and written in the body, and the record fields (`g_rec.msg`, `pack_process.g_events(1).id`).
+        assertThat(total(pack)).isEqualTo(71)
         // A table: the table alone.
         val table = client.call("find_usages", args { put("key", "db:HR.COMPANY") }).json()
         assertThat(table).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.COMPANY", limit = AtlasMcpTools.FIND_DEFAULT))))
