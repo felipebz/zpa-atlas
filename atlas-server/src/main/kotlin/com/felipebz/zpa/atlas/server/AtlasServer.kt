@@ -151,10 +151,12 @@ internal fun Route.indexApi(index: AtlasIndex, tabWidth: Int) {
         }?.toSet() ?: setOf(Scope.SELF)
         val answer = index.occurrences(
             key = call.required("key"),
-            roles = call.list("roles")?.toSet(),
-            statuses = call.list("status")?.toSet(),
-            scope = scope,
-            includeCandidates = call.optional("candidates")?.toBooleanStrictOrNull() ?: true,
+            filter = UsageFilter(
+                roles = call.list("roles")?.toSet(),
+                statuses = call.list("status")?.toSet(),
+                scope = scope,
+                includeCandidates = call.optional("candidates")?.toBooleanStrictOrNull() ?: true
+            ),
             after = call.long("after"),
             limit = call.int("limit") ?: 100,
             side = call.optional("side")?.let { value ->
@@ -174,14 +176,16 @@ internal fun Route.indexApi(index: AtlasIndex, tabWidth: Int) {
         }
         val answer = index.impact(
             key = call.required("key"),
-            roles = call.list("roles")?.toSet(),
-            statuses = call.list("status")?.toSet(),
-            include = scope,
-            maxDepth = call.int("maxDepth") ?: 10,
+            options = ImpactOptions(
+                roles = call.list("roles")?.toSet(),
+                statuses = call.list("status")?.toSet(),
+                include = scope,
+                maxDepth = call.int("maxDepth") ?: 10,
+                followTriggers = call.boolean("triggers") ?: true
+            ),
             stop = stop,
             offset = call.int("offset") ?: 0,
-            limit = call.int("limit") ?: 100,
-            followTriggers = call.boolean("triggers") ?: true
+            limit = call.int("limit") ?: 100
         )
         call.respondEntityAnswer(answer)
     }

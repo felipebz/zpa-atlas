@@ -642,6 +642,32 @@ enum class UsagePath { DIRECT, THROUGH_VIEWS }
 enum class UsageSide { OUTSIDE, INSIDE }
 
 /**
+ * Which uses "who uses" keeps ([AtlasIndex.occurrences], [AtlasIndex.groupUsages]): [roles] (null or empty: every usage
+ * role) and [statuses] (null or empty: every status), over the entities of [scope]; with [includeCandidates] the
+ * `AMBIGUOUS` uses where one of them is a candidate; with [via], only the rows reached that way.
+ */
+data class UsageFilter(
+    val roles: Set<String>? = null,
+    val statuses: Set<String>? = null,
+    val scope: Set<Scope> = setOf(Scope.SELF),
+    val includeCandidates: Boolean = true,
+    val via: UsagePath? = null
+)
+
+/**
+ * How [AtlasIndex.impact] walks: [roles] and [statuses] filter the first hop as in [UsageFilter]; [include] is the
+ * scopes of that hop (null: the default by kind, [defaultUsageScopes]); [maxDepth] bounds the walk; with
+ * [followTriggers], a DML trigger is followed through the writes that fire it.
+ */
+data class ImpactOptions(
+    val roles: Set<String>? = null,
+    val statuses: Set<String>? = null,
+    val include: List<Scope>? = null,
+    val maxDepth: Int = 10,
+    val followTriggers: Boolean = true
+)
+
+/**
  * The scopes "who uses" adds by default for an entity of [kind], as the entity page does: a subprogram's or parameter's
  * spec or body, a package's spec or body and members, a type's members.
  */

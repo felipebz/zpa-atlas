@@ -221,10 +221,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     private fun findUsages(args: Arguments): JsonElement {
         val key = args.requiredString("key")
         val include = include(args, key)
-        val answer = index.occurrences(
-            key, args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, (include + Scope.SELF).toSet(),
-            args.boolean("candidates") ?: true, args.long("after"), args.int("limit", 1..FIND_MAX) ?: FIND_DEFAULT, via(args)
-        )
+        val answer = index.occurrences(key, usageFilter(args, include), args.long("after"), args.int("limit", 1..FIND_MAX) ?: FIND_DEFAULT)
         if (answer.result == null) throw unknownEntity(key)
         val answered = JsonObject(toolAnswer(answer) + ("included" to included(include)))
         // after is an occurrence id here too (rows in id order), so a cut page goes on right after its last row kept.
@@ -237,10 +234,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         val key = args.requiredString("key")
         val dimensions = dimensions(args)
         val include = include(args, key)
-        val answer = index.groupUsages(
-            key, dimensions, args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, (include + Scope.SELF).toSet(),
-            args.boolean("candidates") ?: true, via(args), args.int("limit", 1..GROUP_MAX) ?: GROUP_DEFAULT
-        )
+        val answer = index.groupUsages(key, dimensions, usageFilter(args, include), args.int("limit", 1..GROUP_MAX) ?: GROUP_DEFAULT)
         if (answer.result == null) throw unknownEntity(key)
         val answered = JsonObject(toolAnswer(answer) + ("included" to included(include)))
         return McpAnswers.fitList(answered, maxChars, { it.result().getValue("groups").jsonArray }, { a, groups -> a.withResult("groups", groups) })
@@ -249,6 +243,11 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     private fun unknownEntity(key: String) = ToolException("Unknown entity: $key. Entity keys come from search_entities or from earlier answers.")
 
     private fun included(include: List<Scope>) = JsonArray(include.map { JsonPrimitive(it.name) })
+
+    /** The uses find_usages and group_usages keep: the roles, statuses, candidates and via asked for, over [include]. */
+    private fun usageFilter(args: Arguments, include: List<Scope>) = UsageFilter(
+        args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, (include + Scope.SELF).toSet(), args.boolean("candidates") ?: true, via(args)
+    )
 
     private fun via(args: Arguments) = args.string("via")?.let { value ->
         UsagePath.entries.firstOrNull { it.name == value } ?: throw InvalidQueryException("Unknown via value: $value")
@@ -288,8 +287,11 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
         val followTriggers = args.boolean("follow_triggers") ?: true
         // The whole graph, so that a node keeps its number whatever the page and the stop filter.
         val answer = index.impactGraph(
-            key, args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, include,
-            args.int("max_depth", 1..IMPACT_DEPTH_MAX) ?: IMPACT_DEPTH_DEFAULT, followTriggers
+            key,
+            ImpactOptions(
+                args.list("roles").toSet(), args.list("statuses").toSet().ifEmpty { null }, include,
+                args.int("max_depth", 1..IMPACT_DEPTH_MAX) ?: IMPACT_DEPTH_DEFAULT, followTriggers
+            )
         )
         val graph = answer.result ?: throw unknownEntity(key)
         val impact = McpImpact(graph.entity, graph.nodes, keys)

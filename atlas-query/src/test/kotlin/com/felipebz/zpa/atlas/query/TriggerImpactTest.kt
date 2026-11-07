@@ -69,7 +69,7 @@ class TriggerImpactTest {
     }
 
     private fun graph(key: String = audit, followTriggers: Boolean = true, maxDepth: Int = 10) =
-        index.impact(key, maxDepth = maxDepth, followTriggers = followTriggers).result!!
+        index.impact(key, ImpactOptions(maxDepth = maxDepth, followTriggers = followTriggers)).result!!
 
     /** Each node as `depth stop certain name <- uses @ file:line status fires`. */
     private fun ImpactGraph.lines() = nodes.map {

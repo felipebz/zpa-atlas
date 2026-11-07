@@ -29,7 +29,12 @@ import com.felipebz.zpa.atlas.model.*
  * fields are zpa's ([recordFields]): each a `RECORD_FIELD` entity `db:S.PKG.T@BODY.F`, a child of the type, found by
  * [fieldAt] where zpa's field binding places it.
  */
-internal class BodyGlobals(private val bound: BoundNames, private val recordFields: (AstNode) -> List<DeclaredField>?) {
+internal class BodyGlobals(
+    /** The facts of the file being walked: the entities and relations the declarations add. */
+    private val state: FileState,
+    private val bound: BoundNames,
+    private val recordFields: (AstNode) -> List<DeclaredField>?
+) {
     /** One global: its entity, its declaration node and name, and the unit (the package body) it is declared in. */
     class Global(val key: String, val packageKey: String, val body: AstNode, val node: AstNode, val name: AstNode, val unitIndex: Int, val partial: Boolean)
 
@@ -48,11 +53,11 @@ internal class BodyGlobals(private val bound: BoundNames, private val recordFiel
 
     /**
      * Registers the globals and types of [body] (a `CREATE_PACKAGE_BODY`) of the package [packageKey] in [schema]: their
-     * entities and `CONTAINS` relations in [state]. Exceptions declared like variables are left out. A package of a
+     * entities and `CONTAINS` relations in the file's [state]. Exceptions declared like variables are left out. A package of a
      * Forms module, which zpa's project does not declare, registers its specification's the same way, with an empty
      * [suffix].
      */
-    fun declare(body: AstNode, packageKey: String, schema: String?, unitIndex: Int, partial: Boolean, state: FileState, suffix: String = "@BODY") {
+    fun declare(body: AstNode, packageKey: String, schema: String?, unitIndex: Int, partial: Boolean, suffix: String = "@BODY") {
         val used = HashMap<String, Int>()
         fun entity(key: String, kind: EntityKind, name: String, parentKey: String) {
             state.entities += EntityFact(key, kind, schema, name, parentKey, displayOf(key), external = false, precedence = Precedence.DECLARED)
@@ -92,16 +97,15 @@ internal class BodyGlobals(private val bound: BoundNames, private val recordFiel
      * read as the body globals' are, and their gaps come from [routine] as a body global's come from its body.
      */
     fun declareRoutine(
-        routine: AstNode, parentKey: String, keyBase: String, schema: String?, unitIndex: Int, partial: Boolean, state: FileState,
-        taken: (String) -> Boolean
+        routine: AstNode, parentKey: String, keyBase: String, schema: String?, unitIndex: Int, partial: Boolean, taken: (String) -> Boolean
     ) {
-        RoutineDeclarations(routine, parentKey, schema, unitIndex, partial, state, taken).visit(routine, keyBase)
+        RoutineDeclarations(routine, parentKey, schema, unitIndex, partial, taken).visit(routine, keyBase)
     }
 
     /** The declarations of one routine as [declareRoutine] registers them, with the keys given so far. */
     private inner class RoutineDeclarations(
         private val routine: AstNode, private val parentKey: String, private val schema: String?, private val unitIndex: Int,
-        private val partial: Boolean, private val state: FileState, private val taken: (String) -> Boolean
+        private val partial: Boolean, private val taken: (String) -> Boolean
     ) {
         private val used = HashSet<String>()
 

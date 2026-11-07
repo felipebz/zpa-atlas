@@ -46,7 +46,7 @@ class FormsAnswersTest {
 
     /** The units of the uses of [key] (and with [scope], of its members) in the Forms modules, as `kind path`; a use without code has none. */
     private fun formsUnits(key: String, scope: Set<Scope> = setOf(Scope.SELF)) =
-        index.occurrences(key, scope = scope).result!!.rows.filter { it.path.startsWith("forms/order_") }.mapNotNull { it.unit }.map { "${it.kind} ${it.name}" }.distinct()
+        index.occurrences(key, UsageFilter(scope = scope)).result!!.rows.filter { it.path.startsWith("forms/order_") }.mapNotNull { it.unit }.map { "${it.kind} ${it.name}" }.distinct()
 
     @Test
     fun `the uses of a table, a package and a procedure of the database list the Forms units by path`() {

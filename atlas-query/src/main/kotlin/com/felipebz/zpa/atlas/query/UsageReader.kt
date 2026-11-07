@@ -19,23 +19,15 @@ private const val NOT_ROUTINE_OWN = """AND NOT EXISTS (SELECT 1 FROM entity c JO
 internal class UsageReader(private val connection: Connection) {
 
     /**
-     * [AtlasIndex.occurrences] after its checks: [roleFilter] is the roles asked for, else every usage role; [side],
+     * [AtlasIndex.occurrences] after its checks: [roleFilter] is [filter]'s roles, else every usage role; [side],
      * when set, keeps the rows on that side of [key] (the facets other than `bySide` count those rows only); with
      * [sides], the facets count both sides and each row's unit names its entity.
      */
     fun occurrences(
-        key: String,
-        roleFilter: Set<String>,
-        statuses: Set<String>?,
-        scope: Set<Scope>,
-        includeCandidates: Boolean,
-        via: UsagePath?,
-        side: UsageSide?,
-        sides: Boolean,
-        after: Long?,
-        limit: Int
+        key: String, roleFilter: Set<String>, filter: UsageFilter, side: UsageSide?, sides: Boolean, after: Long?, limit: Int
     ): OccurrencePage? {
-        val (all, allFiltered) = usageHits(key, roleFilter, statuses, scope, includeCandidates, via) ?: return null
+        val (all, allFiltered) = usageHits(key, roleFilter, filter) ?: return null
+        val statuses = filter.statuses
         fun sideMatch(hit: Hit) = side == null || hit.inside == (side == UsageSide.INSIDE)
         val hits = all.filter { sideMatch(it) }
         val filtered = allFiltered.filter { sideMatch(it) }
@@ -50,7 +42,7 @@ internal class UsageReader(private val connection: Connection) {
         val page = remaining.take(limit)
         val nextAfter = if (remaining.size > limit) page.last().id else null
         return OccurrencePage(rows(connection, page, unitEntities = sides), nextAfter, filtered.size.toLong(), facets,
-            usesGaps(key, Scope.IMPLEMENTATIONS in scope, Scope.CHILDREN in scope))
+            usesGaps(key, Scope.IMPLEMENTATIONS in filter.scope, Scope.CHILDREN in filter.scope))
     }
 
     /**
@@ -67,32 +59,17 @@ internal class UsageReader(private val connection: Connection) {
     ) { UsesGap(it.getString(1), it.getString(2).split(',')) }.ifEmpty { null }
 
     /** [AtlasIndex.groupUsages] after its checks: the rows [occurrences] lists, grouped. */
-    fun groupUsages(
-        key: String,
-        roleFilter: Set<String>,
-        statuses: Set<String>?,
-        scope: Set<Scope>,
-        includeCandidates: Boolean,
-        via: UsagePath?,
-        dimensions: List<GroupDimension>,
-        limit: Int
-    ): GroupPage? {
-        val (_, filtered) = usageHits(key, roleFilter, statuses, scope, includeCandidates, via) ?: return null
+    fun groupUsages(key: String, roleFilter: Set<String>, filter: UsageFilter, dimensions: List<GroupDimension>, limit: Int): GroupPage? {
+        val (_, filtered) = usageHits(key, roleFilter, filter) ?: return null
         return OccurrenceQueryReader(connection).groupHits(filtered, roleFilter, dimensions, limit)
     }
 
     /**
-     * The hits of [key]'s scope, one per occurrence and kept by [via], then those that also pass the role and status
-     * filters; null when there is no such entity.
+     * The hits of the scope of [filter] around [key], one per occurrence and kept by its path, then those that also pass
+     * [roleFilter] (its roles, checked) and its statuses; null when there is no such entity.
      */
-    internal fun usageHits(
-        key: String,
-        roleFilter: Set<String>,
-        statuses: Set<String>?,
-        scope: Set<Scope>,
-        includeCandidates: Boolean,
-        via: UsagePath?
-    ): Pair<List<Hit>, List<Hit>>? {
+    internal fun usageHits(key: String, roleFilter: Set<String>, filter: UsageFilter): Pair<List<Hit>, List<Hit>>? {
+        val (_, statuses, scope, includeCandidates, via) = filter
         if (connection.query("SELECT 1 FROM entity WHERE key = ?", listOf(key)) { 1 }.isEmpty()) return null
         // UNION, not UNION ALL, in the recursive CTEs: an entity already in the set is not followed again (no cycles).
         val hits = connection.query(

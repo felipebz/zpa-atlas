@@ -54,7 +54,7 @@ class ImpactTest {
 
     // These graphs stop at triggers: TriggerImpactTest follows them.
     private fun graph(key: String = leaf, maxDepth: Int = 10, stop: ImpactStop? = null, offset: Int = 0, limit: Int = 100) =
-        index.impact(key, maxDepth = maxDepth, stop = stop, offset = offset, limit = limit, followTriggers = false).result!!
+        index.impact(key, ImpactOptions(maxDepth = maxDepth, followTriggers = false), stop = stop, offset = offset, limit = limit).result!!
 
     private fun ImpactNode.name() = entity?.key ?: path!!
 
@@ -173,15 +173,15 @@ class ImpactTest {
     @Test
     fun `bad arguments are refused and an unknown entity is null`() {
         assertThat(index.impact("db:NO.SUCH").result).isNull()
-        assertThatThrownBy { index.impact(leaf, maxDepth = 0) }.hasMessage("maxDepth must be between 1 and 50")
-        assertThatThrownBy { index.impact(leaf, maxDepth = 51) }.hasMessage("maxDepth must be between 1 and 50")
-        assertThatThrownBy { index.impact(leaf, roles = setOf("NOPE")) }.hasMessage("Unknown role: NOPE")
+        assertThatThrownBy { index.impact(leaf, ImpactOptions(maxDepth = 0)) }.hasMessage("maxDepth must be between 1 and 50")
+        assertThatThrownBy { index.impact(leaf, ImpactOptions(maxDepth = 51)) }.hasMessage("maxDepth must be between 1 and 50")
+        assertThatThrownBy { index.impact(leaf, ImpactOptions(roles = setOf("NOPE"))) }.hasMessage("Unknown role: NOPE")
         assertThatThrownBy { index.impact(leaf, offset = -1) }.hasMessage("offset must not be negative")
     }
 
     @Test
     fun `the whole graph in one view names each entity and path once, and each node refers to them as the graph does`() {
-        val whole = index.impactGraph(leaf, followTriggers = false).result!!
+        val whole = index.impactGraph(leaf, ImpactOptions(followTriggers = false)).result!!
         val view = index.impactView(leaf, followTriggers = false).result!!
         assertThat(view.entities.map { it.key }).doesNotHaveDuplicates()
         // Every display of the fixture is its key without db: (the dictionary's are written that way too).

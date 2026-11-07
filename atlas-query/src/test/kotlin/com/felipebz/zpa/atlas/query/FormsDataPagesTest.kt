@@ -152,7 +152,7 @@ class FormsDataPagesTest {
         assertThat(implicit(index.occurrences("db:HR.V_COMPANY.ID").result!!.rows))
             .containsExactly("forms:DATA_DESK/COMPANY/ID IMPLICIT,READ db:HR.V_COMPANY.ID data_desk_fmb.xml")
         // With the columns, and by side: a use in no unit is outside the table.
-        val withColumns = index.occurrences("db:HR.COMPANY", scope = setOf(Scope.SELF, Scope.CHILDREN), sides = true).result!!
+        val withColumns = index.occurrences("db:HR.COMPANY", UsageFilter(scope = setOf(Scope.SELF, Scope.CHILDREN)), sides = true).result!!
         assertThat(implicit(withColumns.rows)).contains("forms:DATA_DESK/COMPANY/NAME IMPLICIT,SQL_UPDATE,WRITE db:HR.COMPANY.COMPANY_NAME data_desk_fmb.xml")
         assertThat(implicit(withColumns.rows)).noneMatch { "SQL_INSERT" in it }
         assertThat(index.occurrences("db:HR.COMPANY", side = UsageSide.OUTSIDE).result!!.total).isEqualTo(company.total)
@@ -174,7 +174,7 @@ class FormsDataPagesTest {
 
     @Test
     fun `the impact of a table reaches the block through its implicit use, and its triggers through the block's update`() {
-        val graph = index.impact("db:HR.COMPANY", followTriggers = true).result!!
+        val graph = index.impact("db:HR.COMPANY", ImpactOptions(followTriggers = true)).result!!
         val node = graph.nodes.single { it.entity?.key == "forms:DATA_DESK/COMPANY" }
         assertThat(listOf(node.kind, node.depth, node.via.uses, node.via.path, node.via.line, node.via.origin, node.via.code, node.certain))
             .containsExactly("FORMS_BLOCK", 1, "db:HR.COMPANY", "data_desk_fmb.xml", null, "FORMS_IMPLICIT", null, true)

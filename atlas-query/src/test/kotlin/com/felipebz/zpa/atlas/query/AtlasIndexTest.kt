@@ -49,7 +49,7 @@ class AtlasIndexTest {
         // hr/param_uses.sql: zpa binds the uses in the body to the body's declaration.
         val spec = "db:HR.PK_P.RUN(P_ROWS IN T_ROWS,P_REC IN OUT T_ROW).P_REC"
         val body = "db:HR.PK_P.RUN(P_ROWS IN T_ROWS,P_REC IN OUT T_ROW)@BODY.P_REC"
-        fun rows(key: String, scope: Set<Scope>) = index.occurrences(key, scope = scope).result!!.rows.map { "${it.span!!.startLine} ${it.entity?.key}" }
+        fun rows(key: String, scope: Set<Scope>) = index.occurrences(key, UsageFilter(scope = scope)).result!!.rows.map { "${it.span!!.startLine} ${it.entity?.key}" }
         assertThat(defaultUsageScopes("PARAMETER")).containsExactly(Scope.IMPLEMENTATIONS)
         assertThat(rows(spec, setOf(Scope.SELF))).isEmpty()
         val bodyUses = listOf("23 $body", "26 $body")
@@ -68,9 +68,9 @@ class AtlasIndexTest {
         val body = "db:HR.PK_G.RUN(P_V IN NUMBER)@BODY.P_V"
         assertThat(index.entity(spec).result!!.usesIncomplete).containsExactly("CONDITIONAL_COMPILATION")
         assertThat(index.entity(body).result!!.usesIncomplete).containsExactly("CONDITIONAL_COMPILATION")
-        assertThat(index.occurrences(spec, scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS)).result!!.usesIncomplete)
+        assertThat(index.occurrences(spec, UsageFilter(scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS))).result!!.usesIncomplete)
             .containsExactly(UsesGap(body, listOf("CONDITIONAL_COMPILATION")))
-        assertThat(index.occurrences(spec, scope = setOf(Scope.SELF)).result!!.usesIncomplete).isNull()
+        assertThat(index.occurrences(spec, UsageFilter(scope = setOf(Scope.SELF))).result!!.usesIncomplete).isNull()
         // The routine itself, with its spec and body, is unchanged: no flag.
         assertThat(index.entity("db:HR.PK_G.RUN(P_V IN NUMBER)").result!!.usesIncomplete).isNull()
     }
@@ -216,7 +216,7 @@ class AtlasIndexTest {
 
     @Test
     fun `role filter keeps occurrences with any of the roles`() {
-        val page = index.occurrences("db:HR.COMPANY", roles = setOf("SQL_DELETE")).result!!
+        val page = index.occurrences("db:HR.COMPANY", UsageFilter(roles = setOf("SQL_DELETE"))).result!!
         assertThat(page.rows).isNotEmpty.allMatch { "SQL_DELETE" in it.roles }
         assertThat(page.rows.map { it.path }).contains("hr/proc_standalone.prc", "hr/pack_process.pkb")
     }
@@ -225,7 +225,7 @@ class AtlasIndexTest {
     fun `IMPLEMENTATIONS scope on a body sees the calls resolved to the specification`() {
         val body = "db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER)@BODY"
         assertThat(index.occurrences(body).result!!.rows).isEmpty()
-        val rows = index.occurrences(body, scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS)).result!!.rows
+        val rows = index.occurrences(body, UsageFilter(scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS))).result!!.rows
         assertThat(rows.map { it.path to it.statementKind })
             .containsExactly("hr/pack_calls.pkb" to "SELECT", "hr/proc_synonym_objects.prc" to null, "scripts/calls.sql" to "SELECT")
         assertThat(rows).allMatch { it.matched!!.key == "db:HR.PACK_CALLS.F_PUB(P_X IN NUMBER)" && it.arguments.single().parameter != null }
@@ -233,14 +233,14 @@ class AtlasIndexTest {
 
     @Test
     fun `CHILDREN scope on a table includes its column writes`() {
-        val rows = index.occurrences("db:HR.COMPANY", roles = setOf("WRITE"), scope = setOf(Scope.CHILDREN)).result!!.rows
+        val rows = index.occurrences("db:HR.COMPANY", UsageFilter(roles = setOf("WRITE"), scope = setOf(Scope.CHILDREN))).result!!.rows
         assertThat(rows.map { it.matched!!.key }).contains("db:HR.COMPANY.ST_ACTIVE", "db:HR.COMPANY.COMPANY_NAME")
-        assertThat(index.occurrences("db:HR.COMPANY", roles = setOf("WRITE")).result!!.rows).allMatch { it.matched!!.key == "db:HR.COMPANY" }
+        assertThat(index.occurrences("db:HR.COMPANY", UsageFilter(roles = setOf("WRITE"))).result!!.rows).allMatch { it.matched!!.key == "db:HR.COMPANY" }
     }
 
     @Test
     fun `who writes a column lists the triggers assigning it through NEW`() {
-        val rows = index.occurrences("db:HR.COMPANY.DT_CHANGED", roles = setOf("WRITE")).result!!.rows
+        val rows = index.occurrences("db:HR.COMPANY.DT_CHANGED", UsageFilter(roles = setOf("WRITE"))).result!!.rows
         assertThat(rows.map { it.container?.key }).contains("db:HR.TRG_COMPANY_BU", "db:HR.TRG_COMPANY_FORMS", "db:HR.TRG_COMPANY_COMPOUND")
     }
 
@@ -347,7 +347,7 @@ class AtlasIndexTest {
     fun `VIEWS scope on a column reaches the uses of the view columns computed from it, through every level`() {
         val key = "db:HR.COMPANY.COMPANY_NAME"
         val self = index.occurrences(key, limit = 500).result!!
-        val viewed = index.occurrences(key, scope = setOf(Scope.SELF, Scope.VIEWS), limit = 500).result!!
+        val viewed = index.occurrences(key, UsageFilter(scope = setOf(Scope.SELF, Scope.VIEWS)), limit = 500).result!!
         assertThat(self.nextAfter).isNull()
         assertThat(viewed.nextAfter).isNull()
         assertThat(self.rows).noneMatch { it.viaView || it.path == "hr/proc_view_chain.prc" }
@@ -363,7 +363,7 @@ class AtlasIndexTest {
 
     @Test
     fun `VIEWS scope on a table adds the views reading it and their columns from it, not their other columns`() {
-        val page = index.occurrences("db:HR.COMPANY", scope = setOf(Scope.CHILDREN, Scope.VIEWS), limit = 500).result!!
+        val page = index.occurrences("db:HR.COMPANY", UsageFilter(scope = setOf(Scope.CHILDREN, Scope.VIEWS)), limit = 500).result!!
         assertThat(page.nextAfter).isNull()
         val rows = page.rows.filter { it.path == "hr/proc_view_chain.prc" }
         // V_LIN_JOIN.MSG (5:9) comes from EVENT_LOG.MSG: CHILDREN does not apply to the views VIEWS adds.
@@ -377,14 +377,14 @@ class AtlasIndexTest {
             "6:34 db:HR.V_LIN_JOIN true"
         )
         assertThat(page.rows).anyMatch { it.matched!!.key == "db:HR.COMPANY" && !it.viaView }
-        assertThat(index.occurrences("db:HR.COMPANY", scope = setOf(Scope.CHILDREN), limit = 500).result!!.rows).noneMatch { it.viaView }
+        assertThat(index.occurrences("db:HR.COMPANY", UsageFilter(scope = setOf(Scope.CHILDREN)), limit = 500).result!!.rows).noneMatch { it.viaView }
     }
 
     @Test
     fun `a materialized view counts as a view reading its base relations, and its readers are reached through it`() {
         assertThat(index.entity("db:HR.COMPANY").result!!.views.map { it.key }).contains("db:HR.MV_COMPANY_LOG")
         assertThat(index.entity("db:HR.MV_COMPANY_LOG").result!!.reads.map { it.key }).containsExactly("db:HR.COMPANY", "db:HR.V_COMPANY_LIST")
-        val rows = index.occurrences("db:HR.COMPANY", scope = setOf(Scope.VIEWS), limit = 500).result!!.rows.filter { it.path == "hr/proc_mview.prc" }
+        val rows = index.occurrences("db:HR.COMPANY", UsageFilter(scope = setOf(Scope.VIEWS)), limit = 500).result!!.rows.filter { it.path == "hr/proc_mview.prc" }
         assertThat(rows.map { "${it.span!!.startLine}:${it.span!!.startCol} ${it.matched!!.key} ${it.viaView}" })
             .containsExactly("3:40 db:HR.MV_COMPANY_LOG true")
     }
@@ -395,16 +395,16 @@ class AtlasIndexTest {
         val ambiguous = page.rows.filter { it.viaCandidate }
         assertThat(ambiguous.map { it.path to it.span!!.startLine }).containsExactly("hr/pack_calls.pkb" to 33, "hr/pack_calls.pkb" to 34)
         assertThat(ambiguous).allMatch { it.status == "AMBIGUOUS" && it.entity == null && it.candidates.map { c -> c.key } == listOf(runJob4, runJob5) }
-        assertThat(index.occurrences(runJob4, includeCandidates = false).result!!.rows).noneMatch { it.viaCandidate }
+        assertThat(index.occurrences(runJob4, UsageFilter(includeCandidates = false)).result!!.rows).noneMatch { it.viaCandidate }
     }
 
     @Test
     fun `paging visits every row once, in source order`() {
-        val all = index.occurrences("db:HR.COMPANY", scope = setOf(Scope.CHILDREN), limit = 500).result!!
+        val all = index.occurrences("db:HR.COMPANY", UsageFilter(scope = setOf(Scope.CHILDREN)), limit = 500).result!!
         val seen = ArrayList<OccurrenceRow>()
         var after: Long? = null
         do {
-            val page = index.occurrences("db:HR.COMPANY", scope = setOf(Scope.CHILDREN), after = after, limit = 2).result!!
+            val page = index.occurrences("db:HR.COMPANY", UsageFilter(scope = setOf(Scope.CHILDREN)), after = after, limit = 2).result!!
             assertThat(page.rows.size).isLessThanOrEqualTo(2)
             seen += page.rows
             after = page.nextAfter
@@ -418,7 +418,7 @@ class AtlasIndexTest {
 
     @Test
     fun `facets count roles under the status filter and statuses under the role filter`() {
-        val page = index.occurrences("db:HR.COMPANY", roles = setOf("SQL_UPDATE"), statuses = setOf("PARTIAL_SOURCE")).result!!
+        val page = index.occurrences("db:HR.COMPANY", UsageFilter(roles = setOf("SQL_UPDATE"), statuses = setOf("PARTIAL_SOURCE"))).result!!
         assertThat(page.rows).allMatch { it.status == "PARTIAL_SOURCE" && "SQL_UPDATE" in it.roles }
         // Roles of the PARTIAL_SOURCE occurrences only; statuses of the SQL_UPDATE occurrences only.
         assertThat(page.facets.byRole).containsExactly(Count("SQL_UPDATE", 2))
@@ -428,8 +428,8 @@ class AtlasIndexTest {
 
     @Test
     fun `bad filters are rejected`() {
-        assertThatThrownBy { index.occurrences("db:HR.COMPANY", roles = setOf("WRITES")) }.isInstanceOf(InvalidQueryException::class.java)
-        assertThatThrownBy { index.occurrences("db:HR.COMPANY", statuses = setOf("OK")) }.isInstanceOf(InvalidQueryException::class.java)
+        assertThatThrownBy { index.occurrences("db:HR.COMPANY", UsageFilter(roles = setOf("WRITES"))) }.isInstanceOf(InvalidQueryException::class.java)
+        assertThatThrownBy { index.occurrences("db:HR.COMPANY", UsageFilter(statuses = setOf("OK"))) }.isInstanceOf(InvalidQueryException::class.java)
         assertThatThrownBy { index.occurrences("db:HR.COMPANY", limit = 501) }.isInstanceOf(InvalidQueryException::class.java)
         assertThatThrownBy { index.searchEntities("x", limit = 0) }.isInstanceOf(InvalidQueryException::class.java)
         assertThat(index.occurrences("db:NO.SUCH").result).isNull()
@@ -571,7 +571,7 @@ class AtlasIndexTest {
         assertThat(index.entity("db:~.PACK_REQ@FAR.EXAMPLE.COM").result!!.children.map { it.entity.name }).contains("GET_MAX")
         val pack = index.entity("db:HR.PACK_PROCESS").result!!
         assertThat(pack.children.first { it.entity.key == runJob5 }.usages)
-            .isEqualTo(index.occurrences(runJob5, includeCandidates = false).result!!.total)
+            .isEqualTo(index.occurrences(runJob5, UsageFilter(includeCandidates = false)).result!!.total)
     }
 
     @Test

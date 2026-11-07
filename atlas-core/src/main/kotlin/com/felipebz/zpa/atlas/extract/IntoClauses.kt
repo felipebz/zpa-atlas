@@ -436,6 +436,15 @@ internal class IntoClauses(
     private val flows = ArrayList<Flow>()
 
     /**
+     * Where the results of the functions a value calls go: written into [target], passed on to [passedTo] (a parameter,
+     * or what the function around returns; [argumentOf] the call, for a parameter), or, passed where it is not
+     * followed, counted by [reason].
+     */
+    private data class ResultDestination(
+        val target: AstNode? = null, val passedTo: String? = null, val reason: String? = null, val argumentOf: SourceSpan? = null
+    )
+
+    /**
      * Whether [name] is a whole name zpa binds to a parameter (not the record of `p.f`, not a called routine). In SQL
      * the name may still be a column of the statement's tables ([NameBinding.ColumnOrLocal]): [intos] decides by them.
      */
@@ -582,16 +591,12 @@ internal class IntoClauses(
     }
 
     /**
-     * The functions [value] calls whose result is the value, or a part of it: each one's result written into [target],
-     * passed on to [passedTo] (a parameter, or what the function around returns), through the value functions that lead
-     * to the call; a call within any other expression is counted by that expression's shape
-     * (`RETURNED_EXPRESSION_*`), and one passed where it is not followed by [reason]. A call inside the arguments of
-     * another routine is that routine's argument: [argumentOf] is that call, for a result passed to a parameter.
+     * The functions [value] calls whose result is the value, or a part of it: each one's result going to [to], through
+     * the value functions that lead to the call; a call within any other expression is counted by that expression's
+     * shape (`RETURNED_EXPRESSION_*`). A call inside the arguments of another routine is that routine's argument.
      */
-    private fun resultFlows(
-        value: AstNode, site: SourceSpan, context: Context, target: AstNode?, passedTo: String?, reason: String?,
-        called: Map<SourceSpan, OccurrenceFact>, argumentOf: SourceSpan? = null
-    ) {
+    private fun resultFlows(value: AstNode, site: SourceSpan, context: Context, to: ResultDestination, called: Map<SourceSpan, OccurrenceFact>) {
+        val (target, passedTo, reason, argumentOf) = to
         if (target == null && passedTo == null && reason == null) return
         for ((call, result) in resultCalls(value, called)) {
             if (inDroppedArgument(value, call)) continue
@@ -1181,8 +1186,9 @@ internal class IntoClauses(
         for (write in valueWrites) writeFlows(write, bySpan, shapes, called, routineCalls)
         // The results of the functions an argument calls, passed to the parameter.
         for (argument in callArguments) {
-            resultFlows(argument.argument, spanOf(argument.argument), argument.context, null, argument.parameter,
-                argument.reason ?: ARGUMENT_NOT_TIED.takeIf { argument.parameter == null }, called, argument.call)
+            val reason = argument.reason ?: ARGUMENT_NOT_TIED.takeIf { argument.parameter == null }
+            val to = ResultDestination(passedTo = argument.parameter, reason = reason, argumentOf = argument.call)
+            resultFlows(argument.argument, spanOf(argument.argument), argument.context, to, called)
         }
         val statusBySpan = state.occurrences.groupBy { it.span }
         flows.mapNotNullTo(intos) { flowInto(it, bySpan, statusBySpan, shapes) }
@@ -1281,7 +1287,7 @@ internal class IntoClauses(
     ) {
         // A returned value goes to what the function around it returns.
         val returned = if (write.target == null) enclosingReturn(write.value) ?: return else null
-        resultFlows(write.value, write.site, write.context, write.target, returned, null, called)
+        resultFlows(write.value, write.site, write.context, ResultDestination(target = write.target, passedTo = returned), called)
         if (write.sql) return
         val names = writtenParameters(write, routineCalls)
         for ((name, functions) in parameterChains(write.value, names)) {

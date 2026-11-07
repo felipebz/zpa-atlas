@@ -127,7 +127,7 @@ class FileExtractor internal constructor(
             if (declaration.containerKey == null) continue
             bound.add(NameDeclarationKind.PARAMETER, declaration.span.startLine, declaration.span.startCol, declaration.entityKey)
         }
-        bodyGlobals = BodyGlobals(bound, context::recordFields)
+        bodyGlobals = BodyGlobals(state, bound, context::recordFields)
         fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding, bodyGlobals::fieldAt)
         val sequences = projectAnalysis()
         val formsNames = formsEntities?.names(modulePackages(node))
@@ -306,7 +306,7 @@ class FileExtractor internal constructor(
         val (kind, entityKey, trigger) = unitHead(node, written, schema)
         val index = state.addUnit(UnitFact(kind, displayName, entityKey, span, schema), partial)
         // A package body's own variables, constants and types, and each routine's, before the walk that finds their uses.
-        if (kind == UnitKind.PACKAGE_BODY) entityKey?.let { bodyGlobals.declare(node, it, catalog.schemaAndName(path, written).first, index, partial, state) }
+        if (kind == UnitKind.PACKAGE_BODY) entityKey?.let { bodyGlobals.declare(node, it, catalog.schemaAndName(path, written).first, index, partial) }
         declareRoutines(node, kind, entityKey, written, index, partial)
         if (definedByAst(kind, entityKey)) {
             // Package bodies, type bodies, triggers and views are not in the project index; their definition comes from the AST.
@@ -389,7 +389,7 @@ class FileExtractor internal constructor(
         if (routines.isEmpty()) return
         val schema = catalog.schemaAndName(path, written).first
         for ((routine, parentKey, keyBase) in routines) {
-            bodyGlobals.declareRoutine(routine, parentKey, keyBase, schema, index, partial, state, catalog::isDeclared)
+            bodyGlobals.declareRoutine(routine, parentKey, keyBase, schema, index, partial, catalog::isDeclared)
         }
     }
 
@@ -505,10 +505,10 @@ class FileExtractor internal constructor(
     private fun formsDeclarations(node: AstNode, key: String, index: Int) {
         when (node.type) {
             PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION -> formsRoutine(node, key, key, index)
-            PlSqlGrammar.ANONYMOUS_BLOCK -> bodyGlobals.declareRoutine(node, key, key, null, index, false, state) { false }
-            PlSqlGrammar.CREATE_PACKAGE -> bodyGlobals.declare(node, key, null, index, false, state, suffix = "")
+            PlSqlGrammar.ANONYMOUS_BLOCK -> bodyGlobals.declareRoutine(node, key, key, null, index, false) { false }
+            PlSqlGrammar.CREATE_PACKAGE -> bodyGlobals.declare(node, key, null, index, false, suffix = "")
             PlSqlGrammar.CREATE_PACKAGE_BODY -> {
-                bodyGlobals.declare(node, key, null, index, false, state)
+                bodyGlobals.declare(node, key, null, index, false)
                 for (item in node.getFirstChildOrNull(PlSqlGrammar.DECLARE_SECTION)?.children.orEmpty()) {
                     if (item.type != PlSqlGrammar.PROCEDURE_DECLARATION && item.type != PlSqlGrammar.FUNCTION_DECLARATION) continue
                     val name = item.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
@@ -531,7 +531,7 @@ class FileExtractor internal constructor(
             bound.add(NameDeclarationKind.PARAMETER, name.token.line, name.token.column, key)
             formsParameters += FormsParameter(key, parentKey, parameter, name, index)
         }
-        bodyGlobals.declareRoutine(routine, parentKey, keyBase, null, index, false, state, taken::contains)
+        bodyGlobals.declareRoutine(routine, parentKey, keyBase, null, index, false, taken::contains)
     }
 
     /** A parameter of a routine of a Forms unit, defined when the file is left. */

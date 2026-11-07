@@ -5,14 +5,11 @@
 
 package com.felipebz.zpa.atlas.devtools
 
-import com.felipebz.zpa.atlas.query.Answer
-import com.felipebz.zpa.atlas.query.AtlasIndex
-import com.felipebz.zpa.atlas.query.FileView
-import com.felipebz.zpa.atlas.query.Scope
+import com.felipebz.zpa.atlas.query.*
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import org.sqlite.SQLiteConfig
-import java.util.Locale
+import java.util.*
 
 /**
  * `timings`: the query API on the 5 entities with the most non-definition occurrences, on the column with the most
@@ -24,8 +21,8 @@ object Timings {
         val keys = topKeys(index)
         if (keys.isEmpty()) append("  (none)\n")
         for ((key, count) in keys) {
-            val self = time { index.occurrences(key, scope = setOf(Scope.SELF)) }
-            val wide = time { index.occurrences(key, scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN, Scope.VIEWS)) }
+            val self = time { index.occurrences(key, UsageFilter(scope = setOf(Scope.SELF))) }
+            val wide = time { index.occurrences(key, UsageFilter(scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN, Scope.VIEWS))) }
             val entity = time { index.entity(key) }
             append(String.format(Locale.ROOT, "  %s (%d occurrences): SELF %.1f, IMPLEMENTATIONS,CHILDREN,VIEWS %.1f, entity %.1f%n", key, count, self, wide, entity))
         }
@@ -36,8 +33,8 @@ object Timings {
             append("  (none)\n")
         } else {
             val (key, count) = viewed
-            val self = time { index.occurrences(key, scope = setOf(Scope.SELF)) }
-            val views = time { index.occurrences(key, scope = setOf(Scope.SELF, Scope.VIEWS)) }
+            val self = time { index.occurrences(key, UsageFilter(scope = setOf(Scope.SELF))) }
+            val views = time { index.occurrences(key, UsageFilter(scope = setOf(Scope.SELF, Scope.VIEWS))) }
             append(String.format(Locale.ROOT, "  %s (%d view columns): SELF %.1f, SELF,VIEWS %.1f%n", key, count, self, views))
         }
         append('\n')

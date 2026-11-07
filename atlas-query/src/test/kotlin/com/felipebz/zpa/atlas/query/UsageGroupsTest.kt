@@ -37,7 +37,7 @@ class UsageGroupsTest {
 
     /** Every row [AtlasIndex.occurrences] lists, read at once. */
     private fun rows(key: String, scope: Set<Scope>, via: UsagePath? = null) =
-        index.occurrences(key, scope = scope, via = via, limit = 500).result!!.also { assertThat(it.nextAfter).isNull() }.rows
+        index.occurrences(key, UsageFilter(scope = scope, via = via), limit = 500).result!!.also { assertThat(it.nextAfter).isNull() }.rows
 
     /** [rows] counted by ENTITY and CONTAINER in the test, as group keys. */
     private fun byEntityAndContainer(rows: List<OccurrenceRow>) =
@@ -49,12 +49,12 @@ class UsageGroupsTest {
     fun `the groups count the rows occurrences lists, by entity and container`() {
         val wide = setOf(Scope.SELF, Scope.CHILDREN, Scope.VIEWS)
         val dimensions = listOf(GroupDimension.ENTITY, GroupDimension.CONTAINER)
-        val list = index.groupUsages(companyList, dimensions, scope = wide, limit = 1000).result!!
+        val list = index.groupUsages(companyList, dimensions, UsageFilter(scope = wide), limit = 1000).result!!
         assertThat(groups(list)).isEqualTo(byEntityAndContainer(rows(companyList, wide)))
         assertThat(list.totalGroups).isEqualTo(list.groups.size.toLong())
 
         val views = setOf(Scope.SELF, Scope.VIEWS)
-        val throughViews = index.groupUsages(company, dimensions, scope = views, via = UsagePath.THROUGH_VIEWS, limit = 1000).result!!
+        val throughViews = index.groupUsages(company, dimensions, UsageFilter(scope = views, via = UsagePath.THROUGH_VIEWS), limit = 1000).result!!
         val viewRows = rows(company, views, UsagePath.THROUGH_VIEWS)
         assertThat(viewRows).isNotEmpty().allMatch { it.viaView }
         assertThat(groups(throughViews)).isEqualTo(byEntityAndContainer(viewRows))
@@ -64,11 +64,11 @@ class UsageGroupsTest {
 
     @Test
     fun `ROLE counts a row under each of its usage roles`() {
-        val byRole = index.groupUsages(packProcess, listOf(GroupDimension.ROLE), scope = packageScope, limit = 1000).result!!
+        val byRole = index.groupUsages(packProcess, listOf(GroupDimension.ROLE), UsageFilter(scope = packageScope), limit = 1000).result!!
         val expected = rows(packProcess, packageScope).flatMap { row -> row.roles.filter { it != "DEFINITION" && it != "DECLARATION" } }
             .groupingBy { it }.eachCount().mapValues { it.value.toLong() }
         assertThat(groups(byRole)).isEqualTo(expected.mapKeys { listOf(it.key) })
-        val calls = index.groupUsages(packProcess, listOf(GroupDimension.ROLE), roles = setOf("CALL"), scope = packageScope).result!!
+        val calls = index.groupUsages(packProcess, listOf(GroupDimension.ROLE), UsageFilter(roles = setOf("CALL"), scope = packageScope)).result!!
         assertThat(groups(calls).keys).containsExactly(listOf("CALL"))
     }
 
@@ -79,13 +79,13 @@ class UsageGroupsTest {
             company to setOf(Scope.SELF, Scope.VIEWS),
             packProcess to packageScope
         )) {
-            fun total(via: UsagePath?) = index.occurrences(key, scope = scope, via = via, limit = 1).result!!.total
+            fun total(via: UsagePath?) = index.occurrences(key, UsageFilter(scope = scope, via = via), limit = 1).result!!.total
             assertThat(total(UsagePath.DIRECT) + total(UsagePath.THROUGH_VIEWS)).describedAs(key).isEqualTo(total(null))
             assertThat(rows(key, scope, UsagePath.DIRECT)).describedAs(key).noneMatch { it.viaView }
-            val statuses = index.occurrences(key, scope = scope, via = UsagePath.DIRECT, limit = 1).result!!.facets.byStatus.sumOf { it.count }
+            val statuses = index.occurrences(key, UsageFilter(scope = scope, via = UsagePath.DIRECT), limit = 1).result!!.facets.byStatus.sumOf { it.count }
             assertThat(statuses).describedAs(key).isEqualTo(total(UsagePath.DIRECT))
         }
-        assertThat(index.occurrences(company, scope = setOf(Scope.SELF, Scope.VIEWS), via = UsagePath.THROUGH_VIEWS, limit = 1).result!!.total)
+        assertThat(index.occurrences(company, UsageFilter(scope = setOf(Scope.SELF, Scope.VIEWS), via = UsagePath.THROUGH_VIEWS), limit = 1).result!!.total)
             .isEqualTo(17)
     }
 }

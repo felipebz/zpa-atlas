@@ -14,20 +14,19 @@ internal class ImpactReader(private val connection: Connection) {
     private val forms = FormsLines(connection)
 
     /**
-     * [AtlasIndex.impact] after its checks: [roleFilter] and [statuses] filter the first hop only. With [followTriggers],
-     * a DML trigger node is followed through the writes that fire it ([TriggerWrites]).
+     * [AtlasIndex.impact] after its checks: [roleFilter] (the roles of [options], checked) and the statuses of [options]
+     * filter the first hop only. With [ImpactOptions.followTriggers], a DML trigger node is followed through the writes
+     * that fire it ([TriggerWrites]).
      */
     fun impact(
         key: String,
         roleFilter: Set<String>,
-        statuses: Set<String>?,
-        include: List<Scope>?,
-        maxDepth: Int,
+        options: ImpactOptions,
         stop: ImpactStop?,
         offset: Int,
-        limit: Int,
-        followTriggers: Boolean
+        limit: Int
     ): ImpactGraph? {
+        val (_, statuses, include, maxDepth, followTriggers) = options
         val (rootId, root) = connection.query("SELECT id, key, kind, display, external, name FROM entity WHERE key = ?", listOf(key)) {
             it.getLong(1) to EntitySummary(it.getString(2), it.getString(3), it.getString(4), it.getInt(5) == 1, it.getString(6))
         }.singleOrNull() ?: return null
@@ -36,7 +35,7 @@ internal class ImpactReader(private val connection: Connection) {
         val walk = Walk(rootTwins, followTriggers)
 
         // The first hop is "who uses", as find_usages lists it.
-        val firstHits = UsageReader(connection).usageHits(key, roleFilter, statuses, (scopes + Scope.SELF).toSet(), true, null)!!.second
+        val firstHits = UsageReader(connection).usageHits(key, roleFilter, UsageFilter(statuses = statuses, scope = (scopes + Scope.SELF).toSet()))!!.second
         val candidateHits = firstHits.filter { it.viaCandidate }.map { it.id }.toSet()
         val firstUses = connection.query(
             """SELECT o.id, o.container_entity_id, o.status, f.path, o.start_line, m.key, o.origin

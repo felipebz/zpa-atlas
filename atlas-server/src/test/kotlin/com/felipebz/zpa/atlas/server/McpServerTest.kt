@@ -340,14 +340,17 @@ class McpServerTest {
         fun withIncluded(answer: JsonObject, vararg scopes: String) = JsonObject(answer + ("included" to strings(*scopes)))
         val body = "$runJob5@BODY"
         assertThat(client.call("find_usages", args { put("key", body) }).json())
-            .isEqualTo(withIncluded(toolAnswer(index.occurrences(body, scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.FIND_DEFAULT)), "IMPLEMENTATIONS"))
+            .isEqualTo(withIncluded(toolAnswer(index.occurrences(body, UsageFilter(scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS)), limit = AtlasMcpTools.FIND_DEFAULT)), "IMPLEMENTATIONS"))
         val view = "db:HR.V_COMPANY_LIST"
         assertThat(client.call("find_usages", args { put("key", view); put("include", strings("CHILDREN", "VIEWS")) }).json())
-            .isEqualTo(withIncluded(toolAnswer(index.occurrences(view, scope = setOf(Scope.SELF, Scope.CHILDREN, Scope.VIEWS), limit = AtlasMcpTools.FIND_DEFAULT)), "CHILDREN", "VIEWS"))
+            .isEqualTo(withIncluded(toolAnswer(index.occurrences(view, UsageFilter(scope = setOf(Scope.SELF, Scope.CHILDREN, Scope.VIEWS)), limit = AtlasMcpTools.FIND_DEFAULT)), "CHILDREN", "VIEWS"))
         // Without include, the page's default for the kind: a package with its spec or body and its members.
         val pack = client.call("find_usages", args { put("key", "db:HR.PACK_PROCESS") }).json()
-        assertThat(pack).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.PACK_PROCESS",
-            scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN), limit = AtlasMcpTools.FIND_DEFAULT)), "IMPLEMENTATIONS", "CHILDREN"))
+        assertThat(pack).isEqualTo(withIncluded(toolAnswer(index.occurrences(
+            "db:HR.PACK_PROCESS",
+            UsageFilter(scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN)),
+            limit = AtlasMcpTools.FIND_DEFAULT
+        )), "IMPLEMENTATIONS", "CHILDREN"))
         // The members include the body's own globals (`pack_process.g_private :=` in the body), the routines'
         // parameters, read and written in the body, and the record fields (`g_rec.msg`, `pack_process.g_events(1).id`).
         assertThat(total(pack)).isEqualTo(71)
@@ -387,7 +390,7 @@ class McpServerTest {
 
     @Test
     fun `find_usages pages lose and repeat no row, under a small size cap too`() {
-        val all = index.occurrences("db:HR.PACK_PROCESS", scope = setOf(Scope.SELF, Scope.CHILDREN), limit = 500).result!!.rows.map { it.id }
+        val all = index.occurrences("db:HR.PACK_PROCESS", UsageFilter(scope = setOf(Scope.SELF, Scope.CHILDREN)), limit = 500).result!!.rows.map { it.id }
         assertThat(all.size).isGreaterThan(AtlasMcpTools.FIND_MAX)
         for (cap in listOf(McpAnswers.MAX_CHARS, 6_000)) {
             mcp(settings = McpSettings(maxAnswerChars = cap)) { client ->
@@ -417,15 +420,19 @@ class McpServerTest {
             put("key", "db:HR.COMPANY"); put("include", strings("VIEWS")); put("via", "THROUGH_VIEWS"); put("group_by", strings("ENTITY", "CONTAINER"))
         }).json()
         assertThat(grouped).isEqualTo(JsonObject(toolAnswer(
-            index.groupUsages("db:HR.COMPANY", byViewAndRoutine, scope = views, via = UsagePath.THROUGH_VIEWS, limit = AtlasMcpTools.GROUP_DEFAULT)
+            index.groupUsages("db:HR.COMPANY", byViewAndRoutine, UsageFilter(scope = views, via = UsagePath.THROUGH_VIEWS), limit = AtlasMcpTools.GROUP_DEFAULT)
         ) + ("included" to strings("VIEWS"))))
         // Without include, the default by kind: a package with its spec or body and its members.
         assertThat(client.call("group_usages", args { put("key", "db:HR.PACK_PROCESS"); put("group_by", strings("ROLE")) }).json())
-            .isEqualTo(JsonObject(toolAnswer(index.groupUsages("db:HR.PACK_PROCESS", listOf(GroupDimension.ROLE),
-                scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN), limit = AtlasMcpTools.GROUP_DEFAULT)) + ("included" to strings("IMPLEMENTATIONS", "CHILDREN"))))
+            .isEqualTo(JsonObject(toolAnswer(index.groupUsages(
+                "db:HR.PACK_PROCESS",
+                listOf(GroupDimension.ROLE),
+                UsageFilter(scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN)),
+                limit = AtlasMcpTools.GROUP_DEFAULT
+            )) + ("included" to strings("IMPLEMENTATIONS", "CHILDREN"))))
         for (via in UsagePath.entries) {
             assertThat(client.call("find_usages", args { put("key", "db:HR.COMPANY"); put("include", strings("VIEWS")); put("via", via.name) }).json())
-                .isEqualTo(JsonObject(toolAnswer(index.occurrences("db:HR.COMPANY", scope = views, via = via, limit = AtlasMcpTools.FIND_DEFAULT)) +
+                .isEqualTo(JsonObject(toolAnswer(index.occurrences("db:HR.COMPANY", UsageFilter(scope = views, via = via), limit = AtlasMcpTools.FIND_DEFAULT)) +
                     ("included" to strings("VIEWS"))))
         }
     }
@@ -471,7 +478,7 @@ class McpServerTest {
     fun `find_impact numbers the nodes of the whole graph, names them and points via at a number`() = mcp { client ->
         // Without following triggers: the graph of ImpactTest.
         val nodes = client.call("find_impact", args { put("key", impactLeaf); put("follow_triggers", false) }).json().impactNodes()
-        val graph = index.impact(impactLeaf, include = listOf(Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.IMPACT_DEFAULT, followTriggers = false).result!!.nodes
+        val graph = index.impact(impactLeaf, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS), followTriggers = false), limit = AtlasMcpTools.IMPACT_DEFAULT).result!!.nodes
         assertThat(nodes.map { it.number() }).isEqualTo((1..graph.size).toList())
         assertThat(nodes.map { it.field("name") }).containsExactly(
             "HR.IMP_FN", "HR.PACK_IMP_A.MID", "HR.PACK_IMP_A.OV", "HR.PACK_IMP_A.PONG", "HR.PACK_IMP_B", "HR.IMP_AMB", "HR.IMP_REC",
@@ -507,7 +514,7 @@ class McpServerTest {
 
     @Test
     fun `find_impact with keys answers the index nodes plus their number, and n does not move with stop or paging`() = mcp { client ->
-        val graph = index.impact(impactLeaf, include = listOf(Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.IMPACT_DEFAULT)
+        val graph = index.impact(impactLeaf, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS)), limit = AtlasMcpTools.IMPACT_DEFAULT)
         val keyed = client.call("find_impact", args { put("key", impactLeaf); put("keys", true) }).json().impactNodes()
         val base = toolAnswer(graph).jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject }
         assertThat(keyed.map { JsonObject(it - "n") }).isEqualTo(base)
@@ -532,10 +539,10 @@ class McpServerTest {
         assertThat(nodes.single { it.field("name") == "HR.IT_Q" }.getValue("via").jsonObject["fires"]).isNull()
         val keyed = client.call("find_impact", args { put("key", key); put("keys", true) }).json().impactNodes()
         assertThat(keyed.map { JsonObject(it - "n") })
-            .isEqualTo(toolAnswer(index.impact(key, include = listOf(Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.IMPACT_DEFAULT)).jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject })
+            .isEqualTo(toolAnswer(index.impact(key, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS)), limit = AtlasMcpTools.IMPACT_DEFAULT)).jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject })
         val off = client.call("find_impact", args { put("key", key); put("follow_triggers", false); put("keys", true) }).json().impactNodes()
         assertThat(off.map { JsonObject(it - "n") }).isEqualTo(
-            toolAnswer(index.impact(key, include = listOf(Scope.IMPLEMENTATIONS), limit = AtlasMcpTools.IMPACT_DEFAULT, followTriggers = false))
+            toolAnswer(index.impact(key, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS), followTriggers = false), limit = AtlasMcpTools.IMPACT_DEFAULT))
                 .jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject }
         )
         assertThat(off.map { it.field("stop") }.distinct()).containsExactly("TRIGGER")

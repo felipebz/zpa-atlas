@@ -13,12 +13,7 @@ import com.felipebz.zpa.atlas.highlight.CodeHighlighter
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import com.felipebz.zpa.atlas.model.*
-import com.felipebz.zpa.atlas.query.AtlasIndex
-import com.felipebz.zpa.atlas.query.CodeColor
-import com.felipebz.zpa.atlas.query.CodeColorer
-import com.felipebz.zpa.atlas.query.FormsBlockOperation
-import com.felipebz.zpa.atlas.query.FormsOperationState
-import com.felipebz.zpa.atlas.query.GroupDimension
+import com.felipebz.zpa.atlas.query.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -201,7 +196,7 @@ class AtlasServerTest {
         assertThat(json(followed)["result"]!!.jsonObject["levels"]!!.jsonArray.map { it.jsonPrimitive.content }).containsExactly("8", "21", "2")
         assertThat(followed).contains("\"fires\":\"INSERT\"")
         val off = client.get("/api/impact") { parameter("key", key); parameter("triggers", "false") }.bodyAsText()
-        assertThat(off).isEqualTo(ApiJson.encodeToString(index.impact(key, followTriggers = false)))
+        assertThat(off).isEqualTo(ApiJson.encodeToString(index.impact(key, ImpactOptions(followTriggers = false))))
         assertThat(off).doesNotContain("\"fires\"")
         assertThat(json(off)["result"]!!.jsonObject["stops"]!!.jsonArray.map { it.jsonObject["value"]!!.jsonPrimitive.content }).containsExactly("TRIGGER")
     }

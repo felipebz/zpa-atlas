@@ -114,11 +114,11 @@ class AtlasIndex(
     }
 
     /**
-     * "Who uses" [key]: occurrences of the entities in [scope] (the entity itself, plus `IMPLEMENTS` partners in
-     * either direction, plus transitive `CONTAINS` descendants, plus with [Scope.VIEWS] transitively the view columns
-     * whose `VIEW_BASE` edges reach one of them and the views whose query reads a table, view or object table among
-     * them), and with [includeCandidates] the `AMBIGUOUS` occurrences where one of them is a candidate. What
-     * [Scope.VIEWS] adds gets no children: a join view's columns from another relation stay out. An occurrence hit
+     * "Who uses" [key], as [filter] keeps it: occurrences of the entities in its scope (the entity itself, plus
+     * `IMPLEMENTS` partners in either direction, plus transitive `CONTAINS` descendants, plus with [Scope.VIEWS]
+     * transitively the view columns whose `VIEW_BASE` edges reach one of them and the views whose query reads a table,
+     * view or object table among them), and with its candidates the `AMBIGUOUS` occurrences where one of them is a
+     * candidate. What [Scope.VIEWS] adds gets no children: a join view's columns from another relation stay out. An occurrence hit
      * several ways reports one hit: a direct one before a candidate one, one not added by [Scope.VIEWS] before one
      * added by it ([OccurrenceRow.viaView]). Rows are in occurrence id order, which is source order. Facets count the
      * whole filtered set: roles under the status filter only, statuses under the role filter only. With [side], only
@@ -128,20 +128,16 @@ class AtlasIndex(
      */
     fun occurrences(
         key: String,
-        roles: Set<String>? = null,
-        statuses: Set<String>? = null,
-        scope: Set<Scope> = setOf(Scope.SELF),
-        includeCandidates: Boolean = true,
+        filter: UsageFilter = UsageFilter(),
         after: Long? = null,
         limit: Int = 100,
-        via: UsagePath? = null,
         side: UsageSide? = null,
         sides: Boolean = false
     ): Answer<OccurrencePage?> {
         if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
-        val roleFilter = usageRoles(roles, statuses)
+        val roleFilter = usageRoles(filter.roles, filter.statuses)
         return read { connection, _ ->
-            UsageReader(connection).occurrences(key, roleFilter, statuses, scope, includeCandidates, via, side, sides, after, limit)
+            UsageReader(connection).occurrences(key, roleFilter, filter, side, sides, after, limit)
         }
     }
 
@@ -153,32 +149,28 @@ class AtlasIndex(
     fun groupUsages(
         key: String,
         dimensions: List<GroupDimension>,
-        roles: Set<String>? = null,
-        statuses: Set<String>? = null,
-        scope: Set<Scope> = setOf(Scope.SELF),
-        includeCandidates: Boolean = true,
-        via: UsagePath? = null,
+        filter: UsageFilter = UsageFilter(),
         limit: Int = 100
     ): Answer<GroupPage?> {
         checkGroups(dimensions, limit)
-        val roleFilter = usageRoles(roles, statuses)
+        val roleFilter = usageRoles(filter.roles, filter.statuses)
         return read(timed = true) { connection, _ ->
-            UsageReader(connection).groupUsages(key, roleFilter, statuses, scope, includeCandidates, via, dimensions, limit)
+            UsageReader(connection).groupUsages(key, roleFilter, filter, dimensions, limit)
         }
     }
 
     /**
      * The transitive impact of [key]: who uses it, who uses those, and so on, breadth first, up to code nothing in the
-     * index uses. The first hop is "who uses" as [occurrences] lists it, for [roles], [statuses] and [include] (null:
-     * the default by kind, [defaultUsageScopes]), candidates included. From the second hop on, the walk follows the uses
+     * index uses, as [options] says. The first hop is "who uses" as [occurrences] lists it, for the options' roles,
+     * statuses and scopes, candidates included. From the second hop on, the walk follows the uses
      * that run a node, not those that only name it: calls of a routine or a type, SQL on a view or materialized view,
      * reading a cursor. A node is the container of a use (`occurrence.container_entity_id`), a spec and its bodies being
      * one node named by the spec; the entity and its spec or bodies are never nodes. A use Forms makes without code
      * (`FORMS_IMPLICIT`) has its block or item as container, so the block or item is the node, reached through a use
      * without a line. A view is followed as a whole: from
      * a column, every user of a view computed from it, not only the users of the view columns computed from that column.
-     * With [followTriggers], a DML trigger is followed through the writes that fire it ([TriggerWrites]): an INSERT,
-     * UPDATE, DELETE or MERGE of its table (a data block's that Forms runs without code included), directly, through a
+     * With [ImpactOptions.followTriggers], a DML trigger is followed through the writes that fire it ([TriggerWrites]):
+     * an INSERT, UPDATE, DELETE or MERGE of its table (a data block's that Forms runs without code included), directly, through a
      * synonym or through a view with one base, and with its
      * events (`UPDATE OF` columns included); the hop is not certain when the table or the event is not. A trigger no
      * such write fires is an entry point. Without it, and for system triggers, the walk stops at the trigger, as it does
@@ -190,22 +182,16 @@ class AtlasIndex(
      */
     fun impact(
         key: String,
-        roles: Set<String>? = null,
-        statuses: Set<String>? = null,
-        include: List<Scope>? = null,
-        maxDepth: Int = 10,
+        options: ImpactOptions = ImpactOptions(),
         stop: ImpactStop? = null,
         offset: Int = 0,
-        limit: Int = 100,
-        followTriggers: Boolean = true
+        limit: Int = 100
     ): Answer<ImpactGraph?> {
-        if (maxDepth !in 1..50) throw InvalidQueryException("maxDepth must be between 1 and 50")
         if (offset < 0) throw InvalidQueryException("offset must not be negative")
         if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
-        include?.firstOrNull { it == Scope.SELF }?.let { throw InvalidQueryException("Unknown include: SELF") }
-        val roleFilter = usageRoles(roles, statuses)
+        val roleFilter = checkImpact(options)
         return read(timed = true) { connection, _ ->
-            ImpactReader(connection).impact(key, roleFilter, statuses, include, maxDepth, stop, offset, limit, followTriggers)
+            ImpactReader(connection).impact(key, roleFilter, options, stop, offset, limit)
         }
     }
 
@@ -213,19 +199,10 @@ class AtlasIndex(
      * [impact] with every node of the graph in its order, without stop, offset or limit: for a caller that numbers the
      * nodes of the whole graph and pages them itself. The graph is computed once.
      */
-    fun impactGraph(
-        key: String,
-        roles: Set<String>? = null,
-        statuses: Set<String>? = null,
-        include: List<Scope>? = null,
-        maxDepth: Int = 10,
-        followTriggers: Boolean = true
-    ): Answer<ImpactGraph?> {
-        if (maxDepth !in 1..50) throw InvalidQueryException("maxDepth must be between 1 and 50")
-        include?.firstOrNull { it == Scope.SELF }?.let { throw InvalidQueryException("Unknown include: SELF") }
-        val roleFilter = usageRoles(roles, statuses)
+    fun impactGraph(key: String, options: ImpactOptions = ImpactOptions()): Answer<ImpactGraph?> {
+        val roleFilter = checkImpact(options)
         return read(timed = true) { connection, _ ->
-            ImpactReader(connection).impact(key, roleFilter, statuses, include, maxDepth, null, 0, Int.MAX_VALUE, followTriggers)
+            ImpactReader(connection).impact(key, roleFilter, options, null, 0, Int.MAX_VALUE)
         }
     }
 
@@ -241,10 +218,10 @@ class AtlasIndex(
         maxDepth: Int = 10,
         followTriggers: Boolean = true
     ): Answer<ImpactView?> {
-        if (maxDepth !in 1..50) throw InvalidQueryException("maxDepth must be between 1 and 50")
-        include?.firstOrNull { it == Scope.SELF }?.let { throw InvalidQueryException("Unknown include: SELF") }
+        val options = ImpactOptions(include = include, maxDepth = maxDepth, followTriggers = followTriggers)
+        val roleFilter = checkImpact(options)
         return read(timed = true) { connection, _ ->
-            val graph = ImpactReader(connection).impact(key, USAGE_ROLES, null, include, maxDepth, null, 0, Int.MAX_VALUE, followTriggers)
+            val graph = ImpactReader(connection).impact(key, roleFilter, options, null, 0, Int.MAX_VALUE)
             if (graph != null && graph.nodes.size > maxViewNodes) throw GraphTooLargeException(graph.nodes.size, maxViewNodes)
             graph?.let { ImpactViewBuilder(connection).build(it, followTriggers) }
         }
@@ -255,6 +232,13 @@ class AtlasIndex(
         roles?.firstOrNull { it !in ROLES }?.let { throw InvalidQueryException("Unknown role: $it") }
         statuses?.firstOrNull { it !in STATUSES }?.let { throw InvalidQueryException("Unknown status: $it") }
         return roles?.ifEmpty { null } ?: USAGE_ROLES
+    }
+
+    /** Checks [options] as every impact answer does; the roles of its first hop ([usageRoles]). */
+    private fun checkImpact(options: ImpactOptions): Set<String> {
+        if (options.maxDepth !in 1..50) throw InvalidQueryException("maxDepth must be between 1 and 50")
+        options.include?.firstOrNull { it == Scope.SELF }?.let { throw InvalidQueryException("Unknown include: SELF") }
+        return usageRoles(options.roles, options.statuses)
     }
 
     private fun checkGroups(dimensions: List<GroupDimension>, limit: Int) {
