@@ -13,6 +13,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
 import io.modelcontextprotocol.kotlin.sdk.types.*
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
@@ -104,7 +105,11 @@ internal fun atlasMcpServer(index: AtlasIndex, maxAnswerChars: Int = McpAnswers.
 }
 
 /** The tools, their schemas and their argument reading; every answer at most [maxChars] characters, but for a single row. */
-internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars: Int = McpAnswers.MAX_CHARS) {
+internal class AtlasMcpTools(
+    private val index: AtlasIndex,
+    private val maxChars: Int = McpAnswers.MAX_CHARS,
+    private val io: CoroutineDispatcher = Dispatchers.IO
+) {
     private val codes = indexCodes()
 
     /** One tool: what `tools/list` shows of it, and what answers a call, from the call's [Arguments]. */
@@ -405,7 +410,7 @@ internal class AtlasMcpTools(private val index: AtlasIndex, private val maxChars
     }
 
     /** Runs [body] off the request thread; a refused request is an error result the agent can act on, not a protocol error. */
-    internal suspend fun call(body: () -> JsonElement): CallToolResult = withContext(Dispatchers.IO) {
+    internal suspend fun call(body: () -> JsonElement): CallToolResult = withContext(io) {
         try {
             CallToolResult(content = listOf(TextContent(ToolJson.encodeToString(JsonElement.serializer(), body()))))
         } catch (e: ToolException) {
