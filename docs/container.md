@@ -165,6 +165,16 @@ Each commit on `main` whose build passes also publishes `edge`, the newest, and 
 is coming, a `sha-` tag to stay on one of those images for a while (only the 20 newest are kept), and a version for
 anything that must stay stable: `latest` never moves to them.
 
+Every published image is signed with cosign, without a key, by the workflow that built it, and carries its SBOM and
+the provenance of its build. To check that an image comes from this repository before running it:
+
+```sh
+cosign verify ghcr.io/felipebz/zpa-atlas:1.2.3 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/felipebz/zpa-atlas/\.github/workflows/image\.yml@'
+docker buildx imagetools inspect ghcr.io/felipebz/zpa-atlas:1.2.3 --format '{{ json .SBOM }}'
+```
+
 ## Building the image
 
 ```sh
