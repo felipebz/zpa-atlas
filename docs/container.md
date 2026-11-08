@@ -161,6 +161,10 @@ A `v1.2.3` tag publishes `1.2.3`, `1.2` and `latest`; a pre-release such as `v1.
 leaves `latest` alone. A manual run of the workflow publishes the version it is given and moves `latest` to it, even
 when that version is older than the current one.
 
+Each commit on `main` whose build passes also publishes `edge`, the newest, and `sha-<commit>`. Use `edge` to try what
+is coming, a `sha-` tag to stay on one of those images for a while (only the 20 newest are kept), and a version for
+anything that must stay stable: `latest` never moves to them.
+
 ## Building the image
 
 ```sh

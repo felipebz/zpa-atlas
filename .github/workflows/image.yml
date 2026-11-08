@@ -1,13 +1,19 @@
 name: Image
 
-# The container image (Dockerfile, docs/container.md). Pull requests and main build it for both platforms without
-# pushing; a v* tag, or a manual run, also pushes it to ghcr.io.
+# The container image (Dockerfile, docs/container.md). Pull requests build it for both platforms without pushing.
+# Each push to main whose Build workflow passed pushes a snapshot to ghcr.io as edge and sha-<commit>; a v* tag, or a
+# manual run, pushes a release.
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
+  workflow_run:
+    workflows:
+      - Build
+    types:
+      - completed
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -27,7 +33,7 @@ permissions:
 jobs:
   build:
     name: Build
-    if: github.event_name == 'pull_request' || github.ref_type == 'branch' && github.event_name == 'push'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -44,6 +50,65 @@ jobs:
           push: false
           build-args: |
             REVISION=${{ github.sha }}
+
+  snapshot:
+    name: Publish snapshot
+    # Only after Build passed on a push to main: a fork's pull request never publishes, and a broken build is never edge.
+    if: >-
+      github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          # The commit checked out, not github.sha: on workflow_run that is the default branch's newest commit.
+          context: git
+          # A snapshot never moves latest: that tag is the newest release.
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=edge
+            type=sha,format=short,prefix=sha-
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # No VERSION: the image reports the version of gradle.properties, a -SNAPSHOT one, and zpa's latest snapshot.
+      - name: Build and push for both platforms
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            REVISION=${{ github.event.workflow_run.head_sha }}
+
+      # Keeps the newest snapshots; releases, edge and latest are never touched.
+      - name: Remove old snapshots
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          delete-tags: 'sha-*'
+          keep-n-tagged: 20
+          exclude-tags: edge,latest
+          delete-untagged: true
 
   publish:
     name: Publish
