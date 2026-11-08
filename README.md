@@ -1,5 +1,8 @@
 # ZPA Atlas
 
+[![Build](https://github.com/felipebz/zpa-atlas/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/felipebz/zpa-atlas/actions/workflows/build.yml)
+[![Quality Gate Status](https://sonarqube.felipebz.com/api/project_badges/measure?project=com.felipebz.zpa%3Azpa-atlas&metric=alert_status)](https://sonarqube.felipebz.com/dashboard?id=com.felipebz.zpa%3Azpa-atlas)
+
 ZPA Atlas maps an Oracle PL/SQL and SQL codebase. It reads a folder of sources (packages, procedures, functions,
 types, triggers, views, scripts) and records in one SQLite file every definition and every use of tables, columns,
 views, packages, subprograms, types, sequences and synonyms. Before changing a table, a column or a procedure, it tells
