@@ -1404,7 +1404,8 @@ internal class IntoClauses(
      * zpa binds its last segment to, as the index records its use; when that field has no entity (a field of an element
      * that is a `%ROWTYPE`), the collection itself, its element and fields as steps of the path ([IntoTarget.ELEMENT]).
      * An element of an element (`a(i)(j)`, `a(i).f(j)(k)`) is a shape the index does not follow
-     * (`TARGET_SHAPE_NOT_FOLLOWED`).
+     * (`TARGET_SHAPE_NOT_FOLLOWED`). A member of a Forms module's package (`pks.g_code`), whose use is the package's,
+     * is the member ([FileState.formsMembers]).
      */
     private fun target(node: AstNode, bySpan: Map<SourceSpan, List<OccurrenceFact>>, shapes: TypeShapes): IntoTarget {
         val span = spanOf(node)
@@ -1426,6 +1427,7 @@ internal class IntoClauses(
             val last = name.children.last { it.type == PlSqlGrammar.IDENTIFIER_NAME || it.type == PlSqlGrammar.VARIABLE_NAME }
             bySpan[spanOf(last)]?.firstOrNull()?.entityKey?.let { return IntoTarget(span, written, it, emptyList(), element, null, null, null) }
         }
+        state.formsMembers[spanOf(name)]?.let { return IntoTarget(span, written, it.key, it.fields, element, null, null, null) }
         bySpan[spanOf(name)]?.firstOrNull()?.entityKey?.let { key ->
             val own = key.substringAfterLast('.').substringBefore('@').substringBefore('#')
             val at = segments.indexOfLast { it == own }

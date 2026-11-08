@@ -19,9 +19,10 @@ import java.util.*
  * - a size, read as written: a character length and its unit (`CHAR`, `BYTE`, or none written, which the compile-time
  *   `NLS_LENGTH_SEMANTICS` decides), a number's precision, a predefined bounded type (`PLS_INTEGER`);
  * - an anchor (`x%TYPE`, `x%ROWTYPE`) or a type name: the entity the index already resolves it to (its `TYPE_USE`,
- *   [FileState.typeTargets]); for a name of a local declaration, which the index does not resolve there, the entity of
- *   that declaration when it has one, else its own shape. zpa's name binding does not answer the name of an anchor:
- *   its first segment is followed with the declaration zpa's parser attaches to it (the legacy symbol), as the index
+ *   [FileState.typeTargets]), or the member of a Forms module's package it names ([FileState.formsMembers]), whose use
+ *   is the package's; for a name of a local declaration, which the index does not resolve there, the entity of that
+ *   declaration when it has one, else its own shape. zpa's name binding does not answer the name of an anchor: its
+ *   first segment is followed with the declaration zpa's parser attaches to it (the legacy symbol), as the index
  *   already does to tell a local anchor; a type name with zpa's type binding.
  */
 internal class TypeShapes(
@@ -178,6 +179,7 @@ internal class TypeShapes(
             val key = state.typeTargets[node]
             return TypeShape.Anchored(rowType, key, null, emptyList(), if (key == null) "ANCHOR_UNRESOLVED" else null)
         }
+        state.formsMembers[spanOf(name)]?.let { return TypeShape.Anchored(rowType, it.key, null, it.fields, null) }
         val segments = segmentsOf(name) ?: return TypeShape.Anchored(rowType, null, null, emptyList(), "ANCHOR_NOT_A_NAME")
         val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild
         val declaration = (first as? SemanticAstNode)?.symbol?.node?.let(::declaringNode)
@@ -194,6 +196,7 @@ internal class TypeShapes(
             return TypeShape.Named(key, null, if (key == null) "TYPE_UNRESOLVED" else null)
         }
         val name = node.firstChild
+        state.formsMembers[spanOf(name)]?.takeIf { it.fields.isEmpty() }?.let { return TypeShape.Named(it.key, null, null) }
         val declaration = when (val binding = typeBinding(name)) {
             is NameBinding.Local -> binding.declaration.takeIf { it.fileId == null }?.let { declarations[position(it.line, it.column)] }
             else -> null

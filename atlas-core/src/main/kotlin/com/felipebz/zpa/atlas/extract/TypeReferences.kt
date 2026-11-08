@@ -80,7 +80,8 @@ internal class TypeReferences(
 
     /**
      * In a Forms module, records the use of a type or value of a module package (the package) and returns true; also
-     * true for a Forms built-in type, which gives nothing. False otherwise and outside a Forms module.
+     * true for a Forms built-in type, which gives nothing. False otherwise and outside a Forms module. A member of the
+     * package's specification is kept for the type's shape ([FileState.formsMembers]).
      */
     private fun formsTypeUse(node: AstNode, name: AstNode, segments: List<String>, context: Context, statementId: Int?): Boolean {
         val forms = forms ?: return false
@@ -88,6 +89,7 @@ internal class TypeReferences(
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name),
             target.key.takeIf { target.known }, setOf(Role.TYPE_USE), status(if (target.known) Status.RESOLVED else Status.UNRESOLVED, context.partial),
             context.origin, if (target.known) null else "UNKNOWN_MEMBER")
+        target.member?.let { state.formsMembers[spanOf(name)] = it }
         return true
     }
 

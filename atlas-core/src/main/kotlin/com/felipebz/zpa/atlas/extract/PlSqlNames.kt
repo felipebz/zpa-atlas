@@ -226,6 +226,7 @@ internal class PlSqlNames(
                 } else {
                     state.valueOccurrence(span, text, context, statementId, Status.RESOLVED, target.key, null, emptyList(),
                         if (attribute) setOf(Role.READ) else roles.valueRoles(name, segments))
+                    target.member?.let { state.formsMembers[span] = it }
                 }
                 return
             }

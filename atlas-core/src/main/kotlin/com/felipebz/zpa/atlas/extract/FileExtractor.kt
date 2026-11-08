@@ -130,7 +130,7 @@ class FileExtractor internal constructor(
         bodyGlobals = BodyGlobals(state, bound, context::recordFields)
         fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding, bodyGlobals::fieldAt)
         val sequences = projectAnalysis()
-        val formsNames = formsEntities?.names(modulePackages(node))
+        val formsNames = formsEntities?.names(modulePackages(node), specifiedMembers(node))
         plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, bound, fields, formsNames, formsReferences) {
             sequenceResolutions[it] ?: sequences.resolveSequenceReference(it)
         }
@@ -552,6 +552,24 @@ class FileExtractor internal constructor(
             val name = unit.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.lastOrNull() ?: continue
             val declared = result.getOrPut(normalizeIdentifier(name.tokenOriginalValue)) { HashMap() }
             for (declaration in unitDeclarations(unit)) declared[declaration.name] = (declared[declaration.name] ?: false) || declaration.subprogram
+        }
+        return result
+    }
+
+    /**
+     * What the package specifications of a Forms module's text declare as entities, by package name: their variables,
+     * constants and types, each keyed `PKG.NAME` ([formsDeclarations]).
+     */
+    private fun specifiedMembers(root: AstNode): Map<String, Set<String>> {
+        if (forms == null) return emptyMap()
+        val result = HashMap<String, HashSet<String>>()
+        for (child in root.getChildren(PlSqlGrammar.COMPILATION_UNIT)) {
+            val unit = child.firstChild.takeIf { it.type == PlSqlGrammar.CREATE_PACKAGE } ?: continue
+            val name = unit.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.lastOrNull() ?: continue
+            val declared = result.getOrPut(normalizeIdentifier(name.tokenOriginalValue)) { HashSet() }
+            for (item in unit.getFirstChildOrNull(PlSqlGrammar.DECLARE_SECTION)?.children.orEmpty()) {
+                BodyGlobals.declaredName(item)?.let { declared += normalizeIdentifier(it.tokenOriginalValue) }
+            }
         }
         return result
     }

@@ -64,9 +64,8 @@ internal class BodyGlobals(
             state.relations += RelationFact(parentKey, RelationKind.CONTAINS, key)
         }
         for (item in body.getFirstChildOrNull(PlSqlGrammar.DECLARE_SECTION)?.children.orEmpty()) {
+            val name = declaredName(item) ?: continue
             val type = item.type in TYPE_DECLARATIONS
-            if (!type && (item.type != PlSqlGrammar.VARIABLE_DECLARATION || item.hasDirectChildren(PlSqlKeyword.EXCEPTION))) continue
-            val name = item.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
             val normalized = normalizeIdentifier(name.tokenOriginalValue)
             val count = (used[normalized] ?: 0) + 1
             used[normalized] = count
@@ -132,9 +131,8 @@ internal class BodyGlobals(
         /** Registers the variables, constants and types of the declare section [section], keyed after [prefix]. */
         private fun section(section: AstNode, prefix: String) {
             for (item in section.children) {
+                val name = declaredName(item) ?: continue
                 val type = item.type in TYPE_DECLARATIONS
-                if (!type && (item.type != PlSqlGrammar.VARIABLE_DECLARATION || item.hasDirectChildren(PlSqlKeyword.EXCEPTION))) continue
-                val name = item.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
                 val normalized = normalizeIdentifier(name.tokenOriginalValue)
                 val key = uniqueKey("$prefix.$normalized")
                 used += key
@@ -227,6 +225,15 @@ internal class BodyGlobals(
             }
             val returns = if (node.type == PlSqlGrammar.FUNCTION_DECLARATION) node.getFirstChildOrNull(PlSqlGrammar.DATATYPE)?.let { " RETURN ${typeText(it)}" }.orEmpty() else ""
             return list + returns
+        }
+
+        /**
+         * The name of the variable, constant or type the declare section's [item] declares, which is an entity; null for
+         * any other item (an exception declared like a variable, a cursor, a subprogram).
+         */
+        fun declaredName(item: AstNode): AstNode? {
+            if (item.type !in TYPE_DECLARATIONS && (item.type != PlSqlGrammar.VARIABLE_DECLARATION || item.hasDirectChildren(PlSqlKeyword.EXCEPTION))) return null
+            return item.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)
         }
 
         /** A datatype as written, upper-cased, a space only between two words (`VARCHAR2(10)`, `PKG.T%TYPE`, `REF T`). */

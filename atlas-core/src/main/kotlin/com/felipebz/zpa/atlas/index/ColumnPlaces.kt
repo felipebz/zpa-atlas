@@ -721,14 +721,16 @@ internal class ColumnPlaces(
     private fun place(path: String, into: IntoFact, target: IntoTarget, field: Int?, column: String, functions: List<String>): ColumnPlaceFact {
         var node = targetNode(target, into.bulk)
         var fieldName: String? = null
-        var text = target.entityKey?.let { texts[it] ?: formsType(it) } ?: target.declaredType
+        // The field of a Forms record written after its variable is the target, as zpa binds a database record's field.
+        val targetKey: String? = recordField(target, node, field, into.bulk) ?: target.entityKey
+        var text = targetKey?.let { texts[it] ?: formsType(it) } ?: target.declaredType
         if (field != null) {
             val (reached, name) = field(node, field, null)
             node = reached
             fieldName = name
             if (reached is Node.Shape && reached.owner != null) texts[reached.owner]?.let { text = it }
         }
-        val decision = if (target.entityKey == null && target.local == null) Decision(PlaceClass.UNKNOWN, reason = target.reason ?: "TARGET_UNDECIDED")
+        val decision = if (targetKey == null && target.local == null) Decision(PlaceClass.UNKNOWN, reason = target.reason ?: "TARGET_UNDECIDED")
             else classify(node, column, 0)
         // The parameter itself, not a field or an element of it, whose type is the caller's argument's.
         val mode = (node as? Node.Shape)?.shape.let { it as? TypeShape.OutParameter }
@@ -738,11 +740,21 @@ internal class ColumnPlaces(
         val unit = if (sized) unitOf(decision, path, into.unitIndex) else LengthUnit(null)
         // The type source is another entity whose declaration decides the type; the target's own declaration is not repeated.
         return ColumnPlaceFact(
-            into.unitIndex, into.containerKey, into.statementLocalId, target.span, column, into.source, into.bulk, target.entityKey, target.written,
+            into.unitIndex, into.containerKey, into.statementLocalId, target.span, column, into.source, into.bulk, targetKey, target.written,
             fieldName, placeClass, text, decision.length.takeIf { sized }, unit.unit, decision.scale.takeIf { sized },
-            decision.source?.takeIf { it != target.entityKey }, mode, decision.reason, functions, into.parameterKey,
+            decision.source?.takeIf { it != targetKey }, mode, decision.reason, functions, into.parameterKey,
             target.localKey.takeIf { mode != null }, unitSource = unit.source, unitCompiledIn = unit.compiledIn
         )
+    }
+
+    /**
+     * The field entity [node] reached when the Forms [target] names a field after its variable (`r.code`,
+     * `pks.g_rec.code`): the target itself, not one of its elements, nor a field the statement's item picks. Null otherwise.
+     */
+    private fun recordField(target: IntoTarget, node: Node, field: Int?, bulk: Boolean): String? {
+        if (target.entityKey?.startsWith(FORMS_PREFIX) != true || target.path.isEmpty() || target.path.last() == IntoTarget.ELEMENT) return null
+        if (target.element || bulk || field != null) return null
+        return (node as? Node.Shape)?.owner?.takeIf { it != target.entityKey && it.startsWith(FORMS_PREFIX) }
     }
 
     /** The unit of [decision]'s length, at a place in the unit [unitIndex] of the file [path]: one written without a unit, [lengthUnit]'s. */

@@ -138,10 +138,11 @@ internal class FormsEntities(private val layout: FormsLayout) {
 
     /**
      * The module's names for [FormsNames]: each program unit's entity by its name, with the name of the package it is
-     * (a package specification or body), and the declarations of each package by its name: [packages] (from the
-     * walked tree, the specification's and the body's together), a subprogram or not.
+     * (a package specification or body), the declarations of each package by its name: [packages] (from the walked
+     * tree, the specification's and the body's together), a subprogram or not; and the names each package's
+     * specification declares as entities ([specified]: its variables, constants and types).
      */
-    fun names(packages: Map<String, Map<String, Boolean>>): FormsNames {
+    fun names(packages: Map<String, Map<String, Boolean>>, specified: Map<String, Set<String>>): FormsNames {
         val own = HashMap<String, FormsNames.Own>()
         for (unit in layout.units) {
             if (unit.kind != FormsLayout.Kind.PROGRAM_UNIT) continue
@@ -150,7 +151,7 @@ internal class FormsEntities(private val layout: FormsLayout) {
             val existing = own[name]
             if (existing == null || isPackage && existing.packageName == null) own[name] = FormsNames.Own(unitKeys.getValue(unit), if (isPackage) name else null)
         }
-        return FormsNames(own, packages)
+        return FormsNames(own, packages, specified)
     }
 
     private fun entity(kind: EntityKind, path: String, name: String, parentKey: String?, contained: Boolean = true): String {
@@ -195,19 +196,28 @@ internal class FormsEntities(private val layout: FormsLayout) {
  * The names a module gives its own code, asked before the database and Oracle's built-ins, after the code's own
  * declarations: a name whose first segment is a procedure or function of the module is that program unit, even when
  * the database has a routine of the same name; `PKG.X` with `PKG` a package of the module and `X` one of its
- * declarations is the package (its members are not entities), and so is a name the package declares, written inside
- * it; an `X` the package does not declare is an unknown member. Then the Forms built-ins
+ * declarations is the package (the uses of its members count as the package's), and so is a name the package
+ * declares, written inside it; an `X` the package does not declare is an unknown member. Then the Forms built-ins
  * ([FormsBuiltins]), which are recorded as nothing, as Oracle's own built-in types are.
  */
-internal class FormsNames(private val own: Map<String, Own>, private val packages: Map<String, Map<String, Boolean>>) {
+internal class FormsNames(
+    private val own: Map<String, Own>,
+    private val packages: Map<String, Map<String, Boolean>>,
+    /** The names each package's specification declares as entities ([BodyGlobals.declare]), by package name. */
+    private val specified: Map<String, Set<String>>
+) {
     /** A program unit's entity, and for a package its name. */
     class Own(val key: String, val packageName: String?)
 
     /**
      * The entity a name resolves to, and whether it names a subprogram; [known] is false for a member the package does
-     * not declare (`PKG.NOPE`), recorded as a database package's missing member is.
+     * not declare (`PKG.NOPE`), recorded as a database package's missing member is. [member] is the declaration of the
+     * package's specification the name names, which the size of what it holds follows.
      */
-    class Target(val key: String, val subprogram: Boolean?, val known: Boolean = true)
+    class Target(val key: String, val subprogram: Boolean?, val known: Boolean = true, val member: Member? = null)
+
+    /** A variable, constant or type of a package's specification ([key]), and the fields written after its name. */
+    class Member(val key: String, val fields: List<String>)
 
     /** The program unit [segments] (written at [node]) names, or null. */
     fun own(node: AstNode, segments: List<String>): Target? {
@@ -216,14 +226,18 @@ internal class FormsNames(private val own: Map<String, Own>, private val package
         enclosingPackage(node)?.let { name ->
             val declared = packages[name]?.get(names[0])
             val unit = own[name]
-            if (declared != null && unit != null) return Target(unit.key, declared)
+            if (declared != null && unit != null) return Target(unit.key, declared, member = specMember(unit, name, names, 0))
         }
         val unit = own[names[0]] ?: return null
         val packageName = unit.packageName ?: return Target(unit.key, true)
         val member = names.getOrNull(1) ?: return Target(unit.key, false)
         val declared = packages[packageName]?.get(member) ?: return Target(unit.key, null, known = false)
-        return Target(unit.key, declared)
+        return Target(unit.key, declared, member = specMember(unit, packageName, names, 1))
     }
+
+    /** The member of the package [packageName] (its program unit [unit]) the name [names] names at [at], when its specification declares it. */
+    private fun specMember(unit: Own, packageName: String, names: List<String>, at: Int): Member? =
+        if (names[at] in specified[packageName].orEmpty()) Member("${unit.key}.${names[at]}", names.drop(at + 1)) else null
 
     fun isBuiltIn(segments: List<String>): Boolean = FormsBuiltins.isBuiltIn(segments)
 
