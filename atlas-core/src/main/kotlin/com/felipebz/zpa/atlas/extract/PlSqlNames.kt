@@ -266,6 +266,8 @@ internal class PlSqlNames(
      * A call in a Forms module whose name is the module's own ([FormsNames.own]): one `CALL` of the program unit, its
      * actuals bound to no parameter (the module's code is not zpa's project); true when the name is one of the module or a
      * Forms built-in, which gives nothing itself: only the object its first argument names ([FormsReferences.builtInCall]).
+     * An element of a variable of a package's specification (`pks.g_tab(1)`) is no call: a use of the package, read or
+     * written as the variable is, as a database package's variable is.
      */
     private fun formsCall(
         forms: FormsNames, callee: AstNode, segments: List<String>, arguments: List<Pair<String?, AstNode>>, context: Context, statementId: Int?
@@ -275,6 +277,13 @@ internal class PlSqlNames(
         }
         if (!target.known) {
             state.callOccurrence(callee, context, statementId, CallOutcome.Call(Status.UNRESOLVED, null, "UNKNOWN_MEMBER"))
+            return true
+        }
+        // What the member holds is its declaration's: `pks.g_tab(1).code` is a field of the element of the package's variable.
+        target.member?.let { state.formsMembers[spanOf(callee)] = it }
+        if (target.member?.declaration?.type == PlSqlGrammar.VARIABLE_DECLARATION) {
+            state.valueOccurrence(spanOf(callee), writtenText(callee), context, statementId, Status.RESOLVED, target.key, null, emptyList(),
+                roles.valueRoles(callee, segments))
             return true
         }
         val argumentFacts = arguments.mapIndexed { index, (label, expression) ->

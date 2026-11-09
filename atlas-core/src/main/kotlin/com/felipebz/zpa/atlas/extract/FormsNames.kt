@@ -139,10 +139,10 @@ internal class FormsEntities(private val layout: FormsLayout) {
     /**
      * The module's names for [FormsNames]: each program unit's entity by its name, with the name of the package it is
      * (a package specification or body), the declarations of each package by its name: [packages] (from the walked
-     * tree, the specification's and the body's together), a subprogram or not; and the names each package's
-     * specification declares as entities ([specified]: its variables, constants and types).
+     * tree, the specification's and the body's together), a subprogram or not; and what each package's specification
+     * declares as entities ([specified]: its variables, constants and types, each declaration by its name).
      */
-    fun names(packages: Map<String, Map<String, Boolean>>, specified: Map<String, Set<String>>): FormsNames {
+    fun names(packages: Map<String, Map<String, Boolean>>, specified: Map<String, Map<String, AstNode>>): FormsNames {
         val own = HashMap<String, FormsNames.Own>()
         for (unit in layout.units) {
             if (unit.kind != FormsLayout.Kind.PROGRAM_UNIT) continue
@@ -203,8 +203,8 @@ internal class FormsEntities(private val layout: FormsLayout) {
 internal class FormsNames(
     private val own: Map<String, Own>,
     private val packages: Map<String, Map<String, Boolean>>,
-    /** The names each package's specification declares as entities ([BodyGlobals.declare]), by package name. */
-    private val specified: Map<String, Set<String>>
+    /** The declarations each package's specification declares as entities ([BodyGlobals.declare]), by name, by package name. */
+    private val specified: Map<String, Map<String, AstNode>>
 ) {
     /** A program unit's entity, and for a package its name. */
     class Own(val key: String, val packageName: String?)
@@ -216,8 +216,11 @@ internal class FormsNames(
      */
     class Target(val key: String, val subprogram: Boolean?, val known: Boolean = true, val member: Member? = null)
 
-    /** A variable, constant or type of a package's specification ([key]), and the fields written after its name. */
-    class Member(val key: String, val fields: List<String>)
+    /**
+     * A variable, constant or type of a package's specification ([key]), its [declaration] in the module's text, and the
+     * fields written after its name.
+     */
+    class Member(val key: String, val declaration: AstNode, val fields: List<String>)
 
     /** The program unit [segments] (written at [node]) names, or null. */
     fun own(node: AstNode, segments: List<String>): Target? {
@@ -237,7 +240,7 @@ internal class FormsNames(
 
     /** The member of the package [packageName] (its program unit [unit]) the name [names] names at [at], when its specification declares it. */
     private fun specMember(unit: Own, packageName: String, names: List<String>, at: Int): Member? =
-        if (names[at] in specified[packageName].orEmpty()) Member("${unit.key}.${names[at]}", names.drop(at + 1)) else null
+        specified[packageName]?.get(names[at])?.let { Member("${unit.key}.${names[at]}", it, names.drop(at + 1)) }
 
     fun isBuiltIn(segments: List<String>): Boolean = FormsBuiltins.isBuiltIn(segments)
 

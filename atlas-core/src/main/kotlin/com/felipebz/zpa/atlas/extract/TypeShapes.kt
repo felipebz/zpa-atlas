@@ -184,9 +184,7 @@ internal class TypeShapes(
         }
         state.formsMembers[spanOf(name)]?.let { return TypeShape.Anchored(rowType, it.key, null, it.fields, null) }
         val segments = segmentsOf(name) ?: return TypeShape.Anchored(rowType, null, null, emptyList(), "ANCHOR_NOT_A_NAME")
-        val first = if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild
-        val declaration = (first as? SemanticAstNode)?.symbol?.node?.let(::declaringNode)
-            ?: return TypeShape.Anchored(rowType, null, null, emptyList(), "ANCHOR_UNRESOLVED")
+        val declaration = symbolDeclaration(name) ?: return TypeShape.Anchored(rowType, null, null, emptyList(), "ANCHOR_UNRESOLVED")
         val path = segments.drop(1)
         val (key, shape) = entityOrShape(declaration)
         return TypeShape.Anchored(rowType, key, shape, path, null)
@@ -200,11 +198,7 @@ internal class TypeShapes(
         }
         val name = node.firstChild
         state.formsMembers[spanOf(name)]?.takeIf { it.fields.isEmpty() }?.let { return TypeShape.Named(it.key, null, null) }
-        val declaration = when (val binding = typeBinding(name)) {
-            is NameBinding.Local -> binding.declaration.takeIf { it.fileId == null }?.let { declarations[position(it.line, it.column)] }
-            else -> null
-        } ?: (((if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild) as? SemanticAstNode)?.symbol?.node?.let(::declaringNode))
-        if (declaration == null) return TypeShape.Named(null, null, "TYPE_UNRESOLVED")
+        val declaration = typeDeclaration(name) ?: return TypeShape.Named(null, null, "TYPE_UNRESOLVED")
         val (key, shape) = entityOrShape(declaration)
         return TypeShape.Named(key, shape, null)
     }
@@ -219,11 +213,79 @@ internal class TypeShapes(
     /** The declaration whose name is at [line] and [column] of the file, or null. */
     fun localDeclaration(line: Int, column: Int): AstNode? = declarations[position(line, column)]
 
+    /** The local type zpa's type binding names by [name], else the declaration the legacy symbol of its first segment belongs to. */
+    private fun typeDeclaration(name: AstNode): AstNode? = when (val binding = typeBinding(name)) {
+        is NameBinding.Local -> binding.declaration.takeIf { it.fileId == null }?.let { declarations[position(it.line, it.column)] }
+        else -> null
+    } ?: symbolDeclaration(name)
+
+    /** The declaration zpa's parser attaches to the first segment of [name] (the legacy symbol), or null. */
+    fun symbolDeclaration(name: AstNode): AstNode? =
+        ((if (name.type == PlSqlGrammar.VARIABLE_NAME) name else name.firstChild) as? SemanticAstNode)?.symbol?.node?.let(::declaringNode)
+
     /** The declaration node a legacy symbol's name belongs to. */
     private fun declaringNode(identifier: AstNode): AstNode? {
         var node: AstNode? = identifier
         while (node != null && node.type !in DECLARATION_TYPES) node = node.parentOrNull
         return node
+    }
+
+    /** Where following the type of a declaration along written fields ends ([formsField]). */
+    sealed interface FieldReach {
+        /** At [field], a field declared in the file, [throughMember] when past a member of a Forms module's package. */
+        class Own(val field: AstNode, val throughMember: Boolean) : FieldReach
+
+        /** Not at a field of the file, past a member of a Forms module's package. */
+        data object Module : FieldReach
+
+        /** Not at a field of the file, past no member of a Forms module's package. */
+        data object Elsewhere : FieldReach
+    }
+
+    /**
+     * Where the type the text gives the declaration [declaration] of this file, followed along the written [fields] (a
+     * collection's element taken where a field follows it), leads: its type names, anchors and the members of a Forms
+     * module's packages they name ([FileState.formsMembers]) followed through the declarations of the file.
+     * [fromMember] when [declaration] is itself such a member.
+     */
+    fun formsField(declaration: AstNode, fields: List<String>, fromMember: Boolean): FieldReach {
+        val pending = ArrayDeque(fields)
+        val seen = Collections.newSetFromMap<AstNode>(IdentityHashMap())
+        var throughMember = fromMember
+        var current: AstNode? = declaration
+        while (current != null && seen.add(current)) {
+            if (current.type == PlSqlGrammar.RECORD_DECLARATION) {
+                val wanted = pending.pollFirst() ?: break
+                val field = current.getChildren(PlSqlGrammar.RECORD_FIELD_DECLARATION)
+                    .firstOrNull { normalizeIdentifier(it.getFirstChild(PlSqlGrammar.IDENTIFIER_NAME).tokenOriginalValue) == wanted } ?: break
+                if (pending.isEmpty()) return FieldReach.Own(field, throughMember)
+                current = field
+                continue
+            }
+            val holder = when (current.type) {
+                PlSqlGrammar.TABLE_OF_DECLARATION -> current.getFirstChild(PlSqlGrammar.NESTED_TABLE_DEFINITION)
+                PlSqlGrammar.VARRAY_DECLARATION -> current.getFirstChild(PlSqlGrammar.VARRAY_TYPE_DEFINITION)
+                else -> current
+            }
+            val type = holder.getFirstChildOrNull(PlSqlGrammar.DATATYPE)?.firstChild
+                ?.takeIf { it.type == PlSqlGrammar.CUSTOM_DATATYPE || it.type == PlSqlGrammar.ANCHORED_DATATYPE } ?: break
+            val name = type.firstChild
+            val member = state.formsMembers[spanOf(name)]
+            // The fields written in an anchor after what it names come before those written after the value.
+            current = when {
+                member != null -> {
+                    throughMember = true
+                    member.fields.asReversed().forEach(pending::addFirst)
+                    member.declaration
+                }
+                type.type == PlSqlGrammar.CUSTOM_DATATYPE -> typeDeclaration(name)
+                else -> {
+                    (segmentsOf(name) ?: break).drop(1).asReversed().forEach(pending::addFirst)
+                    symbolDeclaration(name)
+                }
+            }
+        }
+        return if (throughMember) FieldReach.Module else FieldReach.Elsewhere
     }
 
     private fun segmentsOf(name: AstNode): List<String>? = when (name.type) {

@@ -104,8 +104,9 @@ internal class FileState(strings: FactStrings = FactStrings()) {
 
     /**
      * The member of a Forms module's package specification each name of the module's code names (`pks.t_code`,
-     * `pks.g_rec.code`), by the span of the name ([FormsNames.Member]): its use is the package's, but what the name
-     * holds is the member's declaration, which [TypeShapes] and [IntoClauses] follow.
+     * `pks.g_rec.code`, `pks.g_tab` of `pks.g_tab(1)`), by the span of the name ([FormsNames.Member]): its use is the
+     * package's, but what the name holds is the member's declaration, which [TypeShapes] and [IntoClauses] follow, and
+     * by which [FieldUses] tells the fields zpa binds through the database's package of the same name.
      */
     val formsMembers = HashMap<SourceSpan, FormsNames.Member>()
 

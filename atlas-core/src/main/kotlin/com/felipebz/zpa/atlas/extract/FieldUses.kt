@@ -29,6 +29,14 @@ import java.util.*
  * A segment whose value zpa could not decide records nothing, and so does a field of a type without an entity (declared
  * in a subprogram). zpa leaves undecided a member after a value whose type is declared in another file when text this
  * file may hold differently (a `$IF` the settings do not decide, a substitution) could change how that value is looked up.
+ *
+ * zpa does not always see a Forms module's program units: when the database has an object of the name of one of them,
+ * zpa answers the name with it, which the module's code never reaches, and it may answer nothing. So in a Forms module,
+ * in a value or anchor that starts with a name of the module's own (`pks.g_rec.code`, `pks.g_tab(1).code`) or with a
+ * declaration of the file whose type the module's text gives through a member of one of its packages (`r.code` with
+ * `r pks.t_rec`), a field zpa binds that is declared in the database, or a segment zpa binds to no field, is the field
+ * of the file the module's text reaches there ([TypeShapes.formsField]), when it reaches one; a field declared in the
+ * module is zpa's own answer, kept.
  */
 internal class FieldUses(
     private val state: FileState,
@@ -38,7 +46,9 @@ internal class FieldUses(
     private val fieldBinding: (AstNode) -> FieldBinding,
     private val nameBinding: (AstNode) -> NameBinding,
     /** The field entity of a type of the file's package body declared at a line and column of this file ([BodyGlobals.fieldAt]). */
-    private val bodyFieldAt: (Int, Int) -> String?
+    private val bodyFieldAt: (Int, Int) -> String?,
+    /** Whether the file is a Forms module, whose own program units zpa does not see. */
+    private val formsModule: Boolean
 ) {
     private class Chain(val root: AstNode, val start: AstNode, val segments: List<String>, val context: Context, val statementId: Int?)
 
@@ -72,25 +82,35 @@ internal class FieldUses(
         if (name.type == PlSqlGrammar.MEMBER_EXPRESSION) anchors += Anchor(name, context, statementId)
     }
 
-    /** Records the field uses of every chain and anchor gathered: call once the file is left. */
-    fun record() {
+    /**
+     * Records the field uses of every chain and anchor gathered: call once the file is left. [shapes] tells, in a Forms
+     * module, the types the module's text gives its declarations.
+     */
+    fun record(shapes: TypeShapes) {
         // A chain that starts with a call works on the function's result, a copy: its fields are read, never written.
         val calls = state.occurrences.filter { Role.CALL in it.roles }.mapTo(HashSet()) { it.span }
-        for (chain in chains.values) recordChain(chain, calls)
-        for (anchor in anchors) recordAnchor(anchor)
+        for (chain in chains.values) recordChain(chain, calls, shapes)
+        for (anchor in anchors) recordAnchor(anchor, shapes)
     }
 
     /** Records a `TYPE_USE` of each field the name of [anchor] names. */
-    private fun recordAnchor(anchor: Anchor) {
-        for (segment in segmentsOf(anchor.name)) {
-            val key = (fieldBinding(segment) as? FieldBinding.Field)?.let(::fieldKey) ?: continue
+    private fun recordAnchor(anchor: Anchor, shapes: TypeShapes) {
+        val first = anchor.name.firstChild
+        val segments = listOf(first) + segmentsOf(anchor.name)
+        val start = if (!formsModule) null else when {
+            namesModule(anchor.name) -> FormsStart.Module(state.formsMembers[spanOf(anchor.name)], segments.size)
+            else -> shapes.symbolDeclaration(anchor.name)?.let(FormsStart::Declared)
+        }
+        for (index in 1 until segments.size) {
+            val segment = segments[index]
+            val key = keyOf(start, fieldBinding(segment) as? FieldBinding.Field, segments, index, shapes) ?: continue
             state.occurrences += OccurrenceFact(anchor.context.unitIndex, anchor.context.container, anchor.statementId, spanOf(segment),
                 writtenText(segment), key, setOf(Role.TYPE_USE), status(Status.RESOLVED, anchor.context.partial), anchor.context.origin, null)
         }
     }
 
     /** Records the field uses of [chain]: one value occurrence for each of its segments that names a known field. */
-    private fun recordChain(chain: Chain, calls: Set<SourceSpan>) {
+    private fun recordChain(chain: Chain, calls: Set<SourceSpan>, shapes: TypeShapes) {
         // In a type body, a name written alone or first may be an attribute read through the implicit `SELF`.
         val first = when (chain.start.type) {
             PlSqlGrammar.MEMBER_EXPRESSION -> chain.start.firstChild
@@ -98,19 +118,76 @@ internal class FieldUses(
             else -> null
         }
         val segments = listOfNotNull(first) + segmentsOf(chain.root)
+        val start = if (formsModule) formsStart(chain, first, shapes) else null
         var valueRoles: Set<Role>? = null
         var status: Status? = null
-        for (segment in segments) {
+        for ((index, segment) in segments.withIndex()) {
             // Unknown also answers methods, sequences and package members after an undecided value: a count of them
             // would not count fields, so no note; nor is one given when unavailable.
-            val binding = fieldBinding(segment) as? FieldBinding.Field ?: continue
-            val key = fieldKey(binding) ?: continue
+            val key = keyOf(start, fieldBinding(segment) as? FieldBinding.Field, segments, index, shapes) ?: continue
             val roles = valueRoles ?: chainRoles(chain, calls).also { valueRoles = it }
             val decided = status ?: startStatus(chain).also { status = it }
             state.valueOccurrence(spanOf(segment), writtenText(segment), chain.context, chain.statementId, decided, key,
                 if (decided == Status.UNVERIFIED) "COLUMN_NOT_EXCLUDED" else null, emptyList(), roles)
         }
     }
+
+    /** How a Forms module's code reaches the value or anchor whose fields zpa binds; its first name is the first segment. */
+    private sealed interface FormsStart {
+        /**
+         * It starts with a name of the module's own, of [written] segments, naming [member] of one of its packages
+         * (null for another name, a program unit, or a member whose segments are not told).
+         */
+        class Module(val member: FormsNames.Member?, val written: Int) : FormsStart
+
+        /** It starts with [declaration], a declaration of the file, whose type the module's text gives. */
+        class Declared(val declaration: AstNode) : FormsStart
+    }
+
+    /**
+     * How [chain], in a Forms module, its first name [first], starts: with a declaration of the file zpa binds the first
+     * name to, else with a name of the module's own; null for anything else.
+     */
+    private fun formsStart(chain: Chain, first: AstNode?, shapes: TypeShapes): FormsStart? {
+        val local = when (val binding = first?.let(nameBinding)) {
+            is NameBinding.Local -> binding.declaration
+            is NameBinding.ColumnOrLocal -> binding.declaration
+            else -> null
+        }?.takeIf { it.fileId == null }
+        local?.let { shapes.localDeclaration(it.line, it.column) }?.let { return FormsStart.Declared(it) }
+        if (!namesModule(chain.start)) return null
+        return FormsStart.Module(state.formsMembers[spanOf(chain.start)]?.takeIf { first != null }, chain.segments.size)
+    }
+
+    /** Whether the walk resolved [name] to the Forms module's own: a program unit or a member of one of its packages. */
+    private fun namesModule(name: AstNode): Boolean = state.occurrencesAt(spanOf(name)).any { it.entityKey?.startsWith(FORMS_PREFIX) == true }
+
+    /**
+     * The field [segments]`[index]` names, zpa's [binding] (null when zpa binds none), in a value that starts as [start]
+     * tells ([FieldUses]): the field of the file the module's text reaches past a member of one of its packages, in
+     * place of one declared in the database or of none; none when that text reaches none.
+     */
+    private fun keyOf(start: FormsStart?, binding: FieldBinding.Field?, segments: List<AstNode>, index: Int, shapes: TypeShapes): String? {
+        if (start == null || binding != null && binding.declaration.fileId == null) return binding?.let(::fieldKey)
+        val reach = when (start) {
+            is FormsStart.Module -> {
+                val member = start.member ?: return null
+                val from = start.written - member.fields.size
+                if (index < from) return null
+                shapes.formsField(member.declaration, names(segments, from, index), true)
+            }
+            is FormsStart.Declared -> if (index == 0) return binding?.let(::fieldKey) else shapes.formsField(start.declaration, names(segments, 1, index), false)
+        }
+        return when (reach) {
+            is TypeShapes.FieldReach.Own -> reach.field.token.takeIf { binding != null || reach.throughMember }
+                ?.let { catalog.fieldAt(path, it.line, it.column) ?: bodyFieldAt(it.line, it.column) }
+            TypeShapes.FieldReach.Module -> null
+            TypeShapes.FieldReach.Elsewhere -> binding?.takeIf { start is FormsStart.Declared }?.let(::fieldKey)
+        }
+    }
+
+    /** The names written in [segments] from [from] to [to], both included. */
+    private fun names(segments: List<AstNode>, from: Int, to: Int): List<String> = segments.subList(from, to + 1).map { normalizeIdentifier(it.tokenOriginalValue) }
 
     /** The key of the field [binding] declares, from the catalog or, declared in this file, from the body's own types. */
     private fun fieldKey(binding: FieldBinding.Field): String? {

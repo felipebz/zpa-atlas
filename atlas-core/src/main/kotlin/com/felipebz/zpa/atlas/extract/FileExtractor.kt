@@ -128,7 +128,7 @@ class FileExtractor internal constructor(
             bound.add(NameDeclarationKind.PARAMETER, declaration.span.startLine, declaration.span.startCol, declaration.entityKey)
         }
         bodyGlobals = BodyGlobals(state, bound, context::recordFields)
-        fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding, bodyGlobals::fieldAt)
+        fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding, bodyGlobals::fieldAt, forms != null)
         val sequences = projectAnalysis()
         val formsNames = formsEntities?.names(modulePackages(node), specifiedMembers(node))
         plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, bound, fields, formsNames, formsReferences) {
@@ -143,9 +143,9 @@ class FileExtractor internal constructor(
         ddl = DdlTargets(path, state, dictionary, resolver, values, catalog, plsql)
         if (forms != null) formsUnits(node, forms) else databaseUnits(node)
         variableTexts()
-        // The field uses of the chains and anchors the walk gathered, once every call of the file is known (a chain starting with a call is read).
-        fields.record()
         shapes = TypeShapes(state, bound, context::typeBinding, node)
+        // The field uses of the chains and anchors the walk gathered, once every call of the file is known (a chain starting with a call is read).
+        fields.record(shapes)
         for ((key, datatype) in returnTypes) declaredShapes += DeclaredShapeFact(key, shapes.datatype(datatype))
         intos = places.intos(shapes)
         return build(ParseStatus.OK.takeIf { state.recoveredRegions == 0 } ?: ParseStatus.RECOVERED).also { result = it }
@@ -558,17 +558,17 @@ class FileExtractor internal constructor(
 
     /**
      * What the package specifications of a Forms module's text declare as entities, by package name: their variables,
-     * constants and types, each keyed `PKG.NAME` ([formsDeclarations]).
+     * constants and types, each declaration by its name, its entity keyed `PKG.NAME` ([formsDeclarations]).
      */
-    private fun specifiedMembers(root: AstNode): Map<String, Set<String>> {
+    private fun specifiedMembers(root: AstNode): Map<String, Map<String, AstNode>> {
         if (forms == null) return emptyMap()
-        val result = HashMap<String, HashSet<String>>()
+        val result = HashMap<String, HashMap<String, AstNode>>()
         for (child in root.getChildren(PlSqlGrammar.COMPILATION_UNIT)) {
             val unit = child.firstChild.takeIf { it.type == PlSqlGrammar.CREATE_PACKAGE } ?: continue
             val name = unit.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.lastOrNull() ?: continue
-            val declared = result.getOrPut(normalizeIdentifier(name.tokenOriginalValue)) { HashSet() }
+            val declared = result.getOrPut(normalizeIdentifier(name.tokenOriginalValue)) { HashMap() }
             for (item in unit.getFirstChildOrNull(PlSqlGrammar.DECLARE_SECTION)?.children.orEmpty()) {
-                BodyGlobals.declaredName(item)?.let { declared += normalizeIdentifier(it.tokenOriginalValue) }
+                BodyGlobals.declaredName(item)?.let { declared.putIfAbsent(normalizeIdentifier(it.tokenOriginalValue), item) }
             }
         }
         return result

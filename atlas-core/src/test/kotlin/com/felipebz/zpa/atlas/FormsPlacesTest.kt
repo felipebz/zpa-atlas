@@ -29,7 +29,10 @@ import kotlin.io.path.listDirectoryEntries
  * The declarations of a module's package specification, on the invented module `PACK_DESK` (`forms/pack_desk_fmb.xml`
  * and `forms/pack_plain_fmb.xml`) beside the database package `PK` of `forms/pack_desk.sql`, which declares the same:
  * the procedure `USE_PKS` reads the column into variables of the package's types, anchored to its variables, into its
- * variables and into the fields of its record type, as the database procedure `USE_PK` does with `PK`.
+ * variables, into the fields of its record type, of an element of its collection and of a record inside its record, as
+ * the database procedure `USE_PK` does with `PK`, then reads a field of an element of its collection and calls its
+ * function. The database also has a package `PKS` that declares the same names with other sizes, which the module's
+ * code never reaches.
  */
 class FormsPlacesTest {
     @TempDir
@@ -45,27 +48,38 @@ class FormsPlacesTest {
         Indexer().index(IndexOptions(root, db, compilationSchema = "SHOP", threads = 2))
     }
 
-    private val packages: Path get() = temp.resolve("packages.db")
+    /** The index of the package module and `forms/pack_desk.sql`, with the database's package `PKS` of the module package's name. */
+    private val packages: Path by lazy { packageIndex("packages") { it } }
 
-    private val packagesIndexed by lazy {
-        val root = temp.resolve("packages").createDirectories()
-        for (name in listOf("pack_desk_fmb.xml", "pack_plain_fmb.xml", "pack_desk.sql")) {
-            javaClass.getResourceAsStream("/forms/$name")!!.use { Files.copy(it, root.resolve(name)) }
+    /** The same without the database's package `PKS`. */
+    private val solo: Path by lazy { packageIndex("solo") { it.replace(DATABASE_PKS, "") } }
+
+    /** The package module in both exports, with `forms/pack_desk.sql` as [sql] makes it, indexed into `[name].db`. */
+    private fun packageIndex(name: String, sql: (String) -> String): Path {
+        val root = temp.resolve(name).createDirectories()
+        for (file in listOf("pack_desk_fmb.xml", "pack_plain_fmb.xml")) {
+            javaClass.getResourceAsStream("/forms/$file")!!.use { Files.copy(it, root.resolve(file)) }
         }
-        Indexer().index(IndexOptions(root, packages, compilationSchema = "SHOP", threads = 2))
+        Files.writeString(root.resolve("pack_desk.sql"), sql(javaClass.getResource("/forms/pack_desk.sql")!!.readText()))
+        val index = temp.resolve("$name.db")
+        Indexer().index(IndexOptions(root, index, compilationSchema = "SHOP", threads = 2))
+        return index
     }
 
     /** Line, source, target as written and its entity, class, declared type, size, the entity whose type gave it, reason and field, of the places in [path]. */
-    private fun packagePlaces(path: String): List<String> {
-        packagesIndexed
-        return Fixture.query(packages, """
-            SELECT p.start_line || ' ' || p.source || ' ' || p.target_written || ' ' || coalesce(t.key, '-') || ' ' || p.class || ' ' ||
-                   coalesce(p.declared_type, '-') || ' ' || coalesce(p.length || ' ' || p.length_unit, '-') || ' ' || coalesce(s.key, '-') || ' ' ||
-                   coalesce(p.reason, '-') || coalesce(' field ' || p.field, '')
-            FROM column_place p JOIN source_file f ON f.id = p.file_id LEFT JOIN entity t ON t.id = p.target_entity_id
-            LEFT JOIN entity s ON s.id = p.type_source_id
-            WHERE f.path = '$path' ORDER BY p.start_line, p.id""")
-    }
+    private fun packagePlaces(path: String, index: Path = packages): List<String> = Fixture.query(index, """
+        SELECT p.start_line || ' ' || p.source || ' ' || p.target_written || ' ' || coalesce(t.key, '-') || ' ' || p.class || ' ' ||
+               coalesce(p.declared_type, '-') || ' ' || coalesce(p.length || ' ' || p.length_unit, '-') || ' ' || coalesce(s.key, '-') || ' ' ||
+               coalesce(p.reason, '-') || coalesce(' field ' || p.field, '')
+        FROM column_place p JOIN source_file f ON f.id = p.file_id LEFT JOIN entity t ON t.id = p.target_entity_id
+        LEFT JOIN entity s ON s.id = p.type_source_id
+        WHERE f.path = '$path' ORDER BY p.start_line, p.id""")
+
+    /** Line, written segment, field, roles and status of the uses of record fields in [path]. */
+    private fun fieldUses(path: String, index: Path): List<String> = Fixture.query(index, """
+        SELECT o.start_line || ' ' || o.written || ' ' || e.key || ' ' || o.roles || ' ' || o.status
+        FROM occurrence o JOIN source_file f ON f.id = o.file_id JOIN entity e ON e.id = o.entity_id
+        WHERE f.path = '$path' AND e.kind = 'RECORD_FIELD' ORDER BY o.start_line, o.start_col""")
 
     /** Source, target as written and its entity, class, declared type, length, unit and its source, and reason, of the places in [path]. */
     private fun places(path: String): List<String> {
@@ -134,30 +148,39 @@ class FormsPlacesTest {
     fun `the types, variables and record fields of a module's package give their declared sizes`() {
         assertThat(packagePlaces("pack_desk_fmb.xml")).containsExactly(
             // In the package's body, its own variable.
-            "14 SELECT_INTO g_code forms:PACK_DESK/PKS.G_CODE FIXED_SIZE varchar2(6) 6 BYTE - -",
+            "19 SELECT_INTO g_code forms:PACK_DESK/PKS.G_CODE FIXED_SIZE varchar2(6) 6 BYTE - -",
             // A variable of the package's subtype; anchored to the package's variable.
-            "26 SELECT_INTO c forms:PACK_DESK/USE_PKS.C FIXED_SIZE pks.t_code 4 BYTE forms:PACK_DESK/PKS.T_CODE -",
-            "27 SELECT_INTO a forms:PACK_DESK/USE_PKS.A FIXED_SIZE pks.g_code%TYPE 6 BYTE forms:PACK_DESK/PKS.G_CODE -",
+            "35 SELECT_INTO c forms:PACK_DESK/USE_PKS.C FIXED_SIZE pks.t_code 4 BYTE forms:PACK_DESK/PKS.T_CODE -",
+            "36 SELECT_INTO a forms:PACK_DESK/USE_PKS.A FIXED_SIZE pks.g_code%TYPE 6 BYTE forms:PACK_DESK/PKS.G_CODE -",
             // The package's variable itself, by SELECT INTO and by an assignment of a loop record's field.
-            "28 SELECT_INTO pks.g_code forms:PACK_DESK/PKS.G_CODE FIXED_SIZE varchar2(6) 6 BYTE - -",
-            "30 ASSIGNMENT pks.g_code forms:PACK_DESK/PKS.G_CODE FIXED_SIZE varchar2(6) 6 BYTE - -",
+            "37 SELECT_INTO pks.g_code forms:PACK_DESK/PKS.G_CODE FIXED_SIZE varchar2(6) 6 BYTE - -",
+            "39 ASSIGNMENT pks.g_code forms:PACK_DESK/PKS.G_CODE FIXED_SIZE varchar2(6) 6 BYTE - -",
             // A variable of the package's record type: one field, then the whole record field by field.
-            "32 SELECT_INTO r.code forms:PACK_DESK/PKS.T_REC.CODE FIXED_SIZE varchar2(7) 7 BYTE - -",
-            "33 SELECT_INTO r forms:PACK_DESK/USE_PKS.R FIXED_SIZE varchar2(30) 30 BYTE forms:PACK_DESK/PKS.T_REC.NOTE - field NOTE",
-            "33 SELECT_INTO r forms:PACK_DESK/USE_PKS.R FIXED_SIZE varchar2(7) 7 BYTE forms:PACK_DESK/PKS.T_REC.CODE - field CODE",
+            "41 SELECT_INTO r.code forms:PACK_DESK/PKS.T_REC.CODE FIXED_SIZE varchar2(7) 7 BYTE - -",
+            "42 SELECT_INTO r forms:PACK_DESK/USE_PKS.R FIXED_SIZE varchar2(30) 30 BYTE forms:PACK_DESK/PKS.T_REC.NOTE - field NOTE",
+            "42 SELECT_INTO r forms:PACK_DESK/USE_PKS.R FIXED_SIZE varchar2(7) 7 BYTE forms:PACK_DESK/PKS.T_REC.CODE - field CODE",
             // Fields of the package's record variable as targets (the second not its first field), and one as an anchor.
-            "34 SELECT_INTO pks.g_rec.code forms:PACK_DESK/PKS.T_REC.CODE FIXED_SIZE varchar2(7) 7 BYTE - -",
-            "35 SELECT_INTO pks.g_rec.note forms:PACK_DESK/PKS.T_REC.NOTE FIXED_SIZE varchar2(30) 30 BYTE - -",
-            "36 SELECT_INTO f forms:PACK_DESK/USE_PKS.F FIXED_SIZE pks.g_rec.code%TYPE 7 BYTE forms:PACK_DESK/PKS.T_REC.CODE -",
+            "43 SELECT_INTO pks.g_rec.code forms:PACK_DESK/PKS.T_REC.CODE FIXED_SIZE varchar2(7) 7 BYTE - -",
+            "44 SELECT_INTO pks.g_rec.note forms:PACK_DESK/PKS.T_REC.NOTE FIXED_SIZE varchar2(30) 30 BYTE - -",
+            "45 SELECT_INTO f forms:PACK_DESK/USE_PKS.F FIXED_SIZE pks.g_rec.code%TYPE 7 BYTE forms:PACK_DESK/PKS.T_REC.CODE -",
+            // A field of an element of the package's collection; the whole collection, field by field; a field of a record in a record.
+            "46 SELECT_INTO pks.g_tab(1).code forms:PACK_DESK/PKS.T_REC.CODE FIXED_SIZE varchar2(7) 7 BYTE - -",
+            "47 SELECT_INTO pks.g_tab forms:PACK_DESK/PKS.G_TAB FIXED_SIZE varchar2(30) 30 BYTE forms:PACK_DESK/PKS.T_REC.NOTE - field NOTE",
+            "47 SELECT_INTO pks.g_tab forms:PACK_DESK/PKS.G_TAB FIXED_SIZE varchar2(7) 7 BYTE forms:PACK_DESK/PKS.T_REC.CODE - field CODE",
+            "48 SELECT_INTO pks.g_out.inner.code forms:PACK_DESK/PKS.T_REC.CODE FIXED_SIZE varchar2(7) 7 BYTE - -",
             // A type of no package of the module (an attached library's): not followed.
-            "37 SELECT_INTO x forms:PACK_DESK/USE_PKS.X UNKNOWN pack_lib_pk.t_code - - TYPE_NOT_DECLARED"
+            "52 SELECT_INTO x forms:PACK_DESK/USE_PKS.X UNKNOWN pack_lib_pk.t_code - - TYPE_NOT_DECLARED"
         )
-        // The uses of the package's members stay the package's.
+        // The uses of the package's members stay the package's, and none is of the database's package of the same name.
         assertThat(Fixture.query(packages, """
             SELECT o.written || ' ' || e.key FROM occurrence o JOIN source_file f ON f.id = o.file_id JOIN entity e ON e.id = o.entity_id
             WHERE f.path = 'pack_desk_fmb.xml' AND o.written LIKE 'pks.%' ORDER BY o.start_line, o.start_col""").distinct())
             .containsExactly("pks.t_code forms:PACK_DESK/PKS", "pks.g_code forms:PACK_DESK/PKS", "pks.t_rec forms:PACK_DESK/PKS",
-                "pks.g_rec.code forms:PACK_DESK/PKS", "pks.g_rec.note forms:PACK_DESK/PKS")
+                "pks.g_rec.code forms:PACK_DESK/PKS", "pks.g_rec.note forms:PACK_DESK/PKS", "pks.g_tab forms:PACK_DESK/PKS",
+                "pks.g_out.inner.code forms:PACK_DESK/PKS", "pks.f forms:PACK_DESK/PKS")
+        assertThat(Fixture.query(packages, """
+            SELECT o.written || ' ' || e.key FROM occurrence o JOIN source_file f ON f.id = o.file_id JOIN entity e ON e.id = o.entity_id
+            WHERE f.path IN ('pack_desk_fmb.xml', 'pack_plain_fmb.xml') AND e.key LIKE 'db:SHOP.PKS%'""")).isEmpty()
     }
 
     @Test
@@ -170,13 +193,47 @@ class FormsPlacesTest {
             WHERE k.key = '$container' ORDER BY p.start_line, p.id""").map { row ->
             row.replace(Regex(" \\S*?(USE_PKS?(\\(\\))?|PKS?)\\.(\\S+)$"), " $3")
         }
-        packagesIndexed
-        assertThat(sizes("forms:PACK_DESK/USE_PKS").dropLast(1)).isEqualTo(sizes("db:SHOP.USE_PK()")).hasSize(10)
+        assertThat(sizes("forms:PACK_DESK/USE_PKS").dropLast(1)).isEqualTo(sizes("db:SHOP.USE_PK()")).hasSize(14)
     }
 
     @Test
     fun `a module with packages exported without DUMP=ALL gives the same places`() {
         assertThat(packagePlaces("pack_plain_fmb.xml").map { it.replace("PACK_PLAIN", "PACK_DESK") }).isEqualTo(packagePlaces("pack_desk_fmb.xml"))
+    }
+
+    @Test
+    fun `the fields after a module package's names are the module's own, whatever package of that name the database has`() {
+        val uses = listOf(
+            // The fields' declarations in the package's specification.
+            "5 code forms:PACK_DESK/PKS.T_REC.CODE DEFINITION RESOLVED",
+            "5 note forms:PACK_DESK/PKS.T_REC.NOTE DEFINITION RESOLVED",
+            "9 inner forms:PACK_DESK/PKS.T_OUT.INNER DEFINITION RESOLVED",
+            // The anchor `pks.g_rec.code%TYPE`; a field of a variable of the package's record type, written.
+            "32 code forms:PACK_DESK/PKS.T_REC.CODE TYPE_USE RESOLVED",
+            "41 code forms:PACK_DESK/PKS.T_REC.CODE WRITE RESOLVED",
+            // Fields of the package's record variable, of an element of its collection, of a record in its record, written.
+            "43 code forms:PACK_DESK/PKS.T_REC.CODE WRITE RESOLVED",
+            "44 note forms:PACK_DESK/PKS.T_REC.NOTE WRITE RESOLVED",
+            "46 code forms:PACK_DESK/PKS.T_REC.CODE WRITE RESOLVED",
+            "48 inner forms:PACK_DESK/PKS.T_OUT.INNER WRITE RESOLVED",
+            "48 code forms:PACK_DESK/PKS.T_REC.CODE WRITE RESOLVED",
+            // The field of an element of its collection, read.
+            "49 code forms:PACK_DESK/PKS.T_REC.CODE READ RESOLVED"
+        )
+        // The element of the package's collection is a use of the package, written or read as the collection; its function is called.
+        val members = listOf("46 pks.g_tab WRITE", "47 pks.g_tab WRITE", "49 pks.g_tab READ", "49 pks.f CALL")
+        fun memberUses(index: Path) = Fixture.query(index, """
+            SELECT o.start_line || ' ' || o.written || ' ' || o.roles FROM occurrence o JOIN source_file f ON f.id = o.file_id
+            WHERE f.path = 'pack_desk_fmb.xml' AND o.written IN ('pks.g_tab', 'pks.f') ORDER BY o.start_line, o.start_col""")
+        assertThat(fieldUses("pack_desk_fmb.xml", packages)).containsExactlyElementsOf(uses)
+        assertThat(memberUses(packages)).containsExactlyElementsOf(members)
+        // Without the database's package of the same name: the same uses, the same places.
+        assertThat(Fixture.query(solo, "SELECT key FROM entity WHERE key LIKE 'db:SHOP.PKS%'")).isEmpty()
+        assertThat(fieldUses("pack_desk_fmb.xml", solo)).containsExactlyElementsOf(uses)
+        assertThat(memberUses(solo)).containsExactlyElementsOf(members)
+        assertThat(packagePlaces("pack_desk_fmb.xml", solo)).isEqualTo(packagePlaces("pack_desk_fmb.xml"))
+        // The module exported without DUMP=ALL.
+        assertThat(fieldUses("pack_plain_fmb.xml", packages).map { it.replace("PACK_PLAIN", "PACK_DESK") }).isEqualTo(uses)
     }
 
     /**
@@ -207,5 +264,8 @@ class FormsPlacesTest {
             "BLOCK_QUERY UNKNOWN ITEM_HOLDS_ELEMENT FORMS_ITEM 1",
             "SELECT_INTO FIXED_SIZE - FORMS_ITEM 4"
         )
+
+        /** The database's package `PKS` of `forms/pack_desk.sql`, of the module package's name. */
+        val DATABASE_PKS = Regex("create or replace package pks is\\n.*?\\nend;\\n/\\n\\n", RegexOption.DOT_MATCHES_ALL)
     }
 }

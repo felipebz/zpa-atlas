@@ -9,6 +9,22 @@ create or replace package pk is
   g_code varchar2(6);
   type t_rec is record (code varchar2(7), note varchar2(30));
   g_rec t_rec;
+  type t_tab is table of t_rec index by pls_integer;
+  g_tab t_tab;
+  type t_out is record (inner t_rec);
+  g_out t_out;
+end;
+/
+
+create or replace package pks is
+  subtype t_code is varchar2(14);
+  g_code varchar2(16);
+  type t_rec is record (code varchar2(17), note varchar2(39));
+  g_rec t_rec;
+  type t_tab is table of t_rec index by pls_integer;
+  g_tab t_tab;
+  type t_out is record (inner t_rec);
+  g_out t_out;
 end;
 /
 
@@ -29,5 +45,8 @@ begin
   select status into pk.g_rec.code from orders where order_id = 1;
   select status into pk.g_rec.note from orders where order_id = 1;
   select status into f from orders where order_id = 1;
+  select status into pk.g_tab(1).code from orders where order_id = 1;
+  select status, note bulk collect into pk.g_tab from orders;
+  select status into pk.g_out.inner.code from orders where order_id = 1;
 end;
 /
