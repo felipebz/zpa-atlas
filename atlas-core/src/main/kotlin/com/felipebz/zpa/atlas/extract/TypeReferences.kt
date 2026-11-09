@@ -27,6 +27,8 @@ internal class TypeReferences(
     private val calls: CallResolver,
     private val plsql: PlSqlNames,
     private val bound: BoundNames,
+    /** The record fields an anchor's name names, each a use of its own ([FieldUses.anchor]). */
+    private val fields: FieldUses,
     private val jsonBuiltIn: Boolean,
     /** The names of a Forms module's own program units and the Forms built-ins; null outside a Forms module. */
     private val forms: FormsNames? = null
@@ -38,7 +40,8 @@ internal class TypeReferences(
      * `CUSTOM_DATATYPE`. A type of the package body that zpa binds the name to is its entity ([BodyGlobals]); a first segment
      * the legacy table binds to another local declaration is counted (`LOCAL_ANCHOR`), not indexed; built-ins give nothing.
      * A binding to the declaration the datatype belongs to is ignored: `comentario comentario.texto%type` names the
-     * table, the item is not visible in its own declaration.
+     * table, the item is not visible in its own declaration. Each record field an anchor's name names is a use of the
+     * field too, local record or not ([FieldUses.anchor]).
      */
     fun typeUse(node: AstNode, context: Context, statementId: Int?) {
         val name = if (node.type == PlSqlGrammar.REF_DATATYPE) node.lastChild else node.firstChild
@@ -48,6 +51,7 @@ internal class TypeReferences(
             state.coverage += CoverageFact("TYPE_NOT_A_NAME", "Datatype at line ${name.tokenLine} is not a plain name")
             return
         }
+        if (node.type == PlSqlGrammar.ANCHORED_DATATYPE) fields.anchor(name, context, statementId)
         if (node.type == PlSqlGrammar.CUSTOM_DATATYPE && boundTypeUse(node, name, context, statementId)) return
         val symbol = bindingOf(node, name)
         if (isLocalType(node, symbol, segments)) {
@@ -102,6 +106,7 @@ internal class TypeReferences(
             types.named(segments, context.schema, context.enclosingPackage) ?: return
         }
         state.typeTargets[node] = outcome.entityKey
+        if (outcome.fields.isNotEmpty()) state.anchorFields[node] = outcome.fields
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(name), writtenText(name), outcome.entityKey,
             setOf(Role.TYPE_USE), status(outcome.status, context.partial), context.origin, outcome.reason, outcome.candidateKeys)
     }

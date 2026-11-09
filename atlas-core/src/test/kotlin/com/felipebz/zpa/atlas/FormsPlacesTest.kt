@@ -169,8 +169,6 @@ class FormsPlacesTest {
             FROM column_place p JOIN entity k ON k.id = p.container_entity_id LEFT JOIN entity t ON t.id = p.target_entity_id
             WHERE k.key = '$container' ORDER BY p.start_line, p.id""").map { row ->
             row.replace(Regex(" \\S*?(USE_PKS?(\\(\\))?|PKS?)\\.(\\S+)$"), " $3")
-                // The database names the anchor of a record variable's field (`pk.g_rec.code%type`) by the field's declaration.
-                .replace(Regex("^(SELECT_INTO f FIXED_SIZE 7) \\S+ "), "$1 ")
         }
         packagesIndexed
         assertThat(sizes("forms:PACK_DESK/USE_PKS").dropLast(1)).isEqualTo(sizes("db:SHOP.USE_PK()")).hasSize(10)

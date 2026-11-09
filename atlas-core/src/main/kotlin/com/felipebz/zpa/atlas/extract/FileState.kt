@@ -99,6 +99,9 @@ internal class FileState(strings: FactStrings = FactStrings()) {
     /** The entity each datatype node names (its `TYPE_USE`), null when the use has none: read by [TypeShapes]. */
     val typeTargets = IdentityHashMap<AstNode, String?>()
 
+    /** The written fields after the package variable an anchor's `TYPE_USE` names (`code` of `pkg.g_rec.code%TYPE`): read by [TypeShapes]. */
+    val anchorFields = IdentityHashMap<AstNode, List<String>>()
+
     /**
      * The member of a Forms module's package specification each name of the module's code names (`pks.t_code`,
      * `pks.g_rec.code`), by the span of the name ([FormsNames.Member]): its use is the package's, but what the name

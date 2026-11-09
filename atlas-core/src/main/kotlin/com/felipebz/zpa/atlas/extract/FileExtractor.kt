@@ -135,7 +135,7 @@ class FileExtractor internal constructor(
             sequenceResolutions[it] ?: sequences.resolveSequenceReference(it)
         }
         triggers = Triggers(state, resolver, plsql)
-        typeReferences = TypeReferences(state, types, resolver, calls, plsql, bound, jsonBuiltIn, formsNames)
+        typeReferences = TypeReferences(state, types, resolver, calls, plsql, bound, fields, jsonBuiltIn, formsNames)
         val columnReads = ColumnReads(state, resolver, scopes, plsql, context::nameBinding)
         lineage = ViewLineage(state, scopes, columnReads, plsql)
         places = IntoClauses(state, plsql, columnReads, lineage, context::nameBinding)
@@ -143,7 +143,7 @@ class FileExtractor internal constructor(
         ddl = DdlTargets(path, state, dictionary, resolver, values, catalog, plsql)
         if (forms != null) formsUnits(node, forms) else databaseUnits(node)
         variableTexts()
-        // The field uses of the chains the walk gathered, once every call of the file is known (a chain starting with a call is read).
+        // The field uses of the chains and anchors the walk gathered, once every call of the file is known (a chain starting with a call is read).
         fields.record()
         shapes = TypeShapes(state, bound, context::typeBinding, node)
         for ((key, datatype) in returnTypes) declaredShapes += DeclaredShapeFact(key, shapes.datatype(datatype))

@@ -219,6 +219,60 @@ class ColumnPlacesTest {
     }
 
     @Test
+    fun `an anchor to a field of a record variable takes that field's type, at any depth, and uses the variable and each field`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("pk.sql"), """
+            create table orders (order_id number(10), status varchar2(10 byte));
+
+            create or replace package pk is
+              type t_rec is record (code varchar2(7), note varchar2(30));
+              type t_in is record (v varchar2(12));
+              type t_out is record (tag varchar2(3), inner t_in);
+              g_rec t_rec;
+              g_out t_out;
+            end;
+            /
+        """.trimIndent())
+        Files.writeString(sources.resolve("use_pk.sql"), """
+            create or replace procedure use_pk is
+              f pk.g_rec.code%type;
+              n pk.g_rec.note%type;
+              v pk.g_out.inner.v%type;
+              r pk.t_rec;
+              m r.note%type;
+            begin
+              select status into f from orders where order_id = 1;
+              select status into n from orders where order_id = 1;
+              select status into v from orders where order_id = 1;
+              select status into m from orders where order_id = 1;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", threads = 1))
+        // Each anchor is the field it names, not the record variable: no field of its own.
+        assertThat(places(db, "use_pk.sql")).containsExactly(
+            "8 ORDERS.STATUS SELECT_INTO f FIXED_SIZE pk.g_rec.code%type 7 BYTE PK.T_REC.CODE -",
+            // Not the record's first field; a field of a field; a field of a local record.
+            "9 ORDERS.STATUS SELECT_INTO n FIXED_SIZE pk.g_rec.note%type 30 BYTE PK.T_REC.NOTE -",
+            "10 ORDERS.STATUS SELECT_INTO v FIXED_SIZE pk.g_out.inner.v%type 12 BYTE PK.T_IN.V -",
+            "11 ORDERS.STATUS SELECT_INTO m FIXED_SIZE r.note%type 30 BYTE PK.T_REC.NOTE -"
+        )
+        // The anchor uses the package variable it starts from, and each field it names, at the field's name.
+        assertThat(Fixture.query(db, """
+            SELECT o.start_line || ':' || o.start_col || ' ' || o.written || ' ' || replace(e.key, 'db:SHOP.', '')
+            FROM occurrence o JOIN entity e ON e.id = o.entity_id JOIN source_file f ON f.id = o.file_id
+            WHERE f.path = 'use_pk.sql' AND o.roles = 'TYPE_USE' ORDER BY o.start_line, o.start_col""")).containsExactly(
+            "2:4 pk.g_rec.code PK.G_REC", "2:13 code PK.T_REC.CODE",
+            "3:4 pk.g_rec.note PK.G_REC", "3:13 note PK.T_REC.NOTE",
+            "4:4 pk.g_out.inner.v PK.G_OUT", "4:13 inner PK.T_OUT.INNER", "4:19 v PK.T_IN.V",
+            "5:4 pk.t_rec PK.T_REC",
+            "6:6 note PK.T_REC.NOTE"
+        )
+    }
+
+    @Test
     fun `a field of a row record assigned to a target is a place of its column`() {
         val sources = temp.resolve("src")
         PlacesFixture.write(sources)

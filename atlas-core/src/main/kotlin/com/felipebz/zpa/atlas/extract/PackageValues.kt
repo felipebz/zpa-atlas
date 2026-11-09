@@ -11,8 +11,12 @@ import com.felipebz.zpa.atlas.model.Status
 /** What a package member found by [PackageValues.packageMember] is, so that callers can pick the role. */
 enum class MemberKind { VALUE, EXCEPTION, CURSOR }
 
-data class MemberOutcome(val kind: MemberKind, val status: Status, val entityKey: String?, val reason: String?, val candidateKeys: List<String> = emptyList()) {
-    fun toTypeOutcome() = TypeOutcome(status, entityKey, reason, candidateKeys)
+/** A package member found by name; [named] is how many written segments name it, those after it its record fields (`code` of `pkg.g_rec.code`). */
+data class MemberOutcome(
+    val kind: MemberKind, val status: Status, val entityKey: String?, val reason: String?, val candidateKeys: List<String>, val named: Int
+) {
+    /** The outcome as an anchor's: the written [fields] after the member are followed from it. */
+    fun toTypeOutcome(fields: List<String>) = TypeOutcome(status, entityKey, reason, candidateKeys, fields)
 }
 
 /**
@@ -33,20 +37,20 @@ class PackageValues(private val snapshots: UnitSnapshots, private val catalog: D
             val resolution = snapshot.resolvePackageValue(qualifiedName(segments), owner)
             when (resolution.status) {
                 ProjectValueResolution.Status.RESOLVED ->
-                    return MemberOutcome(MemberKind.VALUE, Status.RESOLVED, catalog.keyOf(resolution.value.get().id), null)
+                    return MemberOutcome(MemberKind.VALUE, Status.RESOLVED, catalog.keyOf(resolution.value.get().id), null, emptyList(), segments.size)
                 ProjectValueResolution.Status.AMBIGUOUS -> return MemberOutcome(MemberKind.VALUE, Status.AMBIGUOUS, null, resolution.status.name,
-                    resolution.candidates.map { catalog.keyOf(it.id) }.distinct())
+                    resolution.candidates.map { catalog.keyOf(it.id) }.distinct(), segments.size)
                 ProjectValueResolution.Status.NOT_FOUND_IN_PROJECT -> {
                     val members = resolution.candidates.filter { kindOf(it) != null }
                     val keys = members.map { catalog.keyOf(it.id) }.distinct()
                     when {
                         members.isEmpty() -> Unit
-                        members.size == 1 -> return MemberOutcome(kindOf(members.single())!!, Status.RESOLVED, keys.single(), null)
-                        else -> return MemberOutcome(kindOf(members.first())!!, Status.AMBIGUOUS, null, ProjectValueResolution.Status.AMBIGUOUS.name, keys)
+                        members.size == 1 -> return MemberOutcome(kindOf(members.single())!!, Status.RESOLVED, keys.single(), null, emptyList(), segments.size)
+                        else -> return MemberOutcome(kindOf(members.first())!!, Status.AMBIGUOUS, null, ProjectValueResolution.Status.AMBIGUOUS.name, keys, segments.size)
                     }
                 }
                 ProjectValueResolution.Status.INCOMPLETE_INDEX ->
-                    resolution.candidates.firstNotNullOfOrNull { kindOf(it) }?.let { return MemberOutcome(it, Status.UNRESOLVED, null, "INCOMPLETE_INDEX") }
+                    resolution.candidates.firstNotNullOfOrNull { kindOf(it) }?.let { return MemberOutcome(it, Status.UNRESOLVED, null, "INCOMPLETE_INDEX", emptyList(), segments.size) }
                 else -> Unit
             }
         }

@@ -13,8 +13,14 @@ import com.felipebz.zpa.atlas.model.EntityKind
 import com.felipebz.zpa.atlas.model.RelationFact
 import com.felipebz.zpa.atlas.model.Status
 
-/** How one datatype name resolves: the target of its `TYPE_USE` occurrence. */
-data class TypeOutcome(val status: Status, val entityKey: String?, val reason: String?, val candidateKeys: List<String> = emptyList())
+/**
+ * How one datatype name resolves: the target of its `TYPE_USE` occurrence. For an anchor to a field of a package's record
+ * variable, [fields] are the written fields after the variable (`inner`, `code` of `pkg.g_out.inner.code%TYPE`), which
+ * its type follows from the target.
+ */
+data class TypeOutcome(
+    val status: Status, val entityKey: String?, val reason: String?, val candidateKeys: List<String> = emptyList(), val fields: List<String> = emptyList()
+)
 
 /**
  * Resolves the names of datatypes: `%TYPE`/`%ROWTYPE` anchors to the first object they name, never to the type
@@ -43,7 +49,8 @@ class TypeReferenceResolver(
      */
     fun anchored(written: List<String>, rowtype: Boolean, unitSchema: String?, enclosingPackage: List<String>?, enclosingMember: Boolean): TypeOutcome {
         val packageName = enclosingPackage?.let { qualifiedName(it) }
-        values.packageMember(written, unitSchema, packageName)?.takeIf { it.kind != MemberKind.EXCEPTION }?.let { return it.toTypeOutcome() }
+        values.packageMember(written, unitSchema, packageName)?.takeIf { it.kind != MemberKind.EXCEPTION }
+            ?.let { return it.toTypeOutcome(written.drop(it.named).map(::normalizeIdentifier)) }
         if (enclosingMember || values.isPackageMember(written, unitSchema)) return UNKNOWN_MEMBER
         val names = written.map { normalizeIdentifier(it) }
         if (rowtype) {

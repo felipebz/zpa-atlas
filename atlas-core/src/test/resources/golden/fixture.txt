@@ -1423,8 +1423,10 @@ hr/pack_types.pks	5:2-5:30	g_last	db:HR.PACK_TYPES.G_LAST	DECLARATION	RESOLVED	-
 hr/pack_types.pks	5:9-5:29	pack_process.r_event	db:HR.PACK_PROCESS.R_EVENT	TYPE_USE	RESOLVED	-	db:HR.PACK_TYPES	-
 hr/pack_types.pks	6:2-6:40	g_last_msg	db:HR.PACK_TYPES.G_LAST_MSG	DECLARATION	RESOLVED	-	db:HR.PACK_TYPES	-
 hr/pack_types.pks	6:13-6:34	pack_types.g_last.msg	db:HR.PACK_TYPES.G_LAST	TYPE_USE	RESOLVED	-	db:HR.PACK_TYPES	-
+hr/pack_types.pks	6:31-6:34	msg	db:HR.PACK_PROCESS.R_EVENT.MSG	TYPE_USE	RESOLVED	-	db:HR.PACK_TYPES	-
 hr/pack_types.pks	7:2-7:27	g_last_id	db:HR.PACK_TYPES.G_LAST_ID	DECLARATION	RESOLVED	-	db:HR.PACK_TYPES	-
 hr/pack_types.pks	7:12-7:21	g_last.id	db:HR.PACK_TYPES.G_LAST	TYPE_USE	RESOLVED	-	db:HR.PACK_TYPES	-
+hr/pack_types.pks	7:19-7:21	id	db:HR.PACK_PROCESS.R_EVENT.ID	TYPE_USE	RESOLVED	-	db:HR.PACK_TYPES	-
 hr/pack_types.pks	8:2-8:66	c_active	db:HR.PACK_TYPES.C_ACTIVE	DECLARATION	RESOLVED	-	db:HR.PACK_TYPES	-
 hr/pack_types.pks	8:28-8:30	id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.PACK_TYPES	SELECT
 hr/pack_types.pks	8:36-8:43	company	db:HR.COMPANY	SQL_SELECT	RESOLVED	-	db:HR.PACK_TYPES	SELECT

@@ -10,6 +10,7 @@ import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.semantics.FieldBinding
 import com.felipebz.zpa.api.semantics.NameBinding
+import com.felipebz.zpa.atlas.model.OccurrenceFact
 import com.felipebz.zpa.atlas.model.Role
 import com.felipebz.zpa.atlas.model.SourceSpan
 import com.felipebz.zpa.atlas.model.Status
@@ -21,12 +22,13 @@ import java.util.*
  * of that field, at the segment's own span, with the roles of the value the chain starts from ([NameRoles.valueRoles]):
  * a field of a field written by an assignment is written too. In a type body the first name, or a name written alone,
  * may itself be an attribute read through the implicit `SELF` (`items.extend`, `tag := 'x'`): zpa answers it as it
- * answers `self.items`.
+ * answers `self.items`. Each field the name of an anchor names (`inner` and `code` of `pkg.g_out.inner.code%TYPE`, `code`
+ * of `l_rec.code%TYPE`) is a `TYPE_USE` of that field, at the segment's own span: the anchor takes that field's type.
  *
- * The chains are gathered during the walk ([chain]) and asked in [record], once the file is walked. A segment whose
- * value zpa could not decide records nothing, and so does a field of a type without an entity (declared in a
- * subprogram). zpa leaves undecided a member after a value whose type is declared in another file when text this file
- * may hold differently (a `$IF` the settings do not decide, a substitution) could change how that value is looked up.
+ * The chains and anchors are gathered during the walk ([chain], [anchor]) and asked in [record], once the file is walked.
+ * A segment whose value zpa could not decide records nothing, and so does a field of a type without an entity (declared
+ * in a subprogram). zpa leaves undecided a member after a value whose type is declared in another file when text this
+ * file may hold differently (a `$IF` the settings do not decide, a substitution) could change how that value is looked up.
  */
 internal class FieldUses(
     private val state: FileState,
@@ -40,7 +42,10 @@ internal class FieldUses(
 ) {
     private class Chain(val root: AstNode, val start: AstNode, val segments: List<String>, val context: Context, val statementId: Int?)
 
+    private class Anchor(val name: AstNode, val context: Context, val statementId: Int?)
+
     private val chains = IdentityHashMap<AstNode, Chain>()
+    private val anchors = ArrayList<Anchor>()
 
     /**
      * Gathers the chain around [start], the value name or callee the walk reads ([PlSqlNames]), with its [segments] as
@@ -62,11 +67,26 @@ internal class FieldUses(
         chains.putIfAbsent(root, Chain(root, start, segments, context, statementId))
     }
 
-    /** Records the field uses of every chain gathered: call once the file is left. */
+    /** Gathers [name], the name of an anchor (`pkg.g_rec.code` of `pkg.g_rec.code%TYPE`), whose fields [record] asks. */
+    fun anchor(name: AstNode, context: Context, statementId: Int?) {
+        if (name.type == PlSqlGrammar.MEMBER_EXPRESSION) anchors += Anchor(name, context, statementId)
+    }
+
+    /** Records the field uses of every chain and anchor gathered: call once the file is left. */
     fun record() {
         // A chain that starts with a call works on the function's result, a copy: its fields are read, never written.
         val calls = state.occurrences.filter { Role.CALL in it.roles }.mapTo(HashSet()) { it.span }
         for (chain in chains.values) recordChain(chain, calls)
+        for (anchor in anchors) recordAnchor(anchor)
+    }
+
+    /** Records a `TYPE_USE` of each field the name of [anchor] names. */
+    private fun recordAnchor(anchor: Anchor) {
+        for (segment in segmentsOf(anchor.name)) {
+            val key = (fieldBinding(segment) as? FieldBinding.Field)?.let(::fieldKey) ?: continue
+            state.occurrences += OccurrenceFact(anchor.context.unitIndex, anchor.context.container, anchor.statementId, spanOf(segment),
+                writtenText(segment), key, setOf(Role.TYPE_USE), status(Status.RESOLVED, anchor.context.partial), anchor.context.origin, null)
+        }
     }
 
     /** Records the field uses of [chain]: one value occurrence for each of its segments that names a known field. */

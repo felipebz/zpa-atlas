@@ -171,13 +171,16 @@ internal class TypeShapes(
     /** The integer [node] writes, a literal token, signed or not; null for anything else. */
     private fun integer(node: AstNode): Int? = tokensOf(node).takeIf { it.size in 1..2 }?.joinToString("") { it.originalValue }?.toIntOrNull()
 
-    /** `x%TYPE` or `x%ROWTYPE`: the entity the index resolved, else the local declaration the first segment names. */
+    /**
+     * `x%TYPE` or `x%ROWTYPE`: the entity the index resolved, its written fields after it followed (`code` of
+     * `pkg.g_rec.code%TYPE`), else the local declaration the first segment names.
+     */
     private fun anchored(node: AstNode): TypeShape {
         val rowType = node.lastChild.type == PlSqlKeyword.ROWTYPE
         val name = node.firstChild
         if (node in state.typeTargets) {
             val key = state.typeTargets[node]
-            return TypeShape.Anchored(rowType, key, null, emptyList(), if (key == null) "ANCHOR_UNRESOLVED" else null)
+            return TypeShape.Anchored(rowType, key, null, state.anchorFields[node].orEmpty(), if (key == null) "ANCHOR_UNRESOLVED" else null)
         }
         state.formsMembers[spanOf(name)]?.let { return TypeShape.Anchored(rowType, it.key, null, it.fields, null) }
         val segments = segmentsOf(name) ?: return TypeShape.Anchored(rowType, null, null, emptyList(), "ANCHOR_NOT_A_NAME")
