@@ -53,13 +53,26 @@ class FormsNamesPagesTest {
     fun `an item, a block, a parameter, a trigger and a module are used by the code that names them`() {
         assertThat(usedBy("forms:ROUTE_DESK/STOPS/CITY")).containsExactly(
             "ROUTE_DESK/STOPS/STOP_ID/WHEN-VALIDATE-ITEM 2 WRITE RESOLVED",
+            "ROUTE_DESK/STOPS/STOP_ID/KEY-NEXT-ITEM 1 CALL RESOLVED",
             "ROUTE_DESK/STOPS/WHEN-NEW-RECORD-INSTANCE 1 READ RESOLVED",
             "ROUTE_DESK/WHEN-NEW-FORM-INSTANCE 6 READ AMBIGUOUS",
             "ROUTE_DESK/WHEN-NEW-FORM-INSTANCE 7 WRITE RESOLVED"
         )
         assertThat(usedBy("forms:ROUTE_DESK/LEGS")).containsExactly("ROUTE_DESK/WHEN-NEW-FORM-INSTANCE 12 CALL RESOLVED")
         assertThat(usedBy("forms:ROUTE_DESK/PARAMETER/P_CITY")).containsExactly("ROUTE_DESK/WHEN-NEW-FORM-INSTANCE 7 READ RESOLVED")
-        assertThat(usedBy("forms:ROUTE_DESK/STOPS/REFRESH_STOP")).containsExactly("ROUTE_DESK/STOPS/STOP_ID/WHEN-VALIDATE-ITEM 4 CALL RESOLVED")
+        // A trigger is used by the EXECUTE_TRIGGER calls that may run it: the module's LOG_ROUTE, the only one of its name,
+        // by each; the item's CHECK_STOP, the only one of its name, by each, when the focus is there; a trigger whose name
+        // another one has too by none, its calls depending on the focus.
+        assertThat(usedBy("forms:ROUTE_DESK/LOG_ROUTE")).containsExactly(
+            "ROUTE_DESK/STOPS/STOP_ID/WHEN-VALIDATE-ITEM 5 CALL RESOLVED", "ROUTE_DESK/WHEN-NEW-FORM-INSTANCE 24 CALL RESOLVED"
+        )
+        assertThat(usedBy("forms:ROUTE_DESK/STOPS/STOP_ID/CHECK_STOP")).containsExactly(
+            "ROUTE_DESK/STOPS/STOP_ID/WHEN-VALIDATE-ITEM 3 CALL UNVERIFIED", "ROUTE_DESK/LEGS/WHEN-NEW-BLOCK-INSTANCE 1 CALL UNVERIFIED",
+            "ROUTE_DESK/WHEN-NEW-FORM-INSTANCE 15 CALL UNVERIFIED"
+        )
+        for (trigger in listOf("REFRESH_STOP", "STOPS/REFRESH_STOP", "STOPS/STOP_ID/WHEN-VALIDATE-ITEM", "STOPS/CITY/WHEN-VALIDATE-ITEM")) {
+            assertThat(usedBy("forms:ROUTE_DESK/$trigger")).describedAs(trigger).isEmpty()
+        }
         // The module is called by the other one.
         assertThat(usedBy("forms:ROUTE_DESK")).containsExactly("ROUTE_VIEW/WHEN-NEW-FORM-INSTANCE 2 CALL RESOLVED")
         // The AMBIGUOUS use is one of each candidate's.
@@ -79,9 +92,10 @@ class FormsNamesPagesTest {
 
     @Test
     fun `the impact of a Forms object follows the code that names it, and the modules that call its module`() {
-        // CHECK_STOP runs from WHEN-VALIDATE-ITEM of STOP_ID and from the module's WHEN-NEW-FORM-INSTANCE; ROUTE_DESK runs from ROUTE_VIEW.
+        // CHECK_STOP runs from WHEN-NEW-BLOCK-INSTANCE of LEGS, WHEN-VALIDATE-ITEM of STOP_ID and the module's WHEN-NEW-FORM-INSTANCE;
+        // ROUTE_DESK runs from ROUTE_VIEW.
         assertThat(index.impact("forms:ROUTE_DESK/STOPS/STOP_ID/CHECK_STOP").result!!.nodes.map { "${it.entity?.key} ${it.depth}" }).containsExactly(
-            "forms:ROUTE_DESK/STOPS/STOP_ID/WHEN-VALIDATE-ITEM 1", "forms:ROUTE_DESK/WHEN-NEW-FORM-INSTANCE 1"
+            "forms:ROUTE_DESK/LEGS/WHEN-NEW-BLOCK-INSTANCE 1", "forms:ROUTE_DESK/STOPS/STOP_ID/WHEN-VALIDATE-ITEM 1", "forms:ROUTE_DESK/WHEN-NEW-FORM-INSTANCE 1"
         )
         assertThat(index.impact("forms:ROUTE_DESK").result!!.nodes.map { "${it.entity?.key} ${it.depth}" })
             .containsExactly("forms:ROUTE_VIEW/WHEN-NEW-FORM-INSTANCE 1")

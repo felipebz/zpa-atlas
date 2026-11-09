@@ -23,12 +23,13 @@ import java.util.*
  *   a PL/SQL variable written there: an assignment or `INTO` target, an `OUT` or `IN OUT` argument of a resolved call,
  *   else a read; in SQL too.
  * - The built-ins named by [BUILT_INS], with a literal first argument, `CALL` the object it names: `GO_BLOCK` the block,
- *   `GO_ITEM` the item (`'BLOCK.ITEM'` or `'ITEM'`, as above), `EXECUTE_TRIGGER` the trigger looked up as Forms does,
- *   from the lowest level up (the item the code runs on, its block, the module; from code on no block, which does not
- *   know the item the cursor is on, the module's, `UNVERIFIED` when a block or an item has one of that name too, else
- *   the one trigger of that name, `UNVERIFIED`), `CALL_FORM`, `OPEN_FORM` and `NEW_FORM` the module of that name (its last name
- *   without its ending: `'/forms/orders.fmx'` is `ORDERS`), whose key [resolveModuleCalls] checks once every module is
- *   known. A first argument that is not a literal is counted in a `FORMS_NAME_NOT_LITERAL` note, by built-in.
+ *   `GO_ITEM` the item (`'BLOCK.ITEM'` or `'ITEM'`, as above), `EXECUTE_TRIGGER` the trigger of that name (Forms runs
+ *   the one of the item that has the focus when the call runs, else its block's, else the module's, wherever the call
+ *   is written, and the index does not follow the focus: the module's when it is the only one of that name, the one on
+ *   a block or an item `UNVERIFIED`, none among several), `CALL_FORM`, `OPEN_FORM` and `NEW_FORM` the module of that
+ *   name (its last name without its ending: `'/forms/orders.fmx'` is `ORDERS`), whose key [resolveModuleCalls] checks
+ *   once every module is known. A first argument that is not a literal is counted in a `FORMS_NAME_NOT_LITERAL` note,
+ *   by built-in.
  */
 internal class FormsReferences(private val layout: FormsLayout, private val entities: FormsEntities, private val state: FileState) {
     private val roles = NameRoles(state)
@@ -120,7 +121,7 @@ internal class FormsReferences(private val layout: FormsLayout, private val enti
                     else -> Found(null, Status.UNRESOLVED, Reason.NO_SUCH_ITEM.name)
                 }
             }
-            "EXECUTE_TRIGGER" -> trigger(upper(written), layout.unitAt(argument.tokenLine))
+            "EXECUTE_TRIGGER" -> trigger(upper(written))
             else -> moduleName(written).takeIf { it.isNotEmpty() }?.let { Found(FORMS_PREFIX + it, Status.RESOLVED) }
                 ?: Found(null, Status.UNRESOLVED, Reason.MODULE_NOT_INDEXED.name)
         }
@@ -147,22 +148,19 @@ internal class FormsReferences(private val layout: FormsLayout, private val enti
         return among(itemsByName[item].orEmpty(), Reason.NO_SUCH_ITEM)
     }
 
-    /** The trigger [name] that `EXECUTE_TRIGGER` runs from the code at [unit]. */
-    private fun trigger(name: String, unit: FormsLayout.Unit?): Found {
-        val owner = if (unit?.kind == FormsLayout.Kind.TRIGGER && unit.level != FormsTriggerLevel.EVENT) unit.owner.map(::upper) else emptyList()
-        if (owner.isEmpty()) {
-            // Forms looks it up from the item the cursor is on, which code on no block does not know.
-            val named = triggersByName[name].orEmpty()
-            triggers[emptyList()]?.get(name)?.let { module ->
-                // The module's, unless a block or an item has one of that name too, which runs instead when the cursor is there.
-                return if (named.size == 1) Found(module, Status.RESOLVED) else Found(module, Status.UNVERIFIED, Reason.TRIGGER_MAY_BE_OVERRIDDEN.name)
-            }
-            // A guess by name.
-            val found = among(named, Reason.NO_SUCH_TRIGGER)
-            return if (found.status == Status.RESOLVED) Found(found.key, Status.UNVERIFIED, Reason.TRIGGER_FOUND_BY_NAME.name) else found
+    /**
+     * The trigger [name] that `EXECUTE_TRIGGER` runs, by the module's triggers of that name: Forms takes the one of the
+     * item that has the focus, else its block's, else the module's, and the index does not know where the focus is.
+     */
+    private fun trigger(name: String): Found {
+        val named = triggersByName[name].orEmpty()
+        return when {
+            named.isEmpty() -> Found(null, Status.UNRESOLVED, Reason.NO_SUCH_TRIGGER.name)
+            // No candidates: each would list among its uses a call that may never run it.
+            named.size > 1 -> Found(null, Status.AMBIGUOUS, Reason.TRIGGER_DEPENDS_ON_FOCUS.name)
+            named[0] == triggers[emptyList()]?.get(name) -> Found(named[0], Status.RESOLVED)
+            else -> Found(named[0], Status.UNVERIFIED, Reason.TRIGGER_NEEDS_FOCUS.name)
         }
-        for (size in owner.size downTo 0) triggers[owner.subList(0, size)]?.get(name)?.let { return Found(it, Status.RESOLVED) }
-        return Found(null, Status.UNRESOLVED, Reason.NO_SUCH_TRIGGER.name)
     }
 
     /** One of [keys]: resolved when it is the only one, ambiguous among several, unresolved for [none] when there is none. */

@@ -25,7 +25,9 @@ import kotlin.io.path.writeText
  * `ROUTE_VIEW` (`forms/route_view_fmb.xml`), which reads the global `ROUTE_DESK` sets and calls it back. `ROUTE_DESK`
  * has the blocks `STOPS` (`STOP_ID`, `CITY`, `NOTE`) and `LEGS` (`LEG_ID`, `CITY`, `DISTANCE`), the parameter `P_CITY`,
  * and the user-named triggers `CHECK_STOP` on the item `STOP_ID`, `REFRESH_STOP` on the block `STOPS` and on the
- * module, and `LOG_ROUTE` on the module. The database procedure `ROUTE_NEXT` has an `OUT` parameter.
+ * module, and `LOG_ROUTE` on the module; `STOP_ID` and `CITY` each have a `WHEN-VALIDATE-ITEM`, which `STOP_ID`'s
+ * `KEY-NEXT-ITEM` runs after going to `CITY`, and `LEGS` runs `CHECK_STOP`. The database procedure `ROUTE_NEXT` has an
+ * `OUT` parameter.
  */
 class FormsNamesTest {
     @TempDir
@@ -115,19 +117,13 @@ class FormsNamesTest {
             "'LEGS' CALL forms:ROUTE_DESK/LEGS RESOLVED -",
             "'LEGS.DISTANCE' CALL forms:ROUTE_DESK/LEGS/DISTANCE RESOLVED -",
             "'distance' CALL forms:ROUTE_DESK/LEGS/DISTANCE RESOLVED -",
-            // From the module, with no module-level CHECK_STOP: the one trigger of that name, a guess.
-            "'CHECK_STOP' CALL forms:ROUTE_DESK/STOPS/STOP_ID/CHECK_STOP UNVERIFIED TRIGGER_FOUND_BY_NAME",
+            // CHECK_STOP is on the item STOP_ID alone: it runs when the focus is there.
+            "'CHECK_STOP' CALL forms:ROUTE_DESK/STOPS/STOP_ID/CHECK_STOP UNVERIFIED TRIGGER_NEEDS_FOCUS",
             "'route_view' CALL forms:ROUTE_VIEW RESOLVED -",
             "'/forms/route_view.fmx' CALL forms:ROUTE_VIEW RESOLVED -",
             "'ROUTE_GONE' CALL - UNRESOLVED MODULE_NOT_INDEXED",
-            // The module's REFRESH_STOP, unless the cursor is on STOPS, whose REFRESH_STOP runs instead; LOG_ROUTE is the module's alone.
-            "'REFRESH_STOP' CALL forms:ROUTE_DESK/REFRESH_STOP UNVERIFIED TRIGGER_MAY_BE_OVERRIDDEN",
-            "'LOG_ROUTE' CALL forms:ROUTE_DESK/LOG_ROUTE RESOLVED -"
-        )
-        // From the item STOP_ID: its own trigger, then its block's (not the module's REFRESH_STOP), then the module's.
-        assertThat(uses("ROUTE_DESK/STOPS/STOP_ID/WHEN-VALIDATE-ITEM").drop(3)).containsExactly(
-            "'check_stop' CALL forms:ROUTE_DESK/STOPS/STOP_ID/CHECK_STOP RESOLVED -",
-            "'REFRESH_STOP' CALL forms:ROUTE_DESK/STOPS/REFRESH_STOP RESOLVED -",
+            // REFRESH_STOP is on STOPS and on the module: which one runs depends on the focus. LOG_ROUTE is the module's alone.
+            "'REFRESH_STOP' CALL - AMBIGUOUS TRIGGER_DEPENDS_ON_FOCUS",
             "'LOG_ROUTE' CALL forms:ROUTE_DESK/LOG_ROUTE RESOLVED -"
         )
         assertThat(uses("ROUTE_VIEW/WHEN-NEW-FORM-INSTANCE")).contains("'route_desk' CALL forms:ROUTE_DESK RESOLVED -")
@@ -141,7 +137,22 @@ class FormsNamesTest {
     }
 
     @Test
-    fun `a trigger a program unit finds by name only, or the module's when a block has one of that name too, is not certain`() {
+    fun `a trigger is certain when only the module has one of its name, and depends on the focus wherever the call is`() {
+        // From the item STOP_ID, as from the module: its own CHECK_STOP only when the focus is on it, no REFRESH_STOP.
+        assertThat(uses("ROUTE_DESK/STOPS/STOP_ID/WHEN-VALIDATE-ITEM").drop(3)).containsExactly(
+            "'check_stop' CALL forms:ROUTE_DESK/STOPS/STOP_ID/CHECK_STOP UNVERIFIED TRIGGER_NEEDS_FOCUS",
+            "'REFRESH_STOP' CALL - AMBIGUOUS TRIGGER_DEPENDS_ON_FOCUS",
+            "'LOG_ROUTE' CALL forms:ROUTE_DESK/LOG_ROUTE RESOLVED -"
+        )
+        // From the other block, the item's trigger all the same.
+        assertThat(uses("ROUTE_DESK/LEGS/WHEN-NEW-BLOCK-INSTANCE")).containsExactly(
+            "'CHECK_STOP' CALL forms:ROUTE_DESK/STOPS/STOP_ID/CHECK_STOP UNVERIFIED TRIGGER_NEEDS_FOCUS"
+        )
+        // The focus has gone to CITY, but the index does not follow it: STOP_ID's or CITY's, neither a candidate.
+        assertThat(uses("ROUTE_DESK/STOPS/STOP_ID/KEY-NEXT-ITEM")).containsExactly(
+            "'STOPS.CITY' CALL forms:ROUTE_DESK/STOPS/CITY RESOLVED -",
+            "'WHEN-VALIDATE-ITEM' CALL - AMBIGUOUS TRIGGER_DEPENDS_ON_FOCUS"
+        )
         val root = temp.resolve("nam").createDirectories()
         root.resolve("nam_fmb.xml").writeText(NAM)
         val nam = temp.resolve("nam.db")
@@ -150,20 +161,20 @@ class FormsNamesTest {
             SELECT u.name || ' ' || o.written || ' ' || coalesce(e.key, '-') || ' ' || o.status || ' ' || coalesce(o.reason, '-')
             FROM occurrence o JOIN unit u ON u.id = o.unit_id LEFT JOIN entity e ON e.id = o.entity_id
             WHERE o.written LIKE '''%' ORDER BY o.id""")).containsExactly(
-            // The item's code looks on X, on A, on the module: B's trigger is not there.
-            "NAM/A/X/WHEN-VALIDATE-ITEM 'ONLY_B' - UNRESOLVED NO_SUCH_TRIGGER",
-            // A program unit does not know the cursor's item: B's trigger, found by its name alone.
-            "NAM/P 'ONLY_B' forms:NAM/B/ONLY_B UNVERIFIED TRIGGER_FOUND_BY_NAME",
-            // The module's own trigger is found wherever the cursor is.
+            // B's trigger, from A's item too: when the focus is on B.
+            "NAM/A/X/WHEN-VALIDATE-ITEM 'ONLY_B' forms:NAM/B/ONLY_B UNVERIFIED TRIGGER_NEEDS_FOCUS",
+            "NAM/A/X/WHEN-VALIDATE-ITEM 'NOWHERE' - UNRESOLVED NO_SUCH_TRIGGER",
+            "NAM/P 'ONLY_B' forms:NAM/B/ONLY_B UNVERIFIED TRIGGER_NEEDS_FOCUS",
             "NAM/P 'ON_MODULE' forms:NAM/ON_MODULE RESOLVED -",
-            // The module's SHARED, but B's runs instead when the cursor is on B.
-            "NAM/P 'SHARED' forms:NAM/SHARED UNVERIFIED TRIGGER_MAY_BE_OVERRIDDEN"
+            // The module's SHARED, or B's when the focus is on B.
+            "NAM/P 'SHARED' - AMBIGUOUS TRIGGER_DEPENDS_ON_FOCUS"
         )
     }
 
     @Test
     fun `a module exported without DUMP=ALL gives the same uses`() {
-        for (unit in listOf("STOPS/STOP_ID/WHEN-VALIDATE-ITEM", "STOPS/WHEN-NEW-RECORD-INSTANCE", "WHEN-NEW-FORM-INSTANCE")) {
+        for (unit in listOf("STOPS/STOP_ID/WHEN-VALIDATE-ITEM", "STOPS/STOP_ID/KEY-NEXT-ITEM", "STOPS/WHEN-NEW-RECORD-INSTANCE", "LEGS/WHEN-NEW-BLOCK-INSTANCE",
+            "WHEN-NEW-FORM-INSTANCE")) {
             assertThat(uses("ROUTE_PLAIN/$unit").map { it.replace("ROUTE_PLAIN", "ROUTE_DESK") }).isEqualTo(uses("ROUTE_DESK/$unit"))
         }
     }
@@ -208,12 +219,12 @@ class FormsNamesTest {
 
         /**
          * Blocks `A` (item `X`) and `B`; only `B` has the user-named trigger `ONLY_B`, the module has `ON_MODULE`, and both
-         * have `SHARED`.
+         * have `SHARED`; none has `NOWHERE`.
          */
         const val NAM = """<Module version="122010300" xmlns="http://xmlns.oracle.com/Forms"><FormModule Name="NAM">
 <Trigger Name="ON_MODULE" TriggerText="null;"/>
 <Trigger Name="SHARED" TriggerText="null;"/>
-<Block Name="A"><Item Name="X"><Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="execute_trigger('ONLY_B');"/></Item></Block>
+<Block Name="A"><Item Name="X"><Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="execute_trigger('ONLY_B');&amp;#10;execute_trigger('NOWHERE');"/></Item></Block>
 <Block Name="B"><Trigger Name="ONLY_B" TriggerText="null;"/><Trigger Name="SHARED" TriggerText="null;"/></Block>
 <ProgramUnit Name="P" ProgramUnitText="PROCEDURE p IS&amp;#10;BEGIN&amp;#10;  execute_trigger('ONLY_B');&amp;#10;  execute_trigger('ON_MODULE');&amp;#10;  execute_trigger('SHARED');&amp;#10;END;"/>
 </FormModule></Module>"""
@@ -223,17 +234,18 @@ class FormsNamesTest {
             SELECT coalesce(e.kind, '-') || ' ' || o.status || ' ' || coalesce(o.reason, '-') || ' ' || o.roles || ' ' || count(*)
             FROM occurrence o JOIN source_file f ON f.id = o.file_id LEFT JOIN entity e ON e.id = o.entity_id
             WHERE f.kind = 'FORMS_MODULE' AND o.origin = 'STATIC' AND (o.written LIKE ':%' OR o.written LIKE '''%')
-              AND (e.kind LIKE 'FORMS_%' OR o.reason IN ('AMBIGUOUS', 'NO_SUCH_BLOCK', 'NO_SUCH_ITEM', 'NO_SUCH_PARAMETER', 'NO_SUCH_TRIGGER', 'MODULE_NOT_INDEXED'))
+              AND (e.kind LIKE 'FORMS_%' OR o.reason IN ('AMBIGUOUS', 'TRIGGER_DEPENDS_ON_FOCUS', 'NO_SUCH_BLOCK', 'NO_SUCH_ITEM', 'NO_SUCH_PARAMETER', 'NO_SUCH_TRIGGER',
+                'MODULE_NOT_INDEXED'))
             GROUP BY coalesce(e.kind, '-'), o.status, o.reason, o.roles ORDER BY 1"""
 
         /**
-         * What the Doag modules give: two `EXECUTE_TRIGGER`s of a program unit find the trigger on several items, three
-         * `CALL_FORM`s call a module the corpus does not have, and two `GO_ITEM('builtins.filename')` name an item the
-         * block does not have (its item is `FILE_NAME`). One `EXECUTE_TRIGGER` of a program unit finds its trigger on one
-         * item only: by its name alone.
+         * What the Doag modules give: two `EXECUTE_TRIGGER`s of a program unit name a trigger several items have, which
+         * one runs depends on the focus; three `CALL_FORM`s call a module the corpus does not have, and two
+         * `GO_ITEM('builtins.filename')` name an item the block does not have (its item is `FILE_NAME`). One
+         * `EXECUTE_TRIGGER` of a program unit names a trigger one item alone has: it runs with the focus there.
          */
         val DOAG = listOf(
-            "- AMBIGUOUS AMBIGUOUS CALL 2",
+            "- AMBIGUOUS TRIGGER_DEPENDS_ON_FOCUS CALL 2",
             "- UNRESOLVED MODULE_NOT_INDEXED CALL 3",
             "- UNRESOLVED NO_SUCH_ITEM CALL 2",
             "FORMS_BLOCK RESOLVED - CALL 36",
@@ -246,7 +258,7 @@ class FormsNamesTest {
             "FORMS_PARAMETER RESOLVED - READ 708",
             "FORMS_PARAMETER RESOLVED - WRITE 94",
             "FORMS_TRIGGER RESOLVED - CALL 1",
-            "FORMS_TRIGGER UNVERIFIED TRIGGER_FOUND_BY_NAME CALL 1"
+            "FORMS_TRIGGER UNVERIFIED TRIGGER_NEEDS_FOCUS CALL 1"
         )
     }
 }

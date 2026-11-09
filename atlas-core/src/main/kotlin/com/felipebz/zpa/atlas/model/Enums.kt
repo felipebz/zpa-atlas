@@ -160,16 +160,16 @@ enum class Reason : StoredEnum {
     AMBIGUOUS_TARGET,
     AMBIGUOUS_COLUMN,
     PRIVATE_OVERLOADS,
+    // Several triggers of the name EXECUTE_TRIGGER gives: which one runs depends on the focus, which the index does not follow.
+    TRIGGER_DEPENDS_ON_FOCUS,
     // Found, or not checkable, with something the index could not see.
     PRIVATE_SINGLE,
     SCHEMA_UNKNOWN,
     COLUMNS_UNKNOWN,
     COLUMN_NOT_EXCLUDED,
     PARTIAL_DECLARATIONS,
-    // A trigger EXECUTE_TRIGGER names, found by name outside the caller's own item, block and module.
-    TRIGGER_FOUND_BY_NAME,
-    // The module's trigger EXECUTE_TRIGGER names from code on no block, when a block or an item has one of that name too.
-    TRIGGER_MAY_BE_OVERRIDDEN,
+    // The one trigger of the name EXECUTE_TRIGGER gives, on a block or an item: it runs only when the focus is there.
+    TRIGGER_NEEDS_FOCUS,
     INCOMPLETE_INDEX,
     DB_LINK,
     // What became of a dynamic statement's text.

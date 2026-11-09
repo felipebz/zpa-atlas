@@ -743,7 +743,7 @@ internal class AtlasMcpTools(
 
         private const val STATUSES =
             "status: RESOLVED is proven. The others say why the index is not sure: UNVERIFIED (not checked, no " +
-                "dictionary), AMBIGUOUS (several candidates, listed in candidates), UNRESOLVED (named but not found; " +
+                "dictionary), AMBIGUOUS (several candidates, in candidates if any), UNRESOLVED (named but not found; " +
                 "reason says why), EXTERNAL (beyond a database link), DYNAMIC (dynamic SQL), PARTIAL_SOURCE (in code " +
                 "the parser recovered)."
 
