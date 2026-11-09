@@ -50,8 +50,8 @@ internal class FileRows(private val connection: Connection) {
         private val placeInsert = prepare("""INSERT INTO column_place(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line,
             end_col, column_id, source, bulk, target_entity_id, target_written, field, class, declared_type, length, length_unit, type_source_id, reason,
             scale, parameter_mode, functions, argument_parameter_id, argument_routine_id, call_count, call_path, call_line, concatenated,
-            unit_source, unit_compiled_owner, unit_compiled_name, unit_compiled_type)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
+            unit_source, unit_compiled_owner, unit_compiled_name, unit_compiled_type, kept_length, kept_unit, skipped, skipped_unit)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
         private val formsInsert = prepare("INSERT INTO forms_object(file_id, position, entity_id, code_first_line, code_last_line, code_kind) VALUES (?,?,?,?,?,?)")
         private val blockInsert = prepare("""INSERT INTO forms_block(entity_id, database, source_type, source_name, source_entity_id, target_type, target_name,
             target_entity_id, query_allowed, insert_allowed, update_allowed, delete_allowed, where_clause, order_by_clause) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
@@ -291,7 +291,7 @@ internal class FileRows(private val connection: Connection) {
             placeInsert.setNullableString(21, place.reason)
             placeInsert.setNullableLong(22, place.scale?.toLong())
             placeInsert.setNullableString(23, place.parameterMode)
-            placeInsert.setNullableString(24, place.functions.filter { it != CONCATENATED }.takeIf { it.isNotEmpty() }?.joinToString(","))
+            placeInsert.setNullableString(24, place.functions.filter { it != CONCATENATED }.takeIf { it.isNotEmpty() }?.joinToString(",") { Substrings.name(it) })
             placeInsert.setNullableLong(25, place.argumentOf?.let { entityIds[it] })
             placeInsert.setNullableLong(26, place.argumentOf?.let { entityIds[it.substringBeforeLast('.')] })
             placeInsert.setNullableLong(27, place.callCount?.toLong())
@@ -302,6 +302,11 @@ internal class FileRows(private val connection: Connection) {
             placeInsert.setNullableString(32, place.unitCompiledIn?.owner)
             placeInsert.setNullableString(33, place.unitCompiledIn?.name)
             placeInsert.setNullableString(34, place.unitCompiledIn?.type)
+            val kept = Substrings.kept(place.functions)
+            placeInsert.setNullableLong(35, kept?.length?.toLong())
+            placeInsert.setNullableString(36, kept?.unit)
+            placeInsert.setNullableLong(37, kept?.skipped?.toLong())
+            placeInsert.setNullableString(38, kept?.skippedUnit)
             batches.add(placeInsert)
         }
     }

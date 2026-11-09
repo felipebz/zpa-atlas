@@ -400,13 +400,14 @@ class ColumnPlacesTest {
             "8 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - - via MAX",
             "9 ORDERS.AMOUNT SELECT_INTO l_amt FIXED_SIZE number(5) 5 DIGITS scale 0 - - via NVL",
             "11 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER,TRIM",
-            // Lines 13 (NVL2's first argument), 14 (two columns) and 15 (SUBSTR inside NVL) are not places.
+            // Lines 13 (NVL2's first argument) and 14 (two columns) are not places.
+            "15 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - - via NVL,SUBSTR",
             "17 ORDERS.CODE FETCH l_code FIXED_SIZE varchar2(12) 12 BYTE - - via MAX",
             "20 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER"
         )
         assertThat(Fixture.query(db, """SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id
             WHERE c.kind = 'COLUMN_VALUE_NOT_FOLLOWED' AND f.path = 'funcs.sql' ORDER BY 1""").map { it.substringBefore(" ") })
-            .containsExactly("EXPRESSION_NVL2:", "EXPRESSION_NVL:")
+            .containsExactly("EXPRESSION_NVL2:")
     }
 
     @Test
@@ -873,10 +874,10 @@ class ColumnPlacesTest {
         """.trimIndent())
         val db = temp.resolve("split.db")
         Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
-        // x.up is read through UPPER and x.joined (code || note) and p_concat's p_code || '-' are concatenations, which
-        // the index follows; r_unknown's relation is not known but its field is named:
-        // the column is told by name, and p_rec writes it nowhere. Neither is counted; nor is r_anchor, whose type the
-        // index does not resolve at all.
+        // x.up is read through UPPER, p_substr's p_code through SUBSTR, and x.joined (code || note) and p_concat's
+        // p_code || '-' are concatenations, which the index follows; r_unknown's relation is not known but its field is
+        // named: the column is told by name, and p_rec writes it nowhere. Neither is counted; nor is r_anchor, whose type
+        // the index does not resolve at all.
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
             .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
             "ARGUMENT_COLUMN_NOT_KNOWN_CURSOR: 1",                      // r_spec, a cursor declared with no query
@@ -885,7 +886,6 @@ class ColumnPlacesTest {
             "ARGUMENT_COLUMN_NOT_KNOWN_STAR: 1",                        // s.code, select * from a table not known
             "ARGUMENT_EXPRESSION_CASE: 1",
             "ARGUMENT_EXPRESSION_LENGTH: 1",
-            "ARGUMENT_EXPRESSION_SUBSTR: 1",
             "ARGUMENT_EXPRESSION_TO_CHAR: 1"
         )
     }
@@ -903,6 +903,7 @@ class ColumnPlacesTest {
             FROM column_place p JOIN entity c ON c.id = p.column_id ORDER BY p.start_line, c.key""")).containsExactly(
             "12 l CODE IN_ARGUMENT FIXED_SIZE 11 - 1",          // k7  'C:' || p_code
             "13 l CODE IN_ARGUMENT FIXED_SIZE 12 UPPER 1",      // k8  upper(p_code) || '-' || nvl(p_code, '?'): one place, by its first part
+            "14 l CODE IN_ARGUMENT FIXED_SIZE 13 SUBSTR 1",     // k9  substr(p_code || 'x', 1, 5)
             "15 l CODE IN_ARGUMENT FIXED_SIZE 14 - 1",          // k10 concat(p_code, 'x')
             "16 l CODE IN_ARGUMENT FIXED_SIZE 15 - 1",          // k11 select p_code || 'x' into l
             "29 l1 CODE SELECT_INTO FIXED_SIZE 16 - 1",         // k1
@@ -917,9 +918,7 @@ class ColumnPlacesTest {
             "57 l8 CODE ASSIGNMENT FIXED_SIZE 22 - 1",          // r.code || r.note, a place for each field
             "57 l8 NOTE ASSIGNMENT FIXED_SIZE 22 - 1"
         )
-        // k9: substr(p_code || 'x', 1, 5), the concatenation inside a function the index does not follow.
-        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'").map { it.substringBefore(" parameter") })
-            .containsExactly("ARGUMENT_EXPRESSION_SUBSTR: 1")
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'")).isEmpty()
     }
 
     @Test
@@ -1100,6 +1099,7 @@ class ColumnPlacesTest {
         // Column, target, class, length, functions, concatenated, the function (or the routine of the parameter), calls.
         assertThat(Fixture.query(db, RETURNED_PLACES)).containsExactly(
             "pk_ret.sql:67 l CODE IN_ARGUMENT FIXED_SIZE 5 - 0 PK_RET.TAKE(P_CODE IN VARCHAR2) 1 show_ret.sql:23",     // c15
+            "show_more.sql:29 l1 CODE RETURNED FIXED_SIZE 5 SUBSTR 0 PK_RET.F_CUT(P_CODE IN VARCHAR2) 1 show_more.sql:29",  // f_cut's substr(p_code, 1, 3)
             "show_more.sql:30 l2 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET2.F_SELF(P_CODE IN VARCHAR2,N IN NUMBER) 1 show_more.sql:30",
             "show_more.sql:31 l3 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET2.F_PING(P_CODE IN VARCHAR2,N IN NUMBER) 1 show_more.sql:31",
             "show_more.sql:33 l4 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_SHORT(P_ID IN NUMBER) 1 show_more.sql:33",       // r10
@@ -1116,16 +1116,15 @@ class ColumnPlacesTest {
             "show_ret.sql:18 l8 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_CHAIN(P_ID IN NUMBER) 1 show_ret.sql:18",         // c8
             "show_ret.sql:19 l9 CODE RETURNED FIXED_SIZE 5 NVL 0 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:19",         // c9
             "show_ret.sql:20 l10 CODE RETURNED FIXED_SIZE 5 - 1 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:20",          // c10
+            "show_ret.sql:21 l11 CODE RETURNED FIXED_SIZE 5 SUBSTR 0 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:21",     // c11
             "show_ret.sql:22 l14 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:22",          // c14, in SQL
             "show_ret.sql:24 p_out CODE RETURNED CALLER_DECIDES - - 0 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:24"     // c16
         )
         assertThat(Fixture.query(db, "SELECT f.path || ' ' || n.message FROM coverage_note n JOIN source_file f ON f.id = n.file_id WHERE n.kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1")
             .map { it.substringBefore(": ") + ": " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
-            "pk_ret.sql ARGUMENT_EXPRESSION_SUBSTR: 1",     // f_cut's substr(p_code, 1, 3), from show_more's f_cut(x.code)
             "show_more.sql RETURNED_NOT_SCALAR: 1",         // r := f_rec(1), a record
             "show_ret.sql ARGUMENT_ROUTINE_UNDECIDED: 1",   // c12: zpa leaves the overloaded f_over AMBIGUOUS
-            "show_ret.sql EXPRESSION_OTHER_ROUTINE: 1",     // c14's item: order_id passed to f_get, as today
-            "show_ret.sql RETURNED_EXPRESSION_SUBSTR: 1"    // c11
+            "show_ret.sql EXPRESSION_OTHER_ROUTINE: 1"      // c14's item: order_id passed to f_get, as today
         )
     }
 
@@ -1568,8 +1567,8 @@ class ColumnPlacesTest {
               procedure out_upper(p_in varchar2, p_res out varchar2);
               procedure out_read(p_id number, p_res out varchar2);
               function f_read(p_id number) return varchar2;
-              procedure out_substr(p_in varchar2, p_res out varchar2);
-              function f_substr(p varchar2) return varchar2;
+              procedure out_lpad(p_in varchar2, p_res out varchar2);
+              function f_lpad(p varchar2) return varchar2;
               function f_lower(p varchar2) return varchar2;
               function f_rtrim(p varchar2) return varchar2;
             end;
@@ -1584,8 +1583,8 @@ class ColumnPlacesTest {
               begin select code into l from orders where order_id = p_id; p_res := l; end;
               function f_read(p_id number) return varchar2 is l varchar2(100);
               begin select code into l from orders where order_id = p_id; return l; end;
-              procedure out_substr(p_in varchar2, p_res out varchar2) is l varchar2(100); begin l := p_in; p_res := substr(l, 1, 3); end;
-              function f_substr(p varchar2) return varchar2 is l varchar2(100); begin l := p; return substr(l, 1, 3); end;
+              procedure out_lpad(p_in varchar2, p_res out varchar2) is l varchar2(100); begin l := p_in; p_res := lpad(l, 3); end;
+              function f_lpad(p varchar2) return varchar2 is l varchar2(100); begin l := p; return lpad(l, 3); end;
               function f_lower(p varchar2) return varchar2 is l varchar2(100); begin l := p; return lower(l); end;
               function f_rtrim(p varchar2) return varchar2 is l varchar2(100); begin l := p; return rtrim(l); end;
             end;
@@ -1603,8 +1602,8 @@ class ColumnPlacesTest {
                 h5 := pk_h.f_upper_p(r.code);
                 pk_h.out_upper(r.code, h6);
                 pk_h.out_upper(r.note, h7);
-                pk_h.out_substr(r.code, h10);
-                h11 := pk_h.f_substr(r.code);
+                pk_h.out_lpad(r.code, h10);
+                h11 := pk_h.f_lpad(r.code);
                 h12 := pk_h.f_lower(r.note);
                 h13 := pk_h.f_rtrim(r.code);
               end loop;
@@ -1629,9 +1628,9 @@ class ColumnPlacesTest {
             // Inside the routines: what their OUT parameters are given, from a call, or assigned what the routine read itself.
             "p_res CODE IN_ARGUMENT CALLER_DECIDES via UPPER", "p_res CODE ASSIGNMENT CALLER_DECIDES", "p_res NOTE IN_ARGUMENT CALLER_DECIDES via UPPER"
         )
-        // Within substr, given to an OUT parameter (h10) or returned (h11): not followed, counted where the routine writes it.
+        // Within lpad, given to an OUT parameter (h10) or returned (h11): not followed, counted where the routine writes it.
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
-            .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly("RETURNED_EXPRESSION_SUBSTR: 2")
+            .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly("RETURNED_EXPRESSION_OTHER_LPAD: 2")
     }
 
     @Test

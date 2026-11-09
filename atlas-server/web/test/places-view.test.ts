@@ -99,7 +99,9 @@ describe("verdict buttons", () => {
     expect(verdictTitle(say, "UNKNOWN", 10)).toBe(en["places.classTitle.UNKNOWN"]);
     expect(verdictTitle(say, "OWN_SIZE", null)).toBe(en["places.classTitle.FIXED_SIZE"]);
     expect(verdictTitle(say, "SMALLER", 10)).toBe("Has a size of its own smaller than 10: a longer value does not fit.");
-    expect(verdictTitle(sayPt, "FITS", 10)).toBe("Recebe um valor de 10: tamanho 10 ou maior, ou sem limite de tamanho.");
+    expect(verdictTitle(say, "FITS", 10)).toBe("Takes a value of 10: a size of 10 or more, no size limit, or room for all that SUBSTR keeps of the value.");
+    expect(verdictTitle(sayPt, "FITS", 10))
+      .toBe("Recebe um valor de 10: tamanho 10 ou maior, sem limite de tamanho, ou espaço para tudo o que o SUBSTR deixa do valor.");
   });
 });
 
@@ -282,6 +284,26 @@ describe("functionsText", () => {
     expect(functionsText(say, { functions: ["UPPER", "NVL"] })).toBe("through UPPER(NVL(…)): another argument may be read instead");
     expect(functionsText(sayPt, { functions: ["UPPER", "NVL"] })).toBe("por UPPER(NVL(…)): pode ser lido outro argumento no lugar");
     expect(functionsText(say, { functions: [] })).toBeNull();
+  });
+
+  // CODE counts 20 characters and NOTE 40 bytes: s1 reads substr(code, 1, 5), s7 substrb(note, 1, 5), s13
+  // nvl(substr(code, 1, 3), 'none'), s10 replace(substr(code, 1, 3), 'a', 'xx'), whose REPLACE drops what SUBSTR keeps.
+  it("says the most SUBSTR or SUBSTRB keep of the value when it is below the size compared, in its unit", () => {
+    const s1 = place({ targetWritten: "s1", functions: ["SUBSTR"], kept: 5, keptUnit: "CHAR" });
+    const s7 = place({ targetWritten: "s7", read: NOTE, functions: ["SUBSTRB"], kept: 5, keptUnit: "BYTE" });
+    const s13 = place({ targetWritten: "s13", functions: ["NVL", "SUBSTR"], kept: 3, keptUnit: "CHAR" });
+    const s10 = place({ targetWritten: "s10", functions: ["REPLACE", "SUBSTR"], kept: null, keptUnit: null });
+    expect(functionsText(say, s1, 20)).toBe("through SUBSTR(…): at most 5 characters of the value");
+    expect(functionsText(sayPt, s1, 20)).toBe("por SUBSTR(…): no máximo 5 caracteres do valor");
+    expect(functionsText(say, s7, 40)).toBe("through SUBSTRB(…): at most 5 bytes of the value");
+    expect(functionsText(sayPt, s7, 40)).toBe("por SUBSTRB(…): no máximo 5 bytes do valor");
+    expect(functionsText(say, s13, 20)).toBe("through NVL(SUBSTR(…)): another argument may be read instead, and at most 3 characters of the value");
+    expect(functionsText(sayPt, s13, 20)).toBe("por NVL(SUBSTR(…)): pode ser lido outro argumento no lugar, e no máximo 3 caracteres do valor");
+    expect(functionsText(say, s10, 20)).toBe("through REPLACE(SUBSTR(…)): the value may change length");
+    expect(functionsText(sayPt, s10, 20)).toBe("por REPLACE(SUBSTR(…)): o valor pode mudar de tamanho");
+    // The row's detail says it too; a limit not below the size compared says nothing more than the functions.
+    expect(placeDetail(say, s1, 20).flatMap(line => line.parts)).toContainEqual({ text: "through SUBSTR(…): at most 5 characters of the value" });
+    expect(functionsText(say, s1, 4)).toBe("through SUBSTR(…)");
   });
 });
 

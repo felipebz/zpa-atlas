@@ -183,13 +183,20 @@ export function concatenatedText(say: Say, place: Pick<ColumnPlace, "concatenate
   return place.concatenated ? say("places.concatenated") : null;
 }
 
-/** The value functions a place reads its column through, outer first, in words (`through UPPER(TRIM(…))`); null when read directly. */
-export function functionsText(say: Say, place: Pick<ColumnPlace, "functions">): string | null {
+/**
+ * The value functions a place reads its column through, outer first, in words (`through UPPER(TRIM(…))`); null when read
+ * directly. The most `SUBSTR` or `SUBSTRB` keep is said when it is below the size compared [size] (or there is none).
+ */
+export function functionsText(say: Say, place: Pick<ColumnPlace, "functions" | "kept" | "keptUnit">, size: number | null = null): string | null {
   if (place.functions.length === 0) return null;
   const functions = place.functions.map(f => f + "(").join("") + "…" + ")".repeat(place.functions.length);
   // NVL, NVL2 and COALESCE may give back another argument; REPLACE and REGEXP_REPLACE take text out or put it in; the
-  // others give back the column's value, or it trimmed or in another case.
+  // others give back the column's value, or it trimmed or in another case; SUBSTR keeps at most a part of it.
   const other = place.functions.some(f => f === "NVL" || f === "NVL2" || f === "COALESCE");
+  const kept = place.kept ?? null;
+  if (kept !== null && place.keptUnit && (size === null || kept < size)) {
+    return say((other ? "places.functionsOtherKept." : "places.functionsKept.") + place.keptUnit, { functions, count: kept });
+  }
   const length = place.functions.some(f => f === "REPLACE" || f === "REGEXP_REPLACE");
   const key = other ? (length ? "places.functionsOtherLength" : "places.functionsOther") : (length ? "places.functionsLength" : "places.functions");
   return say(key, { functions });
@@ -324,18 +331,18 @@ export function rowAt(say: Say, p: Pick<ColumnPlace, "path" | "line" | "shown" |
 
 /**
  * What a place's row leaves out, line by line: the declared type (with an unwritten unit or length), the declaration
- * that decides it, the functions, the concatenation and the room it leaves, the function whose result it is, the OUT
- * parameter it is passed for, the parameter it receives and the call that passes the column, what an OUT parameter
- * leaves to its callers, why it is not known, the view read through, and the target's file and line. The group's
- * routine is not said again.
+ * that decides it, the functions (with what `SUBSTR` keeps below the size compared [size]), the concatenation and the
+ * room it leaves, the function whose result it is, the OUT parameter it is passed for, the parameter it receives and the
+ * call that passes the column, what an OUT parameter leaves to its callers, why it is not known, the view read through,
+ * and the target's file and line. The group's routine is not said again.
  */
-export function placeDetail(say: Say, p: ColumnPlace): DetailLine[] {
+export function placeDetail(say: Say, p: ColumnPlace, size: number | null = null): DetailLine[] {
   const lines: DetailLine[] = [];
   const declared = declaredLine(say, p);
   if (declared !== null) lines.push(declared);
   const source = typeSourcePhrase(p);
   if (source !== null) lines.push({ parts: fill(say, source.key, { source: link(source.entity) }) });
-  const functions = functionsText(say, p);
+  const functions = functionsText(say, p, size);
   if (functions !== null) lines.push({ parts: [{ text: functions }] });
   if (p.concatenated) {
     const room = roomText(say, p);

@@ -295,7 +295,7 @@ export default {
   "places.verdict.FOLLOWS": "segue a coluna",
   "places.verdict.OWN_SIZE": "tamanho próprio",
   "places.verdictTitle.SMALLER": "Tem tamanho próprio menor que {size}: um valor mais longo não cabe.",
-  "places.verdictTitle.FITS": "Recebe um valor de {size}: tamanho {size} ou maior, ou sem limite de tamanho.",
+  "places.verdictTitle.FITS": "Recebe um valor de {size}: tamanho {size} ou maior, sem limite de tamanho, ou espaço para tudo o que o SUBSTR deixa do valor.",
   "places.classTitle.FIXED_SIZE": "Tem tamanho ou precisão próprios.",
   "places.classTitle.UNKNOWN": "O índice não soube dizer o tipo ou o tamanho do destino.",
   "places.classTitle.CALLER_DECIDES": "Um parâmetro OUT ou IN OUT: o valor vai para o argumento de cada chamada, cuja declaração decide o tipo e o tamanho.",
@@ -356,6 +356,24 @@ export default {
   "places.functionsOther": "por {functions}: pode ser lido outro argumento no lugar",
   "places.functionsLength": "por {functions}: o valor pode mudar de tamanho",
   "places.functionsOtherLength": "por {functions}: pode ser lido outro argumento no lugar, e o valor pode mudar de tamanho",
+  "places.functionsKept.CHAR": {
+    "=0": "por {functions}: no máximo {count} caracteres do valor", one: "por {functions}: no máximo {count} caractere do valor",
+    other: "por {functions}: no máximo {count} caracteres do valor"
+  },
+  "places.functionsKept.BYTE": {
+    "=0": "por {functions}: no máximo {count} bytes do valor", one: "por {functions}: no máximo {count} byte do valor",
+    other: "por {functions}: no máximo {count} bytes do valor"
+  },
+  "places.functionsOtherKept.CHAR": {
+    "=0": "por {functions}: pode ser lido outro argumento no lugar, e no máximo {count} caracteres do valor",
+    one: "por {functions}: pode ser lido outro argumento no lugar, e no máximo {count} caractere do valor",
+    other: "por {functions}: pode ser lido outro argumento no lugar, e no máximo {count} caracteres do valor"
+  },
+  "places.functionsOtherKept.BYTE": {
+    "=0": "por {functions}: pode ser lido outro argumento no lugar, e no máximo {count} bytes do valor",
+    one: "por {functions}: pode ser lido outro argumento no lugar, e no máximo {count} byte do valor",
+    other: "por {functions}: pode ser lido outro argumento no lugar, e no máximo {count} bytes do valor"
+  },
   "places.parameter": "parâmetro {mode}: o argumento de cada chamada decide o tipo e o tamanho",
   "places.typeSource.anchor": "ancorado em {source}",
   "places.typeSource.size": "tamanho escrito em {source}",

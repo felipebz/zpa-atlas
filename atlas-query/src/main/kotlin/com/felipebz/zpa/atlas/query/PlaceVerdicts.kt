@@ -10,7 +10,8 @@ package com.felipebz.zpa.atlas.query
  * when the index is read, never stored, so that every reader of the index gets the same answer.
  *
  * - [SMALLER]: the target's own size is less than `S`;
- * - [FITS]: it is `S` or more, or the target's type has no size (`CLOB`, `NUMBER` without precision, `DATE`);
+ * - [FITS]: it is `S` or more, or the target's type has no size (`CLOB`, `NUMBER` without precision, `DATE`), or it holds
+ *   all that `SUBSTR` or `SUBSTRB` keep of the value ([Kept]);
  * - [CALLER_DECIDES]: an `OUT` or `IN OUT` parameter, whose callers' arguments hold the value;
  * - [UNKNOWN]: the target's type is not known, or its size does not compare with `S` ([VerdictReason]);
  * - [FOLLOWS]: anchored to the column itself;
@@ -34,8 +35,20 @@ enum class VerdictReason { UNIT_MISMATCH, OTHER_COLUMN_UNKNOWN, NO_LENGTH, OTHER
  */
 data class TypeSize(val datatype: String, val length: Int?, val unit: String?, val scale: Int?, val unitWritten: Boolean)
 
-/** A [Verdict], why for [Verdict.UNKNOWN], and for a place that fits, the room its size leaves beyond `S`. */
+/** A [Verdict], why for [Verdict.UNKNOWN], and for a place that fits, the room its size leaves beyond `S` (or beyond the [Limit] that fits). */
 data class Decided(val verdict: Verdict, val reason: VerdictReason? = null, val room: Int? = null)
+
+/**
+ * What `SUBSTR` and `SUBSTRB` keep of a column's value, as the index stores it: at most [length] in [unit], and [skipped]
+ * in [skippedUnit] taken off its front by a start past the first.
+ */
+data class Kept(val length: Int?, val unit: String?, val skipped: Int?, val skippedUnit: String?)
+
+/** The most of the value that lands, [length] in [unit] (`CHAR`, `BYTE`), which a place is compared with beside `S`. */
+data class Limit(val length: Int, val unit: String)
+
+/** What a place is compared with: `S` ([size], in the column's [unit]; null when there is none), and the [limit] `SUBSTR` keeps. */
+data class Against(val size: Int?, val unit: String?, val limit: Limit? = null)
 
 object PlaceVerdicts {
     /** How many bytes a character may take: a target counting bytes holds any value of `S` characters from `4·S` bytes. */
@@ -80,24 +93,53 @@ object PlaceVerdicts {
     }
 
     /**
-     * The verdict of a place of [placeClass] against [size] (`S`, in [columnUnit]; null when there is none):
-     * [ownLength] and [ownUnit] the target's own size for `FIXED_SIZE`, [other] the size of the column an
-     * `ANCHORED_ELSEWHERE` target is anchored to (null when not known). The room is told for a [concatenated] place.
+     * The most [kept] leaves of the value against [size] (`S`, in [columnUnit]): its length, or `S` less what a start
+     * past the first takes off, in the column's unit (none for a column that counts digits, or for bytes taken off a
+     * column that counts characters), the smaller when both are known. Null when nothing is kept.
      */
-    fun decide(
-        placeClass: String, ownLength: Int?, ownUnit: String?, other: TypeSize?, size: Int?, columnUnit: String?, concatenated: Boolean
-    ): Decided = when (placeClass) {
-        "CALLER_DECIDES" -> Decided(Verdict.CALLER_DECIDES)
-        "ANCHORED_TO_COLUMN" -> Decided(Verdict.FOLLOWS)
-        "NO_SIZE" -> Decided(Verdict.FITS)
-        "FIXED_SIZE" -> if (ownLength == null || ownUnit == null) Decided(Verdict.UNKNOWN, VerdictReason.NO_LENGTH)
-            else compare(ownLength, ownUnit, size, columnUnit, concatenated)
-        "ANCHORED_ELSEWHERE" -> when {
-            other == null -> Decided(Verdict.UNKNOWN, VerdictReason.OTHER_COLUMN_UNKNOWN)
-            other.length == null || other.unit == null -> Decided(Verdict.FITS)
-            else -> compare(other.length, other.unit, size, columnUnit, concatenated)
+    fun limit(kept: Kept?, size: Int?, columnUnit: String?): Limit? {
+        if (kept == null) return null
+        val length = if (kept.length != null && kept.unit != null) Limit(kept.length, kept.unit) else null
+        val skips = columnUnit == "BYTE" || (columnUnit == "CHAR" && kept.skippedUnit == "CHAR")
+        val rest = if (size != null && kept.skipped != null && columnUnit != null && skips) Limit((size - kept.skipped).coerceAtLeast(0), columnUnit) else null
+        // As many bytes as characters are fewer: bytes win a tie.
+        return listOfNotNull(length, rest).minWithOrNull(compareBy<Limit> { it.length }.thenBy { if (it.unit == "BYTE") 0 else 1 })
+    }
+
+    /**
+     * The verdict of a place of [placeClass] against [against]: [ownLength] and [ownUnit] the target's own size for
+     * `FIXED_SIZE`, [other] the size of the column an `ANCHORED_ELSEWHERE` target is anchored to (null when not known).
+     * The room is told for a [concatenated] place. Through `SUBSTR` ([Against.limit], [PlaceVerdicts.limit]), the target
+     * is compared with `S` and with the limit, each the same way: it fits when either fits, is smaller when both are,
+     * else not known; with the limit alone for a column that counts digits (`SUBSTR` gives text) or when there is no `S`.
+     */
+    fun decide(placeClass: String, ownLength: Int?, ownUnit: String?, other: TypeSize?, against: Against, concatenated: Boolean): Decided =
+        when (placeClass) {
+            "CALLER_DECIDES" -> Decided(Verdict.CALLER_DECIDES)
+            "ANCHORED_TO_COLUMN" -> Decided(Verdict.FOLLOWS)
+            "NO_SIZE" -> Decided(Verdict.FITS)
+            "FIXED_SIZE" -> if (ownLength == null || ownUnit == null) Decided(Verdict.UNKNOWN, VerdictReason.NO_LENGTH)
+                else within(ownLength, ownUnit, against, concatenated)
+            "ANCHORED_ELSEWHERE" -> when {
+                other == null -> Decided(Verdict.UNKNOWN, VerdictReason.OTHER_COLUMN_UNKNOWN)
+                other.length == null || other.unit == null -> Decided(Verdict.FITS)
+                else -> within(other.length, other.unit, against, concatenated)
+            }
+            else -> Decided(Verdict.UNKNOWN)
         }
-        else -> Decided(Verdict.UNKNOWN)
+
+    /** [length] in [unit] against `S` and against the limit of [against], as [decide] says. */
+    private fun within(length: Int, unit: String, against: Against, concatenated: Boolean): Decided {
+        val (size, columnUnit, limit) = against
+        if (limit == null) return compare(length, unit, size, columnUnit, concatenated)
+        val byLimit = compare(length, unit, limit.length, limit.unit, concatenated)
+        if (size == null || columnUnit == "DIGITS") return byLimit
+        val both = listOf(byLimit, compare(length, unit, size, columnUnit, concatenated))
+        return when {
+            both.any { it.verdict == Verdict.FITS } -> Decided(Verdict.FITS, room = both.mapNotNull { it.room }.maxOrNull())
+            both.all { it.verdict == Verdict.SMALLER } -> Decided(Verdict.SMALLER)
+            else -> Decided(Verdict.UNKNOWN, both.firstNotNullOfOrNull { it.reason } ?: VerdictReason.UNIT_MISMATCH)
+        }
     }
 
     /**

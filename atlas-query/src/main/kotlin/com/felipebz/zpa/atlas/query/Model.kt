@@ -479,6 +479,8 @@ data class ReferencingKeyPage(
  * for an `UNKNOWN` one whose declaration is known, the [size] compared in [sizeUnit] (the target's own, or the other
  * column's for `ANCHORED_ELSEWHERE`), where a character unit comes from ([unitSource]: `WRITTEN`, `COMPILED` with
  * [unitCompiledIn], `OPTION`), and for a concatenated place that fits, the [room] its size leaves for the other text.
+ * Through `SUBSTR` or `SUBSTRB`, the most of the value they keep, [kept] in [keptUnit] (`CHAR`, `BYTE`), which the size
+ * is compared with too: it fits when either comparison fits.
  */
 @Serializable
 data class ColumnPlace(
@@ -525,6 +527,8 @@ data class ColumnPlace(
     val unitSource: String? = null,
     val unitCompiledIn: CompiledIn? = null,
     val room: Int? = null,
+    val kept: Int? = null,
+    val keptUnit: String? = null,
     /** The line of code the row shows, with the piece it marks ([PlaceLine]). */
     val shown: PlaceLine? = null,
     /** In a Forms module, the code [line] is in and its line there ([CodeAt]); null elsewhere. */

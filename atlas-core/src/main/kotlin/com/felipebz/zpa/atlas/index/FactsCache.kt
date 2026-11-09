@@ -80,7 +80,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 29
+    private const val FORMAT = 30
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 

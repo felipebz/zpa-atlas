@@ -189,7 +189,8 @@ internal class PlaceReader(private val connection: Connection) {
                       s.key, s.kind, s.display, s.external, s.name, p.reason, p.scale, p.parameter_mode, p.functions,
                       a.key, a.kind, a.display, a.external, a.name, g.key, g.kind, g.display, g.external, g.name,
                       p.call_count, p.call_path, p.call_line, p.concatenated,
-                      p.unit_source, p.unit_compiled_owner, p.unit_compiled_name, p.unit_compiled_type, sd.datatype, cp.name, p.id
+                      p.unit_source, p.unit_compiled_owner, p.unit_compiled_name, p.unit_compiled_type, sd.datatype, cp.name, p.id,
+                      p.kept_length, p.kept_unit, p.skipped, p.skipped_unit
                FROM column_place p JOIN entity r ON r.id = p.column_id JOIN source_file f ON f.id = p.file_id
                LEFT JOIN entity c ON c.id = p.container_entity_id LEFT JOIN entity cp ON cp.id = c.parent_id
                LEFT JOIN entity t ON t.id = p.target_entity_id
@@ -220,7 +221,10 @@ internal class PlaceReader(private val connection: Connection) {
         val unit = rs.getString(27)
         val concatenated = rs.getInt(50) == 1
         val other = if (placeClass == "ANCHORED_ELSEWHERE") PlaceVerdicts.size(rs.getString(55), optionUnit) else null
-        val decided = PlaceVerdicts.decide(placeClass, length, unit, other, size, column.unit, concatenated)
+        // What SUBSTR keeps is compared where a size is.
+        val kept = Kept(int(58), rs.getString(59), int(60), rs.getString(61)).takeIf { it.length != null || it.skipped != null }
+        val limit = PlaceVerdicts.limit(kept, size, column.unit).takeIf { placeClass == "FIXED_SIZE" || placeClass == "ANCHORED_ELSEWHERE" }
+        val decided = PlaceVerdicts.decide(placeClass, length, unit, other, Against(size, column.unit, limit), concatenated)
         val (shown, shownUnit, unitSource) = when {
             placeClass == "FIXED_SIZE" -> Triple(length, unit, rs.getString(51))
             other?.length != null -> Triple(other.length, other.unit,
@@ -233,7 +237,7 @@ internal class PlaceReader(private val connection: Connection) {
             summary(12), rs.getString(17), summary(18), rs.getString(23), placeClass, rs.getString(25), length, unit, summary(28),
             rs.getString(33), int(34), rs.getString(35), rs.getString(36)?.split(',').orEmpty(), summary(37), summary(42),
             int(47), rs.getString(48), int(49), concatenated,
-            decided.verdict.name, decided.reason?.name, shown, shownUnit, unitSource, compiledIn, decided.room
+            decided.verdict.name, decided.reason?.name, shown, shownUnit, unitSource, compiledIn, decided.room, kept = limit?.length, keptUnit = limit?.unit
         )
         return Row(rs.getLong(57), place, rs.getString(56)).also { placeIds[place] = it.id }
     }

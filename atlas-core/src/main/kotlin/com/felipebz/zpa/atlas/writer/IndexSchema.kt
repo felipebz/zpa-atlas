@@ -372,7 +372,14 @@ internal fun tableDdl(): List<String> = listOf(
         call_path TEXT NULL,
         call_line INTEGER NULL,
         -- 1 when the column's value is a part of a concatenation written into the target (`'C:' || code`), other text around it.
-        concatenated INTEGER NOT NULL DEFAULT 0 CHECK (concatenated IN (0, 1))
+        concatenated INTEGER NOT NULL DEFAULT 0 CHECK (concatenated IN (0, 1)),
+        -- Through SUBSTR or SUBSTRB: at most kept_length of the value, in kept_unit (a literal length, or a start counted
+        -- from the end), and skipped, in skipped_unit, taken off its front by a literal start past the first, which leaves
+        -- at most the size compared less skipped. CHAR for SUBSTR, BYTE for SUBSTRB.
+        kept_length INTEGER NULL,
+        kept_unit TEXT NULL CHECK (kept_unit IN ('CHAR', 'BYTE')),
+        skipped INTEGER NULL,
+        skipped_unit TEXT NULL CHECK (skipped_unit IN ('CHAR', 'BYTE'))
     )
     """,
     SOURCE_LINE_DDL

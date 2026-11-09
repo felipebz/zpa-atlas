@@ -386,7 +386,7 @@ class AtlasIndex(
         val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 33
+        const val SCHEMA_VERSION = 34
 
         /** How a place's value arrives ([ColumnPlace.source]), the values [PlaceFilter.source] takes. */
         val PLACE_SOURCES = listOf("SELECT_INTO", "FETCH", "RETURNING", "ASSIGNMENT", "IN_ARGUMENT", "OUT_ARGUMENT", "RETURNED", "BLOCK_QUERY")

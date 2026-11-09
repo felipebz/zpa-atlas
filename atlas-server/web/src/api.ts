@@ -497,6 +497,9 @@ export interface ColumnPlace {
   unitCompiledIn: { owner: string; name: string; type: string } | null;
   /** For a concatenated place that fits: the size less S, room left for the other text. */
   room: number | null;
+  /** Through SUBSTR or SUBSTRB: the most of the value they keep, in keptUnit, which the size is compared with too. */
+  kept?: number | null;
+  keptUnit?: "CHAR" | "BYTE" | null;
   /** The line of code the row shows (the call's argument for a parameter, else where its statement reads the column, else the target), with the piece to mark. */
   shown: PlaceLine | null;
   /** In a Forms module, the code [line] is in and its line there; null elsewhere. */

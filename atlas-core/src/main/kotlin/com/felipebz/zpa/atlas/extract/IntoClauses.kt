@@ -953,11 +953,12 @@ internal class IntoClauses(
      * The value functions [expression] reads one value through, outer first, down to the node [isValue] accepts; null
      * when it is anything else. A value function gives back one of its arguments, or that argument trimmed or in
      * another case: `NVL(a, b)` and `COALESCE(a, b, …)` (any argument), `NVL2(e1, e2, e3)` (`e2` or `e3`), `MAX(x)` and
-     * `MIN(x)` (with `DISTINCT`, `ALL`, `KEEP (…)`, `OVER (…)`), `TRIM`, `LTRIM`, `RTRIM`, `UPPER`, `LOWER` (`x`). `REPLACE`
-     * and `REGEXP_REPLACE` give back their first argument with text taken out or put in, and put their replacement text
-     * (the third) into other text, as a concatenation does; their search text or pattern, and the position, occurrence
-     * and match arguments of `REGEXP_REPLACE`, never land in the value ([inDroppedArgument]). Exactly one of the
-     * arguments that may be the value must lead to the node.
+     * `MIN(x)` (with `DISTINCT`, `ALL`, `KEEP (…)`, `OVER (…)`), `TRIM`, `LTRIM`, `RTRIM`, `UPPER`, `LOWER` (`x`). `SUBSTR`
+     * and `SUBSTRB` give back a part of their first argument, with their start and length when literal ([Substrings]).
+     * `REPLACE` and `REGEXP_REPLACE` give back their first argument with text taken out or put in, and put their
+     * replacement text (the third) into other text, as a concatenation does. The search text or pattern, the position,
+     * occurrence and match arguments of `REGEXP_REPLACE`, and the start and length of `SUBSTR`, never land in the value
+     * ([inDroppedArgument]). Exactly one of the arguments that may be the value must lead to the node.
      */
     private fun valueChain(expression: AstNode, isValue: (AstNode) -> Boolean): List<String>? {
         var node = expression
@@ -987,7 +988,7 @@ internal class IntoClauses(
         return value?.let { chainThrough("TRIM", listOf(it), isValue) }
     }
 
-    /** [valueChain] of the call [call]: `CONCAT`, `REPLACE` and `REGEXP_REPLACE`, or a value function of one of its arguments. */
+    /** [valueChain] of the call [call]: `CONCAT`, `REPLACE`, `REGEXP_REPLACE`, `SUBSTR` and `SUBSTRB`, or a value function of one of its arguments. */
     private fun callChain(call: AstNode, isValue: (AstNode) -> Boolean): List<String>? {
         val function = plsql.nameSegments(call.firstChild)?.singleOrNull()?.uppercase() ?: return null
         if (function == "CONCAT") {
@@ -998,6 +999,10 @@ internal class IntoClauses(
         val arguments = call.getChildren(PlSqlGrammar.ARGUMENTS).singleOrNull()?.getChildren(PlSqlGrammar.ARGUMENT)?.map { it.lastChild }
             ?: return null
         if (function in REPLACES) return replaceChain(function, arguments, isValue)
+        if (function in Substrings.NAMES) {
+            if (arguments.size !in 2..3) return null
+            return valueChain(arguments[0], isValue)?.let { listOf(Substrings.entry(function, arguments.drop(1).map(::wholeNumber))) + it }
+        }
         val candidates = when (function) {
             "NVL" -> arguments.takeIf { it.size == 2 }
             "COALESCE" -> arguments.takeIf { it.size >= 2 }
@@ -1026,6 +1031,12 @@ internal class IntoClauses(
         return chains.singleOrNull()?.let { listOf(function) + it }
     }
 
+    /** The value of [expression] when it is a whole-number literal (`5`, `-3`); null for anything else (`p_len`, `2.5`, a constant). */
+    private fun wholeNumber(expression: AstNode): Int? {
+        val value = ExpressionValues.of(expression)
+        return if (value.kind == ValueKind.NUMBER) value.value?.toIntOrNull() else null
+    }
+
     /**
      * Why the select item [expression] of the query block [block] reads no column the index knows ([QueryItem.notColumn]):
      * `INLINE_VIEW` when it names a column of an inline view (`v.code` from `(select code from orders) v`),
@@ -1044,15 +1055,17 @@ internal class IntoClauses(
 
     /**
      * Whether [node], inside [expression], is in an argument whose value never lands in the result: the search text or
-     * pattern of `REPLACE` or `REGEXP_REPLACE`, or the position, occurrence and match arguments of `REGEXP_REPLACE`.
+     * pattern of `REPLACE` or `REGEXP_REPLACE`, the position, occurrence and match arguments of `REGEXP_REPLACE`, or the
+     * start and length of `SUBSTR` and `SUBSTRB`.
      */
     private fun inDroppedArgument(expression: AstNode, node: AstNode): Boolean {
         for (argument in generateSequence(node) { it.parentOrNull }.takeWhile { it !== expression }) {
             if (argument.type != PlSqlGrammar.ARGUMENT) continue
             val call = argument.parentOrNull?.parentOrNull?.takeIf { it.type == PlSqlGrammar.METHOD_CALL } ?: continue
-            if (plsql.nameSegments(call.firstChild)?.singleOrNull()?.uppercase() !in REPLACES) continue
+            val function = plsql.nameSegments(call.firstChild)?.singleOrNull()?.uppercase()
+            if (function !in REPLACES && function !in Substrings.NAMES) continue
             val index = argument.parent.getChildren(PlSqlGrammar.ARGUMENT).indexOfFirst { it === argument }
-            if (index == 1 || index > 2) return true
+            if ((function in Substrings.NAMES && index >= 1) || (function in REPLACES && (index == 1 || index > 2))) return true
         }
         return false
     }

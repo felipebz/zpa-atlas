@@ -58,7 +58,7 @@ class AtlasWriter private constructor(private val connection: Connection, privat
     }
 
     companion object {
-        const val SCHEMA_VERSION = 33
+        const val SCHEMA_VERSION = 34
 
         /**
          * Writes the index to a temporary file beside [target] and moves it over [target] when everything succeeded.

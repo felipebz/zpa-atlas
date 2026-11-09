@@ -853,7 +853,7 @@ function placeRowHtml(p: ColumnPlace, index: number, page: PlaceGroupsPage, grou
     (p.field ? `<span class="mono">.${nameBreaksHtml(p.field)}</span>` : "");
   const functions = functionsCode(p);
   const how = esc(howText(t, p)) +
-    (functions === null ? "" : ` <code class="place-fn" title="${esc(functionsText(t, p))}">${esc(functions)}</code>`) +
+    (functions === null ? "" : ` <code class="place-fn" title="${esc(functionsText(t, p, page.size))}">${esc(functions)}</code>`) +
     (p.concatenated ? ` <span class="place-mark">${esc(t("places.otherText"))}</span>` : "") +
     (p.viaView ? ` <span class="place-mark">${esc(t("places.viaView"))}</span>` : "");
   // A parameter's line is the call that passes the column; the target's is in the detail. A place in no code leads to its item.
@@ -875,7 +875,7 @@ function placeDetailHtml(p: ColumnPlace, index: number) {
     if ("view" in piece) return throughViewHtml(piece.view);
     return placeHtml({ half: null, path: piece.path, line: piece.line, col: 0, partner: null, file: true, code: piece.codeAt }, p.target ?? p.read, null);
   };
-  const lines = placeDetail(t, p).map(line => `<div${line.className ? ` class="${line.className}"` : ""}${line.title ? ` title="${esc(line.title)}"` : ""}>` +
+  const lines = placeDetail(t, p, placeState.page?.size ?? null).map(line => `<div${line.className ? ` class="${line.className}"` : ""}${line.title ? ` title="${esc(line.title)}"` : ""}>` +
     line.parts.map(part).join("") + `</div>`);
   return `<div class="place-detail" id="place-detail-${index}">${lines.join("")}</div>`;
 }

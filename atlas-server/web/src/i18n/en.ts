@@ -295,7 +295,7 @@ export default {
   "places.verdict.FOLLOWS": "follows the column",
   "places.verdict.OWN_SIZE": "own size",
   "places.verdictTitle.SMALLER": "Has a size of its own smaller than {size}: a longer value does not fit.",
-  "places.verdictTitle.FITS": "Takes a value of {size}: a size of {size} or more, or no size limit.",
+  "places.verdictTitle.FITS": "Takes a value of {size}: a size of {size} or more, no size limit, or room for all that SUBSTR keeps of the value.",
   "places.classTitle.FIXED_SIZE": "Has a length or precision of its own.",
   "places.classTitle.UNKNOWN": "The index could not tell the target's type or size.",
   "places.classTitle.CALLER_DECIDES": "An OUT or IN OUT parameter: the value lands in each caller's argument, whose declaration decides its type and size.",
@@ -356,6 +356,16 @@ export default {
   "places.functionsOther": "through {functions}: another argument may be read instead",
   "places.functionsLength": "through {functions}: the value may change length",
   "places.functionsOtherLength": "through {functions}: another argument may be read instead, and the value may change length",
+  "places.functionsKept.CHAR": { one: "through {functions}: at most {count} character of the value", other: "through {functions}: at most {count} characters of the value" },
+  "places.functionsKept.BYTE": { one: "through {functions}: at most {count} byte of the value", other: "through {functions}: at most {count} bytes of the value" },
+  "places.functionsOtherKept.CHAR": {
+    one: "through {functions}: another argument may be read instead, and at most {count} character of the value",
+    other: "through {functions}: another argument may be read instead, and at most {count} characters of the value"
+  },
+  "places.functionsOtherKept.BYTE": {
+    one: "through {functions}: another argument may be read instead, and at most {count} byte of the value",
+    other: "through {functions}: another argument may be read instead, and at most {count} bytes of the value"
+  },
   "places.parameter": "{mode} parameter: each caller's argument decides its type and size",
   "places.typeSource.anchor": "anchored to {source}",
   "places.typeSource.size": "size written in {source}",
