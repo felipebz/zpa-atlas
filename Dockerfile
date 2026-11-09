@@ -14,12 +14,12 @@ RUN --mount=type=cache,target=/root/.gradle/wrapper \
     ./gradlew --no-daemon --refresh-dependencies ${VERSION:+-Pversion=$VERSION} :atlas-cli:installDist
 
 # The user, without running anything on the target platform: its passwd and group are the runtime image's plus one line.
-COPY --from=docker.io/bellsoft/liberica-runtime-container:jre-25-musl@sha256:4e8c650331b847a8e1c213fe40f60aee59718515a5376ff450e333e771f8024c /etc/passwd /etc/group /users/
+COPY --from=docker.io/bellsoft/liberica-runtime-container:jre-25-musl@sha256:dd76d347896d634efecc84c2320b984a4fd3f9a8fd74ede328ad1d342e11788f /etc/passwd /etc/group /users/
 RUN echo 'atlas:x:10001:10001:zpa-atlas:/data:/sbin/nologin' >> /users/passwd \
     && echo 'atlas:x:10001:' >> /users/group \
     && mkdir -p /folders/data /folders/sources /folders/drivers /folders/readers
 
-FROM docker.io/bellsoft/liberica-runtime-container:jre-25-musl@sha256:4e8c650331b847a8e1c213fe40f60aee59718515a5376ff450e333e771f8024c
+FROM docker.io/bellsoft/liberica-runtime-container:jre-25-musl@sha256:dd76d347896d634efecc84c2320b984a4fd3f9a8fd74ede328ad1d342e11788f
 
 ARG VERSION=
 ARG REVISION=
