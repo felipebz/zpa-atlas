@@ -664,7 +664,7 @@ class FileExtractor internal constructor(
             places.routine(node, current)
             places.function(node, key)
             // What a function returns, as its callers name it: the return type gives the shape of its value.
-            if (key != null) node.getFirstChildOrNull(PlSqlGrammar.DATATYPE)?.let { returnTypes += key.removeSuffix("@BODY") + "." + IntoClauses.RETURN_SUFFIX to it }
+            if (key != null) node.getFirstChildOrNull(PlSqlGrammar.DATATYPE)?.let { returnTypes += key.removeSuffix("@BODY") + "." + PlaceShapes.RETURN_SUFFIX to it }
         }
         return current
     }

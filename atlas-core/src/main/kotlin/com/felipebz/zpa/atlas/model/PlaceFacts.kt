@@ -113,6 +113,13 @@ data class IntoTarget(
     companion object {
         /** A step of [path] that takes an element of the collection reached so far (`a(i).f`: `ELEMENT`, `F`). */
         const val ELEMENT = "()"
+
+        /**
+         * A target as written at [span] ([written]), with no fields after it and no shape of its own: the entity
+         * [entityKey], or none, with the [reason] it is not known.
+         */
+        fun of(span: SourceSpan, written: String, entityKey: String?, element: Boolean = false, reason: String? = null) =
+            IntoTarget(span, written, entityKey, emptyList(), element, null, null, reason)
     }
 }
 

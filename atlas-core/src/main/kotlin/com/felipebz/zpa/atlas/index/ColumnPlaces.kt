@@ -6,7 +6,6 @@
 package com.felipebz.zpa.atlas.index
 
 import com.felipebz.zpa.atlas.extract.FORMS_PREFIX
-import com.felipebz.zpa.atlas.extract.IntoClauses
 import com.felipebz.zpa.atlas.extract.TypeShapes
 import com.felipebz.zpa.atlas.extract.displayOf
 import com.felipebz.zpa.atlas.model.*
@@ -186,7 +185,7 @@ internal class ColumnPlaces(
             val target = if (record) into.targets[0] else into.targets.getOrNull(index) ?: break
             if (item.expression != null) leftOut.merge("EXPRESSION_${item.expression}", 1, Int::plus)
             // An expression of several columns that gives no place (`nvl(code, note)`): counted by its shape.
-            if (item.combined != null) leftOut.merge("EXPRESSION_${IntoClauses.SEVERAL_COLUMNS}${item.combined}", 1, Int::plus)
+            if (item.combined != null) leftOut.merge("EXPRESSION_${PlaceShapes.SEVERAL_COLUMNS}${item.combined}", 1, Int::plus)
             val field = index.takeIf { record }
             for (part in listOf(item) + item.parts) {
                 places += place(path, into, target, field, part.columnKey ?: continue, part.functions)
@@ -202,7 +201,7 @@ internal class ColumnPlaces(
      */
     private fun assignment(path: String, into: IntoFact, places: MutableList<ColumnPlaceFact>, leftOut: MutableMap<String, Int>) {
         val row = rowRecord(structure(targetNode(into.row ?: return, false), 0)) ?: return
-        if (into.expression?.startsWith(IntoClauses.SEVERAL_COLUMNS) == true) {
+        if (into.expression?.startsWith(PlaceShapes.SEVERAL_COLUMNS) == true) {
             leftOut.merge("RECORD_ASSIGNMENT_EXPRESSION_${into.expression}", 1, Int::plus)
             return
         }
@@ -385,7 +384,7 @@ internal class ColumnPlaces(
         private fun notPlsqlParameters(): Set<String> {
             val outside = HashSet<String>()
             for (file in facts) for (into in file.intos) {
-                if (into.fromParameter != null && into.expression == IntoClauses.BODY_NOT_PLSQL) outside += parameterKey(file.path, into.fromParameter)
+                if (into.fromParameter != null && into.expression == PlaceShapes.BODY_NOT_PLSQL) outside += parameterKey(file.path, into.fromParameter)
             }
             return outside
         }
@@ -413,14 +412,14 @@ internal class ColumnPlaces(
                 seed(path, into)
                 return
             }
-            if (into.expression != IntoClauses.BODY_NOT_PLSQL) flows.getOrPut(parameterKey(path, into.fromParameter)) { ArrayList() } += path to into
+            if (into.expression != PlaceShapes.BODY_NOT_PLSQL) flows.getOrPut(parameterKey(path, into.fromParameter)) { ArrayList() } += path to into
         }
 
         /** The columns the call argument [into] of the file [path] passes to its parameter, into [seeds]; counted when not followed. */
         private fun seed(path: String, into: IntoFact) {
-            if (into.row != null && into.expression?.startsWith(IntoClauses.SEVERAL_COLUMNS) == true) {
+            if (into.row != null && into.expression?.startsWith(PlaceShapes.SEVERAL_COLUMNS) == true) {
                 // An expression of several fields of a row record (`nvl(r.code, r.note)`): counted by its shape.
-                if (rowRecord(structure(targetNode(into.row, false), 0)) != null) count(path, IntoClauses.ARGUMENT_EXPRESSION + into.expression)
+                if (rowRecord(structure(targetNode(into.row, false), 0)) != null) count(path, PlaceShapes.ARGUMENT_EXPRESSION + into.expression)
                 return
             }
             val columns = passedColumns(path, into) ?: return
@@ -924,7 +923,7 @@ internal class ColumnPlaces(
             item == null -> if (items.any { it.opaque }) "STAR" else "OTHER"
             item.expression != null -> "EXPRESSION_${item.expression}"
             // Several columns: the split families say so, as one column says where following stops.
-            item.combined != null -> "EXPRESSION_${item.combined}" + if (item.combined in IntoClauses.SPLIT_SHAPES) "_SEVERAL_COLUMNS" else ""
+            item.combined != null -> "EXPRESSION_${item.combined}" + if (item.combined in PlaceShapes.SPLIT_SHAPES) "_SEVERAL_COLUMNS" else ""
             else -> item.notColumn ?: "OTHER"
         }
     }
@@ -965,7 +964,7 @@ internal class ColumnPlaces(
             cursorKey != null && kinds[cursorKey] == EntityKind.PARAMETER -> "PARAMETER"
             else -> "OTHER"
         }
-        return IntoClauses.FETCH_CURSOR_NOT_KNOWN + kind
+        return PlaceShapes.FETCH_CURSOR_NOT_KNOWN + kind
     }
 
     /** The element of the collection [node] is. */
@@ -1003,7 +1002,7 @@ internal class ColumnPlaces(
         /** The reason of the shape of a `REF CURSOR` type ([TypeShape.Unknown]). */
         private const val CURSOR_VARIABLE = "CURSOR_VARIABLE"
         private const val STRONG = "STRONG"
-        private const val RETURN = IntoClauses.RETURN_SUFFIX
+        private const val RETURN = PlaceShapes.RETURN_SUFFIX
 
         /** The shape of a `FETCH` from a cursor variable whose targets do not match the items of a query it reads. */
         private const val FETCH_CURSOR_ITEMS_NOT_MATCHED = "FETCH_CURSOR_ITEMS_NOT_MATCHED"
