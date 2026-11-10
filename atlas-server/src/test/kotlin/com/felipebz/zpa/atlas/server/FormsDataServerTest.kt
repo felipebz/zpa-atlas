@@ -17,7 +17,10 @@ import io.ktor.http.*
 import io.ktor.server.testing.*
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
-import io.modelcontextprotocol.kotlin.sdk.types.*
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
+import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.serialization.json.*
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
@@ -51,11 +54,6 @@ class FormsDataServerTest {
         temp.toFile().deleteRecursively()
     }
 
-    private fun api(test: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
-        application { atlasModule(index) }
-        test()
-    }
-
     private suspend fun ApplicationTestBuilder.result(path: String, vararg parameters: Pair<String, String>): JsonElement {
         val response = client.get(path) { parameters.forEach { (k, v) -> parameter(k, v) } }
         assertThat(response.status).describedAs(path).isEqualTo(HttpStatusCode.OK)
@@ -72,7 +70,7 @@ class FormsDataServerTest {
     }
 
     @Test
-    fun `a block's page has its data, its operations and the trigger that replaces one`() = api {
+    fun `a block's page has its data, its operations and the trigger that replaces one`() = api(index) {
         val company = result("/api/entity", "key" to "forms:DATA_DESK/COMPANY").field("formsBlock")
         assertThat(company.field("source")).isEqualTo(Json.parseToJsonElement(
             """{"type":"TABLE","name":"V_COMPANY","entity":{"key":"db:HR.V_COMPANY","kind":"VIEW","display":"HR.V_COMPANY","external":false,"name":"V_COMPANY"}}"""))
@@ -95,7 +93,7 @@ class FormsDataServerTest {
     }
 
     @Test
-    fun `an item's page has its column, its target's column and what Forms does with it`() = api {
+    fun `an item's page has its column, its target's column and what Forms does with it`() = api(index) {
         val id = result("/api/entity", "key" to "forms:DATA_DESK/COMPANY/ID").jsonObject
         assertThat(id).doesNotContainKey("formsBlock")
         val item = id.getValue("formsItem")
@@ -107,7 +105,7 @@ class FormsDataServerTest {
     }
 
     @Test
-    fun `the usage, query, impact and line answers take the uses without a line`() = api {
+    fun `the usage, query, impact and line answers take the uses without a line`() = api(index) {
         val uses = result("/api/occurrences", "key" to "db:HR.COMPANY", "scope" to "SELF,CHILDREN")
         val rows = implicitRows(uses)
         assertThat(rows.map { "${it.field("container").text("key")} ${it.field("roles").jsonArray.joinToString(",") { r -> r.jsonPrimitive.content }}" })

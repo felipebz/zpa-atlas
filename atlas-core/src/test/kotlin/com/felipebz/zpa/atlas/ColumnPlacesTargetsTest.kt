@@ -1,0 +1,339 @@
+//
+// SPDX-FileCopyrightText: 2026 Felipe Zorzo
+// SPDX-License-Identifier: Apache-2.0
+//
+
+package com.felipebz.zpa.atlas
+
+import com.felipebz.zpa.api.project.ProjectExternalMetadata
+import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.index.IndexOptions
+import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.model.CompiledUnit
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
+
+/** The places a column's value is read into ([PlacesFixture]): how each target is declared, its anchors, fields and sizes. */
+class ColumnPlacesTargetsTest {
+    @TempDir
+    lateinit var temp: Path
+
+    @Test
+    fun `a length written without a unit counts as the unit declaring it was compiled, else in the index's unit`() {
+        val more = mapOf("read_other.prc" to "create or replace procedure read_other is\n  v varchar2(5);\nbegin\n  select code into v from orders;\nend;\n/\n")
+        // The spec was compiled with CHAR, the body with BYTE; the dictionary has no row for the procedure.
+        // No relation: the table is the one the sources create, as without a dictionary.
+        val dictionary = AtlasDictionary(ProjectExternalMetadata.none(), emptyList(), enumerable = false, lengthSemantics = mapOf(
+            CompiledUnit("SHOP", "PK_LV", "PACKAGE") to "CHAR", CompiledUnit("SHOP", "PK_LV", "PACKAGE BODY") to "BYTE"))
+        val db = SizesFixture.index(temp, "CHAR", more, dictionary)
+        assertThat(units(db)).containsExactly(
+            "c1 5 BYTE COMPILED PACKAGE BODY SHOP.PK_LV",
+            "c2 10 BYTE COMPILED PACKAGE BODY SHOP.PK_LV",
+            "c3 10 CHAR WRITTEN",
+            "c4 30 BYTE COMPILED PACKAGE BODY SHOP.PK_LV",
+            // A field of a record type of the spec, read in the body: the spec's setting.
+            "r.code 8 CHAR COMPILED PACKAGE SHOP.PK_LV",
+            "n1 10 BYTE WRITTEN",
+            "n2 4 BYTE COMPILED PACKAGE BODY SHOP.PK_LV",
+            "n3 40 BYTE WRITTEN",
+            "a1 4 DIGITS -",
+            "a2 8 DIGITS -",
+            "v 5 CHAR OPTION"
+        )
+        // The columns of a CREATE TABLE of the sources have the datatype it writes, unit or not.
+        assertThat(Fixture.query(db, "SELECT e.name || ' ' || d.datatype FROM declared_text d JOIN entity e ON e.id = d.entity_id WHERE e.key LIKE 'db:SHOP.ORDERS.%' ORDER BY e.name"))
+            .containsExactly("AMOUNT number(8,2)", "CODE varchar2(10 byte)", "LABEL varchar2(10)", "NOTE varchar2(10 char)", "ORDER_ID number(10)")
+        assertThat(Fixture.query(db, "SELECT nls_length_semantics FROM run")).containsExactly("CHAR")
+    }
+
+    @Test
+    fun `each INTO target is classified by how it is declared, its anchors and types followed`() {
+        assertThat(places(PlacesFixture.index(temp))).containsExactly(
+            // Fixed sizes, a length written without unit, with CHAR through a subtype, with BYTE in RETURNING INTO.
+            "19 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
+            "20 ORDERS.CODE SELECT_INTO l_code2 ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
+            "21 ORDERS.CODE SELECT_INTO l_any FIXED_SIZE varchar2(4000) 4000 BYTE - -",
+            "22 ORDERS.CODE SELECT_INTO l_sub FIXED_SIZE t_code 12 CHAR PK_ORD.T_CODE -",
+            // An anchor to a variable anchored to the column.
+            "23 ORDERS.CODE SELECT_INTO l_via ANCHORED_TO_COLUMN l_code2%type - ORDERS.CODE -",
+            // An OUT parameter: the value lands in each caller's argument.
+            "24 ORDERS.CODE SELECT_INTO p_code CALLER_DECIDES varchar2 - - - OUT",
+            "25 ORDERS.CODE SELECT_INTO l_note ANCHORED_ELSEWHERE orders.note%type - ORDERS.NOTE -",
+            "26 ORDERS.CODE SELECT_INTO g_code ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
+            // A record that takes two items, field by field, and one of its fields as a target.
+            "27 ORDERS.AMOUNT SELECT_INTO l_pair.AMOUNT NO_SIZE number - PK_ORD.T_PAIR.AMOUNT -",
+            "27 ORDERS.CODE SELECT_INTO l_pair.CODE ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
+            "28 ORDERS.CODE SELECT_INTO l_pair.code ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
+            // A whole row into a %ROWTYPE: one place per column.
+            "29 ORDERS.AMOUNT SELECT_INTO r_ord.AMOUNT ANCHORED_TO_COLUMN orders%rowtype - ORDERS.AMOUNT -",
+            "29 ORDERS.CODE SELECT_INTO r_ord.CODE ANCHORED_TO_COLUMN orders%rowtype - ORDERS.CODE -",
+            "29 ORDERS.NOTE SELECT_INTO r_ord.NOTE ANCHORED_TO_COLUMN orders%rowtype - ORDERS.NOTE -",
+            "29 ORDERS.ORDER_ID SELECT_INTO r_ord.ORDER_ID ANCHORED_TO_COLUMN orders%rowtype - ORDERS.ORDER_ID -",
+            // BULK COLLECT into a collection of a fixed-size VARCHAR2: its element type holds the value.
+            "30 ORDERS.CODE SELECT_INTO BULK l_codes FIXED_SIZE t_codes 12 BYTE PK_ORD.T_CODES -",
+            // Line 31 reads the column through UPPER. Line 32 reads the view's column.
+            "31 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER",
+            "32 V_ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
+            "33 ORDERS.CODE RETURNING l_ret FIXED_SIZE varchar2(20 byte) 20 BYTE - -",
+            // A FETCH from the spec's cursor: its third item reads the column through UPPER.
+            "35 ORDERS.ORDER_ID FETCH l_num NO_SIZE number - - -",
+            "35 ORDERS.CODE FETCH l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
+            "35 ORDERS.CODE FETCH l_any FIXED_SIZE varchar2(4000) 4000 BYTE - - via UPPER",
+            // A variable of a package the sources do not declare: zpa binds it to nothing of the project.
+            "37 ORDERS.CODE SELECT_INTO ext_pkg.g_code UNKNOWN - - - TARGET_UNDECIDED",
+            // A field of a cursor loop record assigned to a variable.
+            "40 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
+            // An anonymous block's variable has no entity: its own declaration says its type.
+            "4 ORDERS.CODE SELECT_INTO l_short FIXED_SIZE varchar2(5) 5 BYTE - -"
+        )
+    }
+
+    @Test
+    fun `a number holds its digits before the point, an OUT parameter's callers decide, a field through an element is followed`() {
+        val sources = temp.resolve("src")
+        PlacesFixture.write(sources)
+        Files.writeString(sources.resolve("pk_acc.sql"), """
+            create or replace package pk_acc as
+              type rec_acc is record (
+                code    orders.code%type,
+                amount  orders.amount%type);
+              type tab_acc is table of rec_acc index by binary_integer;
+              type t_names is table of varchar2(30) index by binary_integer;
+              type rec_deep is record (acc rec_acc, names t_names);
+              type tab_deep is table of rec_deep index by binary_integer;
+              procedure load(p_data in out tab_acc, p_id in number);
+              procedure sizes(p_io in out varchar2);
+            end;
+            /
+            create or replace package body pk_acc as
+              procedure load(p_data in out tab_acc, p_id in number) is
+                i number;
+                l_data tab_acc;
+                l_deep tab_deep;
+                cursor c is select code, amount from orders where order_id = p_id;
+              begin
+                open c;
+                i := 1;
+                loop
+                  fetch c into p_data(i) .code, p_data(i).amount;
+                  exit when c%notfound;
+                  i := i + 1;
+                end loop;
+                close c;
+                select code, amount into l_data(1).code, l_data(1).amount from orders where rownum = 1;
+                select amount into l_data(2).amount from orders where rownum = 1;
+                select code into l_deep(1).acc.code from orders where rownum = 1;
+                select code into l_deep(1).names(2) from orders where rownum = 1;
+              end;
+              procedure sizes(p_io in out varchar2) is
+                l_fixed number(10,2);
+                l_left  number(5,-2);
+                l_any   number(*,2);
+                l_int   integer;
+                l_float float(10);
+              begin
+                select order_id into l_fixed from orders where rownum = 1;
+                select order_id into l_left from orders where rownum = 1;
+                select order_id into l_any from orders where rownum = 1;
+                select order_id into l_int from orders where rownum = 1;
+                select order_id into l_float from orders where rownum = 1;
+                select code into p_io from orders where rownum = 1;
+              end;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
+        assertThat(places(db, "pk_acc.sql")).containsExactly(
+            // Fields through one element, written with or without a space before the dot: the record type's fields.
+            "23 ORDERS.CODE FETCH p_data(i).code ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
+            "23 ORDERS.AMOUNT FETCH p_data(i).amount ANCHORED_TO_COLUMN orders.amount%type - ORDERS.AMOUNT -",
+            "28 ORDERS.CODE SELECT_INTO l_data(1).code ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
+            "28 ORDERS.AMOUNT SELECT_INTO l_data(1).amount ANCHORED_TO_COLUMN orders.amount%type - ORDERS.AMOUNT -",
+            "29 ORDERS.AMOUNT SELECT_INTO l_data(2).amount ANCHORED_TO_COLUMN orders.amount%type - ORDERS.AMOUNT -",
+            // Through an element and a record field, and an element of a field that is a collection.
+            "30 ORDERS.CODE SELECT_INTO l_deep(1).acc.code ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
+            "31 ORDERS.CODE SELECT_INTO l_deep(1).names(2) FIXED_SIZE t_names 30 BYTE PK_ACC.T_NAMES -",
+            // A number: the digits before the point (p - s) and the scale.
+            "40 ORDERS.ORDER_ID SELECT_INTO l_fixed FIXED_SIZE number(10,2) 8 DIGITS scale 2 - -",
+            "41 ORDERS.ORDER_ID SELECT_INTO l_left FIXED_SIZE number(5,-2) 7 DIGITS scale -2 - -",
+            "42 ORDERS.ORDER_ID SELECT_INTO l_any FIXED_SIZE number(*,2) 36 DIGITS scale 2 - -",
+            "43 ORDERS.ORDER_ID SELECT_INTO l_int FIXED_SIZE integer 38 DIGITS scale 0 - -",
+            // A floating number rounds rather than fails.
+            "44 ORDERS.ORDER_ID SELECT_INTO l_float NO_SIZE float(10) - - -",
+            "45 ORDERS.CODE SELECT_INTO p_io CALLER_DECIDES varchar2 - - - IN OUT"
+        )
+    }
+
+    @Test
+    fun `an element of an element is a shape of target the index does not follow`() {
+        val sources = temp.resolve("src")
+        PlacesFixture.write(sources)
+        Files.writeString(sources.resolve("nested.sql"), """
+            declare
+              type tab_c is table of varchar2(12) index by pls_integer;
+              type tab_tab_c is table of tab_c index by pls_integer;
+              l tab_tab_c;
+            begin
+              select code into l(1)(1) from orders where rownum = 1;
+              select code into l(1)(1).x from orders where rownum = 1;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
+        assertThat(places(db, "nested.sql")).containsExactly(
+            "6 ORDERS.CODE SELECT_INTO l(1)(1) UNKNOWN - - - TARGET_SHAPE_NOT_FOLLOWED",
+            "7 ORDERS.CODE SELECT_INTO l(1)(1).x UNKNOWN - - - TARGET_SHAPE_NOT_FOLLOWED"
+        )
+    }
+
+    @Test
+    fun `an anchor to a field of a record variable takes that field's type, at any depth, and uses the variable and each field`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("pk.sql"), """
+            create table orders (order_id number(10), status varchar2(10 byte));
+
+            create or replace package pk is
+              type t_rec is record (code varchar2(7), note varchar2(30));
+              type t_in is record (v varchar2(12));
+              type t_out is record (tag varchar2(3), inner t_in);
+              g_rec t_rec;
+              g_out t_out;
+            end;
+            /
+        """.trimIndent())
+        Files.writeString(sources.resolve("use_pk.sql"), """
+            create or replace procedure use_pk is
+              f pk.g_rec.code%type;
+              n pk.g_rec.note%type;
+              v pk.g_out.inner.v%type;
+              r pk.t_rec;
+              m r.note%type;
+            begin
+              select status into f from orders where order_id = 1;
+              select status into n from orders where order_id = 1;
+              select status into v from orders where order_id = 1;
+              select status into m from orders where order_id = 1;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", threads = 1))
+        // Each anchor is the field it names, not the record variable: no field of its own.
+        assertThat(places(db, "use_pk.sql")).containsExactly(
+            "8 ORDERS.STATUS SELECT_INTO f FIXED_SIZE pk.g_rec.code%type 7 BYTE PK.T_REC.CODE -",
+            // Not the record's first field; a field of a field; a field of a local record.
+            "9 ORDERS.STATUS SELECT_INTO n FIXED_SIZE pk.g_rec.note%type 30 BYTE PK.T_REC.NOTE -",
+            "10 ORDERS.STATUS SELECT_INTO v FIXED_SIZE pk.g_out.inner.v%type 12 BYTE PK.T_IN.V -",
+            "11 ORDERS.STATUS SELECT_INTO m FIXED_SIZE r.note%type 30 BYTE PK.T_REC.NOTE -"
+        )
+        // The anchor uses the package variable it starts from, and each field it names, at the field's name.
+        assertThat(Fixture.query(db, """
+            SELECT o.start_line || ':' || o.start_col || ' ' || o.written || ' ' || replace(e.key, 'db:SHOP.', '')
+            FROM occurrence o JOIN entity e ON e.id = o.entity_id JOIN source_file f ON f.id = o.file_id
+            WHERE f.path = 'use_pk.sql' AND o.roles = 'TYPE_USE' ORDER BY o.start_line, o.start_col""")).containsExactly(
+            "2:4 pk.g_rec.code PK.G_REC", "2:13 code PK.T_REC.CODE",
+            "3:4 pk.g_rec.note PK.G_REC", "3:13 note PK.T_REC.NOTE",
+            "4:4 pk.g_out.inner.v PK.G_OUT", "4:13 inner PK.T_OUT.INNER", "4:19 v PK.T_IN.V",
+            "5:4 pk.t_rec PK.T_REC",
+            "6:6 note PK.T_REC.NOTE"
+        )
+    }
+
+    @Test
+    fun `a field of a row record assigned to a target is a place of its column`() {
+        val sources = temp.resolve("src")
+        PlacesFixture.write(sources)
+        Files.writeString(sources.resolve("assign.sql"), """
+            create or replace procedure assign_codes(p_out out varchar2) is
+              l_code  varchar2(12);
+              l_any   orders.code%type;
+              l_up    varchar2(12);
+              r_ord   orders%rowtype;
+              cursor c is select o.code from orders o;
+              cursor c_up is select upper(code) c from orders;
+            begin
+              for r in (select code from orders) loop
+                l_code := r.code;
+              end loop;
+              for r in c loop
+                l_any := r.code;
+              end loop;
+              select * into r_ord from orders where order_id = 1;
+              l_code := r_ord.code;
+              l_up := upper(r_ord.code);
+              for r in c_up loop
+                l_up := r.c;
+              end loop;
+              p_out := r_ord.code;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = PlacesFixture.dictionary, threads = 1))
+        val proc = "db:SHOP.ASSIGN_CODES(P_OUT OUT VARCHAR2)."
+        assertThat(places(db, "assign.sql").map { it.replace(proc, "") }).containsExactly(
+            // The record of a loop over a query, of a loop over a cursor, and a %ROWTYPE variable.
+            "10 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
+            "13 ORDERS.CODE ASSIGNMENT l_any ANCHORED_TO_COLUMN orders.code%type - ORDERS.CODE -",
+            "15 ORDERS.AMOUNT SELECT_INTO r_ord.AMOUNT ANCHORED_TO_COLUMN orders%rowtype - ORDERS.AMOUNT -",
+            "15 ORDERS.CODE SELECT_INTO r_ord.CODE ANCHORED_TO_COLUMN orders%rowtype - ORDERS.CODE -",
+            "15 ORDERS.NOTE SELECT_INTO r_ord.NOTE ANCHORED_TO_COLUMN orders%rowtype - ORDERS.NOTE -",
+            "15 ORDERS.ORDER_ID SELECT_INTO r_ord.ORDER_ID ANCHORED_TO_COLUMN orders%rowtype - ORDERS.ORDER_ID -",
+            "16 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - -",
+            // Line 17 assigns the field through UPPER, line 19 a cursor field that is upper(code).
+            "17 ORDERS.CODE ASSIGNMENT l_up FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER",
+            "19 ORDERS.CODE ASSIGNMENT l_up FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER",
+            "21 ORDERS.CODE ASSIGNMENT p_out CALLER_DECIDES varchar2 - - - OUT"
+        )
+        assertThat(Fixture.query(db, """SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id
+            WHERE c.kind = 'COLUMN_VALUE_NOT_FOLLOWED' AND f.path = 'assign.sql' ORDER BY 1""").map { it.substringBefore(" ") })
+            .isEmpty()
+    }
+
+    @Test
+    fun `a field of an element of a collection of a row type takes its column's type`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("rows.sql"), """
+            create table t_lot (code varchar2(20 byte), qty number(9));
+            /
+            create or replace package pk_rows as
+              procedure w1;
+            end;
+            /
+            create or replace package body pk_rows as
+              cursor c is select code, qty from t_lot;
+              type tab_row is table of t_lot%rowtype index by binary_integer;
+              type tab_cur is table of c%rowtype index by binary_integer;
+              type rec_pair is record (cd varchar2(5), qty number);
+              type tab_pair is table of rec_pair index by binary_integer;
+              procedure w1 is l tab_row; begin for r in (select code from t_lot) loop l(1).code := r.code; end loop; end;
+              procedure w2 is l tab_cur; begin for r in (select code from t_lot) loop l(1).code := r.code; end loop; end;
+              procedure w4 is l tab_row; begin select code into l(1).code from t_lot where rownum = 1; end;
+              procedure w5 is l t_lot%rowtype; begin for r in (select code from t_lot) loop l.code := r.code; end loop; end;
+              procedure w6 is l tab_row; r2 t_lot%rowtype; begin select * into r2 from t_lot where rownum = 1; l(1).code := r2.code; end;
+              procedure w7 is l tab_pair; begin select code into l(1).cd from t_lot where rownum = 1; end;
+            end;
+            /
+        """.trimIndent())
+        val db = temp.resolve("places.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        assertThat(places(db, "rows.sql").map { it.replace("T_LOT.", "") }).containsExactly(
+            // An element of a collection of a table's row, and of a cursor's row: the row's field is the column.
+            "13 CODE ASSIGNMENT l(1).code ANCHORED_TO_COLUMN tab_row - CODE -",
+            "14 CODE ASSIGNMENT l(1).code ANCHORED_TO_COLUMN tab_cur - CODE -",
+            "15 CODE SELECT_INTO l(1).code ANCHORED_TO_COLUMN tab_row - CODE -",
+            "16 CODE ASSIGNMENT l.code ANCHORED_TO_COLUMN t_lot%rowtype - CODE -",
+            // Without a dictionary `select *` names no column; the field of the %ROWTYPE variable still does.
+            "17 CODE ASSIGNMENT l(1).code ANCHORED_TO_COLUMN tab_row - CODE -",
+            // An element of a record type: its field's own declaration, as before.
+            "18 CODE SELECT_INTO l(1).cd FIXED_SIZE varchar2(5) 5 BYTE - -"
+        )
+    }
+}
