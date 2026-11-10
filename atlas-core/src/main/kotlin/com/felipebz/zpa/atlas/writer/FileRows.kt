@@ -316,6 +316,9 @@ internal class FileRows(private val connection: Connection) {
     /** A count of what reads a column's value into PL/SQL without being followed: `COLUMN_VALUE_NOT_FOLLOWED`, its shape first. */
     private fun leftOutNote(shape: String, count: Int): CoverageFact {
         val what = when {
+            shape.startsWith("EXPRESSION_SEVERAL_COLUMNS_") -> LEFT_OUT.getValue("EXPRESSION_SEVERAL_COLUMNS")
+            shape.startsWith("ARGUMENT_EXPRESSION_SEVERAL_COLUMNS_") -> LEFT_OUT.getValue("ARGUMENT_EXPRESSION_SEVERAL_COLUMNS")
+            shape.startsWith("RECORD_ASSIGNMENT_EXPRESSION_SEVERAL_COLUMNS_") -> LEFT_OUT.getValue("RECORD_ASSIGNMENT_EXPRESSION_SEVERAL_COLUMNS")
             shape.startsWith("EXPRESSION_") -> LEFT_OUT.getValue("EXPRESSION")
             shape.startsWith("ARGUMENT_EXPRESSION_") -> LEFT_OUT.getValue("ARGUMENT_EXPRESSION")
             shape.startsWith("RETURNED_EXPRESSION_") -> LEFT_OUT.getValue("RETURNED_EXPRESSION")
@@ -342,6 +345,9 @@ internal class FileRows(private val connection: Connection) {
             "EXPRESSION" to "select item(s) that are an expression of one column, read into a PL/SQL target: not followed",
             "DYNAMIC_INTO" to "target(s) of a dynamic INTO: not followed",
             "RECORD_ASSIGNMENT_EXPRESSION" to "assigned value(s) that are an expression of a field of a %ROWTYPE or cursor loop record: not followed",
+            "EXPRESSION_SEVERAL_COLUMNS" to "select item(s) that are an expression of several columns giving no place, read into a PL/SQL target: not followed",
+            "RECORD_ASSIGNMENT_EXPRESSION_SEVERAL_COLUMNS" to "assigned value(s) that are an expression of several fields of a %ROWTYPE or cursor loop record: not followed",
+            "ARGUMENT_EXPRESSION_SEVERAL_COLUMNS" to "argument(s) that are an expression of several fields of a %ROWTYPE or cursor loop record, passed to a routine: not followed",
             "ARGUMENT_ROUTINE_UNDECIDED" to "column value(s) passed to a routine the index does not decide: not followed",
             "ARGUMENT_ROUTINE_OUTSIDE" to "column value(s) passed to a routine whose PL/SQL body is not in the index: not followed",
             "ARGUMENT_NOT_TIED" to "column value(s) passed to a routine, the argument not tied to a parameter: not followed",

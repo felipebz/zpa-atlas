@@ -135,7 +135,7 @@ internal class IntoClauses(
         for ((index, value) in values.withIndex()) {
             for ((name, functions) in parameterChains(value, parameterNames(value).filter { columnOf(statement, it) == null })) {
                 flows += when {
-                    functions == null -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_EXPRESSION + argumentShape(value))
+                    functions == null -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_EXPRESSION + argumentShape(value, name))
                     !single && targets.size != values.size -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_INTO_NOT_FOLLOWED)
                     else -> Flow(name, spanOf(value), statement.context, target = targets[if (single) 0 else index], functions = functions,
                         bulk = isBulk(into), item = if (single) index to values.size else null)
@@ -374,10 +374,14 @@ internal class IntoClauses(
             .filter { !inDroppedArgument(value, it) }
         val field = fields.singleOrNull()
         if (field == null) {
+            if (fields.isEmpty()) return
             // Several fields, each a part of a concatenation (`r.code || r.note`), or one the value and the others text put
-            // into it (the replacement of a REPLACE): a place for each.
+            // into it (the replacement of a REPLACE): a place for each. Any other expression of them is counted by its shape.
             val chains = fields.map { f -> valueChain(value) { it === f } }
-            if (fields.isEmpty() || chains.any { it == null } || chains.count { CONCATENATED !in it!! } > 1) return
+            if (chains.any { it == null } || chains.count { CONCATENATED !in it!! } > 1) {
+                assignments += Assignment(node.firstChild, spanOf(node.children[at]), fields.first(), value, emptyList(), context, several = true)
+                return
+            }
             for ((f, chain) in fields.zip(chains)) assignments += Assignment(node.firstChild, spanOf(node.children[at]), f, null, chain!!, context)
             return
         }
@@ -386,8 +390,10 @@ internal class IntoClauses(
             functions.orEmpty(), context)
     }
 
+    /** An assignment of a record's [field], or of an [expression] of it; with [several], of several fields, [field] the first. */
     private class Assignment(
-        val target: AstNode, val site: SourceSpan, val field: AstNode, val expression: AstNode?, val functions: List<String>, val context: Context
+        val target: AstNode, val site: SourceSpan, val field: AstNode, val expression: AstNode?, val functions: List<String>, val context: Context,
+        val several: Boolean = false
     )
 
     private val assignments = ArrayList<Assignment>()
@@ -413,7 +419,9 @@ internal class IntoClauses(
      */
     private class Pass(
         val argument: AstNode, val column: String?, val field: AstNode?, val functions: List<String>, val parameterKey: String?,
-        val reason: String?, val context: Context, val statementId: Int?, val call: SourceSpan
+        val reason: String?, val context: Context, val statementId: Int?, val call: SourceSpan,
+        /** For an expression of several fields ([field] the first): [SEVERAL_COLUMNS] and its shape. */
+        val several: String? = null
     )
 
     private val passes = ArrayList<Pass>()
@@ -512,8 +520,13 @@ internal class IntoClauses(
      */
     private fun passedValue(argument: AstNode, parameter: String?, reason: String?, context: Context, call: SourceSpan) {
         callArguments += CallArgument(argument, parameter, reason, context, call)
-        val field = if (isFieldOfName(argument)) argument
-            else argument.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).singleOrNull { isFieldOfName(it) && !inDroppedArgument(argument, it) }
+        val fields = if (isFieldOfName(argument)) listOf(argument)
+            else argument.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).filter { isFieldOfName(it) && !inDroppedArgument(argument, it) }
+        if (fields.size > 1) {
+            // An expression of several fields: counted by its shape when the first is of a row record.
+            passes += Pass(argument, null, fields.first(), emptyList(), parameter, reason, context, null, call, SEVERAL_COLUMNS + expressionShape(argument))
+        }
+        val field = fields.singleOrNull()
         if (field != null) {
             valueChain(argument) { it === field }?.let { passes += Pass(argument, null, field, it, parameter, reason, context, null, call) }
             return
@@ -603,7 +616,7 @@ internal class IntoClauses(
             val chain = valueChain(value) { it === call }
             val of = spanOf(call)
             flows += when {
-                chain == null -> Flow(call, site, context, shape = RETURNED_EXPRESSION + argumentShape(value), fromKey = result, resultOf = of)
+                chain == null -> Flow(call, site, context, shape = RETURNED_EXPRESSION + argumentShape(value, call), fromKey = result, resultOf = of)
                 reason != null -> Flow(call, site, context, shape = reason, fromKey = result, resultOf = of)
                 target != null -> Flow(call, site, context, target = target, functions = chain, fromKey = result, resultOf = of)
                 else -> Flow(call, site, context, passedTo = passedTo, functions = chain, fromKey = result, resultOf = of, call = argumentOf)
@@ -659,7 +672,7 @@ internal class IntoClauses(
             val key = held.entityKey + held.path.joinToString("") { ".$it" }
             val chain = valueChain(write.value) { it === name }
             flows += when {
-                chain == null -> Flow(name, write.site, write.context, shape = RETURNED_EXPRESSION + argumentShape(write.value), fromKey = key)
+                chain == null -> Flow(name, write.site, write.context, shape = RETURNED_EXPRESSION + argumentShape(write.value, name), fromKey = key)
                 returned == null -> Flow(name, write.site, write.context, target = write.target, functions = chain, fromKey = key)
                 else -> Flow(name, write.site, write.context, passedTo = returned, functions = chain, fromKey = key)
             }
@@ -857,7 +870,7 @@ internal class IntoClauses(
         var leaf: String? = null
         val functions = valueChain(expression) { node -> plsql.nameSegments(node) != null && column(node)?.also { leaf = it } != null }
         return if (functions != null && leaf != null) QueryItem(name, leaf, null, functions = functions)
-            else QueryItem(name, null, expressionShape(expression))
+            else QueryItem(name, null, valueShape(expression, { node -> plsql.nameSegments(node) != null && column(node) != null }))
     }
 
     /**
@@ -899,9 +912,24 @@ internal class IntoClauses(
             ?: return QueryItem(name, null, null, notColumn = "NO_COLUMN")
         return when {
             chain.isEmpty() || outer == null -> first.copy(name = name)
-            first.expression != null || first.combined != null -> QueryItem(name, null, expressionShape(outer))
+            first.expression != null || first.combined != null -> QueryItem(name, null, splitShape(expressionShape(outer), first))
             else -> QueryItem(name, null, null, notColumn = first.notColumn ?: "NO_COLUMN")
         }
+    }
+
+    /**
+     * [shape], of an expression that reaches the view column whose item is [inner] through value functions: for `NVL`,
+     * `NVL2` and `COALESCE`, followed by where following stops in [inner] ([stopName]).
+     */
+    private fun splitShape(shape: String, inner: QueryItem) = if (shape in SPLIT_SHAPES) shape + "_" + stopName(inner) else shape
+
+    /**
+     * Where following a value stops in the item [inner], an expression: its shape, without a split family's own name
+     * (`NVL_TO_CHAR` stops at `TO_CHAR`); `SEVERAL_COLUMNS` for an expression of several columns.
+     */
+    private fun stopName(inner: QueryItem): String {
+        val shape = inner.expression ?: return if (inner.combined != null) "SEVERAL_COLUMNS" else "OTHER"
+        return SPLIT_SHAPES.firstOrNull { shape.startsWith(it + "_") }?.let { shape.removePrefix(it + "_") } ?: shape
     }
 
     /**
@@ -921,7 +949,7 @@ internal class IntoClauses(
                 .flatMap { listOf(it.copy(parts = emptyList())) + it.parts }
             if (all.isNotEmpty()) return all.first().copy(parts = all.drop(1))
         }
-        return viewExpressionShape(name, expression, leaves.flatMap { it.second })
+        return viewExpressionShape(name, expression, leaves)
     }
 
     /**
@@ -938,13 +966,17 @@ internal class IntoClauses(
 
     /**
      * The item named [name] that [expression] is when it is no value function or concatenation of the view columns it
-     * reads ([inner], their items): its shape, combined when they read several columns; else why none reads a column.
+     * reads ([leaves], each with its items): its shape, combined when they read several columns; else why none reads a column.
      */
-    private fun viewExpressionShape(name: String?, expression: AstNode, inner: List<QueryItem>): QueryItem {
+    private fun viewExpressionShape(name: String?, expression: AstNode, leaves: List<Pair<AstNode, List<QueryItem>>>): QueryItem {
+        val inner = leaves.flatMap { it.second }
         val columns = inner.flatMap { listOf(it) + it.parts }.mapNotNullTo(HashSet()) { it.columnKey }
         return when {
             columns.size > 1 -> QueryItem(name, null, null, combined = expressionShape(expression))
-            columns.size == 1 || inner.any { it.expression != null || it.combined != null } -> QueryItem(name, null, expressionShape(expression))
+            columns.size == 1 || inner.any { it.expression != null || it.combined != null } -> {
+                val reached = { inner.firstOrNull { it.expression != null || it.combined != null }?.let(::stopName) ?: "OTHER" }
+                QueryItem(name, null, valueShape(expression, { node -> leaves.any { it.first === node } }, reached))
+            }
             else -> QueryItem(name, null, null, notColumn = inner.firstNotNullOfOrNull { it.notColumn } ?: "NO_COLUMN")
         }
     }
@@ -1003,15 +1035,101 @@ internal class IntoClauses(
             if (arguments.size !in 2..3) return null
             return valueChain(arguments[0], isValue)?.let { listOf(Substrings.entry(function, arguments.drop(1).map(::wholeNumber))) + it }
         }
-        val candidates = when (function) {
-            "NVL" -> arguments.takeIf { it.size == 2 }
-            "COALESCE" -> arguments.takeIf { it.size >= 2 }
-            "NVL2" -> arguments.takeIf { it.size == 3 }?.drop(1)
-            "MAX", "MIN", "UPPER", "LOWER", "TRIM" -> arguments.takeIf { it.size == 1 }
-            "LTRIM", "RTRIM" -> arguments.takeIf { it.size in 1..2 }?.take(1)
-            else -> null
-        } ?: return null
+        val candidates = givenBack(function, arguments) ?: return null
         return chainThrough(function, candidates, isValue)
+    }
+
+    /**
+     * The arguments of a call of the value function [function] that it may give back, trimmed or in another case, among
+     * its [arguments]: any of `NVL` and `COALESCE`, the last two of `NVL2`, the only one of `MAX`, `MIN`, `UPPER`,
+     * `LOWER`, `TRIM`, the first of `LTRIM` and `RTRIM`; null for another function or another number of arguments.
+     */
+    private fun givenBack(function: String, arguments: List<AstNode>): List<AstNode>? = when (function) {
+        "NVL" -> arguments.takeIf { it.size == 2 }
+        "COALESCE" -> arguments.takeIf { it.size >= 2 }
+        "NVL2" -> arguments.takeIf { it.size == 3 }?.drop(1)
+        "MAX", "MIN", "UPPER", "LOWER", "TRIM" -> arguments.takeIf { it.size == 1 }
+        "LTRIM", "RTRIM" -> arguments.takeIf { it.size in 1..2 }?.take(1)
+        else -> null
+    }
+
+    /**
+     * Where following one value down from [expression] stops, the value being the node [isValue] accepts: through the
+     * value functions [valueChain] follows, the first function or operator that is no such function, by its shape
+     * ([stopShape]: `TO_CHAR`, `OTHER_DECODE`, `OTHER_CASE`, `OTHER_LPAD`); `CONDITION` when the value is only in
+     * the first argument of `NVL2`, `OTHER_ARGUMENT` when it is only in another argument a value function does not give
+     * back, `SEVERAL_ARGUMENTS` when it is in more than one argument it may give back. [reached] names the stop when the
+     * value itself is reached.
+     */
+    private fun stopOf(expression: AstNode, isValue: (AstNode) -> Boolean, reached: () -> String): String {
+        var node = expression
+        while (true) {
+            while (node.type == PlSqlGrammar.BRACKED_EXPRESSION && node.numberOfChildren == 3) node = node.children[1]
+            if (isValue(node)) return reached()
+            val (function, candidates) = valueArguments(node) ?: return stopShape(node)
+            val leading = candidates.filter { candidate -> subtree(candidate).any(isValue) }
+            node = when (leading.size) {
+                1 -> leading.single()
+                0 -> return if (function == "NVL2") "CONDITION" else "OTHER_ARGUMENT"
+                else -> return "SEVERAL_ARGUMENTS"
+            }
+        }
+    }
+
+    /**
+     * The shape of [node], where following a value stops: an operator by what it is, not by the first word written in
+     * it (`nvl(max(n), 0) + 1` starts with `NVL`, `max(n) + 1` with `MAX`): `OTHER_ARITHMETIC`, `OTHER_COMPARISON` for
+     * a condition (`nvl(x, 0) = 0`, `IN`, `IS NULL`, `LIKE`, `AND`); a member of a call or element (`t(i).code`,
+     * `f(x).m(y)`) by that call or element ([otherShape]: `OTHER_ELEMENT`, `OTHER_ROUTINE`); else as [expressionShape] says it.
+     */
+    private fun stopShape(node: AstNode): String {
+        if (node.type in ARITHMETIC) return "OTHER_ARITHMETIC"
+        if (node.type is ConditionsGrammar || node.type in CONDITIONS) return "OTHER_COMPARISON"
+        if (node.type in MEMBER_TYPES || node.type == PlSqlGrammar.METHOD_CALL && plsql.nameSegments(node.firstChild) == null) {
+            generateSequence(node.firstChild) { it.children.firstOrNull() }
+                .firstOrNull { it.type == PlSqlGrammar.METHOD_CALL && plsql.nameSegments(it.firstChild) != null }
+                ?.let { return "OTHER_" + otherShape(it) }
+        }
+        return expressionShape(node).let { if (it in SPLIT_SHAPES) "OTHER_" + otherShape(node) else it }
+    }
+
+    /** The value function [node] is, by name, with the arguments it may give back ([valueChain]); null for anything else. */
+    private fun valueArguments(node: AstNode): Pair<String, List<AstNode>>? = when (node.type) {
+        PlSqlGrammar.POSTFIX_EXPRESSION -> node.firstChild.takeIf { call ->
+            call.type == PlSqlGrammar.METHOD_CALL && plsql.nameSegments(call.firstChild)?.singleOrNull()?.uppercase() in setOf("MAX", "MIN") &&
+                node.children.drop(1).all { it.type == DmlGrammar.KEEP_CLAUSE || it.type == DmlGrammar.ANALYTIC_CLAUSE }
+        }?.let { "MAX" to listOf(it) }
+        SingleRowSqlFunctionsGrammar.SINGLE_ROW_SQL_FUNCTION -> node.firstChild.takeIf { it.type == SingleRowSqlFunctionsGrammar.TRIM_EXPRESSION }?.let { trim ->
+            val parts = trim.children.filter { it.type != PlSqlPunctuator.LPARENTHESIS && it.type != PlSqlPunctuator.RPARENTHESIS }.drop(1)
+            val from = parts.indexOfFirst { it.type == PlSqlKeyword.FROM }
+            (if (from >= 0) parts.getOrNull(from + 1) else parts.singleOrNull())?.let { "TRIM" to listOf(it) }
+        }
+        PlSqlGrammar.CONCATENATION_EXPRESSION -> "CONCATENATION" to node.children.filter { it.type != PlSqlGrammar.CONCATENATION_OPERATOR }
+        PlSqlGrammar.METHOD_CALL -> callArguments(node)
+        else -> null
+    }
+
+    /** [valueArguments] of the call [call]. */
+    private fun callArguments(call: AstNode): Pair<String, List<AstNode>>? {
+        val function = plsql.nameSegments(call.firstChild)?.singleOrNull()?.uppercase() ?: return null
+        val arguments = call.getChildren(PlSqlGrammar.ARGUMENTS).singleOrNull()?.getChildren(PlSqlGrammar.ARGUMENT)?.map { it.lastChild } ?: return null
+        val candidates = when {
+            function == "CONCAT" -> arguments.takeIf { it.size == 2 }
+            function in REPLACES -> arguments.takeIf { it.size in REPLACES.getValue(function) }?.let { listOfNotNull(it[0], it.getOrNull(2)) }
+            function in Substrings.NAMES -> arguments.takeIf { it.size in 2..3 }?.take(1)
+            else -> givenBack(function, arguments)
+        } ?: return null
+        return function to candidates
+    }
+
+    /**
+     * The shape of [expression], an expression of one value [isValue] accepts, as [expressionShape] says it; for `NVL`,
+     * `NVL2` and `COALESCE`, which the index follows, followed by where following the value stops ([stopOf]):
+     * `NVL_TO_CHAR`, `OTHER_COALESCE_OTHER_DECODE`. [reached] names the stop when the value itself is reached.
+     */
+    private fun valueShape(expression: AstNode, isValue: (AstNode) -> Boolean, reached: () -> String = { "OTHER" }): String {
+        val shape = expressionShape(expression)
+        return if (shape in SPLIT_SHAPES) shape + "_" + stopOf(expression, isValue, reached) else shape
     }
 
     /**
@@ -1097,15 +1215,15 @@ internal class IntoClauses(
     }
 
     /**
-     * The shape of an expression a parameter is written within: as [expressionShape] says it, apart from a `CASE`
+     * The shape of an expression a parameter or a function's result ([value]) is written within: as [valueShape] says it, apart from a `CASE`
      * (which may give the value back as is) and `LENGTH` and its kin (which give a number, not the value).
      */
-    private fun argumentShape(expression: AstNode): String {
+    private fun argumentShape(expression: AstNode, value: AstNode): String {
         var node = expression
         while (node.type == PlSqlGrammar.BRACKED_EXPRESSION && node.numberOfChildren == 3) node = node.children[1]
         if (node.type == PlSqlGrammar.CASE_EXPRESSION) return "CASE"
         if (node.type == PlSqlGrammar.METHOD_CALL && plsql.nameSegments(node.firstChild)?.singleOrNull()?.uppercase() in LENGTH_FUNCTIONS) return "LENGTH"
-        return expressionShape(expression)
+        return valueShape(expression, { it === value })
     }
 
     /**
@@ -1273,7 +1391,16 @@ internal class IntoClauses(
         val row = record(assignment.field, bySpan, shapes) ?: return null
         val target = target(assignment.target, bySpan, shapes).copy(span = assignment.site)
         return IntoFact(PlaceSource.ASSIGNMENT, false, assignment.context.unitIndex, assignment.context.container, null, emptyList(), null,
-            listOf(target), row, normalizeIdentifier(assignment.field.lastChild.tokenOriginalValue), assignment.expression?.let(::expressionShape), assignment.functions)
+            listOf(target), row, normalizeIdentifier(assignment.field.lastChild.tokenOriginalValue), assignmentShape(assignment), assignment.functions)
+    }
+
+    /**
+     * The shape of the expression [assignment] assigns: [SEVERAL_COLUMNS] and its shape for several fields, else its
+     * shape as [valueShape] says it for the field; null for the field read as is or through value functions.
+     */
+    private fun assignmentShape(assignment: Assignment): String? {
+        val expression = assignment.expression ?: return null
+        return if (assignment.several) SEVERAL_COLUMNS + expressionShape(expression) else valueShape(expression, { it === assignment.field })
     }
 
     /** A column, or a record's field, passed to a routine's `IN` parameter ([pass]); null for a field of no row record. */
@@ -1282,7 +1409,7 @@ internal class IntoClauses(
         if (pass.field != null) {
             val row = record(pass.field, bySpan, shapes) ?: return null
             return IntoFact(PlaceSource.IN_ARGUMENT, false, pass.context.unitIndex, pass.context.container, pass.statementId, emptyList(), null,
-                listOf(argument), row, normalizeIdentifier(pass.field.lastChild.tokenOriginalValue), null, pass.functions, pass.parameterKey, call = pass.call)
+                listOf(argument), row, normalizeIdentifier(pass.field.lastChild.tokenOriginalValue), pass.several, pass.functions, pass.parameterKey, call = pass.call)
         }
         return IntoFact(PlaceSource.IN_ARGUMENT, false, pass.context.unitIndex, pass.context.container, pass.statementId,
             listOf(listOf(QueryItem(null, pass.column, null, functions = pass.functions))), null, listOf(argument),
@@ -1305,7 +1432,7 @@ internal class IntoClauses(
         val names = writtenParameters(write, routineCalls)
         for ((name, functions) in parameterChains(write.value, names)) {
             flows += when {
-                functions == null -> Flow(name, write.site, write.context, shape = ARGUMENT_EXPRESSION + argumentShape(write.value))
+                functions == null -> Flow(name, write.site, write.context, shape = ARGUMENT_EXPRESSION + argumentShape(write.value, name))
                 returned != null -> Flow(name, write.site, write.context, passedTo = returned, functions = functions)
                 else -> Flow(name, write.site, write.context, target = write.target, functions = functions)
             }
@@ -1534,6 +1661,13 @@ internal class IntoClauses(
         const val RETURN_SUFFIX = "#RETURN"
         /** The prefix of the shape of an expression a parameter is written within ([argumentShape]). */
         const val ARGUMENT_EXPRESSION = "ARGUMENT_EXPRESSION_"
+        /**
+         * The start of the shape of an expression of several columns or fields that gives no place
+         * (`SEVERAL_COLUMNS_NVL` for `nvl(code, note)`), after its family's prefix.
+         */
+        const val SEVERAL_COLUMNS = "SEVERAL_COLUMNS_"
+        /** The shapes of the value functions whose count is split by where following the value stops (`NVL_TO_CHAR`). */
+        val SPLIT_SHAPES = setOf("NVL", "NVL2", "OTHER_COALESCE")
         private val LENGTH_FUNCTIONS = setOf("LENGTH", "LENGTHB", "LENGTHC", "LENGTH2", "LENGTH4")
         const val ARGUMENT_LOCAL_SUBPROGRAM = "ARGUMENT_LOCAL_SUBPROGRAM"
         const val ARGUMENT_CONSTRUCTOR = "ARGUMENT_CONSTRUCTOR"
@@ -1555,6 +1689,12 @@ internal class IntoClauses(
         private const val HOLES_DROPPED = "HOLES_DROPPED"
 
         private val LOOPS = setOf(PlSqlGrammar.LOOP_STATEMENT, PlSqlGrammar.FOR_STATEMENT, PlSqlGrammar.WHILE_STATEMENT)
+        /** The grammar's conditions that are not of [ConditionsGrammar]: comparisons, `IN`, `NOT`, `AND`, `OR`. */
+        private val CONDITIONS = setOf(
+            PlSqlGrammar.COMPARISON_EXPRESSION, PlSqlGrammar.IN_EXPRESSION, PlSqlGrammar.NOT_EXPRESSION, PlSqlGrammar.AND_EXPRESSION, PlSqlGrammar.OR_EXPRESSION
+        )
+        /** A member of what comes before it: `r.f`, `t(i).f`, `f(x).m`. */
+        private val MEMBER_TYPES = setOf(PlSqlGrammar.MEMBER_EXPRESSION, PlSqlGrammar.OBJECT_REFERENCE)
         private val ARITHMETIC = setOf(
             PlSqlGrammar.ADDITIVE_EXPRESSION, PlSqlGrammar.MULTIPLICATIVE_EXPRESSION, PlSqlGrammar.UNARY_EXPRESSION, PlSqlGrammar.EXPONENTIATION_EXPRESSION
         )

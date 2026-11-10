@@ -6773,6 +6773,7 @@ scripts/load.sql	WRITE_VALUE_UNKNOWN	1 column write(s) without a value: columns 
 hr/pack_dynamic.pkb	COLUMN_VALUE_NOT_FOLLOWED	DYNAMIC_INTO: 4 target(s) of a dynamic INTO: not followed
 hr/pack_methods.pkb	COLUMN_VALUE_NOT_FOLLOWED	EXPRESSION_OTHER_OTHER: 2 select item(s) that are an expression of one column, read into a PL/SQL target: not followed
 hr/param_fixes.sql	COLUMN_VALUE_NOT_FOLLOWED	FETCH_CURSOR_NOT_KNOWN_PARAMETER: 1 target(s) of a FETCH from a cursor variable that comes in as a parameter, whose query is not known: not followed
+hr/proc_columns.prc	COLUMN_VALUE_NOT_FOLLOWED	EXPRESSION_SEVERAL_COLUMNS_OTHER_COUNT: 1 select item(s) that are an expression of several columns giving no place, read into a PL/SQL target: not followed
 hr/proc_objects.prc	COLUMN_VALUE_NOT_FOLLOWED	EXPRESSION_OTHER_DEREF: 1 select item(s) that are an expression of one column, read into a PL/SQL target: not followed
 hr/proc_synonyms.prc	COLUMN_VALUE_NOT_FOLLOWED	EXPRESSION_OTHER_COUNT: 1 select item(s) that are an expression of one column, read into a PL/SQL target: not followed
 ## trigger_event

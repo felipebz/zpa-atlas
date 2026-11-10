@@ -407,7 +407,8 @@ class ColumnPlacesTest {
         )
         assertThat(Fixture.query(db, """SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id
             WHERE c.kind = 'COLUMN_VALUE_NOT_FOLLOWED' AND f.path = 'funcs.sql' ORDER BY 1""").map { it.substringBefore(" ") })
-            .containsExactly("EXPRESSION_NVL2:")
+            // NVL2 gives back its second or third argument, not the code it tests; nvl(code, note) reads two columns.
+            .containsExactly("EXPRESSION_NVL2_CONDITION:", "EXPRESSION_SEVERAL_COLUMNS_NVL:")
     }
 
     @Test
@@ -881,7 +882,7 @@ class ColumnPlacesTest {
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
             .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
             "ARGUMENT_COLUMN_NOT_KNOWN_CURSOR: 1",                      // r_spec, a cursor declared with no query
-            "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_NVL: 1",              // y.n, nvl(note, code)
+            "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_NVL_SEVERAL_COLUMNS: 1", // y.n, nvl(note, code)
             "ARGUMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1",                   // z.lit, a literal
             "ARGUMENT_COLUMN_NOT_KNOWN_STAR: 1",                        // s.code, select * from a table not known
             "ARGUMENT_EXPRESSION_CASE: 1",
@@ -919,6 +920,52 @@ class ColumnPlacesTest {
             "57 l8 NOTE ASSIGNMENT FIXED_SIZE 22 - 1"
         )
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'")).isEmpty()
+    }
+
+    @Test
+    fun `an NVL count says where following its column stops, and an expression of several columns is counted by its shape`() {
+        val sources = temp.resolve("src")
+        Files.createDirectories(sources)
+        Files.writeString(sources.resolve("nv.sql"), NVL_STOPS)
+        val db = temp.resolve("nv.db")
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
+            .map { it.substringBefore(" ") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
+            "ARGUMENT_EXPRESSION_SEVERAL_COLUMNS_NVL: 1",            // take(nvl(r.code, r.note))
+            "EXPRESSION_NVL_OTHER_ARITHMETIC: 1",                    // v17: the + around max(order_id), not MAX
+            "EXPRESSION_NVL_OTHER_DECODE: 1",                        // v4
+            "EXPRESSION_NVL_OTHER_LPAD: 1",                          // v13
+            "EXPRESSION_NVL_OTHER_ROUTINE: 1",                       // v5: fmt's result is a place, the item is counted as well
+            "EXPRESSION_NVL_TO_CHAR: 4",                             // v2, v8, v15 (through UPPER), v16 (through an inner NVL)
+            "EXPRESSION_SEVERAL_COLUMNS_NVL2: 2",                    // v12, m7
+            "EXPRESSION_SEVERAL_COLUMNS_NVL: 4",                     // v3, v9, v6 (amount in the CASE), v11 (the subquery's column)
+            "EXPRESSION_SEVERAL_COLUMNS_OTHER_CASE: 1",              // m2
+            "EXPRESSION_SEVERAL_COLUMNS_OTHER_COALESCE: 1",          // m5
+            "EXPRESSION_SEVERAL_COLUMNS_OTHER_DECODE: 1",            // m1
+            "EXPRESSION_SEVERAL_COLUMNS_OTHER_GREATEST: 1",          // m3
+            "RECORD_ASSIGNMENT_EXPRESSION_SEVERAL_COLUMNS_NVL: 1",   // a2
+            "RETURNED_EXPRESSION_NVL_OTHER_COMPARISON: 1"            // ok: code_of's result compared
+        )
+        // The places are those an NVL already gave: m4's concatenation, b1 through both's NVL, the routines' own INTOs.
+        assertThat(Fixture.query(db, """
+            SELECT p.start_line || ' ' || replace(c.key, 'db:SHOP.', '') || ' ' || p.source || ' ' || p.target_written || ' ' || coalesce(p.functions, '-')
+            FROM column_place p JOIN entity c ON c.id = p.column_id ORDER BY p.id""")).containsExactly(
+            "18 ORDERS.CODE SELECT_INTO l -",
+            "25 ORDERS.CODE SELECT_INTO l -",
+            "25 ORDERS.NOTE SELECT_INTO n -",
+            "32 ORDERS.CODE IN_ARGUMENT l1 NVL,LOWER",
+            "43 ORDERS.CODE SELECT_INTO v1 NVL",
+            "47 ORDERS.CODE RETURNED v5 NVL",
+            "49 ORDERS.CODE SELECT_INTO v7 NVL,LOWER",
+            "52 ORDERS.AMOUNT SELECT_INTO v10 NVL",
+            "56 ORDERS.CODE SELECT_INTO v14 COALESCE,LOWER",
+            "62 ORDERS.CODE SELECT_INTO m4 -",
+            "62 ORDERS.NOTE SELECT_INTO m4 -",
+            "66 ORDERS.CODE ASSIGNMENT a1 NVL,LOWER",
+            "71 ORDERS.CODE RETURNED f1 NVL,LOWER",
+            "72 ORDERS.CODE RETURNED b1 NVL",
+            "72 ORDERS.NOTE RETURNED b1 NVL"
+        )
     }
 
     @Test
@@ -2310,6 +2357,87 @@ class ColumnPlacesTest {
               fetch c into l;
               open d for 'select code from orders';
               fetch d into l;
+            end;
+            /
+        """.trimIndent()
+
+        /** `NVL`s whose column goes through what the index does not follow, and expressions of several columns. */
+        private val NVL_STOPS = """
+            create table orders (order_id number(10), code varchar2(20 char), note varchar2(40 char), amount number(8,2), created date);
+            create table order_notes (order_id number(10), code varchar2(20 char));
+
+            create or replace package pk_nv as
+              function fmt(p varchar2) return varchar2;
+              function code_of(p_id number) return varchar2;
+              function both(p_id number) return varchar2;
+              procedure take(p_v varchar2);
+              procedure show_nv(p_id number);
+            end;
+            /
+            create or replace package body pk_nv as
+              function fmt(p varchar2) return varchar2 is begin return p; end;
+
+              function code_of(p_id number) return varchar2 is
+                l varchar2(20 char);
+              begin
+                select code into l from orders where order_id = p_id;
+                return l;
+              end;
+
+              function both(p_id number) return varchar2 is
+                l varchar2(20 char); n varchar2(40 char);
+              begin
+                select code, note into l, n from orders where order_id = p_id;
+                return nvl(l, n);
+              end;
+
+              procedure take(p_v varchar2) is
+                l1 varchar2(5 char);
+              begin
+                l1 := p_v;
+              end;
+
+              procedure show_nv(p_id number) is
+                v1 varchar2(30); v2 varchar2(30); v3 varchar2(30); v4 varchar2(30); v5 varchar2(30); v6 varchar2(30);
+                v7 varchar2(30); v8 varchar2(30); v9 varchar2(30); v10 varchar2(30); v11 varchar2(30); v12 varchar2(30);
+                v13 varchar2(30); v14 varchar2(30); v15 varchar2(30); v16 varchar2(30); v17 number; ok boolean;
+                m1 varchar2(30); m2 varchar2(30); m3 varchar2(30); m4 varchar2(30); m5 varchar2(30); m7 varchar2(30);
+                a1 varchar2(30); a2 varchar2(30);
+                f1 varchar2(30); b1 varchar2(30);
+              begin
+                select nvl(code, 'x') into v1 from orders where order_id = p_id;
+                select nvl(to_char(order_id), 'x') into v2 from orders where order_id = p_id;
+                select nvl(code, note) into v3 from orders where order_id = p_id;
+                select nvl(decode(code, 'a', 'b'), 'x') into v4 from orders where order_id = p_id;
+                select nvl(fmt(code), 'x') into v5 from orders where order_id = p_id;
+                select nvl(case when amount > 0 then code end, 'x') into v6 from orders where order_id = p_id;
+                select nvl(lower(code), 'x') into v7 from orders where order_id = p_id;
+                select nvl(to_char(created, 'yyyy'), '-') into v8 from orders where order_id = p_id;
+                select nvl(o.code, n.code) into v9 from orders o left join order_notes n on n.order_id = o.order_id where o.order_id = p_id;
+                select nvl(amount, 0) into v10 from orders where order_id = p_id;
+                select nvl(trim(code), (select max(code) from order_notes)) into v11 from orders where order_id = p_id;
+                select nvl2(code, note, 'x') into v12 from orders where order_id = p_id;
+                select nvl(lpad(code, 10), 'x') into v13 from orders where order_id = p_id;
+                select coalesce(lower(code), 'x') into v14 from orders where order_id = p_id;
+                select nvl(upper(to_char(order_id)), 'x') into v15 from orders where order_id = p_id;
+                select nvl(nvl(to_char(order_id), 'a'), 'b') into v16 from orders where order_id = p_id;
+                select decode(code, 'a', note, 'x') into m1 from orders where order_id = p_id;
+                select case when amount > 0 then code else note end into m2 from orders where order_id = p_id;
+                select greatest(code, note) into m3 from orders where order_id = p_id;
+                select code || note into m4 from orders where order_id = p_id;
+                select coalesce(code, note, 'x') into m5 from orders where order_id = p_id;
+                select nvl2(amount, code, 'x') into m7 from orders where order_id = p_id;
+                for r in (select code, note from orders) loop
+                  a1 := nvl(lower(r.code), 'x');
+                  a2 := nvl(r.code, r.note);
+                  take(nvl(lower(r.code), 'x'));
+                  take(nvl(r.code, r.note));
+                end loop;
+                f1 := nvl(lower(code_of(p_id)), 'x');
+                b1 := both(p_id);
+                select nvl((max(order_id) + 1), 1) into v17 from orders;
+                ok := nvl(code_of(p_id), 'x') = 'x';
+              end;
             end;
             /
         """.trimIndent()

@@ -185,6 +185,8 @@ internal class ColumnPlaces(
         for ((index, item) in known.withIndex()) {
             val target = if (record) into.targets[0] else into.targets.getOrNull(index) ?: break
             if (item.expression != null) leftOut.merge("EXPRESSION_${item.expression}", 1, Int::plus)
+            // An expression of several columns that gives no place (`nvl(code, note)`): counted by its shape.
+            if (item.combined != null) leftOut.merge("EXPRESSION_${IntoClauses.SEVERAL_COLUMNS}${item.combined}", 1, Int::plus)
             val field = index.takeIf { record }
             for (part in listOf(item) + item.parts) {
                 places += place(path, into, target, field, part.columnKey ?: continue, part.functions)
@@ -199,8 +201,11 @@ internal class ColumnPlaces(
      * `%ROWTYPE` not known) is counted by why ([notKnown]), and so is an expression of the field (`upper(r.code)`) by its shape.
      */
     private fun assignment(path: String, into: IntoFact, places: MutableList<ColumnPlaceFact>, leftOut: MutableMap<String, Int>) {
-        val row = structure(targetNode(into.row ?: return, false), 0)
-        if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) return
+        val row = rowRecord(structure(targetNode(into.row ?: return, false), 0)) ?: return
+        if (into.expression?.startsWith(IntoClauses.SEVERAL_COLUMNS) == true) {
+            leftOut.merge("RECORD_ASSIGNMENT_EXPRESSION_${into.expression}", 1, Int::plus)
+            return
+        }
         val column = field(row, null, into.rowField).first as? Node.Column
         when {
             column == null -> leftOut.merge(notKnown("RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_", row, into.rowField), 1, Int::plus)
@@ -208,6 +213,10 @@ internal class ColumnPlaces(
             else -> for ((key, functions) in column.all) places += place(path, into, into.targets.single(), null, key, into.functions + functions)
         }
     }
+
+    /** [row] when it is a row record (a cursor `FOR` loop record, a variable of a `%ROWTYPE` or of a cursor's row); else null. */
+    private fun rowRecord(row: Node): Node.Shape? =
+        (row as? Node.Shape)?.takeIf { it.shape is TypeShape.CursorRow || it.shape is TypeShape.Anchored && it.shape.rowType }
 
     /**
      * Where the values of a routine came in: through its parameter [parameter] (its key), carrying [column] read
@@ -409,6 +418,11 @@ internal class ColumnPlaces(
 
         /** The columns the call argument [into] of the file [path] passes to its parameter, into [seeds]; counted when not followed. */
         private fun seed(path: String, into: IntoFact) {
+            if (into.row != null && into.expression?.startsWith(IntoClauses.SEVERAL_COLUMNS) == true) {
+                // An expression of several fields of a row record (`nvl(r.code, r.note)`): counted by its shape.
+                if (rowRecord(structure(targetNode(into.row, false), 0)) != null) count(path, IntoClauses.ARGUMENT_EXPRESSION + into.expression)
+                return
+            }
             val columns = passedColumns(path, into) ?: return
             val reason = into.targets.single().reason
             if (reason != null) {
@@ -432,8 +446,7 @@ internal class ColumnPlaces(
                 val item = into.branches.single().single()
                 return listOf((item.columnKey ?: return null) to item.functions)
             }
-            val row = structure(targetNode(into.row, false), 0)
-            if (row !is Node.Shape || !(row.shape is TypeShape.CursorRow || row.shape is TypeShape.Anchored && row.shape.rowType)) return null
+            val row = rowRecord(structure(targetNode(into.row, false), 0)) ?: return null
             val column = field(row, null, into.rowField).first as? Node.Column
             if (column == null) {
                 count(path, notKnown("ARGUMENT_COLUMN_NOT_KNOWN_", row, into.rowField))
@@ -882,7 +895,8 @@ internal class ColumnPlaces(
      * Why the field [name] of the row record [row] has no column known, the shape it is counted under, after [prefix]
      * (`ARGUMENT_COLUMN_NOT_KNOWN_` for a field passed to a routine, `RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_` for one assigned):
      * - `EXPRESSION_*`: the cursor's item is an expression the index does not follow, by its shape as for `EXPRESSION_*`
-     *   (`code || note` is `_CONCATENATION`, `decode(code, 'a', 'b')` is `_OTHER_DECODE`);
+     *   (`code || note` is `_CONCATENATION`, `decode(code, 'a', 'b')` is `_OTHER_DECODE`); an `NVL`, `NVL2` or
+     *   `COALESCE` of several columns ends in `_SEVERAL_COLUMNS` (`nvl(note, code)` is `_NVL_SEVERAL_COLUMNS`);
      * - `ROWTYPE`: a `%ROWTYPE` whose relation or cursor the index does not know (`r missing_tab%rowtype`);
      * - `CURSOR`: a `%ROWTYPE` of a cursor whose query is not known (a cursor of another package with no query);
      * - `REF_CURSOR`: a `%ROWTYPE` of a cursor variable, whose `REF CURSOR` type has a `RETURN` (`r p%rowtype`);
@@ -909,7 +923,8 @@ internal class ColumnPlaces(
         return prefix + when {
             item == null -> if (items.any { it.opaque }) "STAR" else "OTHER"
             item.expression != null -> "EXPRESSION_${item.expression}"
-            item.combined != null -> "EXPRESSION_${item.combined}"
+            // Several columns: the split families say so, as one column says where following stops.
+            item.combined != null -> "EXPRESSION_${item.combined}" + if (item.combined in IntoClauses.SPLIT_SHAPES) "_SEVERAL_COLUMNS" else ""
             else -> item.notColumn ?: "OTHER"
         }
     }
