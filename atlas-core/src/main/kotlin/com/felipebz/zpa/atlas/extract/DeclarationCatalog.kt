@@ -48,6 +48,12 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val fileSchemas: Fil
     /** Package-body subprograms that [ProjectSnapshot.correlateSpecification] does not pair with one specification. */
     private val privateBodies = HashSet<ProjectDeclarationId>()
 
+    /** Package or standalone subprogram by the start of its declaration (file id, line, column). */
+    private val subprogramViewsByStart = HashMap<Triple<String, Int, Int>, ProjectSubprogramView>()
+
+    /** The specification each package-body subprogram is paired with. */
+    private val specifications = HashMap<ProjectDeclarationId, ProjectSubprogramView>()
+
     init {
         val declarations = snapshot.declarations
         val usedKeys = HashMap<String, Int>()
@@ -60,7 +66,9 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val fileSchemas: Fil
             val bodyKey = keysById[declaration.id] ?: continue
             val correlation = snapshot.correlateSpecification(declaration.id)
             if (correlation.status == ProjectSpecificationCorrelation.Status.RESOLVED) {
-                keysById[correlation.specification.get().id]?.let { relations += RelationFact(bodyKey, RelationKind.IMPLEMENTS, it) }
+                val specification = correlation.specification.get()
+                keysById[specification.id]?.let { relations += RelationFact(bodyKey, RelationKind.IMPLEMENTS, it) }
+                (specification as? ProjectSubprogramView)?.let { specifications[declaration.id] = it }
             } else {
                 privateBodies += declaration.id
             }
@@ -122,6 +130,14 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val fileSchemas: Fil
     fun membersGapsFor(fileId: String): List<MembersGapFact> = membersGaps[fileId].orEmpty()
 
     fun subprogramAt(fileId: String, line: Int, column: Int): String? = subprogramsByStart[Triple(fileId, line, column)]
+
+    /**
+     * The subprogram a call bound to the declaration starting at [line] and [column] of [fileId] reaches, as a resolved
+     * call of it does: the specification a body is paired with, the body itself otherwise; null when no package or
+     * standalone subprogram starts there.
+     */
+    fun calledSubprogramAt(fileId: String, line: Int, column: Int): ProjectSubprogramView? =
+        subprogramViewsByStart[Triple(fileId, line, column)]?.let { specifications[it.id] ?: it }
 
     /** The key of a package (or other schema object) named [segments] as written: its owner, else its file's schema. */
     fun objectKey(fileId: String, segments: List<String>): String {
@@ -220,6 +236,7 @@ class DeclarationCatalog(snapshot: ProjectSnapshot, private val fileSchemas: Fil
         entity(key, kind, schema, rest.last(), packageKey)
         occurrence(fileId, span, declaration.qualifiedName.last.originalSpelling, key, role, null)
         subprogramsByStart[Triple(fileId, span.startLine, span.startCol)] = key
+        subprogramViewsByStart[Triple(fileId, span.startLine, span.startCol)] = subprogram
         parameters(fileId, subprogram.parameters, key, schema, role)
         return key
     }

@@ -9,10 +9,7 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.*
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
-import com.felipebz.zpa.api.project.ProjectExternalLookup
-import com.felipebz.zpa.api.project.ProjectExternalRelation
-import com.felipebz.zpa.api.project.ProjectSnapshot
-import com.felipebz.zpa.api.project.SequenceReferenceResolution
+import com.felipebz.zpa.api.project.*
 import com.felipebz.zpa.api.semantics.NameDeclarationKind
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.forms.FormsLayout
@@ -165,8 +162,10 @@ class FileExtractor internal constructor(
         fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding, bodyGlobals::fieldAt, forms != null)
         val sequences = projectAnalysis()
         val formsNames = formsUnits?.names(node)
-        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, bound, fields, formsNames, formsReferences) {
-            sequenceResolutions[it] ?: sequences.resolveSequenceReference(it)
+        val subprograms by lazy(LazyThreadSafetyMode.NONE) { subprogramsByName(node) }
+        plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, bound, fields, formsNames, formsReferences,
+            { sequenceResolutions[it] ?: sequences.resolveSequenceReference(it) }) { callee ->
+            CallEvidence(context.callBinding(callee)) { declaration -> subprograms[declaration.line to declaration.column]?.takeIf { declaration.fileId == null } }
         }
         triggers = Triggers(state, resolver, plsql)
         typeReferences = TypeReferences(state, types, resolver, calls, plsql, bound, fields, jsonBuiltIn, formsNames)
@@ -475,6 +474,19 @@ class FileExtractor internal constructor(
     }
 
     private fun subprogramAt(node: AstNode): String? = catalog.subprogramAt(path, node.token.line, node.token.column)
+
+    /**
+     * The package and standalone subprograms of the file, as a call of each reaches them ([DeclarationCatalog.calledSubprogramAt]),
+     * by the start of the declared name, where zpa places a declaration.
+     */
+    private fun subprogramsByName(node: AstNode): Map<Pair<Int, Int>, ProjectSubprogramView> =
+        node.getDescendants(PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION, PlSqlGrammar.CREATE_PROCEDURE, PlSqlGrammar.CREATE_FUNCTION)
+            .mapNotNull { declaration ->
+                val name = declaration.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME, PlSqlGrammar.UNIT_NAME) ?: return@mapNotNull null
+                val subprogram = catalog.calledSubprogramAt(path, declaration.token.line, declaration.token.column) ?: return@mapNotNull null
+                val start = name.lastToken
+                (start.line to start.column) to subprogram
+            }.toMap()
 
     /** A schema object named in its own CREATE statement (the entity may also come from the project index). */
     private fun sourceObject(written: List<String>, kind: EntityKind): String? {

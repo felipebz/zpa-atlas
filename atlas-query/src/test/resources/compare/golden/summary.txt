@@ -27,7 +27,7 @@ Edges
   database: 42
   index: 55
   matched: 28 (exact 25, by name 0, synonym 3)
-  matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 7)
+  matched only through collapsed AMBIGUOUS calls: 0 (collapsed occurrences: 4)
 
 Match rate (matched / (database - BUILTIN - NON_EXISTENT - MVIEW_CONTAINER))
   overall: 73.7% (28/38)

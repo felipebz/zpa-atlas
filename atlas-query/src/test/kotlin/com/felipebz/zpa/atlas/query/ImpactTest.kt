@@ -23,7 +23,7 @@ import java.nio.file.Path
  * - depth 2: `HELPER` (private, so its body key) and `TOP` call `MID`; so do `TRG_IMP` (a trigger on `COMPANY`) and
  *   `scripts/imp_run.sql` (no container), and `IMP_REC`, which also calls itself; `PING` calls `PONG`; `V_IMP` and the
  *   cursor in `CURS_USER` call `IMP_FN`;
- *   `IMP_AMB` calls `ov(1)`, AMBIGUOUS between the two `OV`. `TOP` also calls `HELPER` (depth 3 that way): the
+ *   `IMP_AMB` calls `ov(null)`, AMBIGUOUS between the two `OV`: a `NULL` fits both. `TOP` also calls `HELPER` (depth 3 that way): the
  *   shorter path wins.
  * - depth 3: `IMP_READ_VIEW` selects from `V_IMP`.
  * So 5, 9 and 1 nodes. Followed, called by code outside their own cycle: `MID`, `OV`, `IMP_FN`, `HELPER` (by `TOP`),

@@ -39,7 +39,9 @@ internal class PlSqlNames(
     /** The names a Forms module's code gives its own objects; null outside a Forms module. */
     private val formsReferences: FormsReferences?,
     /** What zpa's project analysis says of a name that may be a sequence pseudocolumn. */
-    sequenceResolution: (AstNode) -> SequenceReferenceResolution
+    sequenceResolution: (AstNode) -> SequenceReferenceResolution,
+    /** What zpa's local analysis decided for the call whose callee is the name. */
+    private val callEvidence: (AstNode) -> CallEvidence
 ) {
     private val ownNames = OwnNames(typeMembers)
     private val segmentValues = SegmentValues(calls, values)
@@ -109,7 +111,8 @@ internal class PlSqlNames(
                 CallOutcome.Call(Status.UNRESOLVED, null, "LOCAL_SUBPROGRAM")
             // In a Forms module, after the code's own declarations: its program units, then the Forms built-ins (nothing).
             forms != null && formsCall(forms, callee, segments, arguments.map { it.first to it.second }, context, statementId) -> return
-            else -> calls.resolve(segments, kind, arguments.map { WrittenArgument(it.first) }, context.schema, context.enclosingPackage)
+            else -> calls.resolve(segments, kind, arguments.map { WrittenArgument(it.first) }, context.schema, context.enclosingPackage,
+                evidence = callEvidence(callee))
         }
         var outcome = resolved
         if (isExternalGuess(outcome)) {

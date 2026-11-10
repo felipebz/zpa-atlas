@@ -6,6 +6,9 @@
 package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.zpa.api.project.*
+import com.felipebz.zpa.api.semantics.CallBinding
+import com.felipebz.zpa.api.semantics.LocalCallStatus
+import com.felipebz.zpa.api.semantics.NameDeclaration
 import com.felipebz.zpa.atlas.model.EntityFact
 import com.felipebz.zpa.atlas.model.EntityKind
 import com.felipebz.zpa.atlas.model.RelationFact
@@ -31,6 +34,12 @@ internal fun valueLookups(written: List<String>, packageName: ProjectQualifiedNa
 
 /** A written actual: its label as written (named notation) or null (positional). */
 data class WrittenArgument(val label: String?)
+
+/**
+ * What zpa's local analysis decided for a call ([binding]), with [subprogramAt], the package or standalone subprogram
+ * a declaration of the file's own subprograms reaches when called (null for one without entity, a nested subprogram).
+ */
+class CallEvidence(val binding: CallBinding, val subprogramAt: (NameDeclaration) -> ProjectSubprogramView?)
 
 /**
  * How one call site resolves: [Value] for a package value, exception or cursor
@@ -88,7 +97,8 @@ class CallResolver(
      * @param withoutParentheses a name read as a function call without parentheses: constructors do not apply,
      *   and a name the project does not know is `NOT_IN_PROJECT` without external entity (it may be anything), except a
      *   member of a package or type a synonym names ([CallOutcome.ExternalMember])
-     * @param synonymTarget the object [written] was rewritten to, a synonym target or an own object the project lacks (internal)
+     * @param evidence what zpa decided for the call, asked after package values and constructors and before the
+     *   structural resolution ([decided])
      */
     fun resolve(
         written: List<String>,
@@ -97,13 +107,37 @@ class CallResolver(
         unitSchema: String?,
         enclosingPackage: List<String>?,
         withoutParentheses: Boolean = false,
-        synonymTarget: NameTarget? = null
+        evidence: CallEvidence? = null
+    ): CallOutcome =
+        valueOrConstructor(written, unitSchema, enclosingPackage, withoutParentheses)
+            ?: evidence?.let { decided(it, arguments) }
+            ?: structural(written, kind, arguments, unitSchema, enclosingPackage, withoutParentheses, null)
+
+    /** [written] as a package value, exception or cursor, or as a constructor; null when it is neither. */
+    private fun valueOrConstructor(written: List<String>, unitSchema: String?, enclosingPackage: List<String>?, withoutParentheses: Boolean): CallOutcome? {
+        val packageName = enclosingPackage?.let { ProjectQualifiedName.of(*it.toTypedArray()) }
+        values.packageMember(written, unitSchema, packageName)?.let { return CallOutcome.Value(it.kind, it.status, it.entityKey, it.reason, it.candidateKeys) }
+        if (!withoutParentheses) constructorType(snapshots.of(unitSchema), written, packageName)?.let { return constructor(it) ?: CallOutcome.NotACall }
+        return null
+    }
+
+    /**
+     * The resolution of the number, names and modes of the actuals, then the synonym and external-name paths of a name
+     * the project does not know.
+     *
+     * @param synonymTarget the object [written] was rewritten to, a synonym target or an own object the project lacks
+     */
+    private fun structural(
+        written: List<String>,
+        kind: ProjectCallKind,
+        arguments: List<WrittenArgument>,
+        unitSchema: String?,
+        enclosingPackage: List<String>?,
+        withoutParentheses: Boolean,
+        synonymTarget: NameTarget?
     ): CallOutcome {
         val snapshot = snapshots.of(unitSchema)
         val packageName = enclosingPackage?.let { ProjectQualifiedName.of(*it.toTypedArray()) }
-        values.packageMember(written, unitSchema, packageName)?.let { return CallOutcome.Value(it.kind, it.status, it.entityKey, it.reason, it.candidateKeys) }
-        if (!withoutParentheses) constructorType(snapshot, written, packageName)?.let { return constructor(it) ?: CallOutcome.NotACall }
-
         val callArguments = ProjectCallArguments.of(arguments.map { argument ->
             argument.label?.let { ProjectCallArgument.named(ProjectIdentifier.fromSource(it)) } ?: ProjectCallArgument.positional()
         })
@@ -122,7 +156,9 @@ class CallResolver(
         if (synonymTarget == null && !(withoutParentheses && names.size == 1)) {
             val targetTypes = if (names.size == 1) SynonymResolver.CALLABLES else SynonymResolver.PACKAGES_AND_TYPES
             synonyms.follow(names[0], unitSchema, targetTypes)?.let { target ->
-                return resolve(SynonymResolver.written(target, names.drop(1)), kind, arguments, unitSchema, enclosingPackage, withoutParentheses, target)
+                val rewritten = SynonymResolver.written(target, names.drop(1))
+                return valueOrConstructor(rewritten, unitSchema, enclosingPackage, withoutParentheses)
+                    ?: structural(rewritten, kind, arguments, unitSchema, enclosingPackage, withoutParentheses, target)
             }
         }
         if (withoutParentheses) {
@@ -181,6 +217,40 @@ class CallResolver(
         else -> null
     }
 
+    /**
+     * The call as zpa decided it, narrowed by the types of the actuals: a project resolution that selects a candidate or
+     * keeps several, or a call of the file's own subprograms that binds one or keeps several, each with an entity. Null
+     * for any other answer, which keeps the structural resolution.
+     */
+    private fun decided(evidence: CallEvidence, arguments: List<WrittenArgument>): CallOutcome.Call? = when (val binding = evidence.binding) {
+        is CallBinding.Project -> typed(binding.resolution)
+        is CallBinding.Local -> local(binding, evidence.subprogramAt, arguments)
+        else -> null
+    }
+
+    private fun typed(resolution: ProjectTypedCallResolution): CallOutcome.Call? = when (resolution.status) {
+        ProjectTypedCallResolution.Status.RESOLVED -> resolved(resolution.selected.get())
+        ProjectTypedCallResolution.Status.AMBIGUOUS -> CallOutcome.Call(Status.AMBIGUOUS, null, ProjectCallResolution.Status.AMBIGUOUS.name,
+            resolution.evaluations.filter { it.outcome == ProjectCandidateCompatibility.Outcome.RETAINED }.map { catalog.keyOf(it.candidate.declaration.id) }.distinct())
+        else -> null
+    }
+
+    /** Each actual is bound by its label or its position, as for a body-only subprogram ([packageMember]). */
+    private fun local(binding: CallBinding.Local, subprogramAt: (NameDeclaration) -> ProjectSubprogramView?, arguments: List<WrittenArgument>): CallOutcome.Call? =
+        when (binding.status) {
+            LocalCallStatus.RESOLVED -> subprogramAt(binding.selected!!)?.let { subprogram ->
+                val key = catalog.keyOf(subprogram.id)
+                val bound = bindByLabelOrPosition(subprogram, arguments)
+                // A body-only subprogram without overloads keeps the reason a call of it has had.
+                val reason = "PRIVATE_SINGLE".takeIf { binding.candidates.size == 1 && catalog.isPrivate(subprogram.id) }
+                CallOutcome.Call(Status.RESOLVED, key, reason,
+                    bindings = bound.mapValues { catalog.parameterKey(key, it.value) }, modes = bound.mapValues { it.value.mode })
+            }
+            LocalCallStatus.AMBIGUOUS -> binding.candidates.map { subprogramAt(it)?.let { subprogram -> catalog.keyOf(subprogram.id) } ?: return null }
+                .distinct().let { CallOutcome.Call(Status.AMBIGUOUS, null, ProjectCallResolution.Status.AMBIGUOUS.name, it) }
+            else -> null
+        }
+
     /** The public result of [resolution], combined with the private body declarations of the inventory. */
     private fun packageMember(
         inventory: List<ProjectPackageSubprogramView>,
@@ -227,13 +297,7 @@ class CallResolver(
     private fun map(resolution: ProjectCallResolution): CallOutcome.Call {
         val status = resolution.status
         return when (status) {
-            ProjectCallResolution.Status.RESOLVED -> {
-                val selected = resolution.selected.get()
-                val key = catalog.keyOf(selected.declaration.id)
-                CallOutcome.Call(Status.RESOLVED, key, null, bindings = selected.bindings.associate {
-                    it.argumentOrdinal to catalog.parameterKey(key, it.parameter)
-                }, modes = selected.bindings.associate { it.argumentOrdinal to it.parameter.mode })
-            }
+            ProjectCallResolution.Status.RESOLVED -> resolved(resolution.selected.get())
             ProjectCallResolution.Status.AMBIGUOUS -> CallOutcome.Call(Status.AMBIGUOUS, null, status.name, applicable(resolution))
             ProjectCallResolution.Status.AMBIGUOUS_TARGET ->
                 CallOutcome.Call(Status.AMBIGUOUS, null, status.name, resolution.candidates.map { catalog.keyOf(it.declaration.id) }.distinct())
@@ -245,6 +309,13 @@ class CallResolver(
                 CallOutcome.Call(Status.UNVERIFIED, resolution.selected.map { catalog.keyOf(it.declaration.id) }.orElse(null), status.name)
             ProjectCallResolution.Status.NOT_PREPARED -> error("Call resolution is NOT_PREPARED in a prepared run")
         }
+    }
+
+    private fun resolved(selected: ProjectCallCandidate): CallOutcome.Call {
+        val key = catalog.keyOf(selected.declaration.id)
+        return CallOutcome.Call(Status.RESOLVED, key, null, bindings = selected.bindings.associate {
+            it.argumentOrdinal to catalog.parameterKey(key, it.parameter)
+        }, modes = selected.bindings.associate { it.argumentOrdinal to it.parameter.mode })
     }
 
     /**
