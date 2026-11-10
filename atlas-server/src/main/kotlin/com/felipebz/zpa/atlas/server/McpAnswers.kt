@@ -5,14 +5,7 @@
 
 package com.felipebz.zpa.atlas.server
 
-import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.ToolJson
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.*
 
 /**
  * The shape and the size of a tool answer. An answer is the JSON of the `/api` result made compact for an agent:
@@ -25,6 +18,16 @@ internal object McpAnswers {
 
     /** The longest JSON string of a source line; a longer line is cut. */
     const val SOURCE_LINE_MAX = 500
+
+    /** The JSON of a tool answer: the `/api` model, a null field left out to save the agent's context. */
+    val ToolJson = Json { explicitNulls = false; encodeDefaults = true }
+
+    /**
+     * [answer] as a tool gives it, before any cut for size: its JSON made compact by [compact], without the run stamp
+     * the page shows in its banner. Nothing in it changes an agent's next call: a changed file is told per row
+     * (stale), and the atlas version is in serverInfo.
+     */
+    inline fun <reified T> toolAnswer(answer: T): JsonObject = JsonObject(compact(ToolJson.encodeToJsonElement(answer)).jsonObject - "run")
 
     /**
      * [element] with each `display` left out where it is the key without `db:`, and each call argument's `parameter`

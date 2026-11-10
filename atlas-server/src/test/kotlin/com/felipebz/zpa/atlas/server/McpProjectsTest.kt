@@ -210,7 +210,7 @@ class McpProjectsTest {
                 "This server holds several projects, separate codebases indexed apart: broken, hr, pending. Every tool takes project; " +
                     "when the question does not say which, call list_projects or ask the user, rather than guess. An entity key, a path " +
                     "or a node number of one project means nothing in another.\n"
-            ).endsWith(AtlasMcpTools.INSTRUCTIONS)
+            ).endsWith(McpToolTexts.INSTRUCTIONS)
         }
     }
 
@@ -280,7 +280,7 @@ class McpProjectsTest {
                     "project is hr: a tool without project reads it, and its answer says \"project\": \"hr\". When the question is " +
                     "about another project, pass its name as project. The projects may share names: a key found in one does not " +
                     "show that the question was about it. An entity key, a path or a node number of one project means nothing in another.\n"
-            ).endsWith(AtlasMcpTools.INSTRUCTIONS).doesNotContain("Payroll")
+            ).endsWith(McpToolTexts.INSTRUCTIONS).doesNotContain("Payroll")
         }
 
     @Test
@@ -304,7 +304,7 @@ class McpProjectsTest {
         val tools = client.listTools().tools
         assertThat(tools.map { it.name }).doesNotContain("list_projects")
         assertThat(tools).allSatisfy { assertThat(it.inputSchema.properties!!.keys).describedAs(it.name).doesNotContain("project") }
-        assertThat(client.serverInstructions).isEqualTo(AtlasMcpTools.INSTRUCTIONS)
+        assertThat(client.serverInstructions).isEqualTo(McpToolTexts.INSTRUCTIONS)
     }
 
     @Test

@@ -16,8 +16,8 @@ import com.felipebz.zpa.atlas.model.KeyKind
 import com.felipebz.zpa.atlas.model.Origin
 import com.felipebz.zpa.atlas.model.UnitKind
 import com.felipebz.zpa.atlas.query.*
-import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.ToolJson
-import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.toolAnswer
+import com.felipebz.zpa.atlas.server.McpAnswers.ToolJson
+import com.felipebz.zpa.atlas.server.McpAnswers.toolAnswer
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
@@ -160,7 +160,7 @@ class McpServerTest {
             put("container_name", "pack_process"); put("roles", strings("SQL_SELECT", "SQL_INSERT", "SQL_UPDATE", "SQL_DELETE"))
             put("group_by", strings("CONTAINER", "ENTITY", "ROLE"))
         }).json()).isEqualTo(toolAnswer(
-            index.groupOccurrences(crud, listOf(GroupDimension.CONTAINER, GroupDimension.ENTITY, GroupDimension.ROLE), AtlasMcpTools.GROUP_DEFAULT)
+            index.groupOccurrences(crud, listOf(GroupDimension.CONTAINER, GroupDimension.ENTITY, GroupDimension.ROLE), McpLimits.GROUP_DEFAULT)
         ))
         assertThat(client.call("get_source", args { put("path", "hr/pack_process.pkb"); put("line", 10); put("context", 1) }).json())
             .isEqualTo(toolAnswer(index.source("hr/pack_process.pkb", 10, 1)))
@@ -274,7 +274,7 @@ class McpServerTest {
             var after: Long? = null
             do {
                 val answer = client.call("find_occurrences", args {
-                    put("name", "pack_wide.take_all"); put("roles", strings("CALL")); put("limit", AtlasMcpTools.FIND_MAX); after?.let { put("after", it) }
+                    put("name", "pack_wide.take_all"); put("roles", strings("CALL")); put("limit", McpLimits.FIND_MAX); after?.let { put("after", it) }
                 })
                 assertThat(answer.text().length).isLessThanOrEqualTo(McpAnswers.MAX_CHARS)
                 val json = answer.json().jsonObject
@@ -292,7 +292,7 @@ class McpServerTest {
         mcp(settings = McpSettings(maxAnswerChars = 8_000)) { client ->
             val query = OccurrenceQuery(container = "db:HR.PACK_PROCESS")
             val all = index.queryOccurrences(query, null, 500).result.rows.map { it.id }
-            assertThat(all.size).isGreaterThan(AtlasMcpTools.FIND_MAX)
+            assertThat(all.size).isGreaterThan(McpLimits.FIND_MAX)
             val ids = ArrayList<Long>()
             var after: Long? = null
             var cutPages = 0
@@ -340,16 +340,16 @@ class McpServerTest {
         fun withIncluded(answer: JsonObject, vararg scopes: String) = JsonObject(answer + ("included" to strings(*scopes)))
         val body = "$runJob5@BODY"
         assertThat(client.call("find_usages", args { put("key", body) }).json())
-            .isEqualTo(withIncluded(toolAnswer(index.occurrences(body, UsageFilter(scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS)), limit = AtlasMcpTools.FIND_DEFAULT)), "IMPLEMENTATIONS"))
+            .isEqualTo(withIncluded(toolAnswer(index.occurrences(body, UsageFilter(scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS)), limit = McpLimits.FIND_DEFAULT)), "IMPLEMENTATIONS"))
         val view = "db:HR.V_COMPANY_LIST"
         assertThat(client.call("find_usages", args { put("key", view); put("include", strings("CHILDREN", "VIEWS")) }).json())
-            .isEqualTo(withIncluded(toolAnswer(index.occurrences(view, UsageFilter(scope = setOf(Scope.SELF, Scope.CHILDREN, Scope.VIEWS)), limit = AtlasMcpTools.FIND_DEFAULT)), "CHILDREN", "VIEWS"))
+            .isEqualTo(withIncluded(toolAnswer(index.occurrences(view, UsageFilter(scope = setOf(Scope.SELF, Scope.CHILDREN, Scope.VIEWS)), limit = McpLimits.FIND_DEFAULT)), "CHILDREN", "VIEWS"))
         // Without include, the page's default for the kind: a package with its spec or body and its members.
         val pack = client.call("find_usages", args { put("key", "db:HR.PACK_PROCESS") }).json()
         assertThat(pack).isEqualTo(withIncluded(toolAnswer(index.occurrences(
             "db:HR.PACK_PROCESS",
             UsageFilter(scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN)),
-            limit = AtlasMcpTools.FIND_DEFAULT
+            limit = McpLimits.FIND_DEFAULT
         )), "IMPLEMENTATIONS", "CHILDREN"))
         // The members include the body's own globals (`pack_process.g_private :=` in the body), the routines'
         // parameters, read and written in the body, and the record fields (`g_rec.msg`, `pack_process.g_events(1).id`,
@@ -357,7 +357,7 @@ class McpServerTest {
         assertThat(total(pack)).isEqualTo(73)
         // A table: the table alone.
         val table = client.call("find_usages", args { put("key", "db:HR.COMPANY") }).json()
-        assertThat(table).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.COMPANY", limit = AtlasMcpTools.FIND_DEFAULT))))
+        assertThat(table).isEqualTo(withIncluded(toolAnswer(index.occurrences("db:HR.COMPANY", limit = McpLimits.FIND_DEFAULT))))
         // hr/pack_globals.pkb reads COMPANY once, hr/pack_chains.pkb twice.
         assertThat(total(table)).isEqualTo(123)
         // The body alone has no usage: its callers bind the spec.
@@ -392,7 +392,7 @@ class McpServerTest {
     @Test
     fun `find_usages pages lose and repeat no row, under a small size cap too`() {
         val all = index.occurrences("db:HR.PACK_PROCESS", UsageFilter(scope = setOf(Scope.SELF, Scope.CHILDREN)), limit = 500).result!!.rows.map { it.id }
-        assertThat(all.size).isGreaterThan(AtlasMcpTools.FIND_MAX)
+        assertThat(all.size).isGreaterThan(McpLimits.FIND_MAX)
         for (cap in listOf(McpAnswers.MAX_CHARS, 6_000)) {
             mcp(settings = McpSettings(maxAnswerChars = cap)) { client ->
                 val ids = ArrayList<Long>()
@@ -400,7 +400,7 @@ class McpServerTest {
                 var cut = 0
                 do {
                     val answer = client.call("find_usages", args {
-                        put("key", "db:HR.PACK_PROCESS"); put("include", strings("CHILDREN")); put("limit", AtlasMcpTools.FIND_MAX); after?.let { put("after", it) }
+                        put("key", "db:HR.PACK_PROCESS"); put("include", strings("CHILDREN")); put("limit", McpLimits.FIND_MAX); after?.let { put("after", it) }
                     }).json().jsonObject
                     val rows = answer["result"]!!.jsonObject["rows"]!!.jsonArray
                     answer["cutForSize"]?.let { cut++; assertThat(it.jsonObject["kept"]!!.jsonPrimitive.content.toInt()).isEqualTo(rows.size) }
@@ -421,7 +421,7 @@ class McpServerTest {
             put("key", "db:HR.COMPANY"); put("include", strings("VIEWS")); put("via", "THROUGH_VIEWS"); put("group_by", strings("ENTITY", "CONTAINER"))
         }).json()
         assertThat(grouped).isEqualTo(JsonObject(toolAnswer(
-            index.groupUsages("db:HR.COMPANY", byViewAndRoutine, UsageFilter(scope = views, via = UsagePath.THROUGH_VIEWS), limit = AtlasMcpTools.GROUP_DEFAULT)
+            index.groupUsages("db:HR.COMPANY", byViewAndRoutine, UsageFilter(scope = views, via = UsagePath.THROUGH_VIEWS), limit = McpLimits.GROUP_DEFAULT)
         ) + ("included" to strings("VIEWS"))))
         // Without include, the default by kind: a package with its spec or body and its members.
         assertThat(client.call("group_usages", args { put("key", "db:HR.PACK_PROCESS"); put("group_by", strings("ROLE")) }).json())
@@ -429,11 +429,11 @@ class McpServerTest {
                 "db:HR.PACK_PROCESS",
                 listOf(GroupDimension.ROLE),
                 UsageFilter(scope = setOf(Scope.SELF, Scope.IMPLEMENTATIONS, Scope.CHILDREN)),
-                limit = AtlasMcpTools.GROUP_DEFAULT
+                limit = McpLimits.GROUP_DEFAULT
             )) + ("included" to strings("IMPLEMENTATIONS", "CHILDREN"))))
         for (via in UsagePath.entries) {
             assertThat(client.call("find_usages", args { put("key", "db:HR.COMPANY"); put("include", strings("VIEWS")); put("via", via.name) }).json())
-                .isEqualTo(JsonObject(toolAnswer(index.occurrences("db:HR.COMPANY", UsageFilter(scope = views, via = via), limit = AtlasMcpTools.FIND_DEFAULT)) +
+                .isEqualTo(JsonObject(toolAnswer(index.occurrences("db:HR.COMPANY", UsageFilter(scope = views, via = via), limit = McpLimits.FIND_DEFAULT)) +
                     ("included" to strings("VIEWS"))))
         }
     }
@@ -479,7 +479,7 @@ class McpServerTest {
     fun `find_impact numbers the nodes of the whole graph, names them and points via at a number`() = mcp { client ->
         // Without following triggers: the graph of ImpactTest.
         val nodes = client.call("find_impact", args { put("key", impactLeaf); put("follow_triggers", false) }).json().impactNodes()
-        val graph = index.impact(impactLeaf, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS), followTriggers = false), limit = AtlasMcpTools.IMPACT_DEFAULT).result!!.nodes
+        val graph = index.impact(impactLeaf, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS), followTriggers = false), limit = McpLimits.IMPACT_DEFAULT).result!!.nodes
         assertThat(nodes.map { it.number() }).isEqualTo((1..graph.size).toList())
         assertThat(nodes.map { it.field("name") }).containsExactly(
             "HR.IMP_FN", "HR.PACK_IMP_A.MID", "HR.PACK_IMP_A.OV", "HR.PACK_IMP_A.PONG", "HR.PACK_IMP_B", "HR.IMP_AMB", "HR.IMP_REC",
@@ -515,7 +515,7 @@ class McpServerTest {
 
     @Test
     fun `find_impact with keys answers the index nodes plus their number, and n does not move with stop or paging`() = mcp { client ->
-        val graph = index.impact(impactLeaf, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS)), limit = AtlasMcpTools.IMPACT_DEFAULT)
+        val graph = index.impact(impactLeaf, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS)), limit = McpLimits.IMPACT_DEFAULT)
         val keyed = client.call("find_impact", args { put("key", impactLeaf); put("keys", true) }).json().impactNodes()
         val base = toolAnswer(graph).jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject }
         assertThat(keyed.map { JsonObject(it - "n") }).isEqualTo(base)
@@ -540,10 +540,10 @@ class McpServerTest {
         assertThat(nodes.single { it.field("name") == "HR.IT_Q" }.getValue("via").jsonObject["fires"]).isNull()
         val keyed = client.call("find_impact", args { put("key", key); put("keys", true) }).json().impactNodes()
         assertThat(keyed.map { JsonObject(it - "n") })
-            .isEqualTo(toolAnswer(index.impact(key, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS)), limit = AtlasMcpTools.IMPACT_DEFAULT)).jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject })
+            .isEqualTo(toolAnswer(index.impact(key, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS)), limit = McpLimits.IMPACT_DEFAULT)).jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject })
         val off = client.call("find_impact", args { put("key", key); put("follow_triggers", false); put("keys", true) }).json().impactNodes()
         assertThat(off.map { JsonObject(it - "n") }).isEqualTo(
-            toolAnswer(index.impact(key, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS), followTriggers = false), limit = AtlasMcpTools.IMPACT_DEFAULT))
+            toolAnswer(index.impact(key, ImpactOptions(include = listOf(Scope.IMPLEMENTATIONS), followTriggers = false), limit = McpLimits.IMPACT_DEFAULT))
                 .jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject }
         )
         assertThat(off.map { it.field("stop") }.distinct()).containsExactly("TRIGGER")
@@ -553,7 +553,7 @@ class McpServerTest {
     @Test
     fun `search_text answers what AtlasIndex searchText answers, and refuses a short text`() = mcp { client ->
         // Scoped: the same rows, and no wholeIndex key, as group_occurrences leaves it out when filtered.
-        val scoped = toolAnswer(index.searchText("vFixTag", container = "db:HR.TEXT_TAGS", limit = AtlasMcpTools.TEXT_DEFAULT)).jsonObject
+        val scoped = toolAnswer(index.searchText("vFixTag", container = "db:HR.TEXT_TAGS", limit = McpLimits.TEXT_DEFAULT)).jsonObject
         assertThat(client.call("search_text", args { put("text", "vFixTag"); put("container", "db:HR.TEXT_TAGS") }).json())
             .isEqualTo(JsonObject(scoped + ("result" to JsonObject(scoped.getValue("result").jsonObject - "wholeIndex"))))
         // Unscoped: wholeIndex, and how to narrow it.
@@ -779,10 +779,10 @@ class McpServerTest {
         }
         // One filter answers as before.
         assertThat(client.call("find_occurrences", args { put("name", "st_active") }).json())
-            .isEqualTo(toolAnswer(index.queryOccurrences(OccurrenceQuery(name = "st_active"), null, AtlasMcpTools.FIND_DEFAULT, summary = true)))
+            .isEqualTo(toolAnswer(index.queryOccurrences(OccurrenceQuery(name = "st_active"), null, McpLimits.FIND_DEFAULT, summary = true)))
         val whole = client.call("group_occurrences", args { put("group_by", strings("ROLE")) }).json().jsonObject
         assertThat(whole["wholeIndex"]).isEqualTo(JsonPrimitive(true))
-        assertThat(JsonObject(whole - "wholeIndex")).isEqualTo(toolAnswer(index.groupOccurrences(OccurrenceQuery(), listOf(GroupDimension.ROLE), AtlasMcpTools.GROUP_DEFAULT)))
+        assertThat(JsonObject(whole - "wholeIndex")).isEqualTo(toolAnswer(index.groupOccurrences(OccurrenceQuery(), listOf(GroupDimension.ROLE), McpLimits.GROUP_DEFAULT)))
         assertThat(client.call("group_occurrences", args { put("group_by", strings("ROLE")); put("path", "hr/") }).json().jsonObject).doesNotContainKey("wholeIndex")
     }
 
@@ -809,7 +809,7 @@ class McpServerTest {
         assertThat(client.call("get_entity").error()).isEqualTo("Missing argument: key")
         assertThat(client.call("group_occurrences").error()).isEqualTo("Missing argument: group_by")
         assertThat(client.call("get_source", args { put("path", "hr/pack_process.pkb") }).error()).isEqualTo("Missing argument: line")
-        assertThat(client.call("find_occurrences", args { put("limit", 1000) }).error()).isEqualTo("limit must be between 1 and ${AtlasMcpTools.FIND_MAX}")
+        assertThat(client.call("find_occurrences", args { put("limit", 1000) }).error()).isEqualTo("limit must be between 1 and ${McpLimits.FIND_MAX}")
         assertThat(client.call("find_occurrences", args { put("roles", "WRITE") }).error()).isEqualTo("roles must be an array of strings")
     }
 
@@ -953,7 +953,7 @@ class McpServerTest {
         assertThat(client.call("find_value_sites", args { put("key", stActive); put("value_kind", "STRING") }).error()).isEqualTo("Missing argument: value")
         assertThat(client.call("find_value_sites", args { put("key", stActive); put("kind", "STRING") }).error())
             .isEqualTo("Unknown argument: kind. find_value_sites takes: key, value_kind, value, after, limit")
-        assertThat(client.call("get_values", args { put("key", stActive); put("limit", 1000) }).error()).isEqualTo("limit must be between 1 and ${AtlasMcpTools.VALUES_MAX}")
+        assertThat(client.call("get_values", args { put("key", stActive); put("limit", 1000) }).error()).isEqualTo("limit must be between 1 and ${McpLimits.VALUES_MAX}")
     }
 
     private val initialize = """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18",""" +

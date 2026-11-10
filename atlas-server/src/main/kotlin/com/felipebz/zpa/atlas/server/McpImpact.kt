@@ -7,13 +7,8 @@ package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.query.EntitySummary
 import com.felipebz.zpa.atlas.query.ImpactNode
-import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.ToolJson
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import com.felipebz.zpa.atlas.server.McpAnswers.ToolJson
+import kotlinx.serialization.json.*
 
 /**
  * The nodes of one impact graph as `find_impact` answers them. A full key is the longest part of a node (a signature

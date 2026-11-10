@@ -8,8 +8,7 @@ package com.felipebz.zpa.atlas.server
 import com.felipebz.zpa.atlas.query.InvalidQueryException
 import com.felipebz.zpa.atlas.query.QueryTimeoutException
 import com.felipebz.zpa.atlas.query.SchemaMismatchException
-import com.felipebz.zpa.atlas.server.AtlasMcpTools.Companion.ToolJson
-import com.felipebz.zpa.atlas.server.AtlasMcpTools.ToolException
+import com.felipebz.zpa.atlas.server.McpAnswers.ToolJson
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
@@ -40,7 +39,7 @@ internal fun projectsMcpServer(projects: List<ServedProject>, defaultProject: St
         val accepted = schema.properties?.keys.orEmpty()
         server.addTool(tool.name, tool.description, schema, toolAnnotations = AtlasMcpTools.READ_ONLY) { request ->
             first.call {
-                val arguments = AtlasMcpTools.Arguments(tool.name, accepted, request.arguments)
+                val arguments = Arguments(tool.name, accepted, request.arguments)
                 val named = arguments.string("project")
                 if (named == null && fallback != null) return@call readDefault(fallback) { tools.getValue(fallback.name).getValue(tool.name).body(arguments) }
                 val project = calledProject(sorted, named, names)
@@ -56,7 +55,7 @@ internal fun projectsMcpServer(projects: List<ServedProject>, defaultProject: St
         toolAnnotations = AtlasMcpTools.READ_ONLY
     ) { request ->
         first.call {
-            AtlasMcpTools.Arguments("list_projects", emptySet(), request.arguments)
+            Arguments("list_projects", emptySet(), request.arguments)
             val answer = ToolJson.encodeToJsonElement(McpProjectList(sorted.map { McpProject.of(it.summary(), it.name == fallback?.name) })).jsonObject
             McpAnswers.fitList(answer, maxAnswerChars, { it.getValue("projects").jsonArray }, { a, rows -> JsonObject(a + ("projects" to rows)) })
         }
@@ -147,7 +146,7 @@ internal fun projectsInstructions(projects: List<ServedProject>, defaultProject:
                 "when the question does not say which, call list_projects or ask the user, rather than guess. An " +
                 "entity key, a path or a node number of one project means nothing in another.\n"
     }
-    return text + AtlasMcpTools.INSTRUCTIONS
+    return text + McpToolTexts.INSTRUCTIONS
 }
 
 /** The refusal of a project whose index file does not exist yet, on `/api` and `/mcp`. */
