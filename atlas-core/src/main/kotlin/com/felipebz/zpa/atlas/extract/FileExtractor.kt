@@ -64,14 +64,6 @@ class FileExtractor internal constructor(
      */
     private var sequenceResolutions: Map<AstNode, SequenceReferenceResolution> = emptyMap()
 
-    /** The dynamic statements whose text is a variable, decided once the whole file is walked (every call's modes known). */
-    private val variableStatements = ArrayList<VariableStatement>()
-
-    private class VariableStatement(val occurrence: Int, val variable: AstNode, val context: Context, val node: AstNode)
-
-    /** The text nodes of the file's dynamic statements. */
-    private val dynamicTexts: MutableSet<AstNode> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
-
     /** The entities of the Forms module the file is, keyed before the walk. */
     private val formsEntities = forms?.let { FormsEntities(it) }
 
@@ -93,6 +85,47 @@ class FileExtractor internal constructor(
     private lateinit var places: IntoClauses
     private lateinit var shapes: TypeShapes
     private lateinit var bound: BoundNames
+
+    /** The units of the Forms module the file is, created when the walk starts; null for a database source or a file that was not walked. */
+    private var formsUnits: FormsUnits? = null
+
+    /** The view whose unit [compilationUnit] walks, null outside it: the walk reads the view's columns from its query. */
+    private var view: ViewScope? = null
+
+    /** The dynamic statements whose text is a variable, decided once the whole file is walked (every call's modes known). */
+    private val variableStatements = ArrayList<VariableStatement>()
+
+    /** The text nodes of the file's dynamic statements. */
+    private val dynamicTexts: MutableSet<AstNode> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+
+    /** The types the file's declarations with an entity write ([TypeShapes]); none for a file that was not walked. */
+    private val declaredShapes = ArrayList<DeclaredShapeFact>()
+
+    /** The return types of the file's functions, by the key of what each returns; their shapes are told when the file is left. */
+    private val returnTypes = ArrayList<Pair<String, AstNode>>()
+
+    /** The `INTO`s of the file ([IntoClauses]), decided when the file is left. */
+    private var intos: List<IntoFact> = emptyList()
+
+    /** What the declarations of the file say ([DeclaredTexts]); empty for a file that was not parsed. */
+    private val declaredTexts = ArrayList<DeclaredTextFact>()
+
+    /** The documentation comments of the declarations of the file ([DocComments]); empty for a file that was not parsed. */
+    private val docComments = ArrayList<DocCommentFact>()
+
+    /** The definitions the units give, in the order of the walk ([UnitDefinition]). */
+    private val unitDefinitions = ArrayList<UnitDefinition>()
+
+    /** The parameters whose recorded uses may be incomplete ([ParameterGaps]). */
+    private val parameterGaps = ArrayList<UsesGapFact>()
+
+    private class VariableStatement(val occurrence: Int, val variable: AstNode, val context: Context, val node: AstNode)
+
+    /** What a unit is: its kind, its entity, its trigger scope and, for a view with an entity, its view. */
+    private data class UnitHead(val kind: UnitKind, val entityKey: String?, val trigger: TriggerScope?, val view: ViewScope?)
+
+    /** The definitions the units give (package and type bodies, triggers, views): their documentation is read with the declarations'. */
+    internal class UnitDefinition(val entityKey: String, val span: SourceSpan, val inBody: Boolean, val node: AstNode)
 
     override fun init() {
         val snapshot = projectAnalysis().snapshot
@@ -128,9 +161,10 @@ class FileExtractor internal constructor(
             bound.add(NameDeclarationKind.PARAMETER, declaration.span.startLine, declaration.span.startCol, declaration.entityKey)
         }
         bodyGlobals = BodyGlobals(state, bound, context::recordFields)
+        formsUnits = forms?.let { FormsUnits(it, formsEntities!!, state, bound, bodyGlobals, fileSchema, unitDefinitions, ::walk) }
         fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding, bodyGlobals::fieldAt, forms != null)
         val sequences = projectAnalysis()
-        val formsNames = formsEntities?.names(modulePackages(node), specifiedMembers(node))
+        val formsNames = formsUnits?.names(node)
         plsql = PlSqlNames(state, scopes, catalog, calls, values, synonyms, typeMembers, runSchemas, jsonBuiltIn, bound, fields, formsNames, formsReferences) {
             sequenceResolutions[it] ?: sequences.resolveSequenceReference(it)
         }
@@ -141,7 +175,8 @@ class FileExtractor internal constructor(
         places = IntoClauses(state, plsql, columnReads, lineage, context::nameBinding)
         sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads, places)
         ddl = DdlTargets(path, state, dictionary, resolver, values, catalog, plsql)
-        if (forms != null) formsUnits(node, forms) else databaseUnits(node)
+        val moduleUnits = formsUnits
+        if (moduleUnits != null) moduleUnits.units(node) else databaseUnits(node)
         variableTexts()
         shapes = TypeShapes(state, bound, context::typeBinding, node)
         // The field uses of the chains and anchors the walk gathered, once every call of the file is known (a chain starting with a call is read).
@@ -233,6 +268,8 @@ class FileExtractor internal constructor(
     }
 
     private fun build(status: ParseStatus): FileFacts {
+        // The `::….isInitialized` guards, here and in the declaration facts: [failedFacts] builds without [extract], which
+        // creates the walk's collaborators, and maybe without [init], which sets [catalog].
         if (::catalog.isInitialized) {
             addDeclarationOccurrences()
             state.coverage += catalog.coverageFor(path)
@@ -266,20 +303,35 @@ class FileExtractor internal constructor(
         }
         forms?.notes?.forEach { state.coverage += CoverageFact(it.kind, it.message) }
         // Mentioned relations and columns repeat once per reference: keep the first of each exact duplicate.
-        return FileFacts(path, sha256, sizeBytes, encoding, status, state.recoveredRegions, fileSchema, state.units, state.statements, state.occurrences,
-            LinkedHashSet(state.entities).toList(), LinkedHashSet(state.relations).toList(), state.coverage, resolver.dictionaryRelations.toList(),
-            synonyms.dictionarySynonyms.toList(), state.triggerEvents.toList(), declaredTexts + state.columnTypes, docComments, usesGaps, membersGaps,
-            declaredShapes, intos, state.placesLeftOut.toMap(), if (forms == null) FileKind.DB_SOURCE else FileKind.FORMS_MODULE, formsObjects, formsUses)
+        return FileFacts(
+            path = path,
+            sha256 = sha256,
+            sizeBytes = sizeBytes,
+            encoding = encoding,
+            parseStatus = status,
+            recoveredRegions = state.recoveredRegions,
+            compilationSchema = fileSchema,
+            units = state.units,
+            statements = state.statements,
+            occurrences = state.occurrences,
+            entities = LinkedHashSet(state.entities).toList(),
+            relations = LinkedHashSet(state.relations).toList(),
+            coverage = state.coverage,
+            dictionaryRelations = resolver.dictionaryRelations.toList(),
+            dictionarySynonyms = synonyms.dictionarySynonyms.toList(),
+            triggerEvents = state.triggerEvents.toList(),
+            declaredTexts = declaredTexts + state.columnTypes,
+            docComments = docComments,
+            usesGaps = usesGaps,
+            membersGaps = membersGaps,
+            declaredShapes = declaredShapes,
+            intos = intos,
+            placesLeftOut = state.placesLeftOut.toMap(),
+            kind = if (forms == null) FileKind.DB_SOURCE else FileKind.FORMS_MODULE,
+            formsObjects = formsObjects,
+            formsUses = formsUses
+        )
     }
-
-    /** The types the file's declarations with an entity write ([TypeShapes]); none for a file that was not walked. */
-    private val declaredShapes = ArrayList<DeclaredShapeFact>()
-
-    /** The return types of the file's functions, by the key of what each returns; their shapes are told when the file is left. */
-    private val returnTypes = ArrayList<Pair<String, AstNode>>()
-
-    /** The `INTO`s of the file ([IntoClauses]), decided when the file is left. */
-    private var intos: List<IntoFact> = emptyList()
 
     private fun declaredShape(key: String, node: AstNode) {
         if (::shapes.isInitialized) shapes.of(node, key)?.let { declaredShapes += DeclaredShapeFact(key, it) }
@@ -303,7 +355,7 @@ class FileExtractor internal constructor(
         } else {
             written.joinToString(".")
         }
-        val (kind, entityKey, trigger) = unitHead(node, written, schema)
+        val (kind, entityKey, trigger, unitView) = unitHead(node, written, schema)
         val index = state.addUnit(UnitFact(kind, displayName, entityKey, span, schema), partial)
         // A package body's own variables, constants and types, and each routine's, before the walk that finds their uses.
         if (kind == UnitKind.PACKAGE_BODY) entityKey?.let { bodyGlobals.declare(node, it, catalog.schemaAndName(path, written).first, index, partial) }
@@ -325,20 +377,19 @@ class FileExtractor internal constructor(
             emptySet()
         }
         val objectType = if (kind == UnitKind.TYPE_BODY) ObjectTypeMembers.typeKey(unitName, fileSchema) else null
+        view = unitView
         walk(node, Context(index, partial, schema, entityKey, trigger, enclosingPackage, bodyNames, objectType))
         view = null
     }
 
-    /** What a unit is: its kind, its entity and its trigger scope. */
-    private data class UnitHead(val kind: UnitKind, val entityKey: String?, val trigger: TriggerScope?)
-
     /**
-     * The kind and entity of the unit [node] named [written] in [schema]; a trigger's scope, and a view's [view], are
-     * read on the way.
+     * The kind and entity of the unit [node] named [written] in [schema]; a trigger's scope, and a view's [ViewScope],
+     * are read on the way.
      */
     private fun unitHead(node: AstNode, written: List<String>, schema: String?): UnitHead {
         var entityKey: String? = null
         var trigger: TriggerScope? = null
+        var viewScope: ViewScope? = null
         val kind = when (node.type) {
             PlSqlGrammar.CREATE_PACKAGE -> UnitKind.PACKAGE.also { entityKey = sourceObject(written, EntityKind.PACKAGE) }
             PlSqlGrammar.CREATE_PACKAGE_BODY -> UnitKind.PACKAGE_BODY.also {
@@ -359,12 +410,12 @@ class FileExtractor internal constructor(
                 val relation = dictionaryView(written, schema)
                 val key = relation?.let { RelationResolver.dictionaryKey(it) } ?: sourceObject(written, if (node.type == PlSqlGrammar.CREATE_VIEW) EntityKind.VIEW else EntityKind.MATERIALIZED_VIEW)
                 entityKey = key
-                if (key != null) view = ViewScope(key, relation, node, node.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION))
+                if (key != null) viewScope = ViewScope(key, relation, node, node.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION))
             }
             PlSqlGrammar.ANONYMOUS_BLOCK -> UnitKind.ANONYMOUS_BLOCK
             else -> UnitKind.SQL_STATEMENT
         }
-        return UnitHead(kind, entityKey, trigger)
+        return UnitHead(kind, entityKey, trigger, viewScope)
     }
 
     /** Whether a unit of [kind] takes its definition from the AST: package bodies, type bodies, triggers and views with an entity. */
@@ -423,157 +474,6 @@ class FileExtractor internal constructor(
         else -> null
     }
 
-    // ---- Forms units --------------------------------------------------------------------------------------------
-
-    /**
-     * The units of a Forms module's text: each top-level node is the code of the unit of [layout] at its first line. A
-     * recovered region is an unparsed unit in each unit of the module it overlaps, cut to that unit's lines, with its
-     * path and entity: the parser may recover past the end of a unit's code. A unit's code is compiled on its own, so
-     * only a recovered region is partial.
-     */
-    private fun formsUnits(node: AstNode, layout: FormsLayout) {
-        for (child in node.children) {
-            val unit = layout.unitAt(child.tokenLine)
-            when (child.type) {
-                PlSqlGrammar.RECOVERY -> formsRecoveredRegion(child, layout)
-                PlSqlGrammar.COMPILATION_UNIT -> formsUnit(child.firstChild, unit)
-                DmlGrammar.DML_COMMAND, DdlGrammar.DDL_COMMAND -> formsUnit(child, unit)
-                TclGrammar.TCL_COMMAND -> if (child.hasDirectChildren(TclGrammar.LOCK_TABLE_EXPRESSION)) formsUnit(child, unit)
-                else -> Unit
-            }
-        }
-    }
-
-    /**
-     * A recovered region [node] of a Forms module's text: an unparsed unit in each unit of [layout] it overlaps, cut to
-     * that unit's lines, with its path and entity; an unparsed unit of no path when it overlaps none.
-     */
-    private fun formsRecoveredRegion(node: AstNode, layout: FormsLayout) {
-        state.recoveredRegions++
-        val span = spanOf(node)
-        val overlapped = layout.units.filter { it.firstLine <= span.endLine && it.lastLine >= span.startLine }
-        if (overlapped.isEmpty()) state.addUnit(UnitFact(UnitKind.UNPARSED, "", null, span, fileSchema), partial = true)
-        for (part in overlapped) {
-            val start = if (part.firstLine > span.startLine) SourceSpan(part.firstLine, 0, 0, 0) else span
-            val end = if (part.lastLine < span.endLine) SourceSpan(0, 0, part.lastLine + 1, 0) else span
-            state.addUnit(UnitFact(UnitKind.UNPARSED, part.path, formsEntities!!.keyOf(part),
-                SourceSpan(start.startLine, start.startCol, end.endLine, end.endCol), fileSchema), partial = true)
-        }
-    }
-
-    /**
-     * One unit of a Forms module: a trigger or a program unit, whose entity the module gives, defined by its code (a
-     * package specification declares it), with its parameters and declarations; or a record group query, an SQL
-     * statement. Its database names resolve as in an anonymous block: no enclosing package, the run's compilation schema.
-     */
-    private fun formsUnit(node: AstNode, unit: FormsLayout.Unit?) {
-        val key = unit?.let { formsEntities!!.keyOf(it) }
-        val kind = when (unit?.kind) {
-            FormsLayout.Kind.TRIGGER -> UnitKind.FORMS_TRIGGER
-            FormsLayout.Kind.PROGRAM_UNIT -> UnitKind.FORMS_PROGRAM_UNIT
-            FormsLayout.Kind.RECORD_GROUP_QUERY -> UnitKind.SQL_STATEMENT
-            null -> {
-                state.coverage += CoverageFact("FORMS_CODE_OUTSIDE_UNIT", "Code at line ${node.tokenLine} of the module text is in no unit of the module")
-                if (node.type == PlSqlGrammar.ANONYMOUS_BLOCK) UnitKind.ANONYMOUS_BLOCK else UnitKind.SQL_STATEMENT
-            }
-        }
-        val span = spanOf(node)
-        val index = state.addUnit(UnitFact(kind, unit?.path.orEmpty(), key, span, fileSchema), partial = false)
-        if (key != null) {
-            val name = when (node.type) {
-                PlSqlGrammar.CREATE_PACKAGE, PlSqlGrammar.CREATE_PACKAGE_BODY -> node.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)
-                PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION -> node.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)
-                else -> null
-            }
-            // A trigger has no name in its code: its first token, the `BEGIN` of its header line, stands for it.
-            val nameSpan = name?.let(::spanOf) ?: node.token.let { SourceSpan(it.line, it.column, it.line, it.column + it.originalValue.length) }
-            val role = if (node.type == PlSqlGrammar.CREATE_PACKAGE) Role.DECLARATION else Role.DEFINITION
-            state.occurrences += OccurrenceFact(index, key, null, span, name?.let(::writtenText) ?: unit.name, key, setOf(role), Status.RESOLVED,
-                Origin.STATIC, null, nameSpan = nameSpan)
-            unitDefinitions += UnitDefinition(key, span, node.type == PlSqlGrammar.CREATE_PACKAGE_BODY, node)
-            formsDeclarations(node, key, index)
-        }
-        walk(node, Context(index, false, fileSchema, key, null))
-    }
-
-    /**
-     * The declarations of a Forms unit [node] whose entity is [key], which zpa's project does not see: a routine's
-     * parameters and its own declarations ([BodyGlobals.declareRoutine]), a trigger's declarations, a package's globals
-     * (the specification's keyed `PKG.NAME`, the body's `PKG.NAME@BODY`) and, for each routine of a package body, its
-     * parameters and declarations under the package, keyed with the routine's name and signature.
-     */
-    private fun formsDeclarations(node: AstNode, key: String, index: Int) {
-        when (node.type) {
-            PlSqlGrammar.PROCEDURE_DECLARATION, PlSqlGrammar.FUNCTION_DECLARATION -> formsRoutine(node, key, key, index)
-            PlSqlGrammar.ANONYMOUS_BLOCK -> bodyGlobals.declareRoutine(node, key, key, null, index, false) { false }
-            PlSqlGrammar.CREATE_PACKAGE -> bodyGlobals.declare(node, key, null, index, false, suffix = "")
-            PlSqlGrammar.CREATE_PACKAGE_BODY -> {
-                bodyGlobals.declare(node, key, null, index, false)
-                for (item in node.getFirstChildOrNull(PlSqlGrammar.DECLARE_SECTION)?.children.orEmpty()) {
-                    if (item.type != PlSqlGrammar.PROCEDURE_DECLARATION && item.type != PlSqlGrammar.FUNCTION_DECLARATION) continue
-                    val name = item.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
-                    formsRoutine(item, key, "$key.${normalizeIdentifier(name.tokenOriginalValue)}${BodyGlobals.signature(item)}", index)
-                }
-            }
-        }
-    }
-
-    /** A routine of a Forms unit: its parameters, `keyBase.NAME` under [parentKey], whose uses zpa binds, then its own declarations. */
-    private fun formsRoutine(routine: AstNode, parentKey: String, keyBase: String, index: Int) {
-        val taken = HashSet<String>()
-        for (parameter in routine.getFirstChildOrNull(PlSqlGrammar.PARAMETER_DECLARATIONS)?.getChildren(PlSqlGrammar.PARAMETER_DECLARATION).orEmpty()) {
-            val name = parameter.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: continue
-            val normalized = normalizeIdentifier(name.tokenOriginalValue)
-            val key = "$keyBase.$normalized"
-            if (!taken.add(key)) continue
-            state.entities += EntityFact(key, EntityKind.PARAMETER, null, normalized, parentKey, displayOf(key), external = false, precedence = Precedence.DECLARED)
-            state.relations += RelationFact(parentKey, RelationKind.CONTAINS, key)
-            bound.add(NameDeclarationKind.PARAMETER, name.token.line, name.token.column, key)
-            formsParameters += FormsParameter(key, parentKey, parameter, name, index)
-        }
-        bodyGlobals.declareRoutine(routine, parentKey, keyBase, null, index, false, taken::contains)
-    }
-
-    /** A parameter of a routine of a Forms unit, defined when the file is left. */
-    private class FormsParameter(val key: String, val parentKey: String, val node: AstNode, val name: AstNode, val unitIndex: Int)
-
-    private val formsParameters = ArrayList<FormsParameter>()
-
-    /**
-     * What the packages of a Forms module's text declare, by package name: each name its specification and its body
-     * declare, a subprogram or not ([FormsNames]).
-     */
-    private fun modulePackages(root: AstNode): Map<String, Map<String, Boolean>> {
-        if (forms == null) return emptyMap()
-        val result = HashMap<String, HashMap<String, Boolean>>()
-        for (child in root.getChildren(PlSqlGrammar.COMPILATION_UNIT)) {
-            val unit = child.firstChild
-            if (unit.type != PlSqlGrammar.CREATE_PACKAGE && unit.type != PlSqlGrammar.CREATE_PACKAGE_BODY) continue
-            val name = unit.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.lastOrNull() ?: continue
-            val declared = result.getOrPut(normalizeIdentifier(name.tokenOriginalValue)) { HashMap() }
-            for (declaration in unitDeclarations(unit)) declared[declaration.name] = (declared[declaration.name] ?: false) || declaration.subprogram
-        }
-        return result
-    }
-
-    /**
-     * What the package specifications of a Forms module's text declare as entities, by package name: their variables,
-     * constants and types, each declaration by its name, its entity keyed `PKG.NAME` ([formsDeclarations]).
-     */
-    private fun specifiedMembers(root: AstNode): Map<String, Map<String, AstNode>> {
-        if (forms == null) return emptyMap()
-        val result = HashMap<String, HashMap<String, AstNode>>()
-        for (child in root.getChildren(PlSqlGrammar.COMPILATION_UNIT)) {
-            val unit = child.firstChild.takeIf { it.type == PlSqlGrammar.CREATE_PACKAGE } ?: continue
-            val name = unit.getFirstChildOrNull(PlSqlGrammar.UNIT_NAME)?.getChildren(PlSqlGrammar.IDENTIFIER_NAME)?.lastOrNull() ?: continue
-            val declared = result.getOrPut(normalizeIdentifier(name.tokenOriginalValue)) { HashMap() }
-            for (item in unit.getFirstChildOrNull(PlSqlGrammar.DECLARE_SECTION)?.children.orEmpty()) {
-                BodyGlobals.declaredName(item)?.let { declared.putIfAbsent(normalizeIdentifier(it.tokenOriginalValue), item) }
-            }
-        }
-        return result
-    }
-
     private fun subprogramAt(node: AstNode): String? = catalog.subprogramAt(path, node.token.line, node.token.column)
 
     /** A schema object named in its own CREATE statement (the entity may also come from the project index). */
@@ -594,8 +494,6 @@ class FileExtractor internal constructor(
         resolver.addDictionaryRelation(relation)
         return relation
     }
-
-    private var view: ViewScope? = null
 
     // ---- walk ---------------------------------------------------------------------------------------------------
 
@@ -755,26 +653,16 @@ class FileExtractor internal constructor(
 
     // ---- declarations -------------------------------------------------------------------------------------------
 
-    /** What the declarations of the file say ([DeclaredTexts]); empty for a file that was not parsed. */
-    private val declaredTexts = ArrayList<DeclaredTextFact>()
-
-    /** The documentation comments of the declarations of the file ([DocComments]); empty for a file that was not parsed. */
-    private val docComments = ArrayList<DocCommentFact>()
-
-    /** The definitions the units give (package and type bodies, triggers, views): their documentation is read with the declarations'. */
-    private class UnitDefinition(val entityKey: String, val span: SourceSpan, val inBody: Boolean, val node: AstNode)
-
-    private val unitDefinitions = ArrayList<UnitDefinition>()
-
     private fun addDeclarationOccurrences() {
         val declarations = catalog.occurrencesFor(path)
-        val found = root?.let { declarationNodes(it, declarations) }
-        val names = found?.let { declarationNames(it, declarations) }.orEmpty()
+        val found = root?.let { DeclarationNodes(it, declarations) }
+        val names = found?.names().orEmpty()
+        val formsParameters = formsUnits?.parameters.orEmpty()
         val docs = root?.takeIf { declarations.isNotEmpty() || unitDefinitions.isNotEmpty() || formsParameters.isNotEmpty() }
             ?.let { DocComments(it, forms?.units?.mapTo(HashSet()) { unit -> unit.firstLine }.orEmpty()) }
         unitDefinitionFacts(docs)
         bodyGlobalFacts(docs)
-        formsParameterFacts(docs)
+        formsParameterFacts(formsParameters, docs)
         bodyTypeFacts(docs)
         for (declaration in declarations) declarationFacts(declaration, found, names, docs)
     }
@@ -805,7 +693,7 @@ class FileExtractor internal constructor(
     }
 
     /** The parameters of a Forms module's routines: their definition, what their declaration says, their documentation. */
-    private fun formsParameterFacts(docs: DocComments?) {
+    private fun formsParameterFacts(formsParameters: List<FormsUnits.Parameter>, docs: DocComments?) {
         for (parameter in formsParameters) {
             val span = spanOf(parameter.node)
             state.occurrences += OccurrenceFact(parameter.unitIndex, parameter.parentKey, null, span, parameter.name.tokenOriginalValue, parameter.key,
@@ -846,107 +734,14 @@ class FileExtractor internal constructor(
             declaration.entityKey, setOf(declaration.role), status(Status.RESOLVED, state.partialUnits[unitIndex]), Origin.STATIC, null,
             nameSpan = names[declaration])
         // A declaration of a region the parser recovered has no node of its span: nothing is read of it.
-        val node = found?.declaring?.get(declaration.span)
+        val node = found?.declaringAt(declaration.span)
         node?.let { DeclaredTexts.of(declaration.entityKey, it)?.let { text -> declaredTexts += text } }
-        (found?.outermost?.get(declaration.span) ?: node)?.let { declaredShape(declaration.entityKey, it) }
+        (found?.outermostAt(declaration.span) ?: node)?.let { declaredShape(declaration.entityKey, it) }
         // A parameter's uses are zpa's bindings: say when its subprogram hides some (a file that was walked only).
         if (declaration.containerKey != null && node != null && ::bodyGlobals.isInitialized) {
             ParameterGaps.of(declaration.entityKey, node, context::usageEvidence, context::regionUncertainty)?.let { parameterGaps += it }
         }
         val inBody = unit.kind == UnitKind.PACKAGE_BODY || unit.kind == UnitKind.TYPE_BODY
-        docs?.of(declaration.entityKey, declaration.span, inBody, found?.documented?.get(declaration.span))?.let { docComments += it }
+        docs?.of(declaration.entityKey, declaration.span, inBody, found?.documentedAt(declaration.span))?.let { docComments += it }
     }
-
-    /** The parameters whose recorded uses may be incomplete ([ParameterGaps]). */
-    private val parameterGaps = ArrayList<UsesGapFact>()
-
-    /**
-     * The nodes with the span of a declaration, found in one walk over the file, a node checked only when it starts
-     * where a declaration starts: the outermost one ([outermost]), the one of a [DeclaredTexts.NODE_TYPES] type
-     * ([declaring]), which is the declaration itself under its wrappers, and a package or routine ([documented]).
-     */
-    private class DeclarationNodes(
-        val root: AstNode, val outermost: Map<SourceSpan, AstNode>, val declaring: Map<SourceSpan, AstNode>, val documented: Map<SourceSpan, AstNode>
-    )
-
-    private fun declarationNodes(root: AstNode, declarations: List<DeclarationOccurrence>): DeclarationNodes {
-        val spans = declarations.mapTo(HashSet()) { it.span }
-        val starts = declarations.mapTo(HashSet()) { position(it.span.startLine, it.span.startCol) }
-        val outermost = HashMap<SourceSpan, AstNode>()
-        val declaring = HashMap<SourceSpan, AstNode>()
-        val documented = HashMap<SourceSpan, AstNode>()
-        if (declarations.isNotEmpty()) collectDeclarationNodes(root, spans, starts, outermost, declaring, documented)
-        return DeclarationNodes(root, outermost, declaring, documented)
-    }
-
-    /**
-     * Puts [node] and the nodes under it, in source order, that start at one of [starts] and have one of [spans], each
-     * kept only as the first of its span: in [outermost], and by type in [declaring] and [documented].
-     */
-    private fun collectDeclarationNodes(
-        node: AstNode, spans: Set<SourceSpan>, starts: Set<Long>,
-        outermost: HashMap<SourceSpan, AstNode>, declaring: HashMap<SourceSpan, AstNode>, documented: HashMap<SourceSpan, AstNode>
-    ) {
-        if (node.hasToken() && position(node.token.line, node.token.column) in starts) {
-            val span = spanOf(node)
-            if (span in spans) {
-                outermost.putIfAbsent(span, node)
-                if (node.type in DeclaredTexts.NODE_TYPES) declaring.putIfAbsent(span, node)
-                if (node.type in DocComments.NODE_TYPES) documented.putIfAbsent(span, node)
-            }
-        }
-        for (child in node.children) collectDeclarationNodes(child, spans, starts, outermost, declaring, documented)
-    }
-
-    /**
-     * The name spans of [declarations], found in the AST: the outermost node with the declaration's span, then its
-     * first `UNIT_NAME` or `IDENTIFIER_NAME` in source order (for a `UNIT_NAME`, the whole name or its last segment),
-     * kept only when its text is the written name.
-     */
-    private fun declarationNames(nodes: DeclarationNodes, declarations: List<DeclarationOccurrence>): Map<DeclarationOccurrence, SourceSpan> {
-        if (declarations.isEmpty()) return emptyMap()
-        val bySpan = declarations.groupBy { it.span }
-        val root = nodes.root
-        val found = nodes.outermost
-        val result = HashMap<DeclarationOccurrence, SourceSpan>()
-        for ((span, node) in found) {
-            val name = firstName(node) ?: continue
-            for (declaration in bySpan.getValue(span)) {
-                matching(name, declaration.written)?.let { result[declaration] = spanOf(it) }
-            }
-        }
-        // A declaration of a region the parser recovered has no node of its span: its first name inside the span.
-        for (declaration in declarations) {
-            if (declaration in result) continue
-            nameWithin(root, declaration.span, declaration.written)?.let { result[declaration] = spanOf(it) }
-        }
-        return result
-    }
-
-    private fun isName(node: AstNode) = node.type == PlSqlGrammar.UNIT_NAME || node.type == PlSqlGrammar.IDENTIFIER_NAME
-
-    private fun firstName(node: AstNode): AstNode? {
-        if (isName(node)) return node
-        for (child in node.children) firstName(child)?.let { return it }
-        return null
-    }
-
-    /** [name] or, for a `UNIT_NAME`, one of its segments (the last first), when its text is [written]. */
-    private fun matching(name: AstNode, written: String): AstNode? {
-        val candidates = if (name.type == PlSqlGrammar.UNIT_NAME) listOf(name) + name.getChildren(PlSqlGrammar.IDENTIFIER_NAME).asReversed() else listOf(name)
-        return candidates.firstOrNull { writtenText(it) == written }
-    }
-
-    /** The first name node inside [span] that is [written], skipping subtrees outside it. */
-    private fun nameWithin(node: AstNode, span: SourceSpan, written: String): AstNode? {
-        if (!node.hasToken()) return null
-        val own = spanOf(node)
-        if (own.endLine < span.startLine || own.endLine == span.startLine && own.endCol <= span.startCol) return null
-        if (own.startLine > span.endLine || own.startLine == span.endLine && own.startCol >= span.endCol) return null
-        if (isName(node) && span.contains(own.startLine, own.startCol)) matching(node, written)?.let { return it }
-        for (child in node.children) nameWithin(child, span, written)?.let { return it }
-        return null
-    }
-
-    private fun position(line: Int, column: Int): Long = line.toLong() shl 32 or column.toLong()
 }
