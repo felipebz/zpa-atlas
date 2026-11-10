@@ -580,8 +580,8 @@ internal class IntoClauses(
      */
     private fun unresolvedCall(call: OccurrenceFact): String? = when {
         call.status == Status.AMBIGUOUS -> ARGUMENT_ROUTINE_UNDECIDED
-        call.status == Status.EXTERNAL -> ARGUMENT_ROUTINE_OUTSIDE
-        '.' in call.written -> ARGUMENT_ROUTINE_OUTSIDE
+        call.status == Status.EXTERNAL -> PlaceShapes.ARGUMENT_ROUTINE_OUTSIDE
+        '.' in call.written -> PlaceShapes.ARGUMENT_ROUTINE_OUTSIDE
         else -> null
     }
 
@@ -677,7 +677,7 @@ internal class IntoClauses(
         // A call of an overloaded nested subprogram: no target, only the parameters it may be for.
         undecidedCalls.mapTo(intos) { (span, parameter) ->
             IntoFact(PlaceSource.OUT_ARGUMENT, false, 0, null, null, emptyList(), null,
-                listOf(IntoTarget.of(span, "", null, reason = OUT_CALL_NOT_DECIDED)), parameterKey = parameter, call = span)
+                listOf(IntoTarget.of(span, "", null, reason = PlaceShapes.OUT_CALL_NOT_DECIDED)), parameterKey = parameter, call = span)
         }
         return intos
     }
@@ -842,7 +842,6 @@ internal class IntoClauses(
 
         private const val DYNAMIC_INTO = "DYNAMIC_INTO"
         private const val ARGUMENT_ROUTINE_UNDECIDED = "ARGUMENT_ROUTINE_UNDECIDED"
-        private const val ARGUMENT_ROUTINE_OUTSIDE = "ARGUMENT_ROUTINE_OUTSIDE"
         private const val ARGUMENT_NOT_TIED = "ARGUMENT_NOT_TIED"
         /** The prefix of the shape of a function's result written within an expression ([resultFlows]). */
         private const val RETURNED_EXPRESSION = "RETURNED_EXPRESSION_"
@@ -851,7 +850,6 @@ internal class IntoClauses(
         private const val ARGUMENT_FETCHED = "ARGUMENT_FETCHED"
         private const val ARGUMENT_COLUMN_POSSIBLE = "ARGUMENT_COLUMN_POSSIBLE"
         private const val ARGUMENT_INTO_NOT_FOLLOWED = "ARGUMENT_INTO_NOT_FOLLOWED"
-        private const val OUT_CALL_NOT_DECIDED = "OUT_CALL_NOT_DECIDED"
 
         /** The reason of a call of a subprogram nested in a routine, which has no entity. */
         private const val LOCAL_SUBPROGRAM = "LOCAL_SUBPROGRAM"

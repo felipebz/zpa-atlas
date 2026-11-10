@@ -233,7 +233,7 @@ class Indexer internal constructor(
                     "and ALL_CONSTRAINTS lists only the constraints of the tables it owns or was granted a privilege on: " +
                     "the foreign keys referencing a key may be more than those recorded")
         }
-        val (places, placesLeftOut) = columnPlaces(facts, globalEntities, resolved, dictionary, options.nlsLengthSemantics)
+        val (places, placesLeftOut) = ColumnPlaces.of(facts, globalEntities, resolved, dictionary, options.nlsLengthSemantics)
 
         val texts = sources.associate { it.relativePath to it.text }
         val phase: (String) -> Unit = { phases?.start(it) }
@@ -399,37 +399,6 @@ class Indexer internal constructor(
             }
         }
         return walkedFacts to walked.count { it.isFailure }
-    }
-
-    /**
-     * Where column values are read into PL/SQL, now that every target, type and cursor of every file is known: the places
-     * by file path, and what is not followed, by file path and shape. Its own function, so that what only the following
-     * uses (the entity kinds, the declared shapes by key) is let go before the index is written.
-     */
-    private fun columnPlaces(
-        facts: List<FileFacts>, globalEntities: List<EntityFact>, resolved: Map<String, ProjectExternalRelation>, dictionary: AtlasDictionary,
-        lengthSemantics: String
-    ): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
-        val kinds = HashMap<String, EntityKind>()
-        for (entity in globalEntities) kinds.putIfAbsent(entity.key, entity.kind)
-        for (file in facts) for (entity in file.entities) kinds.putIfAbsent(entity.key, entity.kind)
-        val relationColumns = resolved.mapValues { (key, relation) -> relation.rowFields.sortedBy { it.position.asInt }.map { "$key.${it.name.exact()}" } }
-        val columnPlaces = ColumnPlaces(facts, kinds, relationColumns, dictionary.lengthSemantics, lengthSemantics)
-        val places = HashMap<String, List<ColumnPlaceFact>>()
-        val placesLeftOut = HashMap<String, Map<String, Int>>()
-        for (file in facts) {
-            val (found, expressions) = columnPlaces.of(file)
-            if (found.isNotEmpty()) places[file.path] = found
-            val counts = TreeMap(file.placesLeftOut)
-            expressions.forEach { (shape, count) -> counts.merge(shape, count, Int::plus) }
-            if (counts.isNotEmpty()) placesLeftOut[file.path] = counts
-        }
-        // Through routines, across files: the targets inside them of the columns passed to their IN parameters, and what
-        // comes back out of them through RETURN and OUT parameters to their callers.
-        val (followed, followedLeftOut) = columnPlaces.followed(facts, places)
-        for ((path, found) in followed) places[path] = places[path].orEmpty() + found
-        for ((path, counts) in followedLeftOut) placesLeftOut[path] = TreeMap(placesLeftOut[path].orEmpty()).apply { counts.forEach { (k, v) -> merge(k, v, Int::plus) } }
-        return places to placesLeftOut
     }
 
     /**
