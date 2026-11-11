@@ -33,7 +33,7 @@ application {
     mainClass.set("com.felipebz.zpa.atlas.cli.MainKt")
     applicationName = "zpa-atlas"
     // sqlite-jdbc loads its native library: allowed explicitly, as JDK 24+ warns about it
-    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED", "-XX:+UseCompactObjectHeaders")
 }
 
 tasks.startScripts {
