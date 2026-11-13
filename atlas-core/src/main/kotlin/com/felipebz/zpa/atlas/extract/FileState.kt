@@ -90,6 +90,12 @@ internal class FileState(strings: FactStrings = FactStrings()) {
     /** Unqualified names in static SQL that may be a column of a source with unknown columns: counted, not indexed. */
     var undecidedSqlNames = 0
 
+    /**
+     * Names of a dynamic text that a concatenated value zpa could not read may change, or of a text zpa did not
+     * analyze: counted, not indexed.
+     */
+    var undecidedDynamicNames = 0
+
     /** Column writes with no value, by reason ([WrittenValues]). */
     val unvaluedWrites = sortedMapOf<String, Int>()
 

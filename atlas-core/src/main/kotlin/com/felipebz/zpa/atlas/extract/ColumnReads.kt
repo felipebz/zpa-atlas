@@ -17,8 +17,8 @@ import com.felipebz.zpa.atlas.model.SourceSpan
 import com.felipebz.zpa.atlas.model.Status
 
 /**
- * Column reads of static SQL: zpa decides which column of which source a name reads (`columnBinding`); the atlas names
- * the entity of that column. The names of a dynamic SQL text, which zpa does not decide, go to [DynamicTextColumns].
+ * Column reads of static SQL and of the SQL of a dynamic text zpa parsed: zpa decides which column of which source a
+ * name reads (`columnBinding`); the atlas names the entity of that column.
  */
 internal class ColumnReads(
     private val state: FileState,
@@ -32,7 +32,6 @@ internal class ColumnReads(
 ) {
     private val columnSources = ColumnSources(scopes, plsql)
     private val implicit = ImplicitColumns(columnSources, scopes, plsql)
-    private val dynamicTexts = DynamicTextColumns(state, resolver, scopes, plsql, columnSources, ::has, ::read)
 
     /** Whether [source] has [column]: null when its columns are not known (or the dictionary cannot tell). */
     fun has(source: ColumnSource, column: String): Boolean? = when {
@@ -44,7 +43,6 @@ internal class ColumnReads(
     /** A name of static SQL that is not a written column: what zpa decides it reads. */
     fun sqlName(statement: Statement, name: AstNode) {
         if (name in statement.writtenColumns) return
-        if (statement.context.dynamic != null) return dynamicTexts.sqlName(statement, name)
         when (val binding = columnBinding(name)) {
             is ColumnBinding.Column -> columnRead(statement, name, binding)
             // A column of an inline view or `WITH` query: its select item's reads follow it. `t.*`, `REF(t)`: read elsewhere.
@@ -66,7 +64,6 @@ internal class ColumnReads(
      * statement (`alias.method(…)`, a method of the row): false only for a call.
      */
     fun methodColumn(statement: Statement, callee: AstNode, segments: List<String>): Boolean {
-        if (statement.context.dynamic != null) return dynamicTexts.qualifiedColumn(statement, callee, segments, method = true)
         when (val binding = columnBinding(callee)) {
             is ColumnBinding.Unavailable -> return scopes.isSqlQualified(callee, segments)
             is ColumnBinding.Column -> target(statement, binding)?.let { target ->
@@ -76,7 +73,7 @@ internal class ColumnReads(
                 val text = callee.children.takeWhile { it !== last }.joinToString("") { writtenText(it) } + writtenText(last)
                 read(statement, callee, target, binding.name, spanOf(parts.first(), last), text)
             }
-            is ColumnBinding.Unknown -> state.undecidedSqlNames++
+            is ColumnBinding.Unknown -> countUndecided(binding)
             else -> Unit
         }
         return true
@@ -131,7 +128,7 @@ internal class ColumnReads(
      */
     private fun undecided(statement: Statement, name: AstNode, unknown: ColumnBinding.Unknown) {
         if (!unknown.reasons.all { it in COLUMN_OR_PLSQL }) {
-            state.undecidedSqlNames++
+            countUndecided(unknown)
             return
         }
         val before = state.occurrences.size
@@ -158,6 +155,14 @@ internal class ColumnReads(
             1 -> statement.occurrence(name, columns.single().entityKey, COLUMN_READ, candidateStatus(columns.single().status), "COLUMN_CANDIDATE")
             else -> statement.occurrence(name, null, COLUMN_READ, Status.UNVERIFIED, "COLUMN_CANDIDATES", columns.mapNotNull { it.entityKey })
         }
+    }
+
+    /**
+     * A name zpa leaves undecided with no read: a name of a dynamic text a value zpa could not read may change, or of a
+     * text zpa did not analyze, is counted apart (`DYNAMIC_NAME_UNDECIDED`); any other in `SQL_NAME_UNDECIDED`.
+     */
+    private fun countUndecided(unknown: ColumnBinding.Unknown) {
+        if (unknown.reasons.any { it in DYNAMIC_DOUBTS }) state.undecidedDynamicNames++ else state.undecidedSqlNames++
     }
 
     private fun candidateStatus(status: Status) = if (status == Status.RESOLVED) Status.UNVERIFIED else status
@@ -201,3 +206,6 @@ internal class ColumnReads(
 
 /** The doubts of an undecided name that leave it a column or the PL/SQL name, nothing else. */
 private val COLUMN_OR_PLSQL = setOf(ColumnUncertainty.SOURCE_COLUMNS_UNKNOWN, ColumnUncertainty.STAR_NOT_COVERED)
+
+/** The doubts that come from a dynamic text itself: a hole zpa could not read, or a text it did not analyze. */
+private val DYNAMIC_DOUBTS = setOf(ColumnUncertainty.DYNAMIC_SQL_HOLE, ColumnUncertainty.DYNAMIC_SQL)

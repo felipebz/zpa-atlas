@@ -140,7 +140,7 @@ internal class ColumnSources(
         return names
     }
 
-    fun columnAlias(selectColumn: AstNode): String? {
+    private fun columnAlias(selectColumn: AstNode): String? {
         val children = selectColumn.children
         return children.lastOrNull()?.takeIf { children.size > 1 && it.type == PlSqlGrammar.IDENTIFIER_NAME }?.let { normalizeIdentifier(it.tokenOriginalValue) }
     }

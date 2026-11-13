@@ -822,9 +822,7 @@ hr/pack_dynamic.pkb	19:22-19:77	EXECUTE IMMEDIATE	-		DYNAMIC	PARSED_WITH_HOLES	d
 hr/pack_dynamic.pkb	19:47-19:54	p_table	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY.P_TABLE	READ	RESOLVED	-	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY	-
 hr/pack_dynamic.pkb	19:83-19:89	v_name	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY.V_NAME	WRITE	RESOLVED	-	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY	-
 hr/pack_dynamic.pkb	20:22-20:70	EXECUTE IMMEDIATE	-		DYNAMIC	PARSED_HOLES_DROPPED	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY	DYNAMIC
-hr/pack_dynamic.pkb	20:30-20:32	id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY	SELECT
 hr/pack_dynamic.pkb	20:38-20:45	company	db:HR.COMPANY	SQL_SELECT	RESOLVED	-	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY	SELECT
-hr/pack_dynamic.pkb	20:52-20:54	id	db:HR.COMPANY.ID	READ	RESOLVED	-	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY	SELECT
 hr/pack_dynamic.pkb	20:64-20:70	v_more	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY.V_MORE	READ	RESOLVED	-	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY	-
 hr/pack_dynamic.pkb	20:76-20:82	v_name	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY.V_NAME	WRITE	RESOLVED	-	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY	-
 hr/pack_dynamic.pkb	21:22-21:51	EXECUTE IMMEDIATE	-		DYNAMIC	NOT_PARSED	db:HR.PACK_DYNAMIC.RUN(P_ID IN NUMBER,P_TABLE IN VARCHAR2,P_COND IN VARCHAR2)@BODY	DYNAMIC
@@ -1773,7 +1771,7 @@ hr/proc_columns.prc	24:104-24:105	v	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCH
 hr/proc_columns.prc	24:111-24:118	company	db:HR.COMPANY	SQL_SELECT	RESOLVED	-	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	SELECT
 hr/proc_columns.prc	24:149-24:158	unknown_b	db:HR.UNKNOWN_B	SQL_SELECT	UNRESOLVED	NOT_IN_DICTIONARY	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	SELECT
 hr/proc_columns.prc	24:167-24:171	flag	db:HR.UNKNOWN_B.FLAG	READ	UNRESOLVED	COLUMN_CANDIDATE	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	SELECT
-hr/proc_columns.prc	24:174-24:183	st_active	db:HR.UNKNOWN_B.ST_ACTIVE	READ	UNRESOLVED	COLUMN_CANDIDATE	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	SELECT
+hr/proc_columns.prc	24:174-24:183	st_active	-	READ	UNVERIFIED	COLUMN_CANDIDATES	db:HR.PROC_COLUMNS(ID IN NUMBER,MSG IN VARCHAR2)	SELECT
 hr/proc_doc.prc	2:0-9:4	proc_doc_report	db:HR.PROC_DOC_REPORT(P_DAY IN DATE)	DEFINITION	RESOLVED	-	db:HR.PROC_DOC_REPORT(P_DAY IN DATE)	-
 hr/proc_doc.prc	2:44-2:57	p_day	db:HR.PROC_DOC_REPORT(P_DAY IN DATE).P_DAY	DEFINITION	RESOLVED	-	db:HR.PROC_DOC_REPORT(P_DAY IN DATE)	-
 hr/proc_doc.prc	12:0-15:4	fn_doc_balance	db:HR.FN_DOC_BALANCE()	DEFINITION	RESOLVED	-	db:HR.FN_DOC_BALANCE()	-
@@ -3514,9 +3512,7 @@ hr/pack_dynamic.pkb	16:35-16:42	company	DYNAMIC_LITERAL
 hr/pack_dynamic.pkb	16:49-16:51	id	DYNAMIC_LITERAL
 hr/pack_dynamic.pkb	18:30-18:37	company	DYNAMIC_LITERAL
 hr/pack_dynamic.pkb	18:42-18:51	st_active	DYNAMIC_LITERAL
-hr/pack_dynamic.pkb	20:30-20:32	id	DYNAMIC_LITERAL
 hr/pack_dynamic.pkb	20:38-20:45	company	DYNAMIC_LITERAL
-hr/pack_dynamic.pkb	20:52-20:54	id	DYNAMIC_LITERAL
 hr/pack_dynamic.pkb	22:29-22:51	pack_process.get_event	DYNAMIC_LITERAL
 hr/pack_dynamic.pkb	23:29-23:37	log_step	DYNAMIC_LITERAL
 hr/pack_dynamic.pkb	25:29-25:37	log_step	DYNAMIC_LITERAL
@@ -6290,6 +6286,8 @@ hr/proc_column_reads.prc	8:81	id	db:HR.COMPANY.ID
 hr/proc_column_reads.prc	8:81	id	db:HR.V_COMPANY.ID
 hr/proc_columns.prc	12:76	id	db:HR.COMPANY.ID
 hr/proc_columns.prc	12:76	id	db:HR.SEND_QUEUE.ID
+hr/proc_columns.prc	24:174	st_active	db:HR.COMPANY.ST_ACTIVE
+hr/proc_columns.prc	24:174	st_active	db:HR.UNKNOWN_B.ST_ACTIVE
 hr/proc_synonyms.prc	11:19	table_name	db:SYS.USER_TABLES.TABLE_NAME
 hr/proc_synonyms.prc	11:19	table_name	db:SYS.USER_TAB_COLUMNS.TABLE_NAME
 ## call_argument
@@ -6742,7 +6740,7 @@ hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 23 has a callee that is no
 hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 26 has a callee that is not a plain name
 hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 33 has a callee that is not a plain name
 hr/it_writers.sql	WRITE_VALUE_UNKNOWN	4 column write(s) without a value: SET ROW
-hr/pack_dynamic.pkb	SQL_NAME_UNDECIDED	1 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed
+hr/pack_dynamic.pkb	DYNAMIC_NAME_UNDECIDED	7 name(s) in dynamic SQL text may be changed by a concatenated value that is not known: not indexed
 hr/pack_process.pkb	WRITE_VALUE_UNKNOWN	4 column write(s) without a value: SET ROW
 hr/pack_types.pkb	LOCAL_ANCHOR	2 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
 hr/pk_f.sql	CALL_NOT_A_NAME	Call at line 19 has a callee that is not a plain name

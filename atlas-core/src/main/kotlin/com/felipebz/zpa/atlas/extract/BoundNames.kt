@@ -32,7 +32,7 @@ internal class BoundNames(private val nameBinding: (AstNode) -> NameBinding, pri
      * The entity [name] (a `VARIABLE_NAME`, or a `MEMBER_EXPRESSION` such as `pkg.g_x` or `g_rec.f`) is a use of, from
      * zpa's binding of the whole name, else of the segment of a chain that names the entity (`g_rec` of `g_rec.f`);
      * null for anything else. In SQL a column may still take the name ([NameBinding.ColumnOrLocal]): the caller decides
-     * by the rules of SQL names. A dynamic text is parsed apart from the file: zpa binds none of its names.
+     * by the rules of SQL names. A name of a dynamic text binds only the text's own declarations, which have no entity.
      */
     fun of(name: AstNode, context: Context): String? {
         if (keys.isEmpty() || context.dynamic != null) return null

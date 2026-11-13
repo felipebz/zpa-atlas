@@ -282,6 +282,9 @@ class FileExtractor internal constructor(
         if (state.undecidedSqlNames > 0) {
             state.coverage += CoverageFact("SQL_NAME_UNDECIDED", "${state.undecidedSqlNames} unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed")
         }
+        if (state.undecidedDynamicNames > 0) {
+            state.coverage += CoverageFact("DYNAMIC_NAME_UNDECIDED", "${state.undecidedDynamicNames} name(s) in dynamic SQL text may be changed by a concatenated value that is not known: not indexed")
+        }
         // A file the parser rejected was never walked: no body globals, no parameter uses, no gaps.
         val usesGaps = if (::bodyGlobals.isInitialized) bodyGlobals.gaps(context::usageEvidence, context::regionUncertainty) + parameterGaps else emptyList()
         // From the declarations, as the declaration occurrences: a file the parser rejected keeps them.
