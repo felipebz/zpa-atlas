@@ -8,6 +8,7 @@ package com.felipebz.zpa.atlas.cli.oracle
 import com.felipebz.zpa.api.project.ProjectExternalColumn
 import com.felipebz.zpa.api.project.ProjectExternalMetadata
 import com.felipebz.zpa.api.project.ProjectExternalRelation
+import com.felipebz.zpa.api.project.ProjectExternalSynonym
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.index.IndexOptions
@@ -43,7 +44,9 @@ class WrittenSynonymTargetTest {
             // What OracleMetadataLoader requests: the targets of the synonyms the sources name, outside the requested schemas.
             val written = SourceIdentifiers.scan(read, 1)
             val targets = OracleMetadataLoader.synonymTargets(synonyms.filter { it.name in written }, synonyms, setOf("HR"))
+            // An acquired dictionary's metadata holds the synonyms it read.
             val metadata = ProjectExternalMetadata.builder("test").completeSchema("HR").apply {
+                synonyms.forEach { synonym(ProjectExternalSynonym.of(it.owner, it.name, it.targetOwner, it.targetName, null)) }
                 if ("STOCK" to "WAREHOUSE" in targets) {
                     relation(ProjectExternalRelation.of("STOCK", "WAREHOUSE", true, listOf(ProjectExternalColumn.of("ID", 1, null), ProjectExternalColumn.of("QTY", 2, null))))
                 }

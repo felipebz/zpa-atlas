@@ -104,7 +104,8 @@ class DynamicVariableTextTest {
             "two assignments" to "VARIABLE_PARSED", "an assignment that appends to the variable" to "VARIABLE_PARSED",
             "SELECT INTO" to "VARIABLE_VALUE_NOT_IN_CODE", "an OUT actual" to "VARIABLE_VALUE_NOT_IN_CODE",
             "an actual of a call the atlas does not resolve" to "VARIABLE_UNSEEN_WRITE", "a package body variable" to "VARIABLE_NOT_LOCAL",
-            "a package spec variable" to "VARIABLE_UNRESOLVED", "a parameter" to "VARIABLE_NOT_LOCAL", "a number" to "VARIABLE_NOT_CHARACTER"
+            // zpa binds the variable of the package's specification, in the other file: not a local of the routine.
+            "a package spec variable" to "VARIABLE_NOT_LOCAL", "a parameter" to "VARIABLE_NOT_LOCAL", "a number" to "VARIABLE_NOT_CHARACTER"
         ))
         for (line in listOf(2, 17, 32)) assertThat(texts(line)).describedAs("line $line").isEmpty()
         // The default value of v_grows and the last value of v_twice are read now; the first value of v_twice never reaches.

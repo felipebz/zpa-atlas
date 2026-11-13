@@ -53,7 +53,7 @@ internal class SqlStatements(
         }
         // The PL/SQL compiler resolves the function names of static SQL, so they follow the PL/SQL rules.
         root.getDescendants(PlSqlGrammar.METHOD_CALL).forEach { call ->
-            plsql.callSite(call, context, id) { callee, segments -> columnReads.qualifiedColumn(statement, callee, segments, method = true) }
+            plsql.callSite(call, context, id) { callee, segments -> columnReads.methodColumn(statement, callee, segments) }
             columnReads.correlationValue(statement, call)
             makeRefRelation(call)?.let { makeRef(statement, it) }
         }
@@ -208,8 +208,10 @@ internal class SqlStatements(
                 val values = WriteSource.Query(right).forColumns(columns.size)
                 columns.forEachIndexed { position, it -> column(statement, it, target, role, statement.writtenValues(values, position)) }
             }
-            allowRow && left.type == PlSqlGrammar.VARIABLE_NAME && left.tokenOriginalValue.uppercase() == "ROW" ->
+            allowRow && left.type == PlSqlGrammar.VARIABLE_NAME && left.tokenOriginalValue.uppercase() == "ROW" -> {
+                statement.writtenColumns += left
                 columnReads.implicitColumns(statement, target, setOf(role, Role.WRITE, Role.IMPLICIT), written = WriteSource.None(WrittenValues.SET_ROW))
+            }
             allowRow && columnReads.correlationCall(statement, left)?.let { (function, source) -> function == "VALUE" && source.target === target } == true ->
                 columnReads.implicitColumns(statement, target, setOf(role, Role.WRITE, Role.IMPLICIT), written = WriteSource.None(WrittenValues.SET_VALUE))
             else -> {
@@ -226,6 +228,7 @@ internal class SqlStatements(
     }
 
     private fun column(statement: Statement, node: AstNode, target: Target, role: Role, values: List<WrittenValueFact>) {
+        statement.writtenColumns += node
         if (statement.context.hasHoles(node)) return
         val parts = node.children.filter { it.type != PlSqlPunctuator.DOT }.ifEmpty { listOf(node) }
         if (parts.any { it.type is PlSqlPunctuator || tokensOf(it).size != 1 }) {

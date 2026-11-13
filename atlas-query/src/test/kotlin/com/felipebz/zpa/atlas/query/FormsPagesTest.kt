@@ -3,12 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+@file:OptIn(ZpaExperimentalApi::class)
+
 package com.felipebz.zpa.atlas.query
 
+import com.felipebz.zpa.api.annotations.ZpaExperimentalApi
 import com.felipebz.zpa.atlas.Fixture
 import com.felipebz.zpa.atlas.forms.FormsModuleReaders
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.lookupTables
+import com.felipebz.zpa.atlas.number
+import com.felipebz.zpa.atlas.varchar2
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -37,22 +43,26 @@ class FormsPagesTest {
         AtlasIndex(db, root, moduleTexts = { name, bytes -> FormsModuleReaders.BUILT_IN.text(name, bytes) })
     }
 
-    /** `order_read_fmb.xml` and the table it reads, `orders.sql`, indexed alone and without a dictionary: the table is the sources'. */
+    /**
+     * `order_read_fmb.xml` and the table it reads, `orders.sql`, indexed alone, with the table's columns for lookups
+     * only: the table is the sources'.
+     */
     private val orders by lazy {
         val root = temp.resolve("orders").createDirectories()
         javaClass.getResourceAsStream("/forms/order_read_fmb.xml")!!.use { Files.copy(it, root.resolve("order_read_fmb.xml")) }
         Files.writeString(root.resolve("orders.sql"), "CREATE TABLE orders (id NUMBER, status VARCHAR2(10));\n")
         val db = temp.resolve("orders.db")
-        Indexer().index(IndexOptions(root, db, compilationSchema = "HR", threads = 2))
+        Indexer().index(IndexOptions(root, db, compilationSchema = "HR", dictionary = HR_ORDERS, threads = 2))
         AtlasIndex(db, root, moduleTexts = { name, bytes -> FormsModuleReaders.BUILT_IN.text(name, bytes) })
     }
 
-    /** `shop_desk_fmb.xml` and its table and procedure, `shop_desk.sql`, without a dictionary. */
+    /** `shop_desk_fmb.xml` and its table and procedure, `shop_desk.sql`, with the table's columns for lookups only. */
     private val shop by lazy {
         val root = temp.resolve("shop").createDirectories()
         for (name in listOf("shop_desk_fmb.xml", "shop_desk.sql")) javaClass.getResourceAsStream("/forms/$name")!!.use { Files.copy(it, root.resolve(name)) }
         val db = temp.resolve("shop.db")
-        Indexer().index(IndexOptions(root, db, compilationSchema = "SHOP", threads = 2))
+        val columns = lookupTables("SHOP", "ORDERS" to listOf("ORDER_ID" to number(10), "STATUS" to varchar2(10), "AMOUNT" to number(12, 2)))
+        Indexer().index(IndexOptions(root, db, compilationSchema = "SHOP", dictionary = columns, threads = 2))
         AtlasIndex(db, root, moduleTexts = { name, bytes -> FormsModuleReaders.BUILT_IN.text(name, bytes) })
     }
 
@@ -234,7 +244,7 @@ class FormsPagesTest {
             |<Item Name="S5" MaximumLength="5"/></Block></FormModule></Module>""".trimMargin())
         Files.writeString(root.resolve("orders.sql"), "CREATE TABLE orders (id NUMBER, status VARCHAR2(10));\n")
         val db = temp.resolve("itm.db")
-        Indexer().index(IndexOptions(root, db, compilationSchema = "HR", threads = 1))
+        Indexer().index(IndexOptions(root, db, compilationSchema = "HR", dictionary = HR_ORDERS, threads = 1))
         val itm = AtlasIndex(db, root, moduleTexts = { name, bytes -> FormsModuleReaders.BUILT_IN.text(name, bytes) })
         val unit = "forms:ITM/A/WHEN-NEW-BLOCK-INSTANCE"
         val rows = itm.occurrences("forms:ITM/A/S5").result!!.rows
@@ -245,5 +255,10 @@ class FormsPagesTest {
             assertThat(around.filter { it.code == null }.map { it.text.trim() }).allSatisfy { assertThat(it).matches("BEGIN -- .*|END;|") }
             assertThat(around.mapNotNull { it.code }.map { "${it.key} ${it.line}" }).containsExactly("$unit 1", "$unit 2", "$unit 3")
         }
+    }
+
+    private companion object {
+        /** The columns of the orders table the tests write as `CREATE TABLE orders (id NUMBER, status VARCHAR2(10))`, for lookups only. */
+        val HR_ORDERS = lookupTables("HR", "ORDERS" to listOf("ID" to number(), "STATUS" to varchar2(10, null)))
     }
 }

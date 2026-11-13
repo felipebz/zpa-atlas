@@ -21,7 +21,8 @@ import kotlin.io.path.listDirectoryEntries
 /**
  * The Forms items, parameters and globals a column's value is read into, on the invented module `SHOP_DESK`
  * (`forms/shop_desk_fmb.xml`, `DUMP=ALL`, and `forms/shop_plain_fmb.xml`, without it, indexed as `SHOP_PLAIN`) and the
- * table and procedure of `forms/shop_desk.sql` (`ORDERS.STATUS` is `VARCHAR2(10 BYTE)`), without a dictionary: its
+ * table and procedure of `forms/shop_desk.sql` (`ORDERS.STATUS` is `VARCHAR2(10 BYTE)`), with a dictionary that lists
+ * the table's columns for lookups only, so that zpa reads the names of the queries as its columns: its
  * code reads the column into items of every size, by every kind of statement, through its own function `READ_ONE`, and
  * into names that are not items; the block `ORDERS` queries the table, `ORDERS_ALT` too, but its `ON-SELECT` replaces
  * the query.
@@ -45,7 +46,8 @@ class FormsPlacesTest {
         for (name in listOf("shop_desk_fmb.xml", "shop_plain_fmb.xml", "shop_desk.sql")) {
             javaClass.getResourceAsStream("/forms/$name")!!.use { Files.copy(it, root.resolve(name)) }
         }
-        Indexer().index(IndexOptions(root, db, compilationSchema = "SHOP", threads = 2))
+        val columns = lookupTables("SHOP", "ORDERS" to listOf("ORDER_ID" to number(10), "STATUS" to varchar2(10), "AMOUNT" to number(12, 2)))
+        Indexer().index(IndexOptions(root, db, compilationSchema = "SHOP", threads = 2, dictionary = columns))
     }
 
     /** The index of the package module and `forms/pack_desk.sql`, with the database's package `PKS` of the module package's name. */
@@ -62,7 +64,8 @@ class FormsPlacesTest {
         }
         Files.writeString(root.resolve("pack_desk.sql"), sql(javaClass.getResource("/forms/pack_desk.sql")!!.readText()))
         val index = temp.resolve("$name.db")
-        Indexer().index(IndexOptions(root, index, compilationSchema = "SHOP", threads = 2))
+        val columns = lookupTables("SHOP", "ORDERS" to listOf("ORDER_ID" to number(10), "STATUS" to varchar2(10), "NOTE" to varchar2(40)))
+        Indexer().index(IndexOptions(root, index, compilationSchema = "SHOP", threads = 2, dictionary = columns))
         return index
     }
 

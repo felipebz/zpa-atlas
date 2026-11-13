@@ -167,6 +167,9 @@ enum class Reason : StoredEnum {
     SCHEMA_UNKNOWN,
     COLUMNS_UNKNOWN,
     COLUMN_NOT_EXCLUDED,
+    // A name of static SQL zpa leaves undecided, read as the one column (or one of the columns) a source whose columns are not known may give.
+    COLUMN_CANDIDATE,
+    COLUMN_CANDIDATES,
     PARTIAL_DECLARATIONS,
     // The one trigger of the name EXECUTE_TRIGGER gives, on a block or an item: it runs only when the focus is there.
     TRIGGER_NEEDS_FOCUS,

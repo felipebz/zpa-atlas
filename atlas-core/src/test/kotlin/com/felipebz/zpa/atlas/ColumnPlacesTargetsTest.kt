@@ -5,7 +5,6 @@
 
 package com.felipebz.zpa.atlas
 
-import com.felipebz.zpa.api.project.ProjectExternalMetadata
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
@@ -24,9 +23,10 @@ class ColumnPlacesTargetsTest {
     @Test
     fun `a length written without a unit counts as the unit declaring it was compiled, else in the index's unit`() {
         val more = mapOf("read_other.prc" to "create or replace procedure read_other is\n  v varchar2(5);\nbegin\n  select code into v from orders;\nend;\n/\n")
-        // The spec was compiled with CHAR, the body with BYTE; the dictionary has no row for the procedure.
-        // No relation: the table is the one the sources create, as without a dictionary.
-        val dictionary = AtlasDictionary(ProjectExternalMetadata.none(), emptyList(), enumerable = false, lengthSemantics = mapOf(
+        // The spec was compiled with CHAR, the body with BYTE; the dictionary has no row for the procedure. The dictionary
+        // lists the columns of orders only for lookups, so that zpa reads the names of the queries as its columns; the
+        // table's entity is still the one the sources create.
+        val dictionary = AtlasDictionary.lookupOnly(SizesFixture.COLUMNS.metadata, setOf("SHOP"), lengthSemantics = mapOf(
             CompiledUnit("SHOP", "PK_LV", "PACKAGE") to "CHAR", CompiledUnit("SHOP", "PK_LV", "PACKAGE BODY") to "BYTE"))
         val db = SizesFixture.index(temp, "CHAR", more, dictionary)
         assertThat(units(db)).containsExactly(
@@ -43,8 +43,10 @@ class ColumnPlacesTargetsTest {
             "a2 8 DIGITS -",
             "v 5 CHAR OPTION"
         )
-        // The columns of a CREATE TABLE of the sources have the datatype it writes, unit or not.
-        assertThat(Fixture.query(db, "SELECT e.name || ' ' || d.datatype FROM declared_text d JOIN entity e ON e.id = d.entity_id WHERE e.key LIKE 'db:SHOP.ORDERS.%' ORDER BY e.name"))
+        // The columns of a CREATE TABLE of the sources have the datatype it writes, unit or not (without a dictionary,
+        // which would give its own).
+        val plain = SizesFixture.index(temp.resolve("plain"), "CHAR", more, AtlasDictionary.NONE)
+        assertThat(Fixture.query(plain, "SELECT e.name || ' ' || d.datatype FROM declared_text d JOIN entity e ON e.id = d.entity_id WHERE e.key LIKE 'db:SHOP.ORDERS.%' ORDER BY e.name"))
             .containsExactly("AMOUNT number(8,2)", "CODE varchar2(10 byte)", "LABEL varchar2(10)", "NOTE varchar2(10 char)", "ORDER_ID number(10)")
         assertThat(Fixture.query(db, "SELECT nls_length_semantics FROM run")).containsExactly("CHAR")
     }
@@ -223,7 +225,8 @@ class ColumnPlacesTargetsTest {
             /
         """.trimIndent())
         val db = temp.resolve("places.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", threads = 1,
+            dictionary = shopTables("ORDERS" to listOf("ORDER_ID" to number(10), "STATUS" to varchar2(10)))))
         // Each anchor is the field it names, not the record variable: no field of its own.
         assertThat(places(db, "use_pk.sql")).containsExactly(
             "8 ORDERS.STATUS SELECT_INTO f FIXED_SIZE pk.g_rec.code%type 7 BYTE PK.T_REC.CODE -",
@@ -323,14 +326,19 @@ class ColumnPlacesTargetsTest {
             /
         """.trimIndent())
         val db = temp.resolve("places.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        // The dictionary lists the columns of t_lot, so that zpa reads the names of the queries as its columns.
+        val lot = lookupTables("SHOP", "T_LOT" to listOf("CODE" to varchar2(20), "QTY" to number(9)))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = lot, threads = 1))
         assertThat(places(db, "rows.sql").map { it.replace("T_LOT.", "") }).containsExactly(
             // An element of a collection of a table's row, and of a cursor's row: the row's field is the column.
             "13 CODE ASSIGNMENT l(1).code ANCHORED_TO_COLUMN tab_row - CODE -",
             "14 CODE ASSIGNMENT l(1).code ANCHORED_TO_COLUMN tab_cur - CODE -",
             "15 CODE SELECT_INTO l(1).code ANCHORED_TO_COLUMN tab_row - CODE -",
             "16 CODE ASSIGNMENT l.code ANCHORED_TO_COLUMN t_lot%rowtype - CODE -",
-            // Without a dictionary `select *` names no column; the field of the %ROWTYPE variable still does.
+            // With the dictionary `select *` names each column into the %ROWTYPE variable's field; the field read then is a
+            // place too.
+            "17 CODE SELECT_INTO r2.CODE ANCHORED_TO_COLUMN t_lot%rowtype - CODE -",
+            "17 QTY SELECT_INTO r2.QTY ANCHORED_TO_COLUMN t_lot%rowtype - QTY -",
             "17 CODE ASSIGNMENT l(1).code ANCHORED_TO_COLUMN tab_row - CODE -",
             // An element of a record type: its field's own declaration, as before.
             "18 CODE SELECT_INTO l(1).cd FIXED_SIZE varchar2(5) 5 BYTE - -"

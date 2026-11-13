@@ -547,6 +547,8 @@ export default {
   "reason.SCHEMA_UNKNOWN": "schema desconhecido",
   "reason.COLUMNS_UNKNOWN": "colunas desconhecidas",
   "reason.COLUMN_NOT_EXCLUDED": "pode ser uma coluna",
+  "reason.COLUMN_CANDIDATE": "pode ler esta coluna",
+  "reason.COLUMN_CANDIDATES": "pode ler uma destas colunas",
   "reason.PARTIAL_DECLARATIONS": "declarações incompletas",
   "reason.TRIGGER_NEEDS_FOCUS": "só roda com o foco no seu bloco ou item",
   "reason.INCOMPLETE_INDEX": "índice incompleto",

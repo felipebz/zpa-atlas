@@ -5,6 +5,7 @@
 
 package com.felipebz.zpa.atlas
 
+import com.felipebz.zpa.api.project.ProjectExternalDatatype
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
@@ -56,9 +57,19 @@ end;
         for ((name, text) in more) Files.writeString(sources.resolve(name), text)
     }
 
+    /**
+     * The columns of [TABLE] for lookups only, as an acquired dictionary gives them, so that zpa reads the names of the
+     * queries as its columns; the table's entity stays the one the sources create.
+     */
+    val COLUMNS: AtlasDictionary by lazy { lookupTables("SHOP", ORDERS) }
+
+    /** [TABLE] as a dictionary lists it. */
+    val ORDERS: TableColumns = "ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(10),
+        "NOTE" to varchar2(10, ProjectExternalDatatype.LengthSemantics.CHAR), "AMOUNT" to number(8, 2), "LABEL" to varchar2(10, null))
+
     /** Indexes the sources written into [folder]/src as `SHOP`, a length without a unit in [lengthSemantics], to [folder]/sizes.db. */
     fun index(
-        folder: Path, lengthSemantics: String = "BYTE", more: Map<String, String> = emptyMap(), dictionary: AtlasDictionary = AtlasDictionary.NONE
+        folder: Path, lengthSemantics: String = "BYTE", more: Map<String, String> = emptyMap(), dictionary: AtlasDictionary = COLUMNS
     ): Path {
         val sources = folder.resolve("src")
         write(sources, more)

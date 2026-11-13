@@ -540,6 +540,8 @@ export default {
   "reason.SCHEMA_UNKNOWN": "schema unknown",
   "reason.COLUMNS_UNKNOWN": "columns unknown",
   "reason.COLUMN_NOT_EXCLUDED": "may be a column",
+  "reason.COLUMN_CANDIDATE": "may read this column",
+  "reason.COLUMN_CANDIDATES": "may read one of these columns",
   "reason.PARTIAL_DECLARATIONS": "declarations incomplete",
   "reason.TRIGGER_NEEDS_FOCUS": "runs only with the focus on its block or item",
   "reason.INCOMPLETE_INDEX": "index incomplete",

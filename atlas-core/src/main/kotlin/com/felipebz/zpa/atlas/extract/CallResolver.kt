@@ -145,8 +145,11 @@ class CallResolver(
             enclosingPackageMember(snapshot, written, enclosingPackage, packageName, kind, callArguments, arguments)?.let { return it }
         }
         val resolution = snapshot.resolveCall(ProjectCallTarget.written(qualifiedName(written)), kind, callArguments)
+        // zpa reads the target through the dictionary's synonyms: each hop it followed is one of the name's.
+        synonyms.record(resolution.synonyms)
         if (resolution.status != ProjectCallResolution.Status.NOT_FOUND_IN_PROJECT &&
-            resolution.status != ProjectCallResolution.Status.UNKNOWN_PACKAGE) {
+            resolution.status != ProjectCallResolution.Status.UNKNOWN_PACKAGE &&
+            resolution.status != ProjectCallResolution.Status.SYNONYM_TARGET_NOT_IN_PROJECT) {
             return map(resolution)
         }
         // A name the project does not know may be an object of the unit's schema the sources lack, or a synonym: a
@@ -223,7 +226,7 @@ class CallResolver(
      * for any other answer, which keeps the structural resolution.
      */
     private fun decided(evidence: CallEvidence, arguments: List<WrittenArgument>): CallOutcome.Call? = when (val binding = evidence.binding) {
-        is CallBinding.Project -> typed(binding.resolution)
+        is CallBinding.Project -> typed(binding.resolution).also { if (it != null) synonyms.record(binding.resolution.structural.synonyms) }
         is CallBinding.Local -> local(binding, evidence.subprogramAt, arguments)
         else -> null
     }
@@ -303,7 +306,8 @@ class CallResolver(
                 CallOutcome.Call(Status.AMBIGUOUS, null, status.name, resolution.candidates.map { catalog.keyOf(it.declaration.id) }.distinct())
             ProjectCallResolution.Status.NO_APPLICABLE_CANDIDATE, ProjectCallResolution.Status.WRONG_KIND,
             ProjectCallResolution.Status.INVALID_NOTATION -> CallOutcome.Call(Status.UNRESOLVED, null, status.name)
-            ProjectCallResolution.Status.NOT_FOUND_IN_PROJECT, ProjectCallResolution.Status.UNKNOWN_PACKAGE ->
+            ProjectCallResolution.Status.NOT_FOUND_IN_PROJECT, ProjectCallResolution.Status.UNKNOWN_PACKAGE,
+            ProjectCallResolution.Status.SYNONYM_TARGET_NOT_IN_PROJECT ->
                 CallOutcome.Call(Status.UNRESOLVED, null, "NOT_IN_PROJECT")
             ProjectCallResolution.Status.PARTIAL_DECLARATIONS, ProjectCallResolution.Status.INCOMPLETE_INDEX ->
                 CallOutcome.Call(Status.UNVERIFIED, resolution.selected.map { catalog.keyOf(it.declaration.id) }.orElse(null), status.name)

@@ -3,9 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+@file:OptIn(ZpaExperimentalApi::class)
+
 package com.felipebz.zpa.atlas.query
 
+import com.felipebz.zpa.api.annotations.ZpaExperimentalApi
 import com.felipebz.zpa.atlas.SizesFixture
+import com.felipebz.zpa.atlas.lookupTables
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
@@ -21,7 +25,10 @@ class PlaceVerdictsTest {
     private lateinit var bytes: AtlasIndex
     private lateinit var chars: AtlasIndex
 
-    /** A column of a table the sources do not create, read into a length, an anchor to another such column and a number. */
+    /**
+     * A column of a table the sources do not create, read into a length, an anchor to another such column and a number;
+     * the dictionary lists its columns, not their datatypes.
+     */
     private val other = mapOf("read_other.prc" to """
         create or replace procedure read_other is
           v varchar2(5); w other_t.y%type; z number(3);
@@ -33,7 +40,8 @@ class PlaceVerdictsTest {
 
     @BeforeAll
     fun build() {
-        bytes = AtlasIndex(SizesFixture.index(temp.resolve("byte"), more = other), temp.resolve("byte/src"))
+        val columns = lookupTables("SHOP", SizesFixture.ORDERS, "OTHER_T" to listOf("X" to null, "Y" to null))
+        bytes = AtlasIndex(SizesFixture.index(temp.resolve("byte"), more = other, dictionary = columns), temp.resolve("byte/src"))
         chars = AtlasIndex(SizesFixture.index(temp.resolve("char"), "CHAR"), temp.resolve("char/src"))
     }
 
@@ -89,7 +97,8 @@ class PlaceVerdictsTest {
     @Test
     fun `the counts leave the concatenated places out unless asked, and tell the sizes that count in the index's default`() {
         val page = bytes.columnPlaceGroups(column("CODE")).result!!
-        assertThat(page.column).isEqualTo(ColumnSize("varchar2(10 byte)", 10, "BYTE", null))
+        // The datatype as the dictionary writes it.
+        assertThat(page.column).isEqualTo(ColumnSize("VARCHAR2(10 BYTE)", 10, "BYTE", null))
         assertThat(listOf(page.size, page.sizeGiven)).containsExactly(10, false)
         assertThat(page.counts.map { "${it.name} ${it.count}" }).containsExactly("SMALLER 2", "CALLER_DECIDES 1", "UNKNOWN 0", "FITS 4", "FOLLOWS 1")
         assertThat(listOf(page.optionUnit, page.optionSized, page.concatenatedCount)).containsExactly("BYTE", 4, 1)

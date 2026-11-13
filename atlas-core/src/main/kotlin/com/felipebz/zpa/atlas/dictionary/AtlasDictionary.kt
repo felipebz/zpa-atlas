@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.dictionary
 
 import com.felipebz.zpa.api.project.ProjectExternalMetadata
 import com.felipebz.zpa.api.project.ProjectExternalRelation
+import com.felipebz.zpa.api.project.ProjectExternalSynonym
 import com.felipebz.zpa.atlas.extract.exact
 import com.felipebz.zpa.atlas.model.CompiledUnit
 import com.felipebz.zpa.atlas.model.EntityKind
@@ -175,6 +176,8 @@ class AtlasDictionary(
             val builder = ProjectExternalMetadata.builder(origin)
             completeSchemas.forEach { builder.completeSchema(it) }
             relations.forEach { builder.relation(it.relation) }
+            // zpa reads a relation through these synonyms as an acquired dictionary's metadata lets it.
+            synonyms.distinctBy { it.owner to it.name }.forEach { builder.synonym(ProjectExternalSynonym.of(it.owner, it.name, it.targetOwner, it.targetName, null)) }
             val schemas = completeSchemas.toSet() + relations.map { it.relation.schema.originalSpelling.removeSurrounding("\"") }
             return AtlasDictionary(builder.build(), relations, enumerable = true, schemas = schemas, synonyms = synonyms, objects = objects,
                 keys = keys, notNull = notNull, seesEveryTable = seesEveryTable, lengthSemantics = lengthSemantics)

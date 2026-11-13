@@ -10,7 +10,7 @@ import com.felipebz.zpa.api.DmlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.atlas.model.*
-import java.util.IdentityHashMap
+import java.util.*
 
 /**
  * One static SQL statement being walked: its `WITH` names, the relations its references resolved, the column sources of
@@ -28,6 +28,9 @@ internal class Statement(val root: AstNode, val context: Context, val id: Int, p
 
     /** The column reads emitted at each name node, so that an `ORDER BY` name can repeat the read of its select item. */
     val columnReads = IdentityHashMap<AstNode, MutableList<OccurrenceFact>>()
+
+    /** The names of the columns the statement writes (an `INSERT` list, the left of `SET`): writes, never reads. */
+    val writtenColumns: MutableSet<AstNode> = Collections.newSetFromMap(IdentityHashMap())
 
     /** The select list of each query block with its stars expanded, for view column lineage. */
     val slots = IdentityHashMap<AstNode, List<Slot>>()

@@ -3,10 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+@file:OptIn(ZpaExperimentalApi::class)
+
 package com.felipebz.zpa.atlas.query
 
+import com.felipebz.zpa.api.annotations.ZpaExperimentalApi
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.lookupTables
+import com.felipebz.zpa.atlas.number
+import com.felipebz.zpa.atlas.varchar2
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
@@ -119,7 +125,9 @@ class PlaceLinesTest {
             /
         """.trimIndent() + "\n")
         val db = temp.resolve("lines.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", threads = 1))
+        // The table's columns, so that zpa reads the names of the queries as its columns.
+        val columns = lookupTables("SHOP", "ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(10), "NAME" to varchar2(30, null)))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = columns, threads = 1))
         index = AtlasIndex(db, sources)
     }
 

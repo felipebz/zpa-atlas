@@ -124,7 +124,8 @@ class OccurrenceQueryTest {
         fun keys(name: String) = index.groupOccurrences(OccurrenceQuery(name = name, candidates = false), listOf(GroupDimension.ENTITY), limit = 1000)
             .result.groups.map { it.values.single().entity!!.key }.sorted()
         fun uses(vararg keys: String) = count("o.entity_id IN (SELECT id FROM entity WHERE key IN (${keys.joinToString { "'$it'" }}))")
-        val every = listOf("db:COMPANY@REMOTE.ST_ACTIVE", "db:HR.COMPANY.ST_ACTIVE", "db:HR.V_LIN_AGG.ST_ACTIVE")
+        // UNKNOWN_B.ST_ACTIVE: the column zpa names as the one candidate of `st_active` in a query over unknown_b.
+        val every = listOf("db:COMPANY@REMOTE.ST_ACTIVE", "db:HR.COMPANY.ST_ACTIVE", "db:HR.UNKNOWN_B.ST_ACTIVE", "db:HR.V_LIN_AGG.ST_ACTIVE")
         assertThat(keys("st_active")).isEqualTo(every)
         assertThat(total(OccurrenceQuery(name = "ST_Active", candidates = false))).isEqualTo(uses(*every.toTypedArray()))
         // Two segments: the parent's name; `COMPANY@REMOTE` is another name.
@@ -136,7 +137,7 @@ class OccurrenceQueryTest {
         // A schema as the first of two segments.
         assertThat(keys("hr.company")).containsExactly("db:HR.COMPANY")
         // A wildcard in a middle segment.
-        assertThat(keys("hr.*.st_active")).containsExactly("db:HR.COMPANY.ST_ACTIVE", "db:HR.V_LIN_AGG.ST_ACTIVE")
+        assertThat(keys("hr.*.st_active")).containsExactly("db:HR.COMPANY.ST_ACTIVE", "db:HR.UNKNOWN_B.ST_ACTIVE", "db:HR.V_LIN_AGG.ST_ACTIVE")
         assertThat(keys("*.st_act*")).isEqualTo(every)
         // Without `*` a segment is exact, never a prefix.
         assertThat(total(OccurrenceQuery(name = "st_act"))).isZero()

@@ -34,7 +34,8 @@ class RemoteAnchorTest {
     fun `a remote TYPE names the column of the relation behind the link, as static SQL does`() {
         assertThat(line(4)).containsExactly("desenv.remote_req.cd_req@far.example.com db:DESENV.REMOTE_REQ@FAR.EXAMPLE.COM.CD_REQ TYPE_USE EXTERNAL DB_LINK")
         assertThat(line(5)).containsExactly("remote_req.cd_req@far db:REMOTE_REQ@FAR.CD_REQ TYPE_USE EXTERNAL DB_LINK")
-        assertThat(line(7)).contains("cd_req db:DESENV.REMOTE_REQ@FAR.EXAMPLE.COM.CD_REQ READ EXTERNAL DB_LINK")
+        // The columns behind a link are not known: the column is zpa's one candidate, read unverified.
+        assertThat(line(7)).contains("cd_req db:DESENV.REMOTE_REQ@FAR.EXAMPLE.COM.CD_REQ READ EXTERNAL COLUMN_CANDIDATE")
         // A parameter and a RETURN type.
         assertThat(line(8)).containsExactly(
             "remote_req.cd_req@far.example.com db:REMOTE_REQ@FAR.EXAMPLE.COM.CD_REQ TYPE_USE EXTERNAL DB_LINK",

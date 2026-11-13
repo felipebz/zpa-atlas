@@ -69,7 +69,7 @@ class ColumnPlacesArgumentsTest {
             /
         """.trimIndent())
         val db = temp.resolve("places.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = shopTables("ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20))), threads = 1))
         assertThat(places(db, "calls.sql")).containsExactly(
             // The parameter's own place stays: a caller the index does not see may pass anything.
             "11 ORDERS.CODE SELECT_INTO o_code CALLER_DECIDES varchar2 - - - OUT",
@@ -117,7 +117,7 @@ class ColumnPlacesArgumentsTest {
             /
         """.trimIndent())
         val db = temp.resolve("places.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = shopTables("ORD_X" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20))), threads = 1))
         assertThat(places(db, "nested.sql")).containsExactly(
             "8 ORD_X.CODE SELECT_INTO o_i CALLER_DECIDES varchar2 - - - OUT",
             // outer passes its own OUT parameter: outer's callers are followed in turn.
@@ -145,7 +145,7 @@ class ColumnPlacesArgumentsTest {
             /
         """.trimIndent())
         val db = temp.resolve("places.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = shopTables("ORD_X" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20))), threads = 1))
         assertThat(places(db, "box.sql")).containsExactly("7 ORD_X.CODE SELECT_INTO o_c CALLER_DECIDES varchar2 - - - OUT")
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'").map { it.substringBefore(":") })
             .containsExactly("OUT_PARAMETER_NOT_FOLLOWED")
@@ -210,7 +210,7 @@ class ColumnPlacesArgumentsTest {
             /
         """.trimIndent())
         val db = temp.resolve("places.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = shopTables("ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20), "REF_CODE" to varchar2(20)), "SHORT_CODES" to listOf("C" to varchar2(5))), threads = 1))
         assertThat(Fixture.query(db, """
             SELECT p.start_line || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.target_written || ' ' || p.class || ' ' || coalesce(p.declared_type, '-') || ' ' || coalesce(p.functions, '-') || ' ' ||
                    replace(a.key, 'db:SHOP.PK_FMT.', '') || ' ' || p.call_count || ' ' || p.call_path || ':' || p.call_line
@@ -275,7 +275,7 @@ class ColumnPlacesArgumentsTest {
             /
         """.trimIndent())
         val db = temp.resolve("places.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = shopTables("ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20))), threads = 1))
         assertThat(Fixture.query(db, """
             SELECT p.start_line || ' ' || p.target_written || ' ' || p.class || ' ' || coalesce(p.declared_type, '-') || ' ' ||
                    coalesce(replace(a.key, 'db:SHOP.PK_MORE.', ''), '-') || ' ' || p.call_count || ' ' || p.call_path || ':' || p.call_line
@@ -343,9 +343,9 @@ class ColumnPlacesArgumentsTest {
             /
         """.trimIndent())
         val db = temp.resolve("places.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = shopTables("ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20))), threads = 1))
         // The parameter gives the place the column gives in the same position of the same target (the %ROWTYPE's columns
-        // are not known without the dictionary, for both).
+        // are not known without SHORT_CODES in the dictionary, for both).
         assertThat(Fixture.query(db, """
             SELECT p.start_line || ' ' || p.source || ' ' || coalesce(p.field, '-') || ' ' || p.class || ' ' ||
                    coalesce(p.length, -1) || ' ' || coalesce(p.reason, '-')

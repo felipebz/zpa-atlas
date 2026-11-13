@@ -5,8 +5,8 @@
 
 package com.felipebz.zpa.atlas
 
+import com.felipebz.zpa.api.project.ProjectExternalDatatype.LengthSemantics
 import com.felipebz.zpa.atlas.ColumnPlacesFixture.ORDERS_ITEMS
-import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import org.assertj.core.api.Assertions.assertThat
@@ -73,7 +73,7 @@ class ColumnPlacesValueTextTest {
         Files.createDirectories(sources)
         Files.writeString(sources.resolve("cat.sql"), CONCATENATIONS)
         val db = temp.resolve("cat.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_CODE_NOTE, threads = 1))
         assertThat(Fixture.query(db, """
             SELECT p.start_line || ' ' || p.target_written || ' ' || replace(c.key, 'db:SHOP.ORDERS.', '') || ' ' || p.source || ' ' || p.class || ' ' ||
                    coalesce(p.length, -1) || ' ' || coalesce(p.functions, '-') || ' ' || p.concatenated
@@ -87,11 +87,17 @@ class ColumnPlacesValueTextTest {
             "30 l2 CODE SELECT_INTO FIXED_SIZE 17 - 1",         // k2, a place for each column
             "30 l2 NOTE SELECT_INTO FIXED_SIZE 17 - 1",
             "31 l3 CODE SELECT_INTO FIXED_SIZE 18 UPPER 1",     // k3 upper(code || 'x')
+            "32 r CODE SELECT_INTO ANCHORED_TO_COLUMN -1 - 0",  // select * into r: with the dictionary, each column of orders
+            "32 r NOTE SELECT_INTO ANCHORED_TO_COLUMN -1 - 0",
+            "32 r ORDER_ID SELECT_INTO ANCHORED_TO_COLUMN -1 - 0",
             "33 l4 CODE ASSIGNMENT FIXED_SIZE 19 - 1",          // k4 r.code || '#'
             "34 l5 CODE FETCH FIXED_SIZE 20 - 1",               // k5 the cursor's item code || '/'
             "35 l6 CODE RETURNING FIXED_SIZE 10 - 1",           // k6
             "47 o_text CODE SELECT_INTO CALLER_DECIDES -1 - 1", // an OUT parameter ...
             "55 l7 CODE OUT_ARGUMENT FIXED_SIZE 21 - 1",        // ... and its caller's argument
+            "56 r CODE SELECT_INTO ANCHORED_TO_COLUMN -1 - 0",  // select * into r, as on line 32
+            "56 r NOTE SELECT_INTO ANCHORED_TO_COLUMN -1 - 0",
+            "56 r ORDER_ID SELECT_INTO ANCHORED_TO_COLUMN -1 - 0",
             "57 l8 CODE ASSIGNMENT FIXED_SIZE 22 - 1",          // r.code || r.note, a place for each field
             "57 l8 NOTE ASSIGNMENT FIXED_SIZE 22 - 1"
         )
@@ -104,7 +110,10 @@ class ColumnPlacesValueTextTest {
         Files.createDirectories(sources)
         Files.writeString(sources.resolve("nv.sql"), NVL_STOPS)
         val db = temp.resolve("nv.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = shopTables(
+            "ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20, LengthSemantics.CHAR), "NOTE" to varchar2(40, LengthSemantics.CHAR),
+                "AMOUNT" to number(8, 2), "CREATED" to date()),
+            "ORDER_NOTES" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20, LengthSemantics.CHAR))), threads = 1))
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
             .map { it.substringBefore(" ") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
             "ARGUMENT_EXPRESSION_SEVERAL_COLUMNS_NVL: 1",            // take(nvl(r.code, r.note))
@@ -150,27 +159,29 @@ class ColumnPlacesValueTextTest {
         Files.createDirectories(sources)
         Files.writeString(sources.resolve("m.sql"), MADE_OF)
         val db = temp.resolve("m.db")
-        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = ORDERS_CODE_NOTE, threads = 1))
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
             .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
+            // unknown_tab is not in the dictionary of SHOP: y's `code` reads its candidate column, unresolved, so
+            // y.code has no column the index follows, passed to take or assigned.
+            "ARGUMENT_COLUMN_NOT_KNOWN_COLUMN_UNRESOLVED: 1",               // pk_m.take(y.code)
             "ARGUMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1",                       // pk_m.take(x.lit), a literal
-            "ARGUMENT_EXPRESSION_OTHER_ARITHMETIC: 1",                      // to_number(p_code) + 1
-            "ARGUMENT_EXPRESSION_OTHER_DECODE: 1",                          // decode(p_code, …)
             "EXPRESSION_OTHER_ARITHMETIC: 1",                               // order_id * 2
             "EXPRESSION_OTHER_DECODE: 1",                                   // decode(code, 'a', 'b')
             "EXPRESSION_OTHER_ROUTINE: 1",                                  // pk_m.fmt(code)
             // c and d, opened for a query and for a string just before their FETCH, are followed: no count.
             "FETCH_CURSOR_NOT_KNOWN_PARAMETER: 1",                          // from_param's p
             "FETCH_CURSOR_NOT_KNOWN_STRONG: 1",                             // from_strong's p, of order_cur
+            "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_COLUMN_UNRESOLVED: 1",      // l := y.code
             "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_EXPRESSION_OTHER_DECODE: 1", // w.dc
             "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 2",              // x.v (extractvalue over table(…)), x.rn (rownum)
             "RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN_REF_CURSOR: 1"              // r.code, r p%rowtype
         )
-        // Places already: lower(…) is a value function the index follows (take's l := lower(p_code), the select's
-        // lower(code)); unknown_tab's code is taken by name as a column of it, so y.code is followed; z.code is the
-        // code of orders the inline view reads; pk_m.fmt(code) returns its parameter into l.
+        // Places already: lower(…) is a value function the index follows (the select's lower(code)); z.code is the code
+        // of orders the inline view reads; pk_m.fmt(code) returns its parameter into l. y.code, an unresolved column of
+        // unknown_tab, gives none (not take's l := lower(p_code) either).
         assertThat(Fixture.query(db, "SELECT p.start_line || ' ' || p.source FROM column_place p ORDER BY p.start_line"))
-            .containsExactly("18 IN_ARGUMENT", "48 ASSIGNMENT", "52 ASSIGNMENT", "57 RETURNED", "58 SELECT_INTO", "60 FETCH", "62 FETCH")
+            .containsExactly("52 ASSIGNMENT", "57 RETURNED", "58 SELECT_INTO", "60 FETCH", "62 FETCH")
     }
 
     @Test
@@ -450,6 +461,9 @@ class ColumnPlacesValueTextTest {
     }
 
     companion object {
+        /** The columns of the orders table the sources below create, so that zpa reads the names of their queries. */
+        private val ORDERS_CODE_NOTE = shopTables("ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20), "NOTE" to varchar2(40)))
+
         private val INLINE_VIEWS = """
             create table orders (order_id number(10), code varchar2(20 byte), note varchar2(40 byte));
             create table items (order_id number(10), sku varchar2(15 byte));

@@ -169,7 +169,7 @@ class FileExtractor internal constructor(
         }
         triggers = Triggers(state, resolver, plsql)
         typeReferences = TypeReferences(state, types, resolver, calls, plsql, bound, fields, jsonBuiltIn, formsNames)
-        val columnReads = ColumnReads(state, resolver, scopes, plsql, context::nameBinding)
+        val columnReads = ColumnReads(state, resolver, scopes, plsql, context::columnBinding, context::nameBinding)
         lineage = ViewLineage(state, scopes, columnReads, plsql)
         places = IntoClauses(state, plsql, columnReads, lineage, context::nameBinding)
         sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads, places)

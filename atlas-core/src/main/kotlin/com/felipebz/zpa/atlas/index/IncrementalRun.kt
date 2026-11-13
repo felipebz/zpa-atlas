@@ -221,6 +221,13 @@ internal class IncrementalRun private constructor(
                     add(Rendering().render(relation.rowObjectType))
                     relation.columns.forEach { add(Rendering().render(it)) }
                 }
+            // The objects and synonyms zpa reads names through, also private.
+            for (field in listOf("objects", "synonyms")) {
+                val entries = Rendering.field(metadata, field) as Map<*, *>
+                add("$field ${entries.size}")
+                entries.values.map { it.toString() }.sorted().forEach(::add)
+            }
+            add("public synonyms complete ${metadata.isPublicSynonymsComplete}")
             add("enumerable ${dictionary.enumerable}")
             dictionary.relations.map { RelationResolver.dictionaryKey(it.relation) + " " + it.kind }.sorted().forEach(::add)
             add("schemas ${dictionary.schemas.sorted()}")

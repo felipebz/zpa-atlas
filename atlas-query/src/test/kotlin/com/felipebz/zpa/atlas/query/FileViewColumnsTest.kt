@@ -3,11 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+@file:OptIn(ZpaExperimentalApi::class)
+
 package com.felipebz.zpa.atlas.query
 
+import com.felipebz.zpa.api.annotations.ZpaExperimentalApi
 import com.felipebz.zpa.atlas.Fixture
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.lookupTables
+import com.felipebz.zpa.atlas.varchar2
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -47,7 +52,9 @@ class FileViewColumnsTest {
     @Test
     fun `tabs, accented text in UTF-8 and windows-1252, a BOM and a surrogate pair keep columns`() {
         val db = temp.resolve("encoding.db")
-        Indexer({ Instant.EPOCH }).index(IndexOptions(encodingSources, db, compilationSchema = "HR", threads = 1))
+        // The columns of enc_t, so that zpa reads `c` as its column.
+        Indexer({ Instant.EPOCH }).index(IndexOptions(encodingSources, db, compilationSchema = "HR", threads = 1,
+            dictionary = lookupTables("HR", "ENC_T" to listOf("C" to varchar2(10)))))
         assertThat(Fixture.query(db, "SELECT path, encoding FROM source_file ORDER BY path")).containsExactly(
             "enc_astral.sql\tUTF-8", "enc_bom.sql\tUTF-8", "enc_legacy.sql\twindows-1252", "enc_utf8.sql\tUTF-8"
         )

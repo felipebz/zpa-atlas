@@ -194,8 +194,10 @@ class FixtureGoldenTest {
         val bare = Fixture.index(temp.resolve("bare-names.db"), dictionary = AtlasDictionary.NONE)
         assertThat(Fixture.query(bare, "SELECT key FROM entity WHERE kind = 'COLUMN' AND (key IN ('db:HR.COMPANY.MSG', 'db:HR.SEND_QUEUE.P_STATUS') OR name IN ('P_A', 'P_ID', 'V', 'R', 'SYSDATE')) ORDER BY key"))
             .isEmpty()
+        // `zz` is missing_table's one candidate: send_queue, its columns known, has no zz.
         assertThat(Fixture.query(bare, "SELECT key FROM entity WHERE key LIKE 'db:HR.MISSING_TABLE.%' ORDER BY key"))
-            .containsExactly("db:HR.MISSING_TABLE.A", "db:HR.MISSING_TABLE.B", "db:HR.MISSING_TABLE.C", "db:HR.MISSING_TABLE.X", "db:HR.MISSING_TABLE.Y")
+            .containsExactly("db:HR.MISSING_TABLE.A", "db:HR.MISSING_TABLE.B", "db:HR.MISSING_TABLE.C", "db:HR.MISSING_TABLE.X", "db:HR.MISSING_TABLE.Y",
+                "db:HR.MISSING_TABLE.ZZ")
     }
 
     @Test

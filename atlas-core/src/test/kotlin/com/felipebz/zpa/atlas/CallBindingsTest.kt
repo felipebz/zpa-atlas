@@ -5,6 +5,7 @@
 
 package com.felipebz.zpa.atlas
 
+import com.felipebz.zpa.api.project.ProjectExternalDatatype.LengthSemantics
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
@@ -19,13 +20,13 @@ class CallBindingsTest {
     @TempDir
     lateinit var temp: Path
 
-    private fun index(): Path {
+    private fun index(dictionary: AtlasDictionary = AtlasDictionary.NONE): Path {
         val src = Files.createDirectories(temp.resolve("src"))
         Files.writeString(src.resolve("orders.sql"), ORDERS)
         Files.writeString(src.resolve("pk_ov.sql"), OVERLOADS)
         Files.writeString(src.resolve("pk_use.sql"), USES)
         val db = temp.resolve("atlas.db")
-        Indexer().index(IndexOptions(src, db, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        Indexer().index(IndexOptions(src, db, compilationSchema = "SHOP", dictionary = dictionary, threads = 1))
         return db
     }
 
@@ -60,7 +61,9 @@ class CallBindingsTest {
 
     @Test
     fun `a column passed to a call zpa keeps undecided is counted, not followed`() {
-        val db = index()
+        // The columns of orders, so that zpa reads `code` of the cursor's query as the column.
+        val db = index(shopTables("ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20, LengthSemantics.CHAR), "AMOUNT" to number(8, 2),
+            "CREATED" to date())))
         assertThat(places(db, "pk_ov.sql")).isEmpty()
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'"))
             .contains("ARGUMENT_ROUTINE_UNDECIDED")

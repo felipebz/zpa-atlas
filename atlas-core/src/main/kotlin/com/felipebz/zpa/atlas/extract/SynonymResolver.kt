@@ -5,6 +5,7 @@
 
 package com.felipebz.zpa.atlas.extract
 
+import com.felipebz.zpa.api.project.ProjectExternalSynonym
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 
@@ -23,6 +24,20 @@ class SynonymResolver(private val dictionary: AtlasDictionary) {
 
     /** The distinct synonyms this file followed, every hop of each chain. */
     val dictionarySynonyms: Collection<DictionarySynonym> get() = followed
+
+    /**
+     * Records the synonyms zpa followed to answer a name (a call's target), every hop, as if this resolver had: the
+     * dictionary's own entry when it has one. A hop over a database link has no target object and is left out.
+     */
+    fun record(synonyms: List<ProjectExternalSynonym>) {
+        for (synonym in synonyms) {
+            val targetOwner = synonym.targetOwner.orElse(null)?.takeIf { !synonym.dbLink.isPresent } ?: continue
+            val owner = synonym.owner.exact()
+            val name = synonym.name.exact()
+            followed += dictionary.synonyms.firstOrNull { it.owner == owner && it.name == name }
+                ?: DictionarySynonym(owner, name, targetOwner.exact(), synonym.targetName.exact(), dictionary.objectType(targetOwner.exact(), synonym.targetName.exact()) ?: "")
+        }
+    }
 
     /**
      * The object [name] reaches seen from [schema] when it is one of [targetTypes], or null. A synonym or another

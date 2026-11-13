@@ -123,7 +123,7 @@ object Stats {
 
     /** A read of a column in static SQL: named, by `*`, ambiguous, or of a relation whose columns are unknown. */
     private const val COLUMN_READ = "o.statement_id IS NOT NULL AND o.roles IN ('READ', 'IMPLICIT,READ') AND " +
-        "(e.kind = 'COLUMN' OR o.reason IN ('AMBIGUOUS_COLUMN', 'COLUMNS_UNKNOWN'))"
+        "(e.kind = 'COLUMN' OR o.reason IN ('AMBIGUOUS_COLUMN', 'COLUMNS_UNKNOWN', 'COLUMN_CANDIDATES'))"
 
     private fun StringBuilder.section(connection: Connection, title: String, sql: String) {
         append(title).append('\n')
