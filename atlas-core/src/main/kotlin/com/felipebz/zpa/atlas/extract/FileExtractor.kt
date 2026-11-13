@@ -280,7 +280,7 @@ class FileExtractor internal constructor(
             state.coverage += CoverageFact("WRITE_VALUE_UNKNOWN", "$count column write(s) without a value: $reason")
         }
         if (state.undecidedSqlNames > 0) {
-            state.coverage += CoverageFact("SQL_NAME_UNDECIDED", "${state.undecidedSqlNames} unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed")
+            state.coverage += CoverageFact("SQL_NAME_UNDECIDED", "${state.undecidedSqlNames} name(s) in SQL of the code or of its dynamic texts may be a column whose source is not known or a name a declaration may take: not indexed")
         }
         if (state.undecidedDynamicNames > 0) {
             state.coverage += CoverageFact("DYNAMIC_NAME_UNDECIDED", "${state.undecidedDynamicNames} name(s) in dynamic SQL text may be changed by a concatenated value that is not known: not indexed")

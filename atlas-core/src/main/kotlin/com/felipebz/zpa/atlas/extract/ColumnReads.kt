@@ -73,7 +73,7 @@ internal class ColumnReads(
                 val text = callee.children.takeWhile { it !== last }.joinToString("") { writtenText(it) } + writtenText(last)
                 read(statement, callee, target, binding.name, spanOf(parts.first(), last), text)
             }
-            is ColumnBinding.Unknown -> countUndecided(binding)
+            is ColumnBinding.Unknown -> countUndecided(statement, callee, binding)
             else -> Unit
         }
         return true
@@ -128,7 +128,7 @@ internal class ColumnReads(
      */
     private fun undecided(statement: Statement, name: AstNode, unknown: ColumnBinding.Unknown) {
         if (!unknown.reasons.all { it in COLUMN_OR_PLSQL }) {
-            countUndecided(unknown)
+            countUndecided(statement, name, unknown)
             return
         }
         val before = state.occurrences.size
@@ -159,10 +159,15 @@ internal class ColumnReads(
 
     /**
      * A name zpa leaves undecided with no read: a name of a dynamic text a value zpa could not read may change, or of a
-     * text zpa did not analyze, is counted apart (`DYNAMIC_NAME_UNDECIDED`); any other in `SQL_NAME_UNDECIDED`.
+     * text zpa did not analyze, is counted apart (`DYNAMIC_NAME_UNDECIDED`); any other in `SQL_NAME_UNDECIDED`. A
+     * placeholder of a dynamic text is the concatenated value, not a name: the statement's coverage reports its hole.
      */
-    private fun countUndecided(unknown: ColumnBinding.Unknown) {
-        if (unknown.reasons.any { it in DYNAMIC_DOUBTS }) state.undecidedDynamicNames++ else state.undecidedSqlNames++
+    private fun countUndecided(statement: Statement, name: AstNode, unknown: ColumnBinding.Unknown) {
+        when {
+            statement.context.hasHoles(name) -> Unit
+            unknown.reasons.any { it in DYNAMIC_DOUBTS } -> state.undecidedDynamicNames++
+            else -> state.undecidedSqlNames++
+        }
     }
 
     private fun candidateStatus(status: Status) = if (status == Status.RESOLVED) Status.UNVERIFIED else status

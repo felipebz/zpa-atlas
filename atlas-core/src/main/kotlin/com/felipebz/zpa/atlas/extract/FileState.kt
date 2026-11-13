@@ -87,7 +87,10 @@ internal class FileState(strings: FactStrings = FactStrings()) {
     /** Datatype names captured by a local declaration: counted, not indexed (locals are not entities). */
     var localTypeReferences = 0
 
-    /** Unqualified names in static SQL that may be a column of a source with unknown columns: counted, not indexed. */
+    /**
+     * Names in SQL, of the code or of its dynamic texts, that may be a column of a source with unknown columns or a name
+     * a declaration may take: counted, not indexed.
+     */
     var undecidedSqlNames = 0
 
     /**

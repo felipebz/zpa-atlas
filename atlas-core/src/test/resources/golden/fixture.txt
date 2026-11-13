@@ -6740,14 +6740,14 @@ hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 23 has a callee that is no
 hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 26 has a callee that is not a plain name
 hr/collection_writes.sql	CALL_NOT_A_NAME	Call at line 33 has a callee that is not a plain name
 hr/it_writers.sql	WRITE_VALUE_UNKNOWN	4 column write(s) without a value: SET ROW
-hr/pack_dynamic.pkb	DYNAMIC_NAME_UNDECIDED	7 name(s) in dynamic SQL text may be changed by a concatenated value that is not known: not indexed
+hr/pack_dynamic.pkb	DYNAMIC_NAME_UNDECIDED	5 name(s) in dynamic SQL text may be changed by a concatenated value that is not known: not indexed
 hr/pack_process.pkb	WRITE_VALUE_UNKNOWN	4 column write(s) without a value: SET ROW
 hr/pack_types.pkb	LOCAL_ANCHOR	2 datatype name(s) refer to local declarations (variables, parameters, cursors, types): not indexed
 hr/pk_f.sql	CALL_NOT_A_NAME	Call at line 19 has a callee that is not a plain name
-hr/proc_column_reads.prc	SQL_NAME_UNDECIDED	1 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed
-hr/proc_columns.prc	SQL_NAME_UNDECIDED	1 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed
+hr/proc_column_reads.prc	SQL_NAME_UNDECIDED	1 name(s) in SQL of the code or of its dynamic texts may be a column whose source is not known or a name a declaration may take: not indexed
+hr/proc_columns.prc	SQL_NAME_UNDECIDED	1 name(s) in SQL of the code or of its dynamic texts may be a column whose source is not known or a name a declaration may take: not indexed
 hr/proc_objects.prc	WRITE_VALUE_UNKNOWN	1 column write(s) without a value: SET VALUE
-hr/proc_synonyms.prc	SQL_NAME_UNDECIDED	1 unqualified name(s) in static SQL may be a column of a relation whose columns are unknown or a PL/SQL name: not indexed
+hr/proc_synonyms.prc	SQL_NAME_UNDECIDED	1 name(s) in SQL of the code or of its dynamic texts may be a column whose source is not known or a name a declaration may take: not indexed
 hr/proc_writes.prc	WRITE_VALUE_UNKNOWN	2 column write(s) without a value: set operator or *
 hr/proc_writes.prc	WRITE_VALUE_UNKNOWN	4 column write(s) without a value: record
 hr/trg_company_values.trg	WRITE_VALUE_UNKNOWN	1 column write(s) without a value: OUT argument
