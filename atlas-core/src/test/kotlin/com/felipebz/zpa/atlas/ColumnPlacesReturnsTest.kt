@@ -77,6 +77,7 @@ class ColumnPlacesReturnsTest {
             "show_ret.sql:8 l1 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_PARAM(P_CODE IN VARCHAR2) 1 show_ret.sql:8",       // c1
             "show_ret.sql:9 l2 CODE RETURNED FIXED_SIZE 5 UPPER 0 PK_RET.F_UPPER(P_CODE IN VARCHAR2) 1 show_ret.sql:9",   // c2
             "show_ret.sql:10 l3 CODE RETURNED FIXED_SIZE 5 - 1 PK_RET.F_TAGGED(P_CODE IN VARCHAR2) 1 show_ret.sql:10",    // c3
+            "show_ret.sql:11 l12 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_OVER(P_CODE IN VARCHAR2) 1 show_ret.sql:11",    // c12, the overload r.code selects
             "show_ret.sql:12 l13 CODE RETURNED FIXED_SIZE 5 - 0 - 1 show_ret.sql:12",                                     // c13, nested
             "show_ret.sql:14 l4 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_GET(P_ID IN NUMBER) 1 show_ret.sql:14",           // c4
             "show_ret.sql:15 l5 CODE RETURNED FIXED_SIZE 5 - 0 PK_RET.F_GET_ROW(P_ID IN NUMBER) 1 show_ret.sql:15",       // c5
@@ -93,7 +94,6 @@ class ColumnPlacesReturnsTest {
         assertThat(Fixture.query(db, "SELECT f.path || ' ' || n.message FROM coverage_note n JOIN source_file f ON f.id = n.file_id WHERE n.kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1")
             .map { it.substringBefore(": ") + ": " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
             "show_more.sql RETURNED_NOT_SCALAR: 1",         // r := f_rec(1), a record
-            "show_ret.sql ARGUMENT_ROUTINE_UNDECIDED: 1",   // c12: zpa leaves the overloaded f_over AMBIGUOUS
             "show_ret.sql EXPRESSION_OTHER_ROUTINE: 1"      // c14's item: order_id passed to f_get, as today
         )
     }

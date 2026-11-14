@@ -54,19 +54,19 @@ class CallBindingsTest {
             // A nested subprogram has no entity.
             "26 z UNRESOLVED LOCAL_SUBPROGRAM -",
             "27 z UNRESOLVED LOCAL_SUBPROGRAM -",
-            // zpa does not know the type of a field of a cursor FOR loop record: both overloads are kept.
+            // Without the dictionary zpa does not know the type of `code` of the cursor's query: both overloads are kept.
             "29 pk_ov.put AMBIGUOUS AMBIGUOUS - [PK_OV.PUT(P_V IN NUMBER) | PK_OV.PUT(P_V IN VARCHAR2)]"
         )
     }
 
     @Test
-    fun `a column passed to a call zpa keeps undecided is counted, not followed`() {
+    fun `a column passed to the overload its type selects goes on to the parameter`() {
         // The columns of orders, so that zpa reads `code` of the cursor's query as the column.
         val db = index(shopTables("ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20, LengthSemantics.CHAR), "AMOUNT" to number(8, 2),
             "CREATED" to date())))
-        assertThat(places(db, "pk_ov.sql")).isEmpty()
+        assertThat(places(db, "pk_ov.sql")).containsExactly("18 ORDERS.CODE IN_ARGUMENT l1 FIXED_SIZE varchar2(5 char) 5 CHAR - -")
         assertThat(Fixture.query(db, "SELECT substr(message, 1, instr(message, ':') - 1) FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED'"))
-            .contains("ARGUMENT_ROUTINE_UNDECIDED")
+            .doesNotContain("ARGUMENT_ROUTINE_UNDECIDED")
     }
 
     private companion object {

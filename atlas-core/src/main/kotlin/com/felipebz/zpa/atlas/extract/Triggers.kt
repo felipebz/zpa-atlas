@@ -75,7 +75,7 @@ internal class Triggers(private val state: FileState, private val resolver: Rela
         }
     }
 
-    /** The DDL or database events of a system trigger: each database event carries its own timing. */
+    /** The DDL or database events of a system trigger, all with the one timing written before the first event. */
     private fun systemEvents(system: AstNode, key: String) {
         val sharedTiming = when (system.firstChild.type) {
             PlSqlKeyword.BEFORE -> TriggerTiming.BEFORE
@@ -83,13 +83,8 @@ internal class Triggers(private val state: FileState, private val resolver: Rela
             PlSqlKeyword.INSTEAD -> TriggerTiming.INSTEAD_OF
             else -> null
         }
-        for (ddl in system.getChildren(PlSqlGrammar.DDL_EVENT)) {
-            state.triggerEvents += TriggerEventFact(key, sharedTiming ?: TriggerTiming.AFTER, null, tokensOf(ddl).joinToString(" ") { it.value.uppercase() }, null)
-        }
-        for (database in system.getChildren(PlSqlGrammar.DATABASE_EVENT)) {
-            val tokens = tokensOf(database).map { it.value.uppercase() }
-            val timing = if (tokens.first() == "BEFORE") TriggerTiming.BEFORE else TriggerTiming.AFTER
-            state.triggerEvents += TriggerEventFact(key, timing, null, tokens.drop(1).joinToString(" "), null)
+        for (event in system.getChildren(PlSqlGrammar.DDL_EVENT, PlSqlGrammar.DATABASE_EVENT)) {
+            state.triggerEvents += TriggerEventFact(key, sharedTiming ?: TriggerTiming.AFTER, null, tokensOf(event).joinToString(" ") { it.value.uppercase() }, null)
         }
     }
 
