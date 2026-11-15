@@ -7,7 +7,7 @@ node-gradle = "7.1.0"
 # libs
 jcommander = "3.0"
 kaml = "0.104.0"
-kotlinx-serialization = "1.12.0"
+kotlinx-serialization = "1.13.0"
 ktor = "3.6.1"
 java-jwt = "4.6.2"
 jwks-rsa = "0.24.2"
