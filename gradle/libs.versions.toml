@@ -13,7 +13,7 @@ java-jwt = "4.6.2"
 jwks-rsa = "0.24.2"
 mcp = "0.15.0"
 slf4j = "2.0.20"
-sqlite-jdbc = "3.53.4.0"
+sqlite-jdbc = "3.54.1.0"
 
 # testing
 assertj = "3.27.7"
