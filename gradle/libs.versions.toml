@@ -1,6 +1,6 @@
 [versions]
 kotlin = "2.4.21"
-spotless = "8.10.4"
+spotless = "8.11.0"
 sonarscanner = "7.5.0.8588"
 node-gradle = "7.1.0"
 
