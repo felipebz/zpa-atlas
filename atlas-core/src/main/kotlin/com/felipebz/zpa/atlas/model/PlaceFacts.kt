@@ -56,7 +56,8 @@ data class ShapeField(val name: String, val key: String?, val local: TypeShape?)
 /**
  * A select item, at its position in the select list (a `*` expanded): the column it is ([columnKey]), written bare or
  * qualified; else, for an expression of one column, its [expression] shape (`NVL`, `UPPER`, `CONCATENATION`, …); else
- * neither. [name] is the item's alias or column name; [opaque] marks a `*` whose columns are not known, after which
+ * neither. An expression of several columns some of which are followed has both: the columns followed, and the shape
+ * the item would have with only a column that is not (`code || to_char(amount)`: `CODE` and `CONCATENATION`). [name] is the item's alias or column name; [opaque] marks a `*` whose columns are not known, after which
  * no position can be told.
  */
 data class QueryItem(
@@ -67,11 +68,14 @@ data class QueryItem(
     /** The value functions the item reads [columnKey] through, outer first (`NVL`; `UPPER`, `TRIM`); empty when read directly. */
     val functions: List<String> = emptyList(),
     /**
-     * An expression of several columns (`code || note`, `nvl(note, code)`): its shape, as [expression] says it for one
-     * column. Only told when a routine is passed the item's field; such an item is not counted as an `EXPRESSION_*`.
+     * An expression of several columns none of which is followed (`decode(code, 'a', note)`): its shape, as [expression]
+     * says it for one column. Only told when a routine is passed the item's field; such an item is not counted as an `EXPRESSION_*`.
      */
     val combined: String? = null,
-    /** The other columns of a concatenation of several, each a part of it (`code || note`): each a place as [columnKey] is. */
+    /**
+     * The other columns of an expression of several, or the same column through another chain of functions, each followed
+     * on its own (`code || note`, `nvl(code, note)`, `nvl(code, lower(code))`): each a place as [columnKey] is.
+     */
     val parts: List<QueryItem> = emptyList(),
     /**
      * Why an item that is neither a column nor an expression of columns reads no column the index knows: `NO_COLUMN` (it

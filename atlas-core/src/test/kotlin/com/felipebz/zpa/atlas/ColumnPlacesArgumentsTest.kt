@@ -496,7 +496,6 @@ class ColumnPlacesArgumentsTest {
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
             .map { it.substringBefore(" ", "") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
             "ARGUMENT_COLUMN_NOT_KNOWN_CURSOR: 1",                      // r_spec, a cursor declared with no query
-            "ARGUMENT_COLUMN_NOT_KNOWN_EXPRESSION_NVL_SEVERAL_COLUMNS: 1", // y.n, nvl(note, code)
             "ARGUMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1",                   // z.lit, a literal
             "ARGUMENT_COLUMN_NOT_KNOWN_STAR: 1",                        // s.code, select * from a table not known
             "ARGUMENT_EXPRESSION_CASE: 1",

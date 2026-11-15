@@ -266,14 +266,15 @@ internal class RoutineFlow(
             return
         }
         val columns = passedColumns(path, into) ?: return
-        val reason = into.targets.single().reason
-        if (reason != null) {
-            count(path, reason)
+        // An argument that passes several columns (`r.code || r.note`) to a call not followed is counted once.
+        val argument = into.targets.single()
+        if (argument.reason != null) {
+            countOnce(path, argument.span, null, argument.reason)
             return
         }
         val parameter = parameterKey(path, into.parameterKey ?: return)
         if (!isDefined(parameter)) {
-            count(path, PlaceShapes.ARGUMENT_ROUTINE_OUTSIDE)
+            countOnce(path, argument.span, null, PlaceShapes.ARGUMENT_ROUTINE_OUTSIDE)
             return
         }
         for ((column, functions) in columns) seeds.getOrPut(

@@ -290,20 +290,30 @@ internal class IntoClauses(
         val field = fields.singleOrNull()
         if (field == null) {
             if (fields.isEmpty()) return
-            // Several fields, each a part of a concatenation (`r.code || r.note`), or one the value and the others text put
-            // into it (the replacement of a REPLACE): a place for each. Any other expression of them is counted by its shape.
-            val chains = fields.map { f -> expressions.valueChain(value) { it === f } }
-            if (chains.any { it == null } || chains.count { CONCATENATED !in it!! } > 1) {
+            // Several fields, each followed on its own: a part of a concatenation (`r.code || r.note`), an argument NVL may
+            // give back (`nvl(r.code, r.note)`), the replacement of a REPLACE. A place for each, once per chain; a field
+            // not followed (`to_char(r.amount)`) is counted once, by the shape the value would have with only that field;
+            // one only tested (the first argument of NVL2) gives nothing.
+            // When none is followed, the expression is counted by its shape.
+            val chains = fields.map { f -> f to expressions.valueChain(value) { it === f } }
+            if (chains.all { it.second == null }) {
                 assignments += Assignment(node.firstChild, spanOf(node.children[at]), fields.first(), value, emptyList(), context, several = true)
                 return
             }
-            for ((f, chain) in fields.zip(chains)) assignments += Assignment(node.firstChild, spanOf(node.children[at]), f, null, chain!!, context)
+            for ((f, chain) in followed(chains)) assignments += Assignment(node.firstChild, spanOf(node.children[at]), f, null, chain, context)
+            chains.firstOrNull { (f, chain) -> chain == null && !expressions.inTestedArgument(value, f) }?.let { (f, _) ->
+                assignments += Assignment(node.firstChild, spanOf(node.children[at]), f, value, emptyList(), context)
+            }
             return
         }
         val functions = expressions.valueChain(value) { it === field }
         assignments += Assignment(node.firstChild, spanOf(node.children[at]), field, if (functions == null) value else null,
             functions.orEmpty(), context)
     }
+
+    /** The fields of [chains] that are followed, with their chain: once per field, as written, and chain. */
+    private fun followed(chains: List<Pair<AstNode, List<String>?>>): List<Pair<AstNode, List<String>>> =
+        chains.mapNotNull { (f, chain) -> chain?.let { f to it } }.distinctBy { (f, chain) -> normalizeIdentifier(writtenText(f)) to chain }
 
     /** `RETURN expr`: its value leaves the routine, which the index does not follow ([intos]). */
     fun returnStatement(node: AstNode, context: Context) {
@@ -383,8 +393,13 @@ internal class IntoClauses(
         val fields = if (isFieldOfName(argument)) listOf(argument)
             else argument.getDescendants(PlSqlGrammar.MEMBER_EXPRESSION).filter { isFieldOfName(it) && !expressions.inDroppedArgument(argument, it) }
         if (fields.size > 1) {
-            // An expression of several fields: counted by its shape when the first is of a row record.
-            passes += Pass(argument, null, fields.first(), emptyList(), parameter, reason, context, null, call, PlaceShapes.SEVERAL_COLUMNS + expressions.expressionShape(argument))
+            // An expression of several fields, each followed on its own as an assignment's are; when none is, counted by
+            // its shape when the first is of a row record.
+            val chains = fields.map { f -> f to expressions.valueChain(argument) { it === f } }
+            if (chains.all { it.second == null }) {
+                passes += Pass(argument, null, fields.first(), emptyList(), parameter, reason, context, null, call, PlaceShapes.SEVERAL_COLUMNS + expressions.expressionShape(argument))
+            }
+            for ((f, chain) in followed(chains)) passes += Pass(argument, null, f, chain, parameter, reason, context, null, call)
         }
         val field = fields.singleOrNull()
         if (field != null) {

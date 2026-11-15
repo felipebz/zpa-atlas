@@ -9,7 +9,6 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.DmlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.semantics.NameBinding
-import com.felipebz.zpa.atlas.model.CONCATENATED
 import com.felipebz.zpa.atlas.model.PlaceShapes
 import com.felipebz.zpa.atlas.model.QueryItem
 import com.felipebz.zpa.atlas.model.Status
@@ -85,47 +84,58 @@ internal class SelectItems(
             return QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
         }
         viewExpression(statement, expression, name)?.let { return it }
-        val reads = HashMap<String, MutableList<AstNode>>()
-        fun visit(node: AstNode) {
-            statement.columnReads[node]?.forEach { read -> read.entityKey?.let { reads.getOrPut(it) { ArrayList() } += node } }
-            node.children.forEach(::visit)
+        val reads: Map<String, List<AstNode>> = buildMap<String, MutableList<AstNode>> {
+            fun visit(node: AstNode) {
+                statement.columnReads[node]?.forEach { read -> read.entityKey?.let { getOrPut(it) { ArrayList() } += node } }
+                node.children.forEach(::visit)
+            }
+            visit(expression)
         }
-        visit(expression)
         // A column read only where it never lands in the value (the search text of a REPLACE) is not read into the target.
-        val columns = reads.filterValues { nodes -> nodes.any { !expressions.inDroppedArgument(expression, it) } }.keys
-        if (columns.isEmpty() && reads.isNotEmpty()) return QueryItem(name, null, null, notColumn = "NO_COLUMN")
-        if (columns.size > 1) {
-            // Several columns, each a part of a concatenation, or one the value and the others text put into it (the
-            // replacement of a REPLACE): the item is each of them.
-            val chains = columns.sorted().map { key ->
-                key to expressions.valueChain(expression) { node ->
-                    plsql.nameSegments(node) != null && column(node) == key
-                }
-            }
-            if (chains.all { it.second != null } && chains.count { CONCATENATED !in it.second!! } <= 1) {
-                val (first, chain) = chains.first()
-                return QueryItem(
-                    name,
-                    first,
-                    null,
-                    functions = chain!!,
-                    parts = chains.drop(1).map { (key, f) -> QueryItem(name, key, null, functions = f!!) })
-            }
-            return QueryItem(name, null, null, combined = expressions.expressionShape(expression))
+        val kept = reads.mapValues { (_, nodes) -> nodes.filter { !expressions.inDroppedArgument(expression, it) } }.filterValues { it.isNotEmpty() }
+        if (kept.isEmpty() && reads.isNotEmpty()) return QueryItem(name, null, null, notColumn = "NO_COLUMN")
+        if (kept.size > 1) {
+            return eachRead(name, expression, kept) ?: QueryItem(name, null, null, combined = expressions.expressionShape(expression))
         }
-        if (columns.isEmpty()) return QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
+        if (kept.isEmpty()) return QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
         var leaf: String? = null
         val functions = expressions.valueChain(expression) { node ->
             plsql.nameSegments(node) != null && column(node)?.also {
                 leaf = it
             } != null
         }
-        return if (functions != null && leaf != null) QueryItem(name, leaf, null, functions = functions)
-        else QueryItem(
+        if (functions != null && leaf != null) return QueryItem(name, leaf, null, functions = functions)
+        // The column read more than once, each where the value may come from (`nvl(code, lower(code))`): each read.
+        if (kept.values.single().size > 1) eachRead(name, expression, kept)?.let { return it }
+        return QueryItem(
             name,
             null,
             expressions.valueShape(expression, { node -> plsql.nameSegments(node) != null && column(node) != null })
         )
+    }
+
+    /**
+     * The item named [name] that [expression] is, each of its column reads ([reads], by column) followed on its own
+     * ([ExpressionShapes.valueChain]): a part of a concatenation, an argument `NVL`, `NVL2` or `COALESCE` may give back,
+     * text a `REPLACE` puts in. Each column a read leads to is a place, once per chain of functions; the first is the
+     * item, the others its [QueryItem.parts]. A column no read of which is followed (`to_char(amount)`) is told by the
+     * shape the item would have with only that column ([QueryItem.expression]: `code || to_char(amount)` is
+     * `CONCATENATION`, `nvl(code, to_char(amount))` is `NVL_TO_CHAR`); one only tested (`amount` of
+     * `nvl2(amount, code, note)`) gives nothing. Null when no read is followed.
+     */
+    private fun eachRead(name: String?, expression: AstNode, reads: Map<String, List<AstNode>>): QueryItem? {
+        val chains = reads.toSortedMap().map { (key, nodes) ->
+            key to nodes.mapNotNull { node -> expressions.valueChain(expression) { it === node } }.distinct()
+        }
+        val followed = chains.flatMap { (key, list) -> list.map { QueryItem(name, key, null, functions = it) } }
+        if (followed.isEmpty()) return null
+        // A column only tested (the first argument of NVL2) gives nothing: the others are the value.
+        val shape = chains.firstOrNull { (key, list) -> list.isEmpty() && reads.getValue(key).any { !expressions.inTestedArgument(expression, it) } }
+            ?.let { (key, _) ->
+                val nodes = reads.getValue(key)
+                expressions.valueShape(expression, { node -> nodes.any { it === node } })
+            }
+        return followed.first().copy(expression = shape, parts = followed.drop(1))
     }
 
     /**
@@ -197,8 +207,8 @@ internal class SelectItems(
     /**
      * An expression item ([expression]) that reads a column of an inline view or `WITH` subquery: told as the same
      * expression of the columns that view column reads would be. A single name read through value functions is those
-     * columns with the functions; several names, each a part of a concatenation, are the columns of each; any other
-     * expression is its shape, by how many columns it reads. Null when the expression reads no view column.
+     * columns with the functions; several names, each followed on its own (a part of a concatenation, an argument of
+     * `NVL`), are the columns of each; any other expression is its shape, by how many columns it reads. Null when the expression reads no view column.
      */
     private fun viewExpression(statement: Statement, expression: AstNode, name: String?): QueryItem? {
         val leaves = ArrayList<Pair<AstNode, List<QueryItem>>>()
@@ -211,7 +221,7 @@ internal class SelectItems(
             chains.single()!!,
             expression
         )
-        if (leaves.size > 1 && chains.all { it != null && CONCATENATED in it }) {
+        if (leaves.size > 1 && chains.all { it != null }) {
             val all = leaves.zip(chains).map { (leaf, chain) -> through(name, leaf.second, chain!!, expression) }
                 .filter { it.columnKey != null }
                 .flatMap { listOf(it.copy(parts = emptyList())) + it.parts }

@@ -56,15 +56,17 @@ class ColumnPlacesValueTextTest {
             "8 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - - via MAX",
             "9 ORDERS.AMOUNT SELECT_INTO l_amt FIXED_SIZE number(5) 5 DIGITS scale 0 - - via NVL",
             "11 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER,TRIM",
-            // Lines 13 (NVL2's first argument) and 14 (two columns) are not places.
+            // Line 13, NVL2's first argument, is not a place; line 14, nvl(code, note), is one for each column.
+            "14 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - - via NVL",
+            "14 ORDERS.NOTE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - - via NVL",
             "15 ORDERS.CODE SELECT_INTO l_code FIXED_SIZE varchar2(12) 12 BYTE - - via NVL,SUBSTR",
             "17 ORDERS.CODE FETCH l_code FIXED_SIZE varchar2(12) 12 BYTE - - via MAX",
             "20 ORDERS.CODE ASSIGNMENT l_code FIXED_SIZE varchar2(12) 12 BYTE - - via UPPER"
         )
         assertThat(Fixture.query(db, """SELECT c.message FROM coverage_note c JOIN source_file f ON f.id = c.file_id
             WHERE c.kind = 'COLUMN_VALUE_NOT_FOLLOWED' AND f.path = 'funcs.sql' ORDER BY 1""").map { it.substringBefore(" ") })
-            // NVL2 gives back its second or third argument, not the code it tests; nvl(code, note) reads two columns.
-            .containsExactly("EXPRESSION_NVL2_CONDITION:", "EXPRESSION_SEVERAL_COLUMNS_NVL:")
+            // NVL2 gives back its second or third argument, not the code it tests.
+            .containsExactly("EXPRESSION_NVL2_CONDITION:")
     }
 
     @Test
@@ -116,22 +118,19 @@ class ColumnPlacesValueTextTest {
             "ORDER_NOTES" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20, LengthSemantics.CHAR))), threads = 1))
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
             .map { it.substringBefore(" ") + " " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
-            "ARGUMENT_EXPRESSION_SEVERAL_COLUMNS_NVL: 1",            // take(nvl(r.code, r.note))
-            "EXPRESSION_NVL_OTHER_ARITHMETIC: 1",                    // v17: the + around max(order_id), not MAX
+            "EXPRESSION_NVL_OTHER_ARITHMETIC: 2",                    // v17: the + around max(order_id), not MAX; v11's subquery
             "EXPRESSION_NVL_OTHER_DECODE: 1",                        // v4
             "EXPRESSION_NVL_OTHER_LPAD: 1",                          // v13
             "EXPRESSION_NVL_OTHER_ROUTINE: 1",                       // v5: fmt's result is a place, the item is counted as well
             "EXPRESSION_NVL_TO_CHAR: 4",                             // v2, v8, v15 (through UPPER), v16 (through an inner NVL)
-            "EXPRESSION_SEVERAL_COLUMNS_NVL2: 2",                    // v12, m7
-            "EXPRESSION_SEVERAL_COLUMNS_NVL: 4",                     // v3, v9, v6 (amount in the CASE), v11 (the subquery's column)
+            "EXPRESSION_SEVERAL_COLUMNS_NVL: 1",                     // v6: code and amount only in the CASE
             "EXPRESSION_SEVERAL_COLUMNS_OTHER_CASE: 1",              // m2
-            "EXPRESSION_SEVERAL_COLUMNS_OTHER_COALESCE: 1",          // m5
             "EXPRESSION_SEVERAL_COLUMNS_OTHER_DECODE: 1",            // m1
             "EXPRESSION_SEVERAL_COLUMNS_OTHER_GREATEST: 1",          // m3
-            "RECORD_ASSIGNMENT_EXPRESSION_SEVERAL_COLUMNS_NVL: 1",   // a2
             "RETURNED_EXPRESSION_NVL_OTHER_COMPARISON: 1"            // ok: code_of's result compared
         )
-        // The places are those an NVL already gave: m4's concatenation, b1 through both's NVL, the routines' own INTOs.
+        // Each column an NVL, NVL2 or COALESCE may give back is a place (v3, v9, v12, m5, m7, a2, take's l1), and so is
+        // the column v11 reads through TRIM, its subquery's counted.
         assertThat(Fixture.query(db, """
             SELECT p.start_line || ' ' || replace(c.key, 'db:SHOP.', '') || ' ' || p.source || ' ' || p.target_written || ' ' || coalesce(p.functions, '-')
             FROM column_place p JOIN entity c ON c.id = p.column_id ORDER BY p.id""")).containsExactly(
@@ -139,14 +138,27 @@ class ColumnPlacesValueTextTest {
             "25 ORDERS.CODE SELECT_INTO l -",
             "25 ORDERS.NOTE SELECT_INTO n -",
             "32 ORDERS.CODE IN_ARGUMENT l1 NVL,LOWER",
+            "32 ORDERS.CODE IN_ARGUMENT l1 NVL",
+            "32 ORDERS.NOTE IN_ARGUMENT l1 NVL",
             "43 ORDERS.CODE SELECT_INTO v1 NVL",
+            "45 ORDERS.CODE SELECT_INTO v3 NVL",
+            "45 ORDERS.NOTE SELECT_INTO v3 NVL",
             "47 ORDERS.CODE RETURNED v5 NVL",
             "49 ORDERS.CODE SELECT_INTO v7 NVL,LOWER",
+            "51 ORDERS.CODE SELECT_INTO v9 NVL",
+            "51 ORDER_NOTES.CODE SELECT_INTO v9 NVL",
             "52 ORDERS.AMOUNT SELECT_INTO v10 NVL",
+            "53 ORDERS.CODE SELECT_INTO v11 NVL,TRIM",
+            "54 ORDERS.NOTE SELECT_INTO v12 NVL2",
             "56 ORDERS.CODE SELECT_INTO v14 COALESCE,LOWER",
             "62 ORDERS.CODE SELECT_INTO m4 -",
             "62 ORDERS.NOTE SELECT_INTO m4 -",
+            "63 ORDERS.CODE SELECT_INTO m5 COALESCE",
+            "63 ORDERS.NOTE SELECT_INTO m5 COALESCE",
+            "64 ORDERS.CODE SELECT_INTO m7 NVL2",
             "66 ORDERS.CODE ASSIGNMENT a1 NVL,LOWER",
+            "67 ORDERS.CODE ASSIGNMENT a2 NVL",
+            "67 ORDERS.NOTE ASSIGNMENT a2 NVL",
             "71 ORDERS.CODE RETURNED f1 NVL,LOWER",
             "72 ORDERS.CODE RETURNED b1 NVL",
             "72 ORDERS.NOTE RETURNED b1 NVL"

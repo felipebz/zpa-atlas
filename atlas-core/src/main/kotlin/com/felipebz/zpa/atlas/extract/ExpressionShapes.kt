@@ -240,6 +240,14 @@ internal class ExpressionShapes(
         return false
     }
 
+    /** Whether [node], inside [expression], is in the first argument of an `NVL2`, which is only tested: its value never lands in the result. */
+    fun inTestedArgument(expression: AstNode, node: AstNode): Boolean =
+        generateSequence(node) { it.parentOrNull }.takeWhile { it !== expression }.any { argument ->
+            argument.type == PlSqlGrammar.ARGUMENT && argument.parentOrNull?.parentOrNull?.let { call ->
+                call.type == PlSqlGrammar.METHOD_CALL && calledName(call) == "NVL2" && argument.parent.getChildren(PlSqlGrammar.ARGUMENT).firstOrNull() === argument
+            } == true
+        }
+
     /** [node] and every node under it. */
     fun subtree(node: AstNode): Sequence<AstNode> = sequenceOf(node) + node.children.asSequence().flatMap(::subtree)
 
