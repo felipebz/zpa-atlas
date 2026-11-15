@@ -5,17 +5,14 @@
 
 package com.felipebz.zpa.atlas.extract
 
-import com.felipebz.flr.api.AstNode
-import com.felipebz.flr.api.AstNodeType
-import com.felipebz.flr.api.GenericTokenType
-import com.felipebz.flr.api.Token
+import com.felipebz.flr.api.*
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.PlSqlTokenType
 import com.felipebz.zpa.api.project.ProjectIdentifier
 import com.felipebz.zpa.atlas.model.SourceSpan
 import java.security.MessageDigest
-import java.util.Locale
+import java.util.*
 
 /** Placeholder schema used in keys when a declaration has neither a written owner nor a compilation schema. */
 const val UNKNOWN_SCHEMA = "~"
@@ -33,10 +30,12 @@ fun ProjectIdentifier.exact(): String = normalizeIdentifier(originalSpelling)
 
 fun dbKey(schema: String, vararg segments: String): String = "db:" + (listOf(schema) + segments).joinToString(".")
 
+fun holdsText(node: AstNode): Boolean = if (node.hasChildren()) node.children.any(::holdsText) else node.type is TokenType
+
 fun lastToken(node: AstNode): Token? {
     var current = node
-    while (current.hasChildren()) current = current.lastChild
-    return current.tokenOrNull
+    while (current.hasChildren()) current = current.children.lastOrNull(::holdsText) ?: return null
+    return current.tokenOrNull?.takeIf { current.type is TokenType }
 }
 
 fun spanOf(node: AstNode): SourceSpan {
