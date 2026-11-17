@@ -14,6 +14,8 @@ import com.felipebz.zpa.atlas.dictionary.DictionaryKeys
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.extract.Precedence
 import com.felipebz.zpa.atlas.extract.RelationResolver
+import com.felipebz.zpa.atlas.extract.dbKey
+import com.felipebz.zpa.atlas.extract.exact
 import com.felipebz.zpa.atlas.model.*
 import java.util.*
 
@@ -56,6 +58,8 @@ internal class DictionaryFacts private constructor(
             val findRelation: (ProjectIdentifier, ProjectIdentifier) -> ProjectExternalLookup =
                 if (snapshot == null) dictionary.metadata::findRelation else { schema, name -> snapshot.findRelation(schema, name, dictionary.metadata) }
             resolved += DictionaryKeys.linked(dictionary, resolved, findRelation)
+            // A synonym created in the sources hides the dictionary's relation of the same owner and name: the key is the synonym's.
+            snapshot?.sourceSynonyms?.forEach { resolved.remove(dbKey(it.owner.exact(), it.name.exact())) }
             val inSources = snapshot?.sourceRelations?.toHashSet().orEmpty()
             val globalDeclaredTexts = ArrayList<DeclaredTextFact>()
             resolved.values.forEach {

@@ -7,6 +7,8 @@ package com.felipebz.zpa.atlas.index
 
 import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
+import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
+import com.felipebz.zpa.atlas.extract.exact
 import com.felipebz.zpa.atlas.extract.DeclarationCatalog
 import com.felipebz.zpa.atlas.extract.ObjectTypeMembers
 import com.felipebz.zpa.atlas.extract.RelationResolver
@@ -168,7 +170,9 @@ internal class IncrementalRun private constructor(
             val rendered = IncrementalRule.declarations(snapshot, changed)
             val declarations = current.associate { it.path to (cachedFiles[it.path]?.takeIf { old -> old.sha256 == it.sha256 }?.declarations ?: rendered[it.path].orEmpty()) }
             phases?.start(PhaseTimes.PLAN_RULE)
-            val plan = IncrementalRule.plan(contents, current, declarations, digests, global, options.dictionary.synonyms)
+            // The synonyms of the sources close the rule as the dictionary's do: only their names are read.
+            val sourceSynonyms = snapshot.sourceSynonyms.map { DictionarySynonym(it.owner.exact(), it.name.exact(), it.targetOwner.map { o -> o.exact() }.orElse(""), it.targetName.exact(), "") }
+            val plan = IncrementalRule.plan(contents, current, declarations, digests, global, options.dictionary.synonyms + sourceSynonyms)
             val present = current.mapTo(HashSet()) { it.path }
             // A relation that is gone is touched by the rule, so the files that resolved it are walked again; one kept
             // would be a damaged cache.

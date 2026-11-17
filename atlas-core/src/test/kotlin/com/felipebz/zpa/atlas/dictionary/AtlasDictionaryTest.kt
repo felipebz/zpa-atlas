@@ -6,10 +6,14 @@
 package com.felipebz.zpa.atlas.dictionary
 
 import com.felipebz.zpa.api.project.ProjectExternalColumn
+import com.felipebz.zpa.api.project.ProjectExternalContext
 import com.felipebz.zpa.api.project.ProjectExternalDatatype
 import com.felipebz.zpa.api.project.ProjectExternalMetadata
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.atlas.extract.SynonymResolver
+import com.felipebz.zpa.project.ProjectAnalysisContext
+import com.felipebz.zpa.project.ProjectDeclarationExtractor
+import com.felipebz.zpa.project.ProjectIndexPreparation
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -76,7 +80,11 @@ class AtlasDictionaryTest {
     @Test
     fun `a synonym to a materialized view reaches it as a relation`() {
         assertThat(dictionary.kindOf(relation("OTHER", "REMOTE_MVIEW"))).isEqualTo(DictionaryRelationKind.MATERIALIZED_VIEW)
-        val target = SynonymResolver(dictionary).follow("SYN_REMOTE_MVIEW", "APP", SynonymResolver.RELATIONS)
+        // A project with no source: the dictionary alone answers.
+        val snapshot = ProjectAnalysisContext.prepared(
+            ProjectIndexPreparation.withSchemas(ProjectDeclarationExtractor(), ProjectExternalContext.of(dictionary.metadata, null)).prepare(emptyList())
+        ).withMetadata(dictionary.metadata).createSnapshot()
+        val target = SynonymResolver(dictionary) { snapshot }.follow("SYN_REMOTE_MVIEW", "APP", SynonymResolver.RELATIONS)
         assertThat(target?.let { "${it.owner}.${it.name}" }).isEqualTo("OTHER.REMOTE_MVIEW")
     }
 }

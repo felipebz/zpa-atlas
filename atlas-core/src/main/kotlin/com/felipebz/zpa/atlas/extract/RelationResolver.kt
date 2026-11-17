@@ -28,7 +28,9 @@ data class ResolvedRelation(
     val status: Status,
     val reason: String?,
     /** The relation of the dictionary, or the table created in the sources, when the lookup found it. */
-    val relation: ProjectExternalRelation?
+    val relation: ProjectExternalRelation?,
+    /** The name is a synonym of the sources that reaches no relation: its entity is the synonym, which has no column. */
+    val synonymOfNoRelation: Boolean = false
 )
 
 data class ResolvedColumn(val entityKey: String?, val status: Status, val reason: String?)
@@ -49,7 +51,8 @@ object Precedence {
  *
  * A name that is not a relation may be a synonym of a table or a view, followed to its final target in Oracle's order:
  * a synonym of the schema, then (only when the schema is complete, so that its own objects are known) a public
- * synonym. The result, and every column read through it, is the target's. A synonym of anything else (a package) is
+ * synonym. A synonym created in the sources comes first, even before a relation of the dictionary of the same owner
+ * and name. The result, and every column read through it, is the target's. A synonym of anything else (a package) is
  * not a relation.
  */
 class RelationResolver(
@@ -77,20 +80,26 @@ class RelationResolver(
             return ResolvedRelation(key, null, Status.UNVERIFIED, "SCHEMA_UNKNOWN", null)
         }
         val lookup = findRelation(schema, written.name)
-        if (lookup.status != ProjectExternalLookup.Status.FOUND && schema != AtlasDictionary.PUBLIC) {
+        // A synonym created in the sources hides the dictionary's relation of the same owner and name.
+        val hidden = synonyms.writtenInSources(schema, written.name)
+        if ((lookup.status != ProjectExternalLookup.Status.FOUND || hidden) && schema != AtlasDictionary.PUBLIC) {
             val publicAllowed = written.schema == null && lookup.status == ProjectExternalLookup.Status.RELATION_NOT_FOUND
             synonyms.follow(written.name, schema, SynonymResolver.RELATIONS, publicAllowed)?.let { return relation(it.owner, it.name) }
         }
+        // A synonym of something that is not a relation: Oracle rejects the statement, as for a dictionary synonym.
+        if (hidden) return notInDictionary(schema, written.name).copy(synonymOfNoRelation = true)
         return relation(schema, written.name, lookup)
     }
 
     /**
      * The relation a DDL statement names (`DROP TABLE`, `TRUNCATE TABLE`): Oracle does not follow a synonym there, so
-     * neither does this. Null when the name is an object of another kind: a dictionary relation whose kind is not one of
-     * [kinds], or a name whose `OBJECT_TYPE` is not one of [objectTypes]. Otherwise as [resolve] answers a relation.
+     * neither does this. Null when the name is an object of another kind: a synonym created in the sources (it hides
+     * the dictionary's relation of that name), a dictionary relation whose kind is not one of [kinds], or a name whose
+     * `OBJECT_TYPE` is not one of [objectTypes]. Otherwise as [resolve] answers a relation.
      */
     fun resolveOwn(written: WrittenRelation, unitSchema: String?, kinds: Set<DictionaryRelationKind>, objectTypes: Set<String>): ResolvedRelation? {
         val schema = written.schema ?: unitSchema ?: return resolve(written, null)
+        if (synonyms.writtenInSources(schema, written.name)) return null
         val lookup = findRelation(schema, written.name)
         if (lookup.status == ProjectExternalLookup.Status.FOUND) {
             if (dictionary.kindOf(lookup.relation.get()) !in kinds) return null
@@ -114,10 +123,7 @@ class RelationResolver(
                 addDictionaryRelation(relation)
                 ResolvedRelation(dictionaryKey(relation), schema, Status.RESOLVED, null, relation)
             }
-            ProjectExternalLookup.Status.RELATION_NOT_FOUND -> {
-                mentioned(key, EntityKind.UNKNOWN_RELATION, schema, name, null)
-                ResolvedRelation(key, schema, Status.UNRESOLVED, "NOT_IN_DICTIONARY", null)
-            }
+            ProjectExternalLookup.Status.RELATION_NOT_FOUND -> notInDictionary(schema, name)
             else -> {
                 mentioned(key, EntityKind.UNKNOWN_RELATION, schema, name, null)
                 ResolvedRelation(key, schema, Status.UNVERIFIED, null, null)
@@ -125,10 +131,18 @@ class RelationResolver(
         }
     }
 
+    private fun notInDictionary(schema: String, name: String): ResolvedRelation {
+        val key = dbKey(schema, name)
+        mentioned(key, EntityKind.UNKNOWN_RELATION, schema, name, null)
+        return ResolvedRelation(key, schema, Status.UNRESOLVED, "NOT_IN_DICTIONARY", null)
+    }
+
     fun resolveColumn(relation: ResolvedRelation, column: String): ResolvedColumn {
         val key = relation.entityKey + "." + column
         val dictionaryRelation = relation.relation
         if (dictionaryRelation == null) {
+            // A synonym holds no column: the read stays as unresolved as its relation, with no entity.
+            if (relation.synonymOfNoRelation) return ResolvedColumn(null, Status.UNRESOLVED, "RELATION_UNRESOLVED")
             mentioned(key, EntityKind.COLUMN, relation.schema, column, relation.entityKey)
             return when (relation.status) {
                 Status.EXTERNAL -> ResolvedColumn(key, Status.EXTERNAL, relation.reason)
@@ -190,10 +204,12 @@ class RelationResolver(
         }
 
         /** The entity of a dictionary synonym: `db:OWNER.NAME`, owner `PUBLIC` for a public one. */
-        fun synonymEntity(synonym: DictionarySynonym): EntityFact {
-            val key = dbKey(synonym.owner, synonym.name)
-            return EntityFact(key, EntityKind.SYNONYM, synonym.owner, synonym.name, null, "${synonym.owner}.${synonym.name}",
-                external = false, precedence = Precedence.DICTIONARY)
+        fun synonymEntity(synonym: DictionarySynonym): EntityFact = synonymEntity(synonym.owner, synonym.name, Precedence.DICTIONARY)
+
+        /** The entity of the synonym [owner].[name], whether the dictionary or the sources give it: one key for both. */
+        fun synonymEntity(owner: String, name: String, precedence: Int): EntityFact {
+            val key = dbKey(owner, name)
+            return EntityFact(key, EntityKind.SYNONYM, owner, name, null, "$owner.$name", external = false, precedence = precedence)
         }
 
         /**

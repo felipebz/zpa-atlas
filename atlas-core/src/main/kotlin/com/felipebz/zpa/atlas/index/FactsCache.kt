@@ -60,7 +60,9 @@ internal class CacheGlobal(
     val omitted: Set<String>,
     val typeMembers: Map<String, TypeSummary>,
     /** The tables created in the sources, by `SCHEMA.NAME`: the digest of their columns as zpa reads them. */
-    val sourceRelations: Map<String, String> = emptyMap()
+    val sourceRelations: Map<String, String> = emptyMap(),
+    /** The synonyms created in the sources, by `OWNER.NAME`: their target as zpa reads it. */
+    val sourceSynonyms: Map<String, String> = emptyMap()
 )
 
 internal class CacheContents(
@@ -83,7 +85,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 31
+    private const val FORMAT = 32
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -171,6 +173,7 @@ internal object FactsCache {
                 nullable(type.supertype)
             }
             map(contents.global.sourceRelations.toSortedMap())
+            map(contents.global.sourceSynonyms.toSortedMap())
             data.writeInt(contents.files.size)
             for (file in contents.files) {
                 string(file.path)
@@ -377,7 +380,7 @@ internal object FactsCache {
             val omitted = strings().toSet()
             val types = count()
             val typeMembers = buildMap { repeat(types) { put(string(), TypeSummary(string(), nullable())) } }
-            val global = CacheGlobal(preparation, schemas, omitted, typeMembers, map())
+            val global = CacheGlobal(preparation, schemas, omitted, typeMembers, map(), map())
             val files = List(count()) {
                 val path = string()
                 val sha256 = string()

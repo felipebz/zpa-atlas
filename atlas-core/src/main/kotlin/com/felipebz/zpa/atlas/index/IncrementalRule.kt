@@ -101,6 +101,11 @@ internal object IncrementalRule {
             "${relation.schema.exact()}.${relation.name.exact()}" to sha256(relation.isColumnsComplete.toString() + relation.columns.joinToString("") {
                 "|${it.name.exact()} ${it.datatype.map(ColumnDatatypes::text).orElse("?")}"
             })
+        },
+        sourceSynonyms = snapshot.sourceSynonyms.associate { synonym ->
+            "${synonym.owner.exact()}.${synonym.name.exact()}" to
+                listOfNotNull(synonym.targetOwner.orElse(null)?.exact(), synonym.targetName.exact()).joinToString(".") +
+                synonym.dbLink.map { "@" + it }.orElse("")
         }
     )
 
@@ -132,6 +137,9 @@ internal object IncrementalRule {
         touched += changedTypes(cached.global.typeMembers, global.typeMembers).map { it.substringAfterLast('.') }
         for (key in cached.global.sourceRelations.keys + global.sourceRelations.keys) {
             if (cached.global.sourceRelations[key] != global.sourceRelations[key]) touched += key.substringAfterLast('.').uppercase(Locale.ROOT)
+        }
+        for (key in cached.global.sourceSynonyms.keys + global.sourceSynonyms.keys) {
+            if (cached.global.sourceSynonyms[key] != global.sourceSynonyms[key]) touched += key.substringAfterLast('.').uppercase(Locale.ROOT)
         }
         val catalogChanged = current.filter {
             it.path !in changed && it.path !in new && it.path !in reread && before.getValue(it.path).catalogDigest != digests[it.path]

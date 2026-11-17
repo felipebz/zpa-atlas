@@ -30,7 +30,8 @@ internal class DdlTargets(
     private val resolver: RelationResolver,
     private val values: PackageValues,
     private val catalog: DeclarationCatalog,
-    private val plsql: PlSqlNames
+    private val plsql: PlSqlNames,
+    private val synonyms: SynonymResolver
 ) {
     /** The DDL statements in scope, by node type. */
     fun isDdl(node: AstNode): Boolean = node.type in STATEMENTS
@@ -108,6 +109,12 @@ internal class DdlTargets(
                 if (schema == null) return Outcome(null, Status.UNVERIFIED, "SCHEMA_UNKNOWN")
                 val synonym = dictionary.synonym(schema, names.last())
                 when {
+                    // The synonym the sources create: the entity a file that follows it records, at the sources' precedence.
+                    synonyms.writtenInSources(schema, names.last()) ->
+                        RelationResolver.synonymEntity(schema, names.last(), Precedence.SOURCE).let {
+                            state.entities += it
+                            Outcome(it.key, Status.RESOLVED, null)
+                        }
                     // The synonym itself, as the dictionary gives its entity; its target is not followed.
                     synonym != null -> RelationResolver.synonymEntity(synonym).let {
                         state.entities += it

@@ -67,7 +67,7 @@ class FileExtractor internal constructor(
     /** The names the module's code gives its own blocks, items, parameters, globals, triggers and other modules. */
     private val formsReferences = formsEntities?.let { FormsReferences(forms!!, it, state) }
 
-    private val synonyms = SynonymResolver(dictionary)
+    private val synonyms = SynonymResolver(dictionary) { snapshot }
     private lateinit var snapshot: ProjectSnapshot
     private val resolver = RelationResolver(dictionary, { snapshot }, synonyms, state.entities, state.relations)
 
@@ -174,7 +174,7 @@ class FileExtractor internal constructor(
         lineage = ViewLineage(state, scopes, columnReads, plsql)
         places = IntoClauses(state, plsql, columnReads, lineage, context::nameBinding)
         sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads, places)
-        ddl = DdlTargets(path, state, dictionary, resolver, values, catalog, plsql)
+        ddl = DdlTargets(path, state, dictionary, resolver, values, catalog, plsql, synonyms)
         val moduleUnits = formsUnits
         if (moduleUnits != null) moduleUnits.units(node) else databaseUnits(node)
         variableTexts()
