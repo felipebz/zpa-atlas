@@ -47,15 +47,14 @@ class CallBindingsTest {
             "20 pk_ov.f RESOLVED - PK_OV.F(A IN NUMBER)",
             "21 pk_ov.f RESOLVED - PK_OV.F(A IN VARCHAR2)",
             "22 pk_ov.p AMBIGUOUS AMBIGUOUS - [PK_OV.P(A IN DATE) | PK_OV.P(A IN NUMBER)]",
-            // zpa does not answer for a call written in SQL: the structural resolution stays.
-            "23 pk_ov.f AMBIGUOUS AMBIGUOUS - [PK_OV.F(A IN NUMBER) | PK_OV.F(A IN VARCHAR2)]",
+            // order_id is a NUMBER column of orders as orders.sql creates it.
+            "23 pk_ov.f RESOLVED - PK_OV.F(A IN NUMBER)",
             "24 q RESOLVED - PK_USE.Q(A IN NUMBER)@BODY",
             "25 q RESOLVED - PK_USE.Q(A IN DATE)@BODY",
             // A nested subprogram has no entity.
             "26 z UNRESOLVED LOCAL_SUBPROGRAM -",
             "27 z UNRESOLVED LOCAL_SUBPROGRAM -",
-            // Without the dictionary zpa does not know the type of `code` of the cursor's query: both overloads are kept.
-            "29 pk_ov.put AMBIGUOUS AMBIGUOUS - [PK_OV.PUT(P_V IN NUMBER) | PK_OV.PUT(P_V IN VARCHAR2)]"
+            "29 pk_ov.put RESOLVED - PK_OV.PUT(P_V IN VARCHAR2)"
         )
     }
 

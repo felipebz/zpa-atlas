@@ -5,10 +5,14 @@
 
 package com.felipebz.zpa.atlas.index
 
+import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
+import com.felipebz.zpa.api.project.ProjectIdentifier
+import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionaryKeys
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
+import com.felipebz.zpa.atlas.extract.Precedence
 import com.felipebz.zpa.atlas.extract.RelationResolver
 import com.felipebz.zpa.atlas.model.*
 import java.util.*
@@ -31,6 +35,7 @@ internal class DictionaryFacts private constructor(
          */
         fun merge(
             dictionary: AtlasDictionary,
+            snapshot: ProjectSnapshot?,
             facts: List<FileFacts>,
             globalEntities: MutableList<EntityFact>,
             globalRelations: MutableList<RelationFact>,
@@ -47,7 +52,11 @@ internal class DictionaryFacts private constructor(
                 resolved[RelationResolver.dictionaryKey(it.relation)] = it.relation
             }
             // The relations at the other end of their keys, so that both ends of a key are entities.
-            resolved += DictionaryKeys.linked(dictionary, resolved)
+            // A run without a file has no table created in the sources: the metadata alone answers.
+            val findRelation: (ProjectIdentifier, ProjectIdentifier) -> ProjectExternalLookup =
+                if (snapshot == null) dictionary.metadata::findRelation else { schema, name -> snapshot.findRelation(schema, name, dictionary.metadata) }
+            resolved += DictionaryKeys.linked(dictionary, resolved, findRelation)
+            val inSources = snapshot?.sourceRelations?.toHashSet().orEmpty()
             val globalDeclaredTexts = ArrayList<DeclaredTextFact>()
             resolved.values.forEach {
                 RelationResolver.addDictionaryRelation(
@@ -55,7 +64,8 @@ internal class DictionaryFacts private constructor(
                     it,
                     globalEntities,
                     globalRelations,
-                    globalDeclaredTexts
+                    globalDeclaredTexts,
+                    if (it in inSources) Precedence.SOURCE else Precedence.DICTIONARY
                 )
             }
             val keys = DictionaryKeys.facts(dictionary, resolved)

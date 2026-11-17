@@ -345,17 +345,17 @@ class ColumnPlacesArgumentsTest {
         val db = temp.resolve("places.db")
         Indexer().index(IndexOptions(sources, db, compilationSchema = "SHOP", dictionary = shopTables("ORDERS" to listOf("ORDER_ID" to number(10), "CODE" to varchar2(20))), threads = 1))
         // The parameter gives the place the column gives in the same position of the same target (the %ROWTYPE's columns
-        // are not known without SHORT_CODES in the dictionary, for both).
+        // are those of SHORT_CODES as the sources create it, for both).
         assertThat(Fixture.query(db, """
             SELECT p.start_line || ' ' || p.source || ' ' || coalesce(p.field, '-') || ' ' || p.class || ' ' ||
                    coalesce(p.length, -1) || ' ' || coalesce(p.reason, '-')
             FROM column_place p WHERE p.start_line BETWEEN 16 AND 21 ORDER BY p.start_line""")).containsExactly(
             "16 IN_ARGUMENT F FIXED_SIZE 3 -",
             "17 IN_ARGUMENT F FIXED_SIZE 4 -",
-            "18 IN_ARGUMENT - UNKNOWN -1 ROWTYPE_COLUMNS_UNKNOWN",
+            "18 IN_ARGUMENT C ANCHORED_ELSEWHERE -1 -",
             "19 SELECT_INTO F FIXED_SIZE 3 -",
             "20 SELECT_INTO F FIXED_SIZE 4 -",
-            "21 SELECT_INTO - UNKNOWN -1 ROWTYPE_COLUMNS_UNKNOWN"
+            "21 SELECT_INTO C ANCHORED_ELSEWHERE -1 -"
         )
         // One per call, in the caller's file: the call spec's file counts nothing.
         assertThat(Fixture.query(db, """
@@ -407,15 +407,18 @@ class ColumnPlacesArgumentsTest {
         // The dictionary lists the columns of orders, none named p_code: the name is the parameter.
         assertThat(Fixture.query(withColumns, places)).containsExactly("9 FIXED_SIZE 7 -", "10 FIXED_SIZE 8 -", "11 FIXED_SIZE 9 NVL", "12 FIXED_SIZE 10 -")
         assertThat(Fixture.query(withColumns, notes)).isEmpty()
-        // The columns not known (no dictionary; the table only in the sources, or nowhere): p_code may be a column of orders.
-        for (table in listOf(true, false)) {
-            if (table) Files.writeString(sources.resolve("orders.sql"), "create table orders (order_id number(10), code varchar2(20 byte), alt_code varchar2(20 byte));\n")
-            else Files.delete(sources.resolve("orders.sql"))
-            val withoutColumns = temp.resolve("unknown-$table.db")
-            Indexer().index(IndexOptions(sources, withoutColumns, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
-            assertThat(Fixture.query(withoutColumns, places)).containsExactly("9 FIXED_SIZE 7 -")
-            assertThat(Fixture.query(withoutColumns, notes).map { it.substringBefore(" parameter") }).containsExactly("ARGUMENT_COLUMN_POSSIBLE: 3")
-        }
+        // No dictionary, orders created only in the sources: its column list is complete, so p_code is the parameter.
+        Files.writeString(sources.resolve("orders.sql"), "create table orders (order_id number(10), code varchar2(20 byte), alt_code varchar2(20 byte));\n")
+        val inSources = temp.resolve("sources.db")
+        Indexer().index(IndexOptions(sources, inSources, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        assertThat(Fixture.query(inSources, places)).containsExactly("9 FIXED_SIZE 7 -", "10 FIXED_SIZE 8 -", "11 FIXED_SIZE 9 NVL", "12 FIXED_SIZE 10 -")
+        assertThat(Fixture.query(inSources, notes)).isEmpty()
+        // Orders nowhere: p_code may be a column of it.
+        Files.delete(sources.resolve("orders.sql"))
+        val nowhere = temp.resolve("nowhere.db")
+        Indexer().index(IndexOptions(sources, nowhere, compilationSchema = "SHOP", dictionary = AtlasDictionary.NONE, threads = 1))
+        assertThat(Fixture.query(nowhere, places)).containsExactly("9 FIXED_SIZE 7 -")
+        assertThat(Fixture.query(nowhere, notes).map { it.substringBefore(" parameter") }).containsExactly("ARGUMENT_COLUMN_POSSIBLE: 3")
     }
 
     @Test

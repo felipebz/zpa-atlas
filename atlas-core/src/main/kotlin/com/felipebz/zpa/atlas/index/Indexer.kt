@@ -118,7 +118,7 @@ class Indexer internal constructor(
         globalCoverage += read.notes
         globalCoverage += CoverageFact("CALL_SCOPE_LEGACY",
             "Calls named like a local value, type or nested subprogram are recognized through the legacy symbol table, a heuristic rather than proof of lexical scope")
-        val dictionaryFacts = DictionaryFacts.merge(options.dictionary, facts, globalEntities, globalRelations, globalCoverage)
+        val dictionaryFacts = DictionaryFacts.merge(options.dictionary, walked.snapshot, facts, globalEntities, globalRelations, globalCoverage)
         val (places, placesLeftOut) = ColumnPlaces.of(facts, globalEntities, dictionaryFacts.resolved, options.dictionary, options.nlsLengthSemantics)
 
         val texts = sources.associate { it.relativePath to it.text }

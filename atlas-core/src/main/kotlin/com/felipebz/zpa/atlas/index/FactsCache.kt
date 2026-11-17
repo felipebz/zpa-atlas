@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.index
 
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectIdentifier
+import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.extract.RelationResolver
@@ -57,7 +58,9 @@ internal class CacheGlobal(
     val schemas: Set<String>,
     /** The standalone callables whose headings produced no declaration, by qualified name. */
     val omitted: Set<String>,
-    val typeMembers: Map<String, TypeSummary>
+    val typeMembers: Map<String, TypeSummary>,
+    /** The tables created in the sources, by `SCHEMA.NAME`: the digest of their columns as zpa reads them. */
+    val sourceRelations: Map<String, String> = emptyMap()
 )
 
 internal class CacheContents(
@@ -80,7 +83,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 30
+    private const val FORMAT = 31
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -128,17 +131,19 @@ internal object FactsCache {
     }
 
     /**
-     * The facts of [file] with their dictionary relations taken back from [dictionary], the one the cache was written
-     * with.
-     *
-     * @throws DamagedCacheException when [dictionary] lacks one of them
+     * The facts of [file] with their relations taken back as [snapshot] finds them in [dictionary], the one the cache
+     * was written with, or in the tables created in the sources, and the keys of those neither has any more (a table
+     * whose `CREATE TABLE` left the sources): such a file must be walked again.
      */
-    fun withRelations(file: CachedFile, dictionary: AtlasDictionary, byKey: Map<String, ProjectExternalRelation>): FileFacts {
-        if (file.relations.isEmpty()) return file.facts
-        val relations = file.relations.map { reference ->
-            byKey[reference.key] ?: dictionary.metadata.findRelation(ProjectIdentifier.fromSource(reference.schema), ProjectIdentifier.fromSource(reference.name))
+    fun withRelations(
+        file: CachedFile, snapshot: ProjectSnapshot, dictionary: AtlasDictionary, byKey: Map<String, ProjectExternalRelation>
+    ): Pair<FileFacts, List<String>> {
+        if (file.relations.isEmpty()) return file.facts to emptyList()
+        val missing = ArrayList<String>()
+        val relations = file.relations.mapNotNull { reference ->
+            byKey[reference.key] ?: snapshot.findRelation(ProjectIdentifier.fromSource(reference.schema), ProjectIdentifier.fromSource(reference.name), dictionary.metadata)
                 .relation.orElse(null)?.takeIf { RelationResolver.dictionaryKey(it) == reference.key }
-            ?: throw DamagedCacheException("the dictionary has no relation ${reference.key}")
+            ?: run { missing += reference.key; null }
         }
         val facts = file.facts
         return FileFacts(
@@ -146,7 +151,7 @@ internal object FactsCache {
             facts.statements, facts.occurrences, facts.entities, facts.relations, facts.coverage, relations, facts.dictionarySynonyms, facts.triggerEvents,
             facts.declaredTexts, facts.docComments, facts.usesGaps, facts.membersGaps, facts.declaredShapes, facts.intos, facts.placesLeftOut, facts.kind,
             facts.formsObjects, facts.formsUses
-        )
+        ) to missing
     }
 
     private class Output(val data: DataOutputStream) {
@@ -165,6 +170,7 @@ internal object FactsCache {
                 string(type.members)
                 nullable(type.supertype)
             }
+            map(contents.global.sourceRelations.toSortedMap())
             data.writeInt(contents.files.size)
             for (file in contents.files) {
                 string(file.path)
@@ -370,7 +376,8 @@ internal object FactsCache {
             val schemas = strings().toSet()
             val omitted = strings().toSet()
             val types = count()
-            val global = CacheGlobal(preparation, schemas, omitted, buildMap { repeat(types) { put(string(), TypeSummary(string(), nullable())) } })
+            val typeMembers = buildMap { repeat(types) { put(string(), TypeSummary(string(), nullable())) } }
+            val global = CacheGlobal(preparation, schemas, omitted, typeMembers, map())
             val files = List(count()) {
                 val path = string()
                 val sha256 = string()

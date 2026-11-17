@@ -8,6 +8,7 @@ package com.felipebz.zpa.atlas.extract
 import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
 import com.felipebz.zpa.api.project.ProjectIdentifier
+import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.ColumnDatatypes
 import com.felipebz.zpa.atlas.dictionary.DictionaryRelationKind
@@ -26,7 +27,7 @@ data class ResolvedRelation(
     val schema: String?,
     val status: Status,
     val reason: String?,
-    /** The dictionary relation, when the lookup found it. */
+    /** The relation of the dictionary, or the table created in the sources, when the lookup found it. */
     val relation: ProjectExternalRelation?
 )
 
@@ -41,7 +42,8 @@ object Precedence {
 }
 
 /**
- * Resolves relation and column names against the dictionary; nothing here is shared between files. An entity a result
+ * Resolves relation and column names as zpa reads them ([ProjectSnapshot.findRelation]): the dictionary's relation, else
+ * the table created in the sources; nothing here is shared between files. An entity a result
  * refers to is added to [entities], except for dictionary relations: those are only recorded in [dictionaryRelations],
  * and the run adds their entities once, after the scan (the synonyms followed are recorded by [synonyms]).
  *
@@ -52,13 +54,14 @@ object Precedence {
  */
 class RelationResolver(
     private val dictionary: AtlasDictionary,
+    private val snapshot: () -> ProjectSnapshot,
     private val synonyms: SynonymResolver,
     private val entities: MutableList<EntityFact>,
     private val relations: MutableList<RelationFact>
 ) {
     private val found = LinkedHashMap<String, ProjectExternalRelation>()
 
-    /** The distinct dictionary relations this file resolved, by entity key, in first-resolution order. */
+    /** The distinct relations this file resolved, of the dictionary or the sources, by entity key, in first-resolution order. */
     val dictionaryRelations: Collection<ProjectExternalRelation> get() = found.values
 
     fun resolve(written: WrittenRelation, unitSchema: String?): ResolvedRelation {
@@ -73,7 +76,7 @@ class RelationResolver(
             mentioned(key, EntityKind.UNKNOWN_RELATION, null, written.name, null)
             return ResolvedRelation(key, null, Status.UNVERIFIED, "SCHEMA_UNKNOWN", null)
         }
-        val lookup = dictionary.metadata.findRelation(identifier(schema), identifier(written.name))
+        val lookup = findRelation(schema, written.name)
         if (lookup.status != ProjectExternalLookup.Status.FOUND && schema != AtlasDictionary.PUBLIC) {
             val publicAllowed = written.schema == null && lookup.status == ProjectExternalLookup.Status.RELATION_NOT_FOUND
             synonyms.follow(written.name, schema, SynonymResolver.RELATIONS, publicAllowed)?.let { return relation(it.owner, it.name) }
@@ -88,7 +91,7 @@ class RelationResolver(
      */
     fun resolveOwn(written: WrittenRelation, unitSchema: String?, kinds: Set<DictionaryRelationKind>, objectTypes: Set<String>): ResolvedRelation? {
         val schema = written.schema ?: unitSchema ?: return resolve(written, null)
-        val lookup = dictionary.metadata.findRelation(identifier(schema), identifier(written.name))
+        val lookup = findRelation(schema, written.name)
         if (lookup.status == ProjectExternalLookup.Status.FOUND) {
             if (dictionary.kindOf(lookup.relation.get()) !in kinds) return null
         } else if (dictionary.objectType(schema, written.name).let { it != null && it !in objectTypes }) {
@@ -97,12 +100,13 @@ class RelationResolver(
         return relation(schema, written.name, lookup)
     }
 
-    /** The relation `schema.name` as the dictionary [lookup] answers. */
-    private fun relation(
-        schema: String,
-        name: String,
-        lookup: ProjectExternalLookup = dictionary.metadata.findRelation(identifier(schema), identifier(name))
-    ): ResolvedRelation {
+    private fun findRelation(schema: String, name: String): ProjectExternalLookup =
+        snapshot().findRelation(identifier(schema), identifier(name), dictionary.metadata)
+
+    private fun findColumn(relation: ProjectExternalRelation, column: String): ProjectExternalLookup =
+        snapshot().findColumn(relation.schema, relation.name, identifier(column), dictionary.metadata)
+
+    private fun relation(schema: String, name: String, lookup: ProjectExternalLookup = findRelation(schema, name)): ResolvedRelation {
         val key = dbKey(schema, name)
         return when (lookup.status) {
             ProjectExternalLookup.Status.FOUND -> {
@@ -133,7 +137,7 @@ class RelationResolver(
                 else -> ResolvedColumn(key, Status.UNVERIFIED, relation.reason)
             }
         }
-        val lookup = dictionary.metadata.findColumn(dictionaryRelation.schema, dictionaryRelation.name, identifier(column))
+        val lookup = findColumn(dictionaryRelation, column)
         return when (lookup.status) {
             ProjectExternalLookup.Status.FOUND -> ResolvedColumn(relation.entityKey + "." + lookup.column.get().name.exact(), Status.RESOLVED, null)
             ProjectExternalLookup.Status.COLUMN_NOT_FOUND -> {
@@ -154,14 +158,14 @@ class RelationResolver(
      */
     fun hasColumn(relation: ResolvedRelation, column: String): Boolean? {
         val dictionaryRelation = relation.relation ?: return null
-        return when (dictionary.metadata.findColumn(dictionaryRelation.schema, dictionaryRelation.name, identifier(column)).status) {
+        return when (findColumn(dictionaryRelation, column).status) {
             ProjectExternalLookup.Status.FOUND -> true
             ProjectExternalLookup.Status.COLUMN_NOT_FOUND -> false
             else -> null
         }
     }
 
-    /** Records a dictionary relation the file refers to; its entities are emitted once per run. */
+    /** Records a relation the file refers to, of the dictionary or the sources; its entities are emitted once per run. */
     fun addDictionaryRelation(relation: ProjectExternalRelation) {
         found.putIfAbsent(dictionaryKey(relation), relation)
     }
@@ -193,23 +197,24 @@ class RelationResolver(
         }
 
         /**
-         * The relation entity of the dictionary with all its columns (`CONTAINS`), and each column's datatype
-         * ([ColumnDatatypes]) with ` NOT NULL` when the dictionary says so, as its declared text.
+         * The relation entity with all its columns (`CONTAINS`), and each column's datatype ([ColumnDatatypes]) with
+         * ` NOT NULL` when the dictionary says so, as its declared text. A table created in the sources
+         * ([Precedence.SOURCE]) has its columns' datatypes as its `CREATE TABLE` writes them, recorded by its file.
          */
         fun addDictionaryRelation(
             dictionary: AtlasDictionary, relation: ProjectExternalRelation, entities: MutableList<EntityFact>, relations: MutableList<RelationFact>,
-            declaredTexts: MutableList<DeclaredTextFact>
+            declaredTexts: MutableList<DeclaredTextFact>, precedence: Int = Precedence.DICTIONARY
         ) {
             val schema = relation.schema.exact()
             val name = relation.name.exact()
             val key = dictionaryKey(relation)
-            entities += EntityFact(key, dictionary.kindOf(relation).entityKind, schema, name, null, "$schema.$name", external = false, precedence = Precedence.DICTIONARY)
+            entities += EntityFact(key, dictionary.kindOf(relation).entityKind, schema, name, null, "$schema.$name", external = false, precedence = precedence)
             for (column in relation.columns) {
                 val columnName = column.name.exact()
                 val columnKey = "$key.$columnName"
-                entities += EntityFact(columnKey, EntityKind.COLUMN, schema, columnName, key, "$schema.$name.$columnName", external = false, precedence = Precedence.DICTIONARY)
+                entities += EntityFact(columnKey, EntityKind.COLUMN, schema, columnName, key, "$schema.$name.$columnName", external = false, precedence = precedence)
                 relations += RelationFact(key, RelationKind.CONTAINS, columnKey)
-                column.datatype.ifPresent { datatype ->
+                if (precedence == Precedence.DICTIONARY) column.datatype.ifPresent { datatype ->
                     val notNull = if (dictionary.isNotNull(schema, name, columnName)) " NOT NULL" else ""
                     declaredTexts += DeclaredTextFact(columnKey, ColumnDatatypes.text(datatype) + notNull, null, false)
                 }

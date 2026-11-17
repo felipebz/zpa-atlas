@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.dictionary
 
 import com.felipebz.zpa.api.project.ProjectExternalLookup
 import com.felipebz.zpa.api.project.ProjectExternalRelation
+import com.felipebz.zpa.api.project.ProjectIdentifier
 import com.felipebz.zpa.atlas.extract.RelationResolver
 import com.felipebz.zpa.atlas.extract.dbKey
 import com.felipebz.zpa.atlas.extract.exact
@@ -32,12 +33,14 @@ object DictionaryKeys {
      * references, the relations whose foreign keys reference one of its keys) that are not in [relations] and that the
      * dictionary read.
      */
-    fun linked(dictionary: AtlasDictionary, relations: Map<String, ProjectExternalRelation>): Map<String, ProjectExternalRelation> {
+    fun linked(
+        dictionary: AtlasDictionary, relations: Map<String, ProjectExternalRelation>, findRelation: (ProjectIdentifier, ProjectIdentifier) -> ProjectExternalLookup
+    ): Map<String, ProjectExternalRelation> {
         val result = sortedMapOf<String, ProjectExternalRelation>()
         for (key in around(dictionary, relations)) {
             val table = dbKey(key.tableOwner, key.tableName)
             if (table in relations || table in result) continue
-            val lookup = dictionary.metadata.findRelation(RelationResolver.identifier(key.tableOwner), RelationResolver.identifier(key.tableName))
+            val lookup = findRelation(RelationResolver.identifier(key.tableOwner), RelationResolver.identifier(key.tableName))
             if (lookup.status == ProjectExternalLookup.Status.FOUND) result[table] = lookup.relation.get()
         }
         return result

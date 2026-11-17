@@ -160,11 +160,8 @@ internal class IncrementalRun private constructor(
                 return full("the facts cache was written with another $it")
             }
             val byKey = options.dictionary.relations.associate { RelationResolver.dictionaryKey(it.relation) to it.relation }
-            val cached = try {
-                contents.files.associate { it.path to FactsCache.withRelations(it, options.dictionary, byKey) }
-            } catch (e: DamagedCacheException) {
-                return full("the facts cache cannot be used: ${e.message}")
-            }
+            val withRelations = contents.files.associate { it.path to FactsCache.withRelations(it, snapshot, options.dictionary, byKey) }
+            val cached = withRelations.mapValues { it.value.first }
             phases?.start(PhaseTimes.PLAN_DECLARATIONS)
             val cachedFiles = contents.files.associateBy { it.path }
             val changed = current.filter { cachedFiles[it.path]?.sha256 != it.sha256 }.map { it.path }
@@ -172,6 +169,12 @@ internal class IncrementalRun private constructor(
             val declarations = current.associate { it.path to (cachedFiles[it.path]?.takeIf { old -> old.sha256 == it.sha256 }?.declarations ?: rendered[it.path].orEmpty()) }
             phases?.start(PhaseTimes.PLAN_RULE)
             val plan = IncrementalRule.plan(contents, current, declarations, digests, global, options.dictionary.synonyms)
+            val present = current.mapTo(HashSet()) { it.path }
+            // A relation that is gone is touched by the rule, so the files that resolved it are walked again; one kept
+            // would be a damaged cache.
+            withRelations.entries.firstOrNull { (path, value) -> value.second.isNotEmpty() && path in present && path !in plan.walk }?.let { (_, value) ->
+                return full("the facts cache cannot be used: neither the dictionary nor the sources have the relation ${value.second.first()}")
+            }
             return IncrementalRun(
                 cachePath, snapshot, runCatalog, runInputs, global, current, declarations, digests, cached, plan.walk,
                 IncrementalReport(current.size, plan.walk.size, plan.changed, plan.new, plan.affected, plan.removed, null, plan.everything, plan.touched,

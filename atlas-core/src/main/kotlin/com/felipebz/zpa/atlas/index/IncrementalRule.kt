@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas.index
 
 import com.felipebz.zpa.api.project.ProjectSnapshot
+import com.felipebz.zpa.atlas.dictionary.ColumnDatatypes
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
 import com.felipebz.zpa.atlas.extract.DeclarationCatalog
 import com.felipebz.zpa.atlas.extract.ObjectTypeMembers
@@ -29,7 +30,9 @@ import kotlin.collections.ArrayDeque
  * - **the declaration catalog,** derived from the snapshot: the entity keys of every declaration (an overload key
  *   collision numbers keys across files), the body subprograms that implement a specification, and the schemas of
  *   the declared entities;
- * - **the object type members,** read from every object type spec before the walks, with their supertypes.
+ * - **the object type members,** read from every object type spec before the walks, with their supertypes;
+ * - **the tables created in the sources,** read from every `CREATE TABLE` and `ALTER TABLE`: zpa reads a relation the
+ *   dictionary lacks from them, and so do the walks.
  *
  * So a file must be walked again when its text changed, when it is new, or when one of these inputs changed in a way
  * its walk can see:
@@ -42,6 +45,7 @@ import kotlin.collections.ArrayDeque
  *   until nothing changes.
  * - **An omitted standalone callable appeared or disappeared:** its name is touched.
  * - **An object type spec changed,** or a type under it: its name is touched.
+ * - **A table created in the sources appeared, disappeared or has other columns:** its name is touched.
  * - **The catalog gives a file something else** (keys, roles, implemented specifications): that file is walked, and
  *   the names in what changed are touched: other files reach those keys through these names.
  *
@@ -92,7 +96,12 @@ internal object IncrementalRule {
         omitted = snapshot.omittedStandaloneCallables.mapTo(HashSet()) { name ->
             name.segments.joinToString(".") { it.exact() }
         },
-        typeMembers = typeMembers.summaries().mapValues { (_, summary) -> TypeSummary(summary.first, summary.second) }
+        typeMembers = typeMembers.summaries().mapValues { (_, summary) -> TypeSummary(summary.first, summary.second) },
+        sourceRelations = snapshot.sourceRelations.associate { relation ->
+            "${relation.schema.exact()}.${relation.name.exact()}" to sha256(relation.isColumnsComplete.toString() + relation.columns.joinToString("") {
+                "|${it.name.exact()} ${it.datatype.map(ColumnDatatypes::text).orElse("?")}"
+            })
+        }
     )
 
     fun plan(
@@ -121,6 +130,9 @@ internal object IncrementalRule {
         addChangedDeclarations(touched, changed + new + removed, before, declarations)
         for (name in global.omitted.symmetricDifference(cached.global.omitted)) touched += name.split('.')
         touched += changedTypes(cached.global.typeMembers, global.typeMembers).map { it.substringAfterLast('.') }
+        for (key in cached.global.sourceRelations.keys + global.sourceRelations.keys) {
+            if (cached.global.sourceRelations[key] != global.sourceRelations[key]) touched += key.substringAfterLast('.').uppercase(Locale.ROOT)
+        }
         val catalogChanged = current.filter {
             it.path !in changed && it.path !in new && it.path !in reread && before.getValue(it.path).catalogDigest != digests[it.path]
         }

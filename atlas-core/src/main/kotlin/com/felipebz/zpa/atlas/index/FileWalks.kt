@@ -39,7 +39,9 @@ internal class FileWalks(
         val run: IncrementalRun?,
         val globalEntities: ArrayList<EntityFact>,
         val globalRelations: ArrayList<RelationFact>,
-        val globalCoverage: ArrayList<CoverageFact>
+        val globalCoverage: ArrayList<CoverageFact>,
+        /** The run's project snapshot; null when the run has no file. */
+        val snapshot: ProjectSnapshot?
     )
 
     /**
@@ -118,10 +120,11 @@ internal class FileWalks(
             globalRelations += it.relations
             globalCoverage += it.coverage
         }
-        (catalogHolder.snapshot ?: run?.snapshot)?.failures?.forEach {
+        val snapshot = catalogHolder.snapshot ?: run?.snapshot
+        snapshot?.failures?.forEach {
             globalCoverage += CoverageFact("PREPARATION_FAILED", "Project index preparation failed for ${it.fileId}")
         }
-        return Walked(facts, failedFiles, run, globalEntities, globalRelations, globalCoverage)
+        return Walked(facts, failedFiles, run, globalEntities, globalRelations, globalCoverage, snapshot)
     }
 
     /**

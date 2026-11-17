@@ -68,7 +68,8 @@ class FileExtractor internal constructor(
     private val formsReferences = formsEntities?.let { FormsReferences(forms!!, it, state) }
 
     private val synonyms = SynonymResolver(dictionary)
-    private val resolver = RelationResolver(dictionary, synonyms, state.entities, state.relations)
+    private lateinit var snapshot: ProjectSnapshot
+    private val resolver = RelationResolver(dictionary, { snapshot }, synonyms, state.entities, state.relations)
 
     // The collaborators of the walk, created when it starts (they need the file's legacy symbol table).
     private lateinit var triggers: Triggers
@@ -125,7 +126,7 @@ class FileExtractor internal constructor(
     internal class UnitDefinition(val entityKey: String, val span: SourceSpan, val inBody: Boolean, val node: AstNode)
 
     override fun init() {
-        val snapshot = projectAnalysis().snapshot
+        snapshot = projectAnalysis().snapshot
         catalog = catalogOf(snapshot)
         runSchemas = catalog.schemas + dictionary.schemas + schemas.all + setOf("SYS", "SYSTEM")
         // One preferred snapshot per unit schema, shared by every lookup by name of the file.
@@ -500,10 +501,10 @@ class FileExtractor internal constructor(
         return key
     }
 
-    /** The dictionary relation of a view written in the sources, or null when the dictionary does not find it. */
+    /** The relation of a view written in the sources, as zpa finds it, or null when it does not. */
     private fun dictionaryView(written: List<String>, schema: String?): ProjectExternalRelation? {
         if (written.isEmpty() || schema == null) return null
-        val lookup = dictionary.metadata.findRelation(RelationResolver.identifier(schema), RelationResolver.identifier(written.last()))
+        val lookup = snapshot.findRelation(RelationResolver.identifier(schema), RelationResolver.identifier(written.last()), dictionary.metadata)
         if (lookup.status != ProjectExternalLookup.Status.FOUND) return null
         val relation = lookup.relation.get()
         resolver.addDictionaryRelation(relation)
