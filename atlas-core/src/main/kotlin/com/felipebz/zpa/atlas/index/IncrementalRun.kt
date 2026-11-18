@@ -241,6 +241,12 @@ internal class IncrementalRun private constructor(
                 add("object types ${objectTypes.size}")
                 objectTypes.values.map { Rendering().render(it) }.sorted().forEach(::add)
             }
+            // The subprograms, every overload; a dictionary without them keeps the checksum it had.
+            val subprograms = Rendering.field(metadata, "subprograms") as Map<*, *>
+            if (subprograms.isNotEmpty()) {
+                add("subprograms ${subprograms.size}")
+                subprograms.values.flatMap { it as List<*> }.map { Rendering().render(it) }.sorted().forEach(::add)
+            }
             add("enumerable ${dictionary.enumerable}")
             dictionary.relations.map { RelationResolver.dictionaryKey(it.relation) + " " + it.kind }.sorted().forEach(::add)
             add("schemas ${dictionary.schemas.sorted()}")

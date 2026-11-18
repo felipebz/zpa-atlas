@@ -29,9 +29,10 @@ class DictionaryFieldsTest {
             "metadata", "relations", "enumerable", "schemas", "synonyms", "objects", "keys", "notNull", "seesEveryTable", "lengthSemantics", "kinds",
             "synonymsByName", "synonymTargetTypes", "keysByName", "keysByTable", "referencingKeys"
         )
-        // Covered: origin (its acquisition time aside), completeSchemas, relations, objects, synonyms, objectTypes, isPublicSynonymsComplete.
+        // Covered: origin (its acquisition time aside), completeSchemas, relations, objects, synonyms, objectTypes, subprograms,
+        // isPublicSynonymsComplete. Derived: subprogramObjects.
         assertThat(fields(ProjectExternalMetadata::class.java)).containsExactlyInAnyOrder(
-            "origin", "completeSchemas", "relations", "objects", "synonyms", "objectTypes", "isPublicSynonymsComplete"
+            "origin", "completeSchemas", "relations", "objects", "synonyms", "objectTypes", "subprograms", "subprogramObjects", "isPublicSynonymsComplete"
         )
         // Covered: schema, name, isColumnsComplete, columns, rowObjectType, isView. Derived: qualifiedName, rowFields, byName.
         assertThat(fields(ProjectExternalRelation::class.java)).containsExactlyInAnyOrder(
