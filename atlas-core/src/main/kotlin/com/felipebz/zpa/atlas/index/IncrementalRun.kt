@@ -235,6 +235,12 @@ internal class IncrementalRun private constructor(
                 entries.values.map { it.toString() }.sorted().forEach(::add)
             }
             add("public synonyms complete ${metadata.isPublicSynonymsComplete}")
+            // The object types, with what each declares; a dictionary without them keeps the checksum it had.
+            val objectTypes = Rendering.field(metadata, "objectTypes") as Map<*, *>
+            if (objectTypes.isNotEmpty()) {
+                add("object types ${objectTypes.size}")
+                objectTypes.values.map { Rendering().render(it) }.sorted().forEach(::add)
+            }
             add("enumerable ${dictionary.enumerable}")
             dictionary.relations.map { RelationResolver.dictionaryKey(it.relation) + " " + it.kind }.sorted().forEach(::add)
             add("schemas ${dictionary.schemas.sorted()}")
