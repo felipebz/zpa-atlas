@@ -10,6 +10,7 @@ import com.felipebz.zpa.api.*
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
 import com.felipebz.zpa.api.project.*
+import com.felipebz.zpa.api.semantics.DeclaredType
 import com.felipebz.zpa.api.semantics.NameDeclarationKind
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.forms.FormsLayout
@@ -158,7 +159,7 @@ class FileExtractor internal constructor(
             if (declaration.containerKey == null) continue
             bound.add(NameDeclarationKind.PARAMETER, declaration.span.startLine, declaration.span.startCol, declaration.entityKey)
         }
-        bodyGlobals = BodyGlobals(state, bound, context::recordFields)
+        bodyGlobals = BodyGlobals(state, bound) { (context.declaredType(it) as? DeclaredType.Record)?.fields }
         formsUnits = forms?.let { FormsUnits(it, formsEntities!!, state, bound, bodyGlobals, fileSchema, unitDefinitions, ::walk) }
         fields = FieldUses(state, catalog, path, NameRoles(state), context::fieldBinding, context::nameBinding, bodyGlobals::fieldAt, forms != null)
         val sequences = projectAnalysis()

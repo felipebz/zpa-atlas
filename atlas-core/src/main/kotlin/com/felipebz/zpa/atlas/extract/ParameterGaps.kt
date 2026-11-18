@@ -7,8 +7,8 @@ package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
+import com.felipebz.zpa.api.semantics.Uncertainty
 import com.felipebz.zpa.api.semantics.UsageEvidence
-import com.felipebz.zpa.api.semantics.UsageUncertainty
 import com.felipebz.zpa.atlas.model.UsesGapFact
 
 /**
@@ -22,9 +22,9 @@ internal object ParameterGaps {
 
     /** The gap of the parameter [entityKey] declared by [node] (a `PARAMETER_DECLARATION` or `CURSOR_PARAMETER_DECLARATION`), or null. */
     fun of(
-        entityKey: String, node: AstNode, usageEvidence: (AstNode) -> UsageEvidence, regionUncertainty: (AstNode) -> Set<UsageUncertainty>?
+        entityKey: String, node: AstNode, usageEvidence: (AstNode) -> UsageEvidence, regionUncertainty: (AstNode) -> Set<Uncertainty>?
     ): UsesGapFact? {
-        val reasons = sortedSetOf<UsageUncertainty>()
+        val reasons = sortedSetOf<Uncertainty>()
         (usageEvidence(node) as? UsageEvidence.Unknown)?.let { reasons += it.reasons }
         if (node.type == PlSqlGrammar.PARAMETER_DECLARATION) {
             var subprogram = node.parentOrNull

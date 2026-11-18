@@ -153,7 +153,7 @@ data class DocCommentFact(val entityKey: String, val inBody: Boolean, val shape:
 
 /**
  * The recorded uses of [entityKey] may be incomplete ([com.felipebz.zpa.atlas.extract.BodyGlobals.gaps]): [reasons]
- * names, as zpa's `UsageUncertainty`, what may hold the uses the index could not record.
+ * names, as zpa's `Uncertainty`, what may hold the uses the index could not record.
  */
 data class UsesGapFact(val entityKey: String, val reasons: List<String>)
 

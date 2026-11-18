@@ -10,8 +10,8 @@ import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.semantics.DeclaredField
 import com.felipebz.zpa.api.semantics.NameDeclarationKind
+import com.felipebz.zpa.api.semantics.Uncertainty
 import com.felipebz.zpa.api.semantics.UsageEvidence
-import com.felipebz.zpa.api.semantics.UsageUncertainty
 import com.felipebz.zpa.atlas.model.*
 
 /**
@@ -194,10 +194,10 @@ internal class BodyGlobals(
      * Left out: a name in SQL that may be a column (the index records it, `UNVERIFIED`), and visibility outside the file
      * (a body global has none). A global zpa proves unused, or whose uses it decided in a complete body, has no gap.
      */
-    fun gaps(usageEvidence: (AstNode) -> UsageEvidence, regionUncertainty: (AstNode) -> Set<UsageUncertainty>?): List<UsesGapFact> {
-        val bodies = HashMap<AstNode, Set<UsageUncertainty>>()
+    fun gaps(usageEvidence: (AstNode) -> UsageEvidence, regionUncertainty: (AstNode) -> Set<Uncertainty>?): List<UsesGapFact> {
+        val bodies = HashMap<AstNode, Set<Uncertainty>>()
         return declared.mapNotNull { global ->
-            val reasons = sortedSetOf<UsageUncertainty>()
+            val reasons = sortedSetOf<Uncertainty>()
             (usageEvidence(global.node) as? UsageEvidence.Unknown)?.let { reasons += it.reasons }
             reasons += bodies.getOrPut(global.body) { regionUncertainty(global.body).orEmpty() }
             reasons -= NOT_GAPS
@@ -248,7 +248,7 @@ internal class BodyGlobals(
         }
 
         /** What the index records anyway, or what cannot apply to a name of the file: never a gap. */
-        val NOT_GAPS = setOf(UsageUncertainty.SQL_NAME_MAY_BE_COLUMN, UsageUncertainty.VISIBLE_OUTSIDE_FILE)
+        val NOT_GAPS = setOf(Uncertainty.SQL_NAME_MAY_BE_COLUMN, Uncertainty.VISIBLE_OUTSIDE_FILE)
 
         /** The declarations of a type in a declare section. */
         private val TYPE_DECLARATIONS = setOf(
