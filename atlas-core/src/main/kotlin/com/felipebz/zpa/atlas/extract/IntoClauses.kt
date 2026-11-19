@@ -36,9 +36,10 @@ internal class IntoClauses(
     private val plsql: PlSqlNames,
     private val columnReads: ColumnReads,
     private val lineage: ViewLineage,
-    private val nameBinding: (AstNode) -> NameBinding
+    private val nameBinding: (AstNode) -> NameBinding,
+    isNotTextName: (AstNode) -> Boolean
 ) {
-    private val expressions = ExpressionShapes(plsql, state, nameBinding)
+    private val expressions = ExpressionShapes(plsql, state, nameBinding, isNotTextName)
     private val queryItems = SelectItems(plsql, columnReads, lineage, nameBinding, expressions)
     private val intoTargets = IntoTargets(state, plsql, nameBinding)
     private val cursors = CursorOpens(state)
@@ -68,10 +69,10 @@ internal class IntoClauses(
         val cursor: AstNode?, val targets: List<AstNode>, val fetch: AstNode? = null
     )
 
-    /** An assignment of a record's [field], or of an [expression] of it; with [several], of several fields, [field] the first. */
+    /** An assignment of a record's [field], or of an [expression] of it; with [several], the shape of an expression of several fields, [field] the first. */
     private class Assignment(
         val target: AstNode, val site: SourceSpan, val field: AstNode, val expression: AstNode?, val functions: List<String>, val context: Context,
-        val several: Boolean = false
+        val several: String? = null
     )
 
     /**
@@ -293,11 +294,14 @@ internal class IntoClauses(
             // Several fields, each followed on its own: a part of a concatenation (`r.code || r.note`), an argument NVL may
             // give back (`nvl(r.code, r.note)`), the replacement of a REPLACE. A place for each, once per chain; a field
             // not followed (`to_char(r.amount)`) is counted once, by the shape the value would have with only that field;
-            // one only tested (the first argument of NVL2) gives nothing.
-            // When none is followed, the expression is counted by its shape.
+            // one only tested or compared (NVL2's first argument, a DECODE's expression, a CASE's condition) gives nothing.
+            // When none is followed, the expression is counted by its shape, as one field when the others are only compared.
             val chains = fields.map { f -> f to expressions.valueChain(value) { it === f } }
             if (chains.all { it.second == null }) {
-                assignments += Assignment(node.firstChild, spanOf(node.children[at]), fields.first(), value, emptyList(), context, several = true)
+                val given = fields.filter { !expressions.inTestedArgument(value, it) }
+                assignments += if (given.size == 1) Assignment(node.firstChild, spanOf(node.children[at]), given.single(), value, emptyList(), context)
+                    else Assignment(node.firstChild, spanOf(node.children[at]), fields.first(), value, emptyList(), context,
+                        several = expressions.severalShape(value, fields))
                 return
             }
             for ((f, chain) in followed(chains)) assignments += Assignment(node.firstChild, spanOf(node.children[at]), f, null, chain, context)
@@ -396,8 +400,9 @@ internal class IntoClauses(
             // An expression of several fields, each followed on its own as an assignment's are; when none is, counted by
             // its shape when the first is of a row record.
             val chains = fields.map { f -> f to expressions.valueChain(argument) { it === f } }
-            if (chains.all { it.second == null }) {
-                passes += Pass(argument, null, fields.first(), emptyList(), parameter, reason, context, null, call, PlaceShapes.SEVERAL_COLUMNS + expressions.expressionShape(argument))
+            if (chains.all { it.second == null } && fields.count { !expressions.inTestedArgument(argument, it) } != 1) {
+                passes += Pass(argument, null, fields.first(), emptyList(), parameter, reason, context, null, call,
+                    PlaceShapes.SEVERAL_COLUMNS + expressions.severalShape(argument, fields))
             }
             for ((f, chain) in followed(chains)) passes += Pass(argument, null, f, chain, parameter, reason, context, null, call)
         }
@@ -770,7 +775,7 @@ internal class IntoClauses(
      */
     private fun assignmentShape(assignment: Assignment): String? {
         val expression = assignment.expression ?: return null
-        return if (assignment.several) PlaceShapes.SEVERAL_COLUMNS + expressions.expressionShape(expression) else expressions.valueShape(expression, { it === assignment.field })
+        return assignment.several?.let { PlaceShapes.SEVERAL_COLUMNS + it } ?: expressions.valueShape(expression, { it === assignment.field })
     }
 
     /** A column, or a record's field, passed to a routine's `IN` parameter ([pass]); null for a field of no row record. */

@@ -26,7 +26,7 @@ object PlaceShapes {
     const val SEVERAL_COLUMNS = "SEVERAL_COLUMNS_"
 
     /** The shapes of the value functions whose count is split by where following the value stops (`NVL_TO_CHAR`). */
-    val SPLIT_SHAPES = setOf("NVL", "NVL2", "OTHER_COALESCE")
+    val SPLIT_SHAPES = setOf("NVL", "NVL2", "OTHER_COALESCE", "DECODE", "CASE")
 
     /**
      * Marks a parameter of a routine whose body is not PL/SQL ([com.felipebz.zpa.atlas.extract.IntoClauses.routine]); never

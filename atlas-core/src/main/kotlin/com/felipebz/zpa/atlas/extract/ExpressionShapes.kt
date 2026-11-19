@@ -19,7 +19,9 @@ import com.felipebz.zpa.atlas.model.*
 internal class ExpressionShapes(
     private val plsql: PlSqlNames,
     private val state: FileState,
-    private val nameBinding: (AstNode) -> NameBinding
+    private val nameBinding: (AstNode) -> NameBinding,
+    /** Whether a name is of a known type that is not text: numeric or date. */
+    private val isNotTextName: (AstNode) -> Boolean
 ) {
     /**
      * The value functions [expression] reads one value through, outer first, down to the node [isValue] accepts; null
@@ -30,7 +32,9 @@ internal class ExpressionShapes(
      * `REPLACE` and `REGEXP_REPLACE` give back their first argument with text taken out or put in, and put their
      * replacement text (the third) into other text, as a concatenation does. The search text or pattern, the position,
      * occurrence and match arguments of `REGEXP_REPLACE`, and the start and length of `SUBSTR`, never land in the value
-     * ([inDroppedArgument]). Exactly one of the arguments that may be the value must lead to the node.
+     * ([inDroppedArgument]). `DECODE` gives back one of its results or its default ([decodeResults]), `CASE` one of its
+     * `THEN` or its `ELSE`; what they compare never lands in the value ([inTestedArgument]). Exactly one of the
+     * arguments that may be the value must lead to the node.
      */
     fun valueChain(expression: AstNode, isValue: (AstNode) -> Boolean): List<String>? {
         val node = unbracketed(expression)
@@ -47,8 +51,27 @@ internal class ExpressionShapes(
                     ?.let { listOf(CONCATENATED) + it }
 
             PlSqlGrammar.METHOD_CALL -> callChain(node, isValue)
+            PlSqlGrammar.CASE_EXPRESSION -> chainThrough("CASE", caseResults(node), isValue)
             else -> null
         }
+    }
+
+    /**
+     * The results a `DECODE` of [arguments] may give back: each result and the default. Null when its first result is of
+     * a known type that is not text: Oracle gives every result the type of the first, never the text of a column.
+     */
+    private fun decodeResults(arguments: List<AstNode>): List<AstNode>? {
+        if (arguments.size < 3 || isNotText(unbracketed(arguments[2]))) return null
+        return arguments.filterIndexed { index, _ -> index >= 2 && (index % 2 == 0 || index == arguments.size - 1) }
+    }
+
+    /** Whether [node] is of a known type that is not text: a numeric literal, arithmetic, or a numeric or date name. */
+    private fun isNotText(node: AstNode): Boolean =
+        ExpressionValues.of(node).kind == ValueKind.NUMBER || node.type in ARITHMETIC || plsql.nameSegments(node) != null && isNotTextName(node)
+
+    /** The `THEN` and `ELSE` expressions of the `CASE` [case]: the selector and the conditions are only compared. */
+    private fun caseResults(case: AstNode): List<AstNode> = case.children.filterIndexed { index, _ ->
+        index > 0 && case.children[index - 1].type.let { it == PlSqlKeyword.THEN || it == PlSqlKeyword.ELSE }
     }
 
     /** [node], its brackets taken off (`((x))` is `x`). */
@@ -116,18 +139,20 @@ internal class ExpressionShapes(
         "NVL2" -> arguments.takeIf { it.size == 3 }?.drop(1)
         "MAX", "MIN", "UPPER", "LOWER", "TRIM" -> arguments.takeIf { it.size == 1 }
         "LTRIM", "RTRIM" -> arguments.takeIf { it.size in 1..2 }?.take(1)
+        "DECODE" -> decodeResults(arguments)
         else -> null
     }
 
     /**
      * Where following one value down from [expression] stops, the value being the node [isValue] accepts: through the
      * value functions [valueChain] follows, the first function or operator that is no such function, by its shape
-     * ([stopShape]: `TO_CHAR`, `OTHER_DECODE`, `OTHER_CASE`, `OTHER_LPAD`); `CONDITION` when the value is only in
-     * the first argument of `NVL2`, `OTHER_ARGUMENT` when it is only in another argument a value function does not give
+     * ([stopShape]: `TO_CHAR`, `OTHER_DECODE`, `OTHER_LPAD`); `CONDITION` when the value is only in the first argument
+     * of `NVL2`, or only compared by the outer `DECODE` or `CASE` (`DECODE_CONDITION` by one inside it), `OTHER_ARGUMENT` when it is only in another argument a value function does not give
      * back, `SEVERAL_ARGUMENTS` when it is in more than one argument it may give back. [reached] names the stop when the
      * value itself is reached.
      */
     private fun stopOf(expression: AstNode, isValue: (AstNode) -> Boolean, reached: () -> String): String {
+        val top = unbracketed(expression)
         var node = expression
         while (true) {
             node = unbracketed(node)
@@ -136,7 +161,11 @@ internal class ExpressionShapes(
             val leading = candidates.filter { candidate -> subtree(candidate).any(isValue) }
             node = when (leading.size) {
                 1 -> leading.single()
-                0 -> return if (function == "NVL2") "CONDITION" else "OTHER_ARGUMENT"
+                0 -> return when (function) {
+                    "NVL2" -> "CONDITION"
+                    "DECODE", "CASE" -> if (node === top) "CONDITION" else "${function}_CONDITION"
+                    else -> "OTHER_ARGUMENT"
+                }
                 else -> return "SEVERAL_ARGUMENTS"
             }
         }
@@ -168,6 +197,7 @@ internal class ExpressionShapes(
 
         PlSqlGrammar.CONCATENATION_EXPRESSION -> "CONCATENATION" to node.children.filter { it.type != PlSqlGrammar.CONCATENATION_OPERATOR }
         PlSqlGrammar.METHOD_CALL -> valueCallArguments(node)
+        PlSqlGrammar.CASE_EXPRESSION -> "CASE" to caseResults(node)
         else -> null
     }
 
@@ -240,35 +270,57 @@ internal class ExpressionShapes(
         return false
     }
 
-    /** Whether [node], inside [expression], is in the first argument of an `NVL2`, which is only tested: its value never lands in the result. */
+    /**
+     * Whether [node], inside [expression], is only tested or compared, its value never landing in the result: in the
+     * first argument of `NVL2`, the expression or a search value of a `DECODE` [valueChain] follows, the selector or a
+     * condition of a `CASE`.
+     */
     fun inTestedArgument(expression: AstNode, node: AstNode): Boolean =
-        generateSequence(node) { it.parentOrNull }.takeWhile { it !== expression }.any { argument ->
-            argument.type == PlSqlGrammar.ARGUMENT && argument.parentOrNull?.parentOrNull?.let { call ->
-                call.type == PlSqlGrammar.METHOD_CALL && calledName(call) == "NVL2" && argument.parent.getChildren(PlSqlGrammar.ARGUMENT).firstOrNull() === argument
-            } == true
+        generateSequence(node) { it.parentOrNull }.takeWhile { it !== expression }.any { part ->
+            val parent = part.parentOrNull
+            when {
+                parent?.type == PlSqlGrammar.CASE_EXPRESSION -> caseResults(parent).none { it === part }
+                part.type == PlSqlGrammar.ARGUMENT -> parent?.parentOrNull?.takeIf { it.type == PlSqlGrammar.METHOD_CALL }?.let { call ->
+                    val arguments = parent.getChildren(PlSqlGrammar.ARGUMENT)
+                    when (calledName(call)) {
+                        "NVL2" -> arguments.firstOrNull() === part
+                        "DECODE" -> decodeResults(arguments.map { it.lastChild })?.none { it === part.lastChild } == true
+                        else -> false
+                    }
+                } == true
+                else -> false
+            }
         }
+
+    /**
+     * The shape of [expression], an expression of several [values] none of which is followed: where following stops
+     * when each is only compared (`DECODE_CONDITION`, [inTestedArgument]), else its shape.
+     */
+    fun severalShape(expression: AstNode, values: List<AstNode>): String =
+        if (values.all { inTestedArgument(expression, it) }) valueShape(expression, { node -> values.any { it === node } })
+        else expressionShape(expression)
 
     /** [node] and every node under it. */
     fun subtree(node: AstNode): Sequence<AstNode> = sequenceOf(node) + node.children.asSequence().flatMap(::subtree)
 
     /**
-     * The shape of an expression a parameter or a function's result ([value]) is written within: as [valueShape] says it, apart from a `CASE`
-     * (which may give the value back as is) and `LENGTH` and its kin (which give a number, not the value).
+     * The shape of an expression a parameter or a function's result ([value]) is written within: as [valueShape] says it,
+     * apart from `LENGTH` and its kin (which give a number, not the value).
      */
     fun argumentShape(expression: AstNode, value: AstNode): String {
         val node = unbracketed(expression)
-        if (node.type == PlSqlGrammar.CASE_EXPRESSION) return "CASE"
         if (node.type == PlSqlGrammar.METHOD_CALL && calledName(node) in LENGTH_FUNCTIONS) return "LENGTH"
         return valueShape(expression, { it === value })
     }
 
     /**
      * The outer function or operator of an expression item: `NVL`, `NVL2`, `UPPER`, `TRIM`, `SUBSTR`, `MAX_MIN`,
-     * `TO_CHAR`, `CONCATENATION`, `OTHER`.
+     * `TO_CHAR`, `CONCATENATION`, `CASE`, `DECODE` (one [valueChain] follows; else `OTHER_DECODE`), `OTHER`.
      */
     fun expressionShape(expression: AstNode): String {
         val node = unbracketed(expression)
         if (node.type == PlSqlGrammar.CONCATENATION_EXPRESSION) return "CONCATENATION"
+        if (node.type == PlSqlGrammar.CASE_EXPRESSION) return "CASE"
         val function = if (node.type == PlSqlGrammar.METHOD_CALL) plsql.nameSegments(node.firstChild)?.last()
             ?.uppercase() else node.tokenValue.uppercase()
         return when (function) {
@@ -279,6 +331,7 @@ internal class ExpressionShapes(
             "SUBSTR", "SUBSTRB" -> "SUBSTR"
             "MAX", "MIN" -> "MAX_MIN"
             "TO_CHAR" -> "TO_CHAR"
+            "DECODE" -> if (argumentValues(node)?.let(::decodeResults) != null) "DECODE" else "OTHER_" + otherShape(node)
             else -> "OTHER_" + otherShape(node)
         }
     }

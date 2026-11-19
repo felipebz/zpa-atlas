@@ -64,7 +64,9 @@ class ColumnPlacesSeveralColumnsTest {
             "42 w11 ORDERS.NOTE SELECT_INTO UPPER,NVL",
             "43 w12 ORDERS.CODE SELECT_INTO MAX,NVL",
             "43 w12 ORDERS.NOTE SELECT_INTO MAX,NVL",
-            // w13, a DECODE: none. w14, the same column through two arguments: a row per chain.
+            // w13, a DECODE: its result note, the code it compares gives nothing. w14, the same column through two
+            // arguments: a row per chain.
+            "44 w13 ORDERS.NOTE SELECT_INTO DECODE",
             "45 w14 ORDERS.CODE SELECT_INTO NVL",
             "45 w14 ORDERS.CODE SELECT_INTO NVL,LOWER",
             "46 tv ORDERS.CODE SELECT_INTO NVL",
@@ -84,7 +86,6 @@ class ColumnPlacesSeveralColumnsTest {
             "ARGUMENT_ROUTINE_OUTSIDE: 2",                       // put_line(r.code || r.note) once, as put_line(r.code)
             "EXPRESSION_CONCATENATION: 1",                       // w8, as code || to_char(amount) alone
             "EXPRESSION_NVL_TO_CHAR: 1",                         // w7
-            "EXPRESSION_SEVERAL_COLUMNS_OTHER_DECODE: 1",        // w13
             "RECORD_ASSIGNMENT_EXPRESSION_CONCATENATION: 1"      // a3
         )
     }

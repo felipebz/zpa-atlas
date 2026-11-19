@@ -10,8 +10,7 @@ import com.felipebz.zpa.api.*
 import com.felipebz.zpa.api.checks.PlSqlCheck
 import com.felipebz.zpa.api.dynamicsql.DynamicSqlText
 import com.felipebz.zpa.api.project.*
-import com.felipebz.zpa.api.semantics.DeclaredType
-import com.felipebz.zpa.api.semantics.NameDeclarationKind
+import com.felipebz.zpa.api.semantics.*
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.forms.FormsLayout
 import com.felipebz.zpa.atlas.model.*
@@ -173,7 +172,7 @@ class FileExtractor internal constructor(
         typeReferences = TypeReferences(state, types, resolver, calls, plsql, bound, fields, jsonBuiltIn, formsNames)
         val columnReads = ColumnReads(state, resolver, scopes, plsql, context::columnBinding, context::nameBinding)
         lineage = ViewLineage(state, scopes, columnReads, plsql)
-        places = IntoClauses(state, plsql, columnReads, lineage, context::nameBinding)
+        places = IntoClauses(state, plsql, columnReads, lineage, context::nameBinding, ::isNotTextName)
         sql = SqlStatements(state, resolver, scopes, plsql, typeReferences, triggers, columnReads, places)
         ddl = DdlTargets(path, state, dictionary, resolver, values, catalog, plsql, synonyms)
         val moduleUnits = formsUnits
@@ -476,6 +475,57 @@ class FileExtractor internal constructor(
             member.children.firstOrNull { it.type == PlSqlGrammar.PROCEDURE_DECLARATION || it.type == PlSqlGrammar.FUNCTION_DECLARATION }
         PlSqlGrammar.TYPE_CONSTRUCTOR -> member
         else -> null
+    }
+
+    /**
+     * Whether a name is of a known type that is not text: a column, or a parameter or variable SQL cannot take as a
+     * column, of a numeric or date type, written out or reached through `%TYPE` or a field of a `%ROWTYPE` record.
+     */
+    private fun isNotTextName(name: AstNode): Boolean {
+        val binding = context.columnBinding(name)
+        if (binding is ColumnBinding.Column) return binding.column?.datatype?.let(::isNotText) == true
+        (context.valueCategory(name) as? ValueCategory.Scalar)?.let { return isNotText(it) }
+        if (binding !is ColumnBinding.PlSqlName) return false
+        if (name.type == PlSqlGrammar.MEMBER_EXPRESSION) {
+            // A field of a record anchored to a relation's row: the relation's column of that name.
+            if (name.numberOfChildren != 3) return false
+            val relation = (localType(name.firstChild) as? DeclaredType.Anchored)?.description?.lookup?.orElse(null)
+                ?.takeIf { it.status == ProjectExternalLookup.Status.FOUND }?.relation?.orElse(null) ?: return false
+            val field = normalizeIdentifier(name.lastChild.tokenOriginalValue)
+            return relation.columns.firstOrNull { it.name.exact() == field }?.datatype?.let(::isNotText) == true
+        }
+        return when (val type = localType(name)) {
+            // A column's %TYPE, followed through the values anchored to it.
+            is DeclaredType.Anchored -> type.description.lookup.orElse(null)?.takeIf { it.status == ProjectExternalLookup.Status.FOUND }
+                ?.column?.orElse(null)?.datatype?.let(::isNotText) == true
+            null -> false
+            else -> (type.category as? ValueCategory.Scalar)?.let(::isNotText) == true
+        }
+    }
+
+    private fun isNotText(datatype: java.util.Optional<ProjectExternalDatatype>): Boolean =
+        datatype.flatMap { it.category }.orElse(null).let { it == ProjectBuiltInTypeCategory.NUMERIC || it == ProjectBuiltInTypeCategory.DATE }
+
+    private fun isNotText(category: ValueCategory.Scalar): Boolean =
+        category.family == ScalarFamily.NUMERIC || category.family == ScalarFamily.DATETIME
+
+    /** The declared type of the parameter or variable of the file the name [name] binds to; null for any other name. */
+    private fun localType(name: AstNode): DeclaredType? {
+        val declaration = when (val binding = context.nameBinding(name)) {
+            is NameBinding.Local -> binding.declaration
+            is NameBinding.ColumnOrLocal -> binding.declaration
+            else -> return null
+        }
+        return localDatatypes[declaration.line to declaration.column]?.let(context::declaredType)
+    }
+
+    /** The written datatype of each parameter and variable of the file, by the start of its name. */
+    private val localDatatypes: Map<Pair<Int, Int>, AstNode> by lazy {
+        root?.getDescendants(PlSqlGrammar.PARAMETER_DECLARATION, PlSqlGrammar.VARIABLE_DECLARATION).orEmpty().mapNotNull { declaration ->
+            val name = declaration.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME) ?: return@mapNotNull null
+            val datatype = declaration.getFirstChildOrNull(PlSqlGrammar.DATATYPE) ?: return@mapNotNull null
+            (name.token.line to name.token.column) to datatype
+        }.toMap()
     }
 
     private fun subprogramAt(node: AstNode): String? = catalog.subprogramAt(path, node.token.line, node.token.column)

@@ -501,7 +501,6 @@ class ColumnPlacesArgumentsTest {
             "ARGUMENT_COLUMN_NOT_KNOWN_CURSOR: 1",                      // r_spec, a cursor declared with no query
             "ARGUMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1",                   // z.lit, a literal
             "ARGUMENT_COLUMN_NOT_KNOWN_STAR: 1",                        // s.code, select * from a table not known
-            "ARGUMENT_EXPRESSION_CASE: 1",
             "ARGUMENT_EXPRESSION_LENGTH: 1",
             "ARGUMENT_EXPRESSION_TO_CHAR: 1"
         )

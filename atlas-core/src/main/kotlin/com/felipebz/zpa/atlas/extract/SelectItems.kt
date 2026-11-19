@@ -94,24 +94,21 @@ internal class SelectItems(
         // A column read only where it never lands in the value (the search text of a REPLACE) is not read into the target.
         val kept = reads.mapValues { (_, nodes) -> nodes.filter { !expressions.inDroppedArgument(expression, it) } }.filterValues { it.isNotEmpty() }
         if (kept.isEmpty() && reads.isNotEmpty()) return QueryItem(name, null, null, notColumn = "NO_COLUMN")
-        if (kept.size > 1) {
-            return eachRead(name, expression, kept) ?: QueryItem(name, null, null, combined = expressions.expressionShape(expression))
-        }
         if (kept.isEmpty()) return QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
-        var leaf: String? = null
-        val functions = expressions.valueChain(expression) { node ->
-            plsql.nameSegments(node) != null && column(node)?.also {
-                leaf = it
-            } != null
+        // A column only compared (a DECODE's expression, a CASE's condition, NVL2's first argument) never lands in the value.
+        val given = kept.filterValues { nodes -> nodes.any { !expressions.inTestedArgument(expression, it) } }
+        if (given.isEmpty() && kept.size > 1) return QueryItem(name, null, null, combined = expressions.severalShape(expression, kept.values.flatten()))
+        if (given.size > 1) {
+            return eachRead(name, expression, given) ?: QueryItem(name, null, null, combined = expressions.expressionShape(expression))
         }
-        if (functions != null && leaf != null) return QueryItem(name, leaf, null, functions = functions)
+        val key = given.keys.singleOrNull() ?: kept.keys.single()
+        fun isKey(node: AstNode) = plsql.nameSegments(node) != null && column(node) == key
+        val functions = expressions.valueChain(expression, ::isKey)
+        if (functions != null) return QueryItem(name, key, null, functions = functions)
         // The column read more than once, each where the value may come from (`nvl(code, lower(code))`): each read.
-        if (kept.values.single().size > 1) eachRead(name, expression, kept)?.let { return it }
-        return QueryItem(
-            name,
-            null,
-            expressions.valueShape(expression, { node -> plsql.nameSegments(node) != null && column(node) != null })
-        )
+        val nodes = kept.getValue(key)
+        if (nodes.size > 1) eachRead(name, expression, mapOf(key to nodes))?.let { return it }
+        return QueryItem(name, null, expressions.valueShape(expression, ::isKey))
     }
 
     /**

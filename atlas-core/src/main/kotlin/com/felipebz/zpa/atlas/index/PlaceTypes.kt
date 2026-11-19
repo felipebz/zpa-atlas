@@ -261,7 +261,8 @@ internal class PlaceTypes(
             item == null -> if (items.any { it.opaque }) "STAR" else "OTHER"
             item.expression != null -> "EXPRESSION_${item.expression}"
             // Several columns: the split families say so, as one column says where following stops.
-            item.combined != null -> "EXPRESSION_${item.combined}" + if (item.combined in PlaceShapes.SPLIT_SHAPES) "_SEVERAL_COLUMNS" else ""
+            item.combined != null -> "EXPRESSION_${item.combined}" +
+                if (PlaceShapes.SPLIT_SHAPES.any { item.combined == it || item.combined.startsWith(it + "_") }) "_SEVERAL_COLUMNS" else ""
             else -> item.notColumn ?: "OTHER"
         }
     }
