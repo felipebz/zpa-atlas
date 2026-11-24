@@ -47,6 +47,7 @@ internal class IntoClauses(
     private val pending = ArrayList<Pending>()
     private val assignments = ArrayList<Assignment>()
     private val valueWrites = ArrayList<ValueWrite>()
+    private val fieldReads = ArrayList<FieldRead>()
     private val passes = ArrayList<Pass>()
     private val flows = ArrayList<Flow>()
     private val callArguments = ArrayList<CallArgument>()
@@ -79,7 +80,14 @@ internal class IntoClauses(
      * A value written in PL/SQL: assigned to [target] (`target := value`, at the `:=`), or returned (null [target]). The
      * routine's `IN` parameters it writes are told once the file is left, when its calls are known ([writeFlows]).
      */
-    private class ValueWrite(val value: AstNode, val site: SourceSpan, val target: AstNode?, val context: Context, val sql: Boolean = false)
+    private class ValueWrite(
+        val value: AstNode, val site: SourceSpan, val target: AstNode?, val context: Context, val sql: Boolean = false, val bulk: Boolean = false
+    )
+
+    private class FieldRead(
+        val field: AstNode, val site: SourceSpan, val functions: List<String>, val context: Context, val target: AstNode? = null,
+        val parameter: String? = null, val reason: String? = null, val call: SourceSpan? = null
+    )
 
     /**
      * A column, or a record's field, passed to a routine's `IN` parameter ([parameterKey], null when the call does not
@@ -113,7 +121,8 @@ internal class IntoClauses(
      * followed, counted by [reason].
      */
     private data class ResultDestination(
-        val target: AstNode? = null, val passedTo: String? = null, val reason: String? = null, val argumentOf: SourceSpan? = null
+        val target: AstNode? = null, val passedTo: String? = null, val reason: String? = null, val argumentOf: SourceSpan? = null,
+        val around: List<String> = emptyList(), val bulk: Boolean = false
     )
 
     /** An argument for an `OUT` or `IN OUT` parameter ([parameterKey]) of the [call] at that span. */
@@ -180,8 +189,8 @@ internal class IntoClauses(
             selectedParameters(statement, values, into)
             // A function called in a select item: its result is written into the item's target.
             val targets = targetsOf(into)
-            if (!isBulk(into) && targets.size == values.size) {
-                for ((index, value) in values.withIndex()) valueWrites += ValueWrite(value, spanOf(value), targets[index], statement.context, sql = true)
+            if (targets.size == values.size) {
+                for ((index, value) in values.withIndex()) valueWrites += ValueWrite(value, spanOf(value), targets[index], statement.context, sql = true, bulk = isBulk(into))
             }
         }
     }
@@ -200,8 +209,10 @@ internal class IntoClauses(
     /** The parameters the cursor query [root] selects: what a FETCH reads of them is not followed. */
     private fun fetchedParameters(statement: Statement, root: AstNode) {
         for (block in branches(root)) for (column in block.getChildren(DmlGrammar.SELECT_COLUMN)) {
+            val calls = expressions.followedCalls(column.firstChild)
             for (name in parameterNames(column.firstChild)) {
-                if (queryItems.columnOf(statement, name) == null) flows += Flow(name, spanOf(column), statement.context, shape = ARGUMENT_FETCHED)
+                if (queryItems.columnOf(statement, name) == null && !expressions.inCall(column.firstChild, name, calls))
+                    flows += Flow(name, spanOf(column), statement.context, shape = ARGUMENT_FETCHED)
             }
         }
     }
@@ -216,7 +227,7 @@ internal class IntoClauses(
         val targets = targetsOf(into)
         val single = targets.size == 1
         for ((index, value) in values.withIndex()) {
-            for ((name, functions) in parameterChains(value, parameterNames(value).filter { queryItems.columnOf(statement, it) == null })) {
+            for ((name, functions) in parameterChains(value, selectedNames(statement, value))) {
                 flows += when {
                     functions == null -> Flow(name, spanOf(value), statement.context, shape = PlaceShapes.ARGUMENT_EXPRESSION + expressions.argumentShape(value, name))
                     !single && targets.size != values.size -> Flow(name, spanOf(value), statement.context, shape = ARGUMENT_INTO_NOT_FOLLOWED)
@@ -225,6 +236,11 @@ internal class IntoClauses(
                 }
             }
         }
+    }
+
+    private fun selectedNames(statement: Statement, value: AstNode): List<AstNode> {
+        val calls = expressions.followedCalls(value)
+        return parameterNames(value).filter { queryItems.columnOf(statement, it) == null && !expressions.inCall(value, it, calls) }
     }
 
     /**
@@ -313,6 +329,7 @@ internal class IntoClauses(
         val functions = expressions.valueChain(value) { it === field }
         assignments += Assignment(node.firstChild, spanOf(node.children[at]), field, if (functions == null) value else null,
             functions.orEmpty(), context)
+        if (functions != null) fieldReads += FieldRead(field, spanOf(node.children[at]), functions, context, target = node.firstChild)
     }
 
     /** The fields of [chains] that are followed, with their chain: once per field, as written, and chain. */
@@ -408,7 +425,10 @@ internal class IntoClauses(
         }
         val field = fields.singleOrNull()
         if (field != null) {
-            expressions.valueChain(argument) { it === field }?.let { passes += Pass(argument, null, field, it, parameter, reason, context, null, call) }
+            expressions.valueChain(argument) { it === field }?.let {
+                passes += Pass(argument, null, field, it, parameter, reason, context, null, call)
+                fieldReads += FieldRead(field, spanOf(argument), it, context, parameter = parameter, reason = reason, call = call)
+            }
             return
         }
         for (name in parameterNames(argument)) {
@@ -493,12 +513,12 @@ internal class IntoClauses(
         if (target == null && passedTo == null && reason == null) return
         for ((call, result) in resultCalls(value, called)) {
             if (expressions.inDroppedArgument(value, call)) continue
-            val chain = expressions.valueChain(value) { it === call }
+            val chain = expressions.valueChain(value) { it === call }?.let { to.around + it }
             val of = spanOf(call)
             flows += when {
                 chain == null -> Flow(call, site, context, shape = RETURNED_EXPRESSION + expressions.argumentShape(value, call), fromKey = result, resultOf = of)
                 reason != null -> Flow(call, site, context, shape = reason, fromKey = result, resultOf = of)
-                target != null -> Flow(call, site, context, target = target, functions = chain, fromKey = result, resultOf = of)
+                target != null -> Flow(call, site, context, target = target, functions = chain, fromKey = result, resultOf = of, bulk = to.bulk)
                 else -> Flow(call, site, context, passedTo = passedTo, functions = chain, fromKey = result, resultOf = of, call = argumentOf)
             }
         }
@@ -635,7 +655,22 @@ internal class IntoClauses(
                 }
                 passes += Pass(argument, column, null, functions, parameter, reason, statement.context, statement.id, spanOf(call))
                 }
+                sqlPassedParameters(statement, call, occurrence, argument)
             }
+        }
+    }
+
+    private fun sqlPassedParameters(statement: Statement, call: AstNode, occurrence: OccurrenceFact, argument: AstNode) {
+        val parameter = occurrence.arguments.firstOrNull { it.span == spanOf(argument) }?.parameterKey
+        val reason = when {
+            occurrence.entityKey == null || occurrence.status !in CALLED_STATUSES -> unresolvedCall(occurrence) ?: return
+            parameter == null -> notTied(occurrence)
+            else -> null
+        }
+        for (name in parameterNames(argument).filter { queryItems.columnOf(statement, it) == null }) {
+            val functions = expressions.valueChain(argument) { it === name } ?: continue
+            flows += if (reason == null) Flow(name, spanOf(argument), statement.context, passedTo = parameter, functions = functions, call = spanOf(call))
+                else Flow(name, spanOf(argument), statement.context, shape = reason)
         }
     }
 
@@ -685,7 +720,13 @@ internal class IntoClauses(
         val routineCalls = state.occurrences.filter { Role.CALL in it.roles && it.entityKey != null }.mapTo(HashSet()) { it.span }
         val called = state.occurrences.filter { Role.CALL in it.roles && it.entityKey != null && it.status in CALLED_STATUSES }
             .associateBy { it.span }
-        for (write in valueWrites) writeFlows(write, bySpan, shapes, called, routineCalls)
+        for (write in valueWrites + fetchedWrites(shapes, bySpan)) writeFlows(write, bySpan, shapes, called, routineCalls)
+        for (read in fieldReads) {
+            val item = intoTargets.loopItem(read.field, shapes) ?: continue
+            val reason = read.reason ?: ARGUMENT_NOT_TIED.takeIf { read.target == null && read.parameter == null }
+            val to = ResultDestination(target = read.target, passedTo = read.parameter, reason = reason, argumentOf = read.call, around = read.functions)
+            resultFlows(item, read.site, read.context, to, called)
+        }
         // The results of the functions an argument calls, passed to the parameter.
         for (argument in callArguments) {
             val reason = argument.reason ?: ARGUMENT_NOT_TIED.takeIf { argument.parameter == null }
@@ -702,6 +743,15 @@ internal class IntoClauses(
         return intos
     }
 
+    private fun fetchedWrites(shapes: TypeShapes, bySpan: Map<SourceSpan, List<OccurrenceFact>>): List<ValueWrite> = pending.flatMap { into ->
+        val cursor = into.cursor?.takeIf { into.source == PlaceSource.FETCH && bySpan[spanOf(it)].isNullOrEmpty() } ?: return@flatMap emptyList()
+        val query = intoTargets.local(cursor, shapes)?.takeIf { it.type == PlSqlGrammar.CURSOR_DECLARATION }
+            ?.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION) ?: return@flatMap emptyList()
+        val values = branches(query).firstOrNull()?.getChildren(DmlGrammar.SELECT_COLUMN)?.map { it.firstChild }.orEmpty()
+        if (values.size != into.targets.size) return@flatMap emptyList()
+        values.zip(into.targets).map { (value, target) -> ValueWrite(value, spanOf(target), target, into.context, sql = true, bulk = into.bulk) }
+    }
+
     /**
      * The `INTO` [into] with its targets decided, and the items of its cursor for a `FETCH`: those of the `OPEN`s of a
      * cursor variable that may run last before it, else those of the cursor's own query. Null when no such `OPEN` is
@@ -714,7 +764,7 @@ internal class IntoClauses(
         val opens = variable?.let { cursors.reachingOpens(into.fetch!!, it) }.orEmpty()
         if (opens.isNotEmpty()) return openedFetch(into, opens, targets, shapes)
         val cursor = into.cursor
-            ?: return intoFact(into, targets, into.branches)
+            ?: return if (into.source == PlaceSource.SELECT_INTO) followedIntoFact(into, targets, into.branches) else intoFact(into, targets, into.branches)
         val cursorKey = bySpan[spanOf(cursor)]?.firstOrNull()?.entityKey
         if (cursorKey != null) {
             val (kind, type) = cursors.cursorKind(cursor, shapes)
@@ -728,15 +778,21 @@ internal class IntoClauses(
             val (kind, type) = cursors.cursorKind(cursor, shapes)
             return intoFact(into, targets, emptyList(), statementId = null, cursorKind = kind, cursorType = type)
         }
-        return intoFact(into, targets, listOf(items))
+        return followedIntoFact(into, targets, listOf(items))
     }
 
     /** The [IntoFact] of [into], its [targets] decided, reading the items [branches] of [statementId], or the cursor [cursorKey]. */
     private fun intoFact(
         into: Pending, targets: List<IntoTarget>, branches: List<List<QueryItem>>, statementId: Int? = into.statementId, cursorKey: String? = null,
         cursorKind: String? = null, cursorType: String? = null
-    ) = IntoFact(into.source, into.bulk, into.context.unitIndex, into.context.container, statementId, branches, cursorKey, targets,
-        cursorKind = cursorKind, cursorType = cursorType)
+    ) = IntoFact(into.source, into.bulk, into.context.unitIndex, into.context.container, statementId, branches.map { items -> items.map { it.copy(routine = false) } },
+        cursorKey, targets, cursorKind = cursorKind, cursorType = cursorType)
+
+    /** [into] reading [branches] whose items' function results it writes into its targets, one item per target. */
+    private fun followedIntoFact(into: Pending, targets: List<IntoTarget>, branches: List<List<QueryItem>>): IntoFact =
+        intoFact(into, targets, emptyList()).copy(branches = branches.map { items ->
+            if (items.size == into.targets.size) items else items.map { it.copy(routine = false) }
+        })
 
     /**
      * The `FETCH` [into] from a cursor variable, its [targets] decided, that [opens] may have opened: the items of each
@@ -802,7 +858,7 @@ internal class IntoClauses(
     ) {
         // A returned value goes to what the function around it returns.
         val returned = if (write.target == null) enclosingReturn(write.value) ?: return else null
-        resultFlows(write.value, write.site, write.context, ResultDestination(target = write.target, passedTo = returned), called)
+        resultFlows(write.value, write.site, write.context, ResultDestination(target = write.target, passedTo = returned, bulk = write.bulk), called)
         if (write.sql) return
         val names = writtenParameters(write, routineCalls)
         for ((name, functions) in parameterChains(write.value, names)) {

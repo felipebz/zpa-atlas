@@ -85,7 +85,7 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 32
+    private const val FORMAT = 33
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -298,7 +298,7 @@ internal object FactsCache {
         }
 
         fun item(item: QueryItem) {
-            nullable(item.name); nullable(item.columnKey); nullable(item.expression); data.writeBoolean(item.opaque); strings(item.functions); nullable(item.combined); list(item.parts) { item(it) }; nullable(item.notColumn)
+            nullable(item.name); nullable(item.columnKey); nullable(item.expression); data.writeBoolean(item.opaque); strings(item.functions); nullable(item.combined); list(item.parts) { item(it) }; nullable(item.notColumn); data.writeBoolean(item.routine)
         }
 
         /** An `INTO` target, or the record of an assignment. */
@@ -468,7 +468,7 @@ internal object FactsCache {
             ) to dictionaryRelations
         }
 
-        fun item(): QueryItem = QueryItem(nullable(), nullable(), nullable(), data.readBoolean(), strings(), nullable(), list { item() }, nullable())
+        fun item(): QueryItem = QueryItem(nullable(), nullable(), nullable(), data.readBoolean(), strings(), nullable(), list { item() }, nullable(), data.readBoolean())
 
         fun target(): IntoTarget =
             IntoTarget(span(), string(), nullable(), strings(), data.readBoolean(), if (data.readBoolean()) shape() else null, nullable(), nullable(), nullable())

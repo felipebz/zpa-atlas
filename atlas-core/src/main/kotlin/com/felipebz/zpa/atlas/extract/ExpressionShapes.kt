@@ -300,6 +300,32 @@ internal class ExpressionShapes(
         if (values.all { inTestedArgument(expression, it) }) valueShape(expression, { node -> values.any { it === node } })
         else expressionShape(expression)
 
+    /**
+     * The calls in [expression] of a function the index follows into and out of (a routine it resolves, which ties the
+     * call's arguments to its parameters) whose result is the value, as is or through value functions ([valueChain]):
+     * what such a call is passed goes into the function, and what it gives back out through its `RETURN`.
+     */
+    fun followedCalls(expression: AstNode): List<AstNode> =
+        subtree(expression).filter { node ->
+            node.type == PlSqlGrammar.METHOD_CALL && isFollowedFunction(node) && valueChain(expression) { it === node } != null
+        }.toList()
+
+    /**
+     * Whether [node], inside [expression], is what one of [calls] is passed, as is or through value functions: the value
+     * the function receives. A value passed to another call first (`f(g(code))`) is not.
+     */
+    fun inCall(expression: AstNode, node: AstNode, calls: List<AstNode>): Boolean {
+        val argument = generateSequence(node.parentOrNull) { it.parentOrNull }.takeWhile { it !== expression.parentOrNull }.firstOrNull { ancestor ->
+            ancestor.type == PlSqlGrammar.ARGUMENT && calls.any { it === ancestor.parentOrNull?.parentOrNull }
+        } ?: return false
+        return valueChain(argument.lastChild) { it === node } != null
+    }
+
+    private fun isFollowedFunction(call: AstNode): Boolean =
+        state.occurrencesAt(spanOf(call.firstChild)).any {
+            Role.CALL in it.roles && it.entityKey?.let(ROUTINE_KEY::containsMatchIn) == true && it.status in CALLED_STATUSES
+        }
+
     /** [node] and every node under it. */
     fun subtree(node: AstNode): Sequence<AstNode> = sequenceOf(node) + node.children.asSequence().flatMap(::subtree)
 
@@ -403,5 +429,9 @@ internal class ExpressionShapes(
             PlSqlGrammar.EXPONENTIATION_EXPRESSION
         )
         private val WORD = Regex("[A-Z][A-Z0-9_]*")
+
+        private val ROUTINE_KEY = Regex("""\)(@BODY)?(#\d+)?$""")
+
+        private val CALLED_STATUSES = setOf(Status.RESOLVED, Status.PARTIAL_SOURCE)
     }
 }

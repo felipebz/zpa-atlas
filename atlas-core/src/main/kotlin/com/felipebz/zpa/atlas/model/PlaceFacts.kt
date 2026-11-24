@@ -82,7 +82,12 @@ data class QueryItem(
      * reads no column of a table or view: a literal, a PL/SQL value, `ROWNUM`, a function of those), `COLUMN_UNRESOLVED`
      * (a column the index cannot resolve) or `INLINE_VIEW` (a column of an inline view); null for any other item.
      */
-    val notColumn: String? = null
+    val notColumn: String? = null,
+    /**
+     * The item is the result of a function the index follows (`pk.fmt(code)`), and so are the columns it passes there:
+     * followed into the function and out through its `RETURN` from where the item is read, never counted at the item.
+     */
+    val routine: Boolean = false
 )
 
 /**

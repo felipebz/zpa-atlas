@@ -230,10 +230,9 @@ class ColumnPlacesArgumentsTest {
             "29 CODE l FIXED_SIZE varchar2(12) - P_ASSIGN(P_CODE IN VARCHAR2).P_CODE 2 fmt.sql:47"
             // f_filter only compares its parameter: no place.
         )
-        // What each function returns into n or l is counted once, as an expression of the column; f_return returns its
-        // parameter, which reaches l as the function's result.
-        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1").map { it.substringBefore(" ") })
-            .containsExactly("EXPRESSION_OTHER_ROUTINE:")
+        // What each function returns into n or l is followed through the function, not counted at the item; f_return
+        // returns its parameter, which reaches l as the function's result.
+        assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1")).isEmpty()
         assertThat(Fixture.query(db, "SELECT p.start_line || ' ' || p.target_written || ' ' || p.class FROM column_place p WHERE p.source = 'RETURNED'"))
             .containsExactly("49 l FIXED_SIZE")
     }

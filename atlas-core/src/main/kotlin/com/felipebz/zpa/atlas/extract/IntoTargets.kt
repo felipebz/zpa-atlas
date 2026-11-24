@@ -216,6 +216,32 @@ internal class IntoTargets(
         return whole.copy(span = spanOf(name), written = writtenText(name), path = emptyList())
     }
 
+    /**
+     * The select item a field of a cursor `FOR` loop's record names ([field], `r.code`): of the loop's own query, or of the
+     * query of the cursor of this file it opens. Null for any other field, or when no item has that name.
+     */
+    fun loopItem(field: AstNode, shapes: TypeShapes): AstNode? {
+        val declaration = (nameBinding(field.firstChild) as? NameBinding.Local)?.declaration
+            ?.takeIf { it.kind == NameDeclarationKind.LOOP_INDEX && it.fileId == null } ?: return null
+        val iterator = shapes.iterand(declaration.line, declaration.column)?.parentOrNull ?: return null
+        val query = iterator.getFirstDescendantOrNull(DmlGrammar.SELECT_EXPRESSION) ?: loopCursor(iterator, shapes)
+            ?.getFirstChildOrNull(DmlGrammar.SELECT_EXPRESSION) ?: return null
+        val block = query.getFirstChildOrNull(DmlGrammar.QUERY_BLOCK) ?: return null
+        val wanted = normalizeIdentifier(field.lastChild.tokenOriginalValue)
+        return block.getChildren(DmlGrammar.SELECT_COLUMN).firstOrNull { column ->
+            val alias = column.children.drop(1).lastOrNull { it.type == PlSqlGrammar.IDENTIFIER_NAME }
+            val written = alias?.tokenOriginalValue ?: column.firstChild.takeIf { it.type == PlSqlGrammar.VARIABLE_NAME || it.type == PlSqlGrammar.MEMBER_EXPRESSION }
+                ?.lastChild?.tokenOriginalValue ?: column.firstChild.tokenOriginalValue.takeIf { column.firstChild.numberOfChildren == 0 }
+            written != null && normalizeIdentifier(written) == wanted
+        }?.firstChild
+    }
+
+    private fun loopCursor(iterator: AstNode, shapes: TypeShapes): AstNode? {
+        var cursor = iterator.children.dropWhile { it.type != PlSqlKeyword.IN }.drop(1).firstOrNull() ?: return null
+        while (cursor.type != PlSqlGrammar.VARIABLE_NAME && cursor.type != PlSqlGrammar.MEMBER_EXPRESSION) cursor = cursor.firstChildOrNull ?: return null
+        return local(cursor, shapes)?.takeIf { it.type == PlSqlGrammar.CURSOR_DECLARATION } ?: enclosingCursor(iterator, cursor)
+    }
+
     /** The row of a cursor `FOR` loop's record: its query's items, or the cursor it opens (`for r in c`, `for r in c(1)`). */
     private fun loopRow(
         iterator: AstNode,

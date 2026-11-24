@@ -117,7 +117,7 @@ class SubstrPlacesTest {
             end;
             /
         """.trimIndent() + "\n")
-        // Still counted: the column passed to a routine in SQL (its result is followed), and SUBSTRC.
+        // The column passed to a routine in SQL is followed through it, not counted; SUBSTRC is still counted.
         Files.writeString(sources.resolve("pk_left.sql"), """
             create or replace procedure show_left(p_id number) is
               x1 varchar2(5 char); x2 varchar2(5 char);
@@ -234,6 +234,6 @@ class SubstrPlacesTest {
     fun `a SUBSTR not followed for another reason is still counted`() {
         assertThat(Fixture.query(db, "SELECT message FROM coverage_note WHERE kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY message")
             .map { it.substringBefore(" ") + " " + it.substringAfter(": ").substringBefore(" ") })
-            .containsExactly("EXPRESSION_OTHER_SUBSTRC: 1", "EXPRESSION_SUBSTR: 1")
+            .containsExactly("EXPRESSION_OTHER_SUBSTRC: 1")
     }
 }

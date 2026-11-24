@@ -239,8 +239,11 @@ internal class PlaceTypes(
      * - `STAR`: the cursor's `*` over a relation whose columns are not known (`select * from missing_tab`);
      * - `NO_COLUMN`, `COLUMN_UNRESOLVED`, `INLINE_VIEW`: the item, by [QueryItem.notColumn];
      * - `OTHER`: anything else.
+     *
+     * Null for an item that is the result of a function the index follows ([QueryItem.routine]) of a cursor loop's own
+     * row (its query, or a cursor of the file): its value is followed from where the field is read.
      */
-    fun notKnown(prefix: String, row: Node.Shape, name: String?): String {
+    fun notKnown(prefix: String, row: Node.Shape, name: String?): String? {
         val items = when (val shape = row.shape) {
             is TypeShape.CursorRow -> shape.items
             is TypeShape.Anchored -> {
@@ -257,6 +260,7 @@ internal class PlaceTypes(
             else -> return prefix + "OTHER"
         }
         val item = items.firstOrNull { it.name == name }
+        if (item?.routine == true && row.shape is TypeShape.CursorRow) return null
         return prefix + when {
             item == null -> if (items.any { it.opaque }) "STAR" else "OTHER"
             item.expression != null -> "EXPRESSION_${item.expression}"

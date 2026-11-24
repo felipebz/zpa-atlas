@@ -124,9 +124,11 @@ internal class DirectPlaces(private val types: PlaceTypes, private val lengths: 
     ) {
         for ((index, item) in known.withIndex()) {
             val target = if (record) into.targets[0] else into.targets.getOrNull(index) ?: break
-            if (item.expression != null) leftOut.merge("EXPRESSION_${item.expression}", 1, Int::plus)
+            // A function's result is followed by the INTO itself, except from a cursor of another unit.
+            val counted = !item.routine || into.cursorKey != null
+            if (item.expression != null && counted) leftOut.merge("EXPRESSION_${item.expression}", 1, Int::plus)
             // An expression of several columns that gives no place (`nvl(code, note)`): counted by its shape.
-            if (item.combined != null) leftOut.merge(
+            if (item.combined != null && counted) leftOut.merge(
                 "EXPRESSION_${PlaceShapes.SEVERAL_COLUMNS}${item.combined}",
                 1,
                 Int::plus
@@ -158,13 +160,9 @@ internal class DirectPlaces(private val types: PlaceTypes, private val lengths: 
         }
         val column = types.field(row, null, into.rowField).first as? Node.Column
         when {
-            column == null -> leftOut.merge(
-                types.notKnown(
-                    PlaceShapes.RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN,
-                    row,
-                    into.rowField
-                ), 1, Int::plus
-            )
+            // A field that is a function's result is followed through the function; an expression of it is counted.
+            column == null -> (types.notKnown(PlaceShapes.RECORD_ASSIGNMENT_COLUMN_NOT_KNOWN, row, into.rowField)
+                ?: into.expression?.let { RECORD_ASSIGNMENT_EXPRESSION + it })?.let { leftOut.merge(it, 1, Int::plus) }
 
             into.expression != null -> leftOut.merge(RECORD_ASSIGNMENT_EXPRESSION + into.expression, 1, Int::plus)
             else -> for ((key, functions) in column.all) places += place(

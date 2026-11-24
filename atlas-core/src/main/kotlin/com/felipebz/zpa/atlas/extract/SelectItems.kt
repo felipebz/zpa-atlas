@@ -92,9 +92,21 @@ internal class SelectItems(
             visit(expression)
         }
         // A column read only where it never lands in the value (the search text of a REPLACE) is not read into the target.
-        val kept = reads.mapValues { (_, nodes) -> nodes.filter { !expressions.inDroppedArgument(expression, it) } }.filterValues { it.isNotEmpty() }
-        if (kept.isEmpty() && reads.isNotEmpty()) return QueryItem(name, null, null, notColumn = "NO_COLUMN")
-        if (kept.isEmpty()) return QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
+        val landing = reads.mapValues { (_, nodes) -> nodes.filter { !expressions.inDroppedArgument(expression, it) } }.filterValues { it.isNotEmpty() }
+        if (landing.isEmpty() && reads.isNotEmpty()) return QueryItem(name, null, null, notColumn = "NO_COLUMN")
+        if (landing.isEmpty()) return QueryItem(name, null, null, notColumn = notColumn(statement, expression, block))
+        // A column passed to a function the index follows, whose result is the value, is followed through that function.
+        val calls = expressions.followedCalls(expression)
+        val kept = if (calls.isEmpty()) landing
+            else landing.mapValues { (_, nodes) -> nodes.filter { !expressions.inCall(expression, it, calls) } }.filterValues { it.isNotEmpty() }
+        // Counted as before where the reader does not follow the function's result.
+        if (kept.isEmpty()) return readItem(name, expression, landing, emptyList(), ::column).copy(routine = true)
+        return readItem(name, expression, kept, calls, ::column)
+    }
+
+    private fun readItem(
+        name: String?, expression: AstNode, kept: Map<String, List<AstNode>>, calls: List<AstNode>, column: (AstNode) -> String?
+    ): QueryItem {
         // A column only compared (a DECODE's expression, a CASE's condition, NVL2's first argument) never lands in the value.
         val given = kept.filterValues { nodes -> nodes.any { !expressions.inTestedArgument(expression, it) } }
         if (given.isEmpty() && kept.size > 1) return QueryItem(name, null, null, combined = expressions.severalShape(expression, kept.values.flatten()))
@@ -102,7 +114,7 @@ internal class SelectItems(
             return eachRead(name, expression, given) ?: QueryItem(name, null, null, combined = expressions.expressionShape(expression))
         }
         val key = given.keys.singleOrNull() ?: kept.keys.single()
-        fun isKey(node: AstNode) = plsql.nameSegments(node) != null && column(node) == key
+        fun isKey(node: AstNode) = plsql.nameSegments(node) != null && column(node) == key && !expressions.inCall(expression, node, calls)
         val functions = expressions.valueChain(expression, ::isKey)
         if (functions != null) return QueryItem(name, key, null, functions = functions)
         // The column read more than once, each where the value may come from (`nvl(code, lower(code))`): each read.
@@ -152,8 +164,9 @@ internal class SelectItems(
     /** The names being followed through views, against a `WITH` that reads itself. */
     private val following: MutableSet<AstNode> = Collections.newSetFromMap(IdentityHashMap())
 
+    // A function's result read through a view is not followed.
     private fun slotItem(statement: Statement, slot: Slot): QueryItem = when (slot) {
-        is Slot.Item -> item(statement, slot.column.firstChild, null)
+        is Slot.Item -> item(statement, slot.column.firstChild, null).copy(routine = false)
         is Slot.Star -> QueryItem(slot.name, slot.key, null)
         else -> QueryItem(slot.name, null, null, notColumn = "NO_COLUMN")
     }

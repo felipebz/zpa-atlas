@@ -93,8 +93,7 @@ class ColumnPlacesReturnsTest {
         )
         assertThat(Fixture.query(db, "SELECT f.path || ' ' || n.message FROM coverage_note n JOIN source_file f ON f.id = n.file_id WHERE n.kind = 'COLUMN_VALUE_NOT_FOLLOWED' ORDER BY 1")
             .map { it.substringBefore(": ") + ": " + it.substringAfter(": ").substringBefore(" ") }).containsExactly(
-            "show_more.sql RETURNED_NOT_SCALAR: 1",         // r := f_rec(1), a record
-            "show_ret.sql EXPRESSION_OTHER_ROUTINE: 1"      // c14's item: order_id passed to f_get, as today
+            "show_more.sql RETURNED_NOT_SCALAR: 1"          // r := f_rec(1), a record; c14's item is followed through f_get
         )
     }
 

@@ -298,7 +298,7 @@ internal class RoutineFlow(
         val row = types.rowRecord(into.row) ?: return null
         val column = types.field(row, null, into.rowField).first as? Node.Column
         if (column == null) {
-            count(path, types.notKnown(PlaceShapes.ARGUMENT_COLUMN_NOT_KNOWN, row, into.rowField))
+            types.notKnown(PlaceShapes.ARGUMENT_COLUMN_NOT_KNOWN, row, into.rowField)?.let { count(path, it) }
             return null
         }
         return column.all.map { (key, functions) -> key to (into.functions + functions) }

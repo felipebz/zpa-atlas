@@ -121,7 +121,6 @@ class ColumnPlacesValueTextTest {
             "EXPRESSION_NVL_DECODE_CONDITION: 1",                    // v4: the DECODE only compares code
             "EXPRESSION_NVL_OTHER_ARITHMETIC: 2",                    // v17: the + around max(order_id), not MAX; v11's subquery
             "EXPRESSION_NVL_OTHER_LPAD: 1",                          // v13
-            "EXPRESSION_NVL_OTHER_ROUTINE: 1",                       // v5: fmt's result is a place, the item is counted as well
             "EXPRESSION_NVL_TO_CHAR: 4",                             // v2, v8, v15 (through UPPER), v16 (through an inner NVL)
             "EXPRESSION_SEVERAL_COLUMNS_OTHER_GREATEST: 1",          // m3
             "RETURNED_EXPRESSION_NVL_OTHER_COMPARISON: 1"            // ok: code_of's result compared
@@ -181,7 +180,6 @@ class ColumnPlacesValueTextTest {
             "ARGUMENT_COLUMN_NOT_KNOWN_NO_COLUMN: 1",                       // pk_m.take(x.lit), a literal
             "EXPRESSION_DECODE_CONDITION: 1",                               // decode(code, 'a', 'b') only compares code
             "EXPRESSION_OTHER_ARITHMETIC: 1",                               // order_id * 2
-            "EXPRESSION_OTHER_ROUTINE: 1",                                  // pk_m.fmt(code)
             // c and d, opened for a query and for a string just before their FETCH, are followed: no count.
             "FETCH_CURSOR_NOT_KNOWN_PARAMETER: 1",                          // from_param's p
             "FETCH_CURSOR_NOT_KNOWN_STRONG: 1",                             // from_strong's p, of order_cur
