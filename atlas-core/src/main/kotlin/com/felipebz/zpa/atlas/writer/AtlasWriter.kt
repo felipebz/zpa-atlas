@@ -8,9 +8,11 @@ package com.felipebz.zpa.atlas.writer
 import com.felipebz.zpa.atlas.index.PhaseTimes
 import com.felipebz.zpa.atlas.model.*
 import com.felipebz.zpa.atlas.writer.AtlasWriter.Companion.REPLACE_WAIT_MILLIS
+import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.sql.Connection
 import java.sql.DriverManager
 
@@ -77,6 +79,7 @@ class AtlasWriter private constructor(private val connection: Connection, privat
                     // The CHECKs of the schema are made from the enums the rows are written from, so every row meets them;
                     // evaluated on each insert, they were most of SQLite's time on the file rows. Readers still see them.
                     connection.createStatement().use { it.execute("PRAGMA ignore_check_constraints = ON") }
+                    writingSettings(connection)
                     // One transaction: the tables, the rows, then the secondary indexes (cheaper on loaded tables). With a
                     // text index built apart, two: see SourceLines.
                     connection.autoCommit = false
@@ -87,6 +90,8 @@ class AtlasWriter private constructor(private val connection: Connection, privat
                     phase(PhaseTimes.WRITING_COMMIT)
                     connection.commit()
                 }
+                // The writes were not synced: the whole file is, once, before it replaces the index.
+                FileChannel.open(temporary, StandardOpenOption.WRITE).use { it.force(true) }
                 replace(temporary, absolute)
             } finally {
                 Files.deleteIfExists(temporary)

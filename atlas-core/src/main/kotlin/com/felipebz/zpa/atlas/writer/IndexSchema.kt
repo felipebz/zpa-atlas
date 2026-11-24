@@ -390,9 +390,12 @@ internal fun tableDdl(): List<String> = listOf(
  * rowids follow the files in path order and their lines in order; a line shorter than a trigram has no row.
  * entity_id is the innermost container of the line (see [SourceLines]), null outside any. [SourceTextIndex] builds
  * the same table apart, so its shadow tables can be copied: the statement must be the same in both.
+ *
+ * `columnsize=0`: no `source_line_docsize`, the token counts only `bm25` and `rank` read. The text search matches a
+ * phrase and orders by rowid; an index written with the table still reads the same.
  */
 internal const val SOURCE_LINE_DDL =
-    "CREATE VIRTUAL TABLE source_line USING fts5(text, file_id UNINDEXED, line UNINDEXED, entity_id UNINDEXED, tokenize = 'trigram')"
+    "CREATE VIRTUAL TABLE source_line USING fts5(text, file_id UNINDEXED, line UNINDEXED, entity_id UNINDEXED, tokenize = 'trigram', columnsize = 0)"
 
 /**
  * The FTS5 settings `source_line` is built with, set before its first row; they are kept in `source_line_config`.
@@ -404,6 +407,22 @@ internal val SOURCE_LINE_SETTINGS = listOf(
     "INSERT INTO source_line(source_line, rank) VALUES ('hashsize', ${64 * 1024 * 1024})",
     "INSERT INTO source_line(source_line, rank) VALUES ('automerge', 8)"
 )
+
+/**
+ * The settings of a connection that writes a new file, moved into place only once it is complete
+ * ([AtlasWriter.writeAtomically], [SourceTextIndex]): a failed or killed run leaves the file behind, never half of it
+ * under the index's name, so neither a rollback journal nor a sync on each commit protects anything. Temporary
+ * storage (the sorts of `CREATE INDEX`) stays in memory, and the page cache is [WRITING_CACHE_KIB] KiB, outside the
+ * heap: two such connections write at once, the index and its text index.
+ */
+internal fun writingSettings(connection: Connection) = connection.createStatement().use { statement ->
+    statement.execute("PRAGMA journal_mode = OFF")
+    statement.execute("PRAGMA synchronous = OFF")
+    statement.execute("PRAGMA temp_store = MEMORY")
+    statement.execute("PRAGMA cache_size = -$WRITING_CACHE_KIB")
+}
+
+internal const val WRITING_CACHE_KIB = 512 * 1024
 
 /** The secondary indexes, created after the rows are loaded. Readers do not depend on their creation order. */
 internal fun indexDdl(): List<String> = listOf(

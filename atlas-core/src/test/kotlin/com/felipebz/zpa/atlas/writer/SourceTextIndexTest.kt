@@ -46,11 +46,13 @@ class SourceTextIndexTest {
             connection.commit()
         }
 
-        for (table in listOf("data", "idx", "docsize", "config", "content")) {
+        for (table in listOf("data", "idx", "config", "content")) {
             val sql = "SELECT * FROM source_line_$table ORDER BY 1, 2"
             assertThat(Fixture.query(index, sql)).describedAs(table).isNotEmpty().isEqualTo(Fixture.query(direct, sql))
         }
         assertThat(Fixture.query(index, "SELECT count(*) FROM source_line_content WHERE c3 IS NOT NULL").single().toInt()).isGreaterThan(0)
+        // No token counts: nothing reads them.
+        assertThat(Fixture.query(index, "SELECT name FROM sqlite_master WHERE name = 'source_line_docsize'")).isEmpty()
         // The settings are kept in the copied config table: an index whose copy lost them would not say so otherwise.
         assertThat(Fixture.query(index, "SELECT k, v FROM source_line_config ORDER BY k"))
             .containsExactly("automerge\t8", "hashsize\t${64 * 1024 * 1024}", "version\t4")

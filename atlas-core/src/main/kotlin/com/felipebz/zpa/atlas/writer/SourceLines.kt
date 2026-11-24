@@ -99,8 +99,8 @@ internal class SourceLines(private val connection: Connection) {
         /** The same values into the table FTS5 keeps them in, for a text index built apart ([SourceTextIndex]). */
         private const val INSERT_CONTENT = "INSERT INTO source_line_content(id, c0, c1, c2, c3) VALUES (?,?,?,?,?)"
 
-        /** The shadow tables of `source_line` that hold its index, its sizes and its settings: all but the content. */
-        private val COPIED = listOf("data", "idx", "docsize", "config")
+        /** The shadow tables of `source_line` that hold its index and its settings: all but the content. */
+        private val COPIED = listOf("data", "idx", "config")
 
         val CONTAINER_KINDS = setOf(
             EntityKind.PACKAGE, EntityKind.PROCEDURE, EntityKind.FUNCTION, EntityKind.TRIGGER, EntityKind.VIEW,

@@ -72,6 +72,7 @@ class SourceTextIndex private constructor(val file: Path, val paths: List<String
                 try {
                     Files.delete(file)
                     DriverManager.getConnection("jdbc:sqlite:$file").use { connection ->
+                        writingSettings(connection)
                         connection.autoCommit = false
                         connection.createStatement().use { statement ->
                             statement.execute(SOURCE_LINE_DDL)
