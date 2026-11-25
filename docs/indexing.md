@@ -83,9 +83,10 @@ tabWidth: 2                     # optional: how wide the page shows a tab, 2, 4 
 ## Incremental indexing
 
 `index --incremental` keeps a cache beside the index (`<index file>.facts`) and, on the next run, reads again only the
-files that changed and those a change can affect, such as the callers of a procedure whose signature changed. The
-index it writes is the same as a full run's.
+files that changed and those a change can affect, such as the callers of a procedure whose signature changed. It also
+keeps the text index of the sources (`<index file>.text`, with its `.text.manifest`), which the next run uses as is
+while every file's text is the same. The index it writes is the same as a full run's.
 
-A run reads everything again when the options or the dictionary changed, or when the cache was written by another
-version of Atlas. A Forms module is read again when the JAR of its [reader](forms.md#serving) changed, even if its file
-did not.
+A run reads everything again when the options, the dictionary or the build of ZPA changed, or when what the cache keeps
+is written differently by this version of Atlas. A new build of Atlas that reads the sources the same way reuses the
+cache. A Forms module is read again when the JAR of its [reader](forms.md#serving) changed, even if its file did not.

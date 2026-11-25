@@ -87,7 +87,8 @@ internal class Rendering(private val skipped: Set<String> = emptySet()) {
 
         private val FIELDS = ConcurrentHashMap<Class<*>, List<Field>>()
 
-        private fun fieldsOf(type: Class<*>): List<Field> = FIELDS.getOrPut(type) {
+        /** The fields [Rendering] reads of an object of [type], in the order it reads them. */
+        fun fieldsOf(type: Class<*>): List<Field> = FIELDS.getOrPut(type) {
             generateSequence(type) { it.superclass }.takeWhile { it != Any::class.java }
                 .flatMap { it.declaredFields.asSequence() }
                 .filter { !Modifier.isStatic(it.modifiers) && !Modifier.isTransient(it.modifiers) && !it.isSynthetic }

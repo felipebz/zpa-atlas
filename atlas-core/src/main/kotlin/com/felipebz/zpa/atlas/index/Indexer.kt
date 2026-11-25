@@ -59,16 +59,18 @@ class Indexer internal constructor(
 
     /**
      * Reads the sources [index] will index with the same folder, extensions, encoding and readers, and starts their text
-     * index for [output].
+     * index for [output]: with [keepText] (an incremental run), from the text index kept beside it when that was built
+     * from the same texts, and kept there for the next run.
      */
     fun readSources(
-        sources: Path, extensions: List<String>, encoding: String, output: Path, readers: FormsModuleReaders = FormsModuleReaders.BUILT_IN
+        sources: Path, extensions: List<String>, encoding: String, output: Path, readers: FormsModuleReaders = FormsModuleReaders.BUILT_IN,
+        keepText: Boolean = false
     ): ReadSources {
         val startedAt = clock()
         val started = System.nanoTime()
         val root = sources.toAbsolutePath().normalize()
         val discovered = SourceDiscovery.discover(root, extensions, encoding, readers)
-        val textIndex = SourceTextIndex.start(output, discovered.sources.map { it.relativePath to it.text })
+        val textIndex = SourceTextIndex.start(output, discovered.sources.map { it.relativePath to it.text }, keepText)
         return ReadSources(
             root, extensions, encoding, output.toAbsolutePath().normalize(), readers, discovered.sources, discovered.outsideRoot, discovered.notes, textIndex,
             startedAt, started
@@ -94,7 +96,7 @@ class Indexer internal constructor(
             return index(options, phases, incremental, pending, inputs, read)
         }
         phases?.start(PhaseTimes.READING)
-        readSources(options.sources, options.extensions, options.encoding, options.output, options.readers).use {
+        readSources(options.sources, options.extensions, options.encoding, options.output, options.readers, keepText = incremental).use {
             return index(options, phases, incremental, pending, inputs, it)
         }
     }
@@ -138,7 +140,14 @@ class Indexer internal constructor(
             runCatching { saving?.join() }
             throw e
         }
-        phases?.notes?.add("Text index: built on its own thread in ${textIndex.buildMillis} ms, from the end of the reading; the writer waited ${textIndex.waitedMillis} ms for it")
+        if (incremental) {
+            phases?.start(PhaseTimes.KEEPING_TEXT)
+            textIndex.keep()
+        }
+        phases?.notes?.add(
+            if (textIndex.reused == true) "Text index: the kept one, checked on its own thread in ${textIndex.buildMillis} ms; the writer waited ${textIndex.waitedMillis} ms for it"
+            else "Text index: built on its own thread in ${textIndex.buildMillis} ms, from the end of the reading; the writer waited ${textIndex.waitedMillis} ms for it"
+        )
         if (saving != null) {
             phases?.start(PhaseTimes.WRITING_CACHE)
             try {

@@ -41,4 +41,6 @@ tasks.test {
     useJUnitPlatform()
     // The whole Doag corpus of frmf2xml exports, when given: -PdoagForms=<folder with frm2xml/>.
     providers.gradleProperty("doagForms").orNull?.let { systemProperty("doagForms", file(it).absolutePath) }
+    // The zpa the build declares: the facts cache's format check compares against the published JAR of that version.
+    systemProperty("atlas.zpaVersion", zpaVersion)
 }

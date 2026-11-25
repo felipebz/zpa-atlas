@@ -16,6 +16,8 @@ import java.io.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+import java.util.*
 import java.util.zip.Deflater
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
@@ -82,10 +84,15 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  *
  * Reading it needs nothing of the run: its [inputs][CacheContents.inputs] are compared, and its dictionary relations
  * taken back, by the caller. So it can be read while the dictionary is still loading.
+ *
+ * The atlas's own build is not one of its inputs: [FORMAT] is raised whenever what it keeps would come out otherwise,
+ * and [FORMAT_DIGEST] records the [digest] of the test fixtures' cache at that format, built with the published zpa the
+ * build declares, which a test compares.
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    private const val FORMAT = 33
+    internal const val FORMAT = 34
+    internal const val FORMAT_DIGEST = "91c0d33e64efdccedd0798cd4388f50e08be7ec4cf65a92f5d75326174eec0ef"
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
 
@@ -109,6 +116,33 @@ internal object FactsCache {
         } finally {
             Files.deleteIfExists(temporary)
         }
+    }
+
+    /**
+     * A checksum of what [contents] keeps, its inputs aside: every value of every file, by [Rendering]. The lists of a
+     * file and of its facts count as sets: a walk adds some facts in an order that may differ between two runs, which
+     * the writer sorts.
+     */
+    fun digest(contents: CacheContents): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        fun add(text: String) {
+            digest.update(text.toByteArray(Charsets.UTF_8))
+            digest.update(0)
+        }
+        fun addFields(value: Any) {
+            for (field in Rendering.fieldsOf(value.javaClass)) {
+                val fieldValue = field.get(value)
+                add(field.name)
+                when (fieldValue) {
+                    is FileFacts -> addFields(fieldValue)
+                    is List<*> -> fieldValue.map { Rendering().render(it) }.sorted().forEach(::add)
+                    else -> add(Rendering().render(fieldValue))
+                }
+            }
+        }
+        add(Rendering().render(contents.global))
+        for (file in contents.files.sortedBy { it.path }) addFields(file)
+        return HexFormat.of().formatHex(digest.digest())
     }
 
     /**

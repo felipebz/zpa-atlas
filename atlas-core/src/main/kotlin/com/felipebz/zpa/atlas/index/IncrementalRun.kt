@@ -8,11 +8,7 @@ package com.felipebz.zpa.atlas.index
 import com.felipebz.zpa.api.project.ProjectSnapshot
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.dictionary.DictionarySynonym
-import com.felipebz.zpa.atlas.extract.exact
-import com.felipebz.zpa.atlas.extract.DeclarationCatalog
-import com.felipebz.zpa.atlas.extract.ObjectTypeMembers
-import com.felipebz.zpa.atlas.extract.RelationResolver
-import com.felipebz.zpa.atlas.extract.sha256
+import com.felipebz.zpa.atlas.extract.*
 import com.felipebz.zpa.atlas.model.FileFacts
 import com.felipebz.zpa.project.ProjectAnalysisContext
 import com.felipebz.zpa.squid.AstScanner
@@ -190,7 +186,7 @@ internal class IncrementalRun private constructor(
         private fun inputsOf(options: IndexOptions): Map<String, String> = linkedMapOf(
             "atlas version" to Indexer.version("atlas"),
             "ZPA version" to Indexer.version("zpa"),
-            "atlas or ZPA build" to CODE,
+            "ZPA build" to ZPA_BUILD,
             "--compilation-schema" to options.compilationSchema.orEmpty(),
             "--schema-paths" to options.fileSchemas.paths.orEmpty(),
             "--encoding" to options.encoding,
@@ -269,12 +265,13 @@ internal class IncrementalRun private constructor(
         /** The acquisition time in the dictionary's origin: it differs on every load of the same metadata. */
         private val ACQUIRED_AT = Regex(" at \\d{4}-\\d{2}-\\d{2}T[^ \"]*")
 
-        /** The checksums of the atlas and ZPA jars; a build run from class folders (the tests) relies on the versions. */
-        private val CODE: String by lazy {
-            listOf(Indexer::class.java, AstScanner::class.java).joinToString(" ") { type ->
-                val location = Path.of(type.protectionDomain.codeSource.location.toURI())
-                if (Files.isRegularFile(location)) sha256(Files.readAllBytes(location)) else "classes"
-            }
+        /**
+         * The checksum of the ZPA jar; a build run from class folders (the tests) relies on the version. The atlas's own
+         * build is told by the cache's format ([FactsCache.FORMAT]).
+         */
+        private val ZPA_BUILD: String by lazy {
+            val location = Path.of(AstScanner::class.java.protectionDomain.codeSource.location.toURI())
+            if (Files.isRegularFile(location)) sha256(Files.readAllBytes(location)) else "classes"
         }
     }
 }

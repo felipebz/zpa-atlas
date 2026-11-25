@@ -116,6 +116,7 @@ class PhaseTimes(private val started: Long = System.nanoTime()) {
         const val WRITING_LINES = "writing: source lines and text index"
         const val WRITING_INDEXES = "writing: secondary indexes"
         const val WRITING_COMMIT = "writing: commit and file move"
+        const val KEEPING_TEXT = "writing: text index kept for the next run"
         const val WRITING_CACHE = "writing: facts cache, after the index"
         const val GAP = "outside the phases"
         const val TOTAL = "total"
