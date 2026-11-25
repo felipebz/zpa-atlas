@@ -67,7 +67,7 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
         val extensions = args.extensions.split(',').map { it.trim() }
         // The sources first, so that the build of their text index overlaps the dictionary load too.
         phases?.start(PhaseTimes.READING)
-        indexer.readSources(sources, extensions, encoding, Path.of(args.out), readers, keepText = args.incremental).use { read ->
+        indexer.readSources(sources, extensions, encoding, Path.of(args.out), readers, keepText = args.incremental, threads = args.threads).use { read ->
             return index(args, project, phases, indexer, cache, read, extensions, checked, readers)
         }
     }

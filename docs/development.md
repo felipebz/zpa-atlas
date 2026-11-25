@@ -26,6 +26,11 @@ A reader turns one export format of Oracle Forms modules into the model Atlas in
   it is the file name without the reader's ending, in upper case; a reader whose files are named otherwise overrides
   it. A file whose name is blank is not indexed.
 
+`index` calls one instance of the reader from several threads at once (as many as `--threads`), and `serve` from the
+threads of its requests: `read` and `moduleName` must be safe to call concurrently. Keep what one call builds in that
+call, and do not change what the calls share, or change it only under a lock; the built-in reader, for one, creates its
+XML stream readers under a lock on the factory they share.
+
 List the class in `META-INF/services/com.felipebz.zpa.atlas.forms.FormsModuleReader` in its JAR, and put the JAR in the
 `readers` folder of the distribution (`atlas-cli/build/install/zpa-atlas/readers/`). Two readers that claim the same
 file names stop `index` and `serve` at start.

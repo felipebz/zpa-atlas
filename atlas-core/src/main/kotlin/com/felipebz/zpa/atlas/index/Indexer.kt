@@ -58,18 +58,18 @@ class Indexer internal constructor(
     ) : AutoCloseable by textIndex
 
     /**
-     * Reads the sources [index] will index with the same folder, extensions, encoding and readers, and starts their text
-     * index for [output]: with [keepText] (an incremental run), from the text index kept beside it when that was built
-     * from the same texts, and kept there for the next run.
+     * Reads the sources [index] will index with the same folder, extensions, encoding and readers, on [threads] threads,
+     * and starts their text index for [output]: with [keepText] (an incremental run), from the text index kept beside it
+     * when that was built from the same texts, and kept there for the next run.
      */
     fun readSources(
         sources: Path, extensions: List<String>, encoding: String, output: Path, readers: FormsModuleReaders = FormsModuleReaders.BUILT_IN,
-        keepText: Boolean = false
+        keepText: Boolean = false, threads: Int = Runtime.getRuntime().availableProcessors()
     ): ReadSources {
         val startedAt = clock()
         val started = System.nanoTime()
         val root = sources.toAbsolutePath().normalize()
-        val discovered = SourceDiscovery.discover(root, extensions, encoding, readers)
+        val discovered = SourceDiscovery.discover(root, extensions, encoding, readers, threads)
         val textIndex = SourceTextIndex.start(output, discovered.sources.map { it.relativePath to it.text }, keepText)
         return ReadSources(
             root, extensions, encoding, output.toAbsolutePath().normalize(), readers, discovered.sources, discovered.outsideRoot, discovered.notes, textIndex,
@@ -96,7 +96,7 @@ class Indexer internal constructor(
             return index(options, phases, incremental, pending, inputs, read)
         }
         phases?.start(PhaseTimes.READING)
-        readSources(options.sources, options.extensions, options.encoding, options.output, options.readers, keepText = incremental).use {
+        readSources(options.sources, options.extensions, options.encoding, options.output, options.readers, keepText = incremental, threads = options.threads).use {
             return index(options, phases, incremental, pending, inputs, it)
         }
     }

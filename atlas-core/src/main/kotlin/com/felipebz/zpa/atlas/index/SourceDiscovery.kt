@@ -18,6 +18,9 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import kotlin.io.path.extension
 import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.isRegularFile
@@ -74,27 +77,31 @@ internal object SourceDiscovery {
     class Discovered(val sources: List<Source>, val outsideRoot: List<String>, val notes: List<CoverageFact>)
 
     /**
-     * The sources under [root], read, in path order: the files one of [readers] reads, whatever their extension, and the
-     * files with one of [extensions]; and the relative paths of the files left out because they are symbolic links that
-     * lead outside the real [root]. A link that stays inside is read through; folder links are not walked into. The
-     * server serves a file only where the same rule holds, so the index never holds the text of a file outside the
-     * sources folder.
+     * The sources under [root], read on [threads] threads, in path order: the files one of [readers] reads, whatever
+     * their extension, and the files with one of [extensions]; and the relative paths of the files left out because they
+     * are symbolic links that lead outside the real [root]. A link that stays inside is read through; folder links are
+     * not walked into. The server serves a file only where the same rule holds, so the index never holds the text of a
+     * file outside the sources folder.
      *
      * A module is known by the identity its reader gives its file ([FormsModuleReaders.moduleName], by default the file's
-     * name): of the files with the same identity, the first by path is indexed; a file whose reader gives a blank one
-     * is not read.
+     * name): of the files with the same identity, the first by path that holds a module is indexed; a file whose reader
+     * gives a blank one is not read.
      * The files a reader knows but does not index, the files that held no module and the modules left out for their
      * name are each counted in a note.
+     *
+     * What it finds does not depend on [threads]: a file that cannot be read stops it with the error of the first such
+     * file by path, and the files of one identity are read on one thread, in path order. Each thread holds the bytes of
+     * one file at a time.
      */
-    fun discover(root: Path, extensions: List<String>, encoding: String, readers: FormsModuleReaders): Discovered {
+    fun discover(root: Path, extensions: List<String>, encoding: String, readers: FormsModuleReaders, threads: Int): Discovered {
         require(Files.isDirectory(root)) { "Sources folder does not exist or is not a directory: $root" }
         val realRoot = root.toRealPath()
-        val found = candidates(root, extensions, readers)
         val outside = ArrayList<String>()
-        val sources = ArrayList<Source>()
         val skipped = TreeMap<String, MutableList<String>>()
-        val modules = ModuleFiles(readers)
-        for (path in found) {
+        val toRead = ArrayList<ToRead>()
+        val noName = ArrayList<Outcome>()
+        val identities = HashMap<String, ModuleFiles>()
+        for ((position, path) in candidates(root, extensions, readers).withIndex()) {
             val relative = root.relativize(path).invariantSeparatorsPathString
             val real = path.toRealPath()
             if (!real.startsWith(realRoot)) {
@@ -108,14 +115,27 @@ internal object SourceDiscovery {
             }
             val reader = readers.readerOf(name)
             if (reader == null) {
-                sources += Source.database(relative, path, Files.readAllBytes(real), encoding)
-            } else {
-                modules.read(relative, path, real, reader)?.let { sources += it }
+                toRead += DatabaseFile(position, relative, path, real, encoding)
+                continue
             }
+            // Known by its identity: two files with the same one are the same module.
+            val moduleName = readers.moduleName(name)
+            if (moduleName == null) {
+                noName += Outcome(position, notRead = "$relative (${reader.name}: no module name)")
+                continue
+            }
+            identities.getOrPut(moduleName) { ModuleFiles(moduleName).also { toRead += it } }.files += ModuleFile(position, relative, path, real, reader)
         }
-        val notes = skipped.entries.map { CoverageFact("FORMS_FILE_SKIPPED", "${it.value.size} ${it.key} file(s) not indexed: ${shown(it.value)}") } +
-            modules.notes()
-        return Discovered(sources, outside.sorted(), notes)
+        val outcomes = (read(toRead, threads) + noName).sortedBy { it.position }
+        val notModules = outcomes.mapNotNull { it.notRead }
+        val duplicates = outcomes.mapNotNull { it.duplicate }
+        val notes = ArrayList<CoverageFact>()
+        for ((what, files) in skipped) notes += CoverageFact("FORMS_FILE_SKIPPED", "${files.size} $what file(s) not indexed: ${shown(files)}")
+        if (notModules.isNotEmpty()) notes += CoverageFact("FORMS_FILE_NOT_READ", "${notModules.size} file(s) held no module their reader could read: ${shown(notModules)}")
+        if (duplicates.isNotEmpty()) {
+            notes += CoverageFact("FORMS_MODULE_DUPLICATED", "${duplicates.size} module file(s) not indexed: a file of the same module, first by path, is: ${shown(duplicates)}")
+        }
+        return Discovered(outcomes.mapNotNull { it.source }, outside.sorted(), notes)
     }
 
     /**
@@ -133,52 +153,69 @@ internal object SourceDiscovery {
         }.sortedBy { root.relativize(it).invariantSeparatorsPathString }
     }
 
-    /**
-     * The Forms module files [discover] reads with [readers]: the first file by path of each module identity, and the
-     * files left out because they held no module or a module already read.
-     */
-    private class ModuleFiles(private val readers: FormsModuleReaders) {
-        private val modules = HashMap<String, String>()
-        private val notModules = ArrayList<String>()
-        private val duplicates = ArrayList<String>()
+    /** What [toRead] gives, read on [threads] threads; the error of the first that fails, in their order, stops it. */
+    private fun read(toRead: List<ToRead>, threads: Int): List<Outcome> {
+        val count = threads.coerceIn(1, maxOf(toRead.size, 1))
+        if (count == 1) return toRead.flatMap { it.read() }
+        val executor = Executors.newFixedThreadPool(count)
+        try {
+            // Each task reads its file when it runs: the queue holds paths, never bytes.
+            val pending = toRead.map { executor.submit(Callable { it.read() }) }
+            return pending.flatMap { outcome ->
+                try {
+                    outcome.get()
+                } catch (e: ExecutionException) {
+                    throw e.cause ?: e
+                }
+            }
+        } finally {
+            executor.shutdownNow()
+        }
+    }
 
-        /** The source of the module [reader] reads in the file [path] ([relative] to the sources, [real] its real path); null when left out. */
-        fun read(relative: String, path: Path, real: Path, reader: FormsModuleReader): Source? {
-            val name = path.fileName.toString()
-            // Known by its identity: two files with the same one are the same module.
-            val moduleName = readers.moduleName(name)
-            if (moduleName == null) {
-                notModules += "$relative (${reader.name}: no module name)"
-                return null
+    /** What became of the file at [position] in path order: its [source], or why it is left out. */
+    private class Outcome(val position: Int, val source: Source? = null, val notRead: String? = null, val duplicate: String? = null)
+
+    /** What one thread reads at once: a database source, or the files of one module identity. */
+    private sealed interface ToRead {
+        fun read(): List<Outcome>
+    }
+
+    private class DatabaseFile(val position: Int, val relative: String, val path: Path, val real: Path, val encoding: String) : ToRead {
+        override fun read() = listOf(Outcome(position, Source.database(relative, path, Files.readAllBytes(real), encoding)))
+    }
+
+    /** A Forms module file: [relative] to the sources, [real] its real path, read by [reader]. */
+    private class ModuleFile(val position: Int, val relative: String, val path: Path, val real: Path, val reader: FormsModuleReader)
+
+    /**
+     * The files of the module identity [moduleName], in path order: they are read in that order until one holds a
+     * module, which is indexed; the files after it are not read.
+     */
+    private class ModuleFiles(private val moduleName: String) : ToRead {
+        val files = ArrayList<ModuleFile>()
+
+        override fun read(): List<Outcome> {
+            val outcomes = ArrayList<Outcome>()
+            var first: String? = null
+            for (file in files) {
+                outcomes += if (first != null) Outcome(file.position, duplicate = "${file.relative} (indexed from $first)") else read(file)
+                if (outcomes.last().source != null) first = file.relative
             }
-            modules[moduleName]?.let { first ->
-                duplicates += "$relative (indexed from $first)"
-                return null
-            }
-            val bytes = Files.readAllBytes(real)
-            val module = try {
-                reader.read(name, bytes)
-            } catch (e: Exception) {
-                notModules += "$relative (${reader.name}: ${e.javaClass.simpleName}: ${e.message?.lineSequence()?.firstOrNull().orEmpty()})"
-                return null
-            }
-            if (module == null) {
-                notModules += "$relative (${reader.name})"
-                return null
-            }
-            modules[moduleName] = relative
-            val text = FormsModuleText.of(module, moduleName)
-            return Source(relative, path, text.text, StandardCharsets.UTF_8, sha256(bytes), bytes.size.toLong(), FormsLayout.of(module, moduleName, text))
+            return outcomes
         }
 
-        /** The notes of the files that held no module, then of the module files left out for a module already read. */
-        fun notes(): List<CoverageFact> {
-            val notes = ArrayList<CoverageFact>()
-            if (notModules.isNotEmpty()) notes += CoverageFact("FORMS_FILE_NOT_READ", "${notModules.size} file(s) held no module their reader could read: ${shown(notModules)}")
-            if (duplicates.isNotEmpty()) {
-                notes += CoverageFact("FORMS_MODULE_DUPLICATED", "${duplicates.size} module file(s) not indexed: a file of the same module, first by path, is: ${shown(duplicates)}")
-            }
-            return notes
+        private fun read(file: ModuleFile): Outcome {
+            val name = file.path.fileName.toString()
+            val bytes = Files.readAllBytes(file.real)
+            val module = try {
+                file.reader.read(name, bytes)
+            } catch (e: Exception) {
+                return Outcome(file.position, notRead = "${file.relative} (${file.reader.name}: ${e.javaClass.simpleName}: ${e.message?.lineSequence()?.firstOrNull().orEmpty()})")
+            } ?: return Outcome(file.position, notRead = "${file.relative} (${file.reader.name})")
+            val text = FormsModuleText.of(module, moduleName)
+            val source = Source(file.relative, file.path, text.text, StandardCharsets.UTF_8, sha256(bytes), bytes.size.toLong(), FormsLayout.of(module, moduleName, text))
+            return Outcome(file.position, source)
         }
     }
 

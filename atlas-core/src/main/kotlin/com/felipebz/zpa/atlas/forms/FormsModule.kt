@@ -204,6 +204,12 @@ private class UnitTextWords(private val text: String) {
  * Reads one export format of Forms modules into [FormsModule]. The built-in one reads `frmf2xml` files
  * ([Frmf2xmlReader]); others come from the JARs of the distribution's `readers` folder, registered for
  * [java.util.ServiceLoader] under this interface's name ([FormsModuleReaders.load]).
+ *
+ * One instance serves a whole run, and is called from several threads at once: `index` reads the files of a run on
+ * its `--threads` threads, in no set order, and `serve` reads a module on the thread of each request. [read] and
+ * [moduleName] must therefore be safe to call concurrently, each call for its own file: what one call builds stays in
+ * that call, and what the calls share is never changed, or only under a lock (the built-in reader creates its XML
+ * stream readers under a lock on the factory they share).
  */
 interface FormsModuleReader {
     /** A short name for messages: `frmf2xml`. */
