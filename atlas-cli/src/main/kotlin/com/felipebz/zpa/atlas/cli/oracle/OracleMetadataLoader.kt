@@ -109,9 +109,11 @@ object OracleMetadataLoader {
      * @param writtenNames the identifiers of the sources ([com.felipebz.zpa.atlas.index.SourceIdentifiers]): only the
      *   targets of synonyms named there are acquired (all of them would add seconds for thousands of public synonyms)
      */
-    fun load(settings: OracleSettings, compilationSchema: String?, driversDirectory: Path?, writtenNames: Set<String>): LoadedMetadata {
-        val driver = findDriver(settings, driversDirectory)
-        val dataSource = JdbcDriverDataSource(driver, settings.url, settings.user, settings.password)
+    fun load(settings: OracleSettings, compilationSchema: String?, driversDirectory: Path?, writtenNames: Set<String>): LoadedMetadata =
+        load(settings, compilationSchema, JdbcDriverDataSource(findDriver(settings, driversDirectory), settings.url, settings.user, settings.password), writtenNames)
+
+    /** [load] reading the database through [dataSource]: the settings' driver, or one that records or replays what it reads ([KeptDictionary]). */
+    fun load(settings: OracleSettings, compilationSchema: String?, dataSource: DataSource, writtenNames: Set<String>): LoadedMetadata {
         val schemas = (settings.schemas + settings.relations.map { it.first } + listOfNotNull(compilationSchema)).distinct()
         checkSchemas(dataSource, schemas, settings)
 
@@ -162,7 +164,7 @@ object OracleMetadataLoader {
     }
 
     /** The JDBC driver of the [settings]' URL, found in [driversDirectory] or on the class path. */
-    private fun findDriver(settings: OracleSettings, driversDirectory: Path?) = try {
+    internal fun findDriver(settings: OracleSettings, driversDirectory: Path?): java.sql.Driver = try {
         JdbcDrivers.find(settings.url, driversDirectory)
     } catch (e: JdbcDrivers.NoDriverException) {
         throw CliExecutionException(e.message!!)

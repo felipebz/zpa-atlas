@@ -90,3 +90,10 @@ while every file's text is the same. The index it writes is the same as a full r
 A run reads everything again when the options, the dictionary or the build of ZPA changed, or when what the cache keeps
 is written differently by this version of Atlas. A new build of Atlas that reads the sources the same way reuses the
 cache. A Forms module is read again when the JAR of its [reader](forms.md#serving) changed, even if its file did not.
+
+With the Oracle options, it also keeps what the dictionary load read (`<index file>.dictionary`, without the password).
+The next run reads the dictionary from it, instead of from the database, when the connection, the requested schemas and
+relations, the compilation schema, the JDBC driver and the build of ZPA are the same, the sources ask the dictionary for
+the same objects, and a quick check of the database finds that nothing the load read has changed: the objects of every
+schema it read, the keys that reference them, and the privileges of the user. Otherwise the dictionary is loaded from
+the database again.

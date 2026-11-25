@@ -9,6 +9,7 @@ import com.beust.jcommander.IDefaultProvider
 import com.beust.jcommander.JCommander
 import com.beust.jcommander.ParameterException
 import com.felipebz.zpa.api.project.ProjectSchemaPaths
+import com.felipebz.zpa.atlas.cli.oracle.KeptDictionary
 import com.felipebz.zpa.atlas.cli.oracle.LoadedMetadata
 import com.felipebz.zpa.atlas.cli.oracle.OracleMetadataLoader
 import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
@@ -81,7 +82,12 @@ private fun index(
         phases?.start(PhaseTimes.DICTIONARY_NAMES)
         val writtenNames = SourceIdentifiers.scan(read, args.threads)
         phases?.start(PhaseTimes.DICTIONARY_METADATA)
-        it to OracleMetadataLoader.load(it, compilationSchema, applicationHome().resolve("drivers"), writtenNames)
+        val drivers = applicationHome().resolve("drivers")
+        it to if (args.incremental) {
+            KeptDictionary.load(it, compilationSchema, drivers, writtenNames, Path.of(args.out)).also { outcome -> phases?.notes?.add(outcome.note) }.loaded
+        } else {
+            OracleMetadataLoader.load(it, compilationSchema, drivers, writtenNames)
+        }
     }
     val dictionary = oracle?.let { (oracleSettings, loaded) ->
         val schemas = oracleSettings.schemas.toSet() + oracleSettings.relations.map { relation -> relation.first }
