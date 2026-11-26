@@ -9,7 +9,8 @@ WORKDIR /src
 COPY . .
 # Empty: the version of gradle.properties. A release passes its own.
 ARG VERSION=
-# zpa-core and zpa-oracle-metadata are snapshots: resolve the latest published build, as the Build workflow does.
+# --refresh-dependencies only matters when zpaVersion names a snapshot of zpa: it then takes the newest one, as the
+# Build workflow does. A stable zpaVersion resolves to the same JARs either way.
 RUN --mount=type=cache,target=/root/.gradle/wrapper \
     ./gradlew --no-daemon --refresh-dependencies ${VERSION:+-Pversion=$VERSION} :atlas-cli:installDist
 

@@ -19,6 +19,7 @@ allprojects {
     repositories {
         mavenLocal()
         mavenCentral()
+        // Only for a zpaVersion that names a snapshot of zpa: a stable one comes from Maven Central.
         maven {
             setUrl("https://central.sonatype.com/repository/maven-snapshots/")
         }

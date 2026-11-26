@@ -22,6 +22,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      # A Release Please PR sets a stable version: a release depends only on stable versions of zpa.
+      - name: Check that a release PR depends on a stable zpa
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          property() { sed -n "s/^$1=//p" | tr -d '\r'; }
+          base_version=$(git show "${BASE_SHA}:gradle.properties" | property version)
+          head_version=$(property version < gradle.properties)
+          if [[ ${base_version} != "${head_version}" && ${head_version} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            zpa_version=$(property zpaVersion < gradle.properties)
+            [[ ${zpa_version} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              printf 'A release PR (version %s) needs a stable zpaVersion, not %s\n' "${head_version}" "${zpa_version}" >&2
+              exit 1
+            }
+          fi
 
       - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
         with:
@@ -31,7 +51,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
 
-      # zpa-core and zpa-oracle-metadata are snapshots: always resolve the latest published build.
+      # --refresh-dependencies only matters when zpaVersion names a snapshot of zpa: it then takes the newest one.
       # The Oracle integration test (:atlas-devtools:integrationTest) needs a database and is not part of `build`.
       - name: Build with Gradle
         run: ./gradlew build --refresh-dependencies

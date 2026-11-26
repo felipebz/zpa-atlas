@@ -46,20 +46,56 @@ known in the code. See [Concepts](docs/concepts.md).
 
 ## Getting started
 
+Get 0.1.0 from the [release](https://github.com/felipebz/zpa-atlas/releases/tag/0.1.0), in one of two forms:
+
+- **The zip**, `zpa-atlas-0.1.0.zip`. It needs Java 25 installed (a JRE is enough) and does not include it.
+
+  ```sh
+  unzip zpa-atlas-0.1.0.zip
+  export PATH="$PWD/zpa-atlas-0.1.0/bin:$PATH"   # on Windows, zpa-atlas-0.1.0\bin\zpa-atlas.bat
+
+  zpa-atlas index --sources path/to/sources --out atlas.db --compilation-schema HR
+  zpa-atlas serve --db atlas.db --sources path/to/sources
+  ```
+
+- **The container image**, which needs no Java: `index` and `serve` run in it as in
+  [Running in a container](docs/container.md). For example, to serve an index:
+
+  ```sh
+  docker run --rm -p 127.0.0.1:8080:8080 -v "$PWD/atlas.db:/data/atlas.db:ro" -v "$PWD/path/to/sources:/sources:ro" ghcr.io/felipebz/zpa-atlas:0.1.0
+  ```
+
+Open http://127.0.0.1:8080 and search by name, e.g. `pack.run_job`. Agents connect to the same server at
+http://127.0.0.1:8080/mcp. `zpa-atlas stats atlas.db` prints a summary of the index.
+
+### Try the sample index
+
+The release also carries an index of [utPLSQL](https://github.com/utPLSQL/utPLSQL) v.3.2.3, built with the Oracle
+dictionary by the binary of the same release: `zpa-atlas-0.1.0-utplsql-v.3.2.3.db`. Next to it are the utPLSQL
+sources it was built from, `utplsql-v.3.2.3-sources.tar.gz`, so the page can show their code, and utPLSQL's license,
+`utplsql-v.3.2.3-LICENSE`.
+
+```sh
+tar -xzf utplsql-v.3.2.3-sources.tar.gz
+zpa-atlas serve --db zpa-atlas-0.1.0-utplsql-v.3.2.3.db --sources utplsql-v.3.2.3/source
+```
+
+Or, with the container image:
+
+```sh
+docker run --rm -p 127.0.0.1:8080:8080 -v "$PWD/zpa-atlas-0.1.0-utplsql-v.3.2.3.db:/data/atlas.db:ro" -v "$PWD/utplsql-v.3.2.3/source:/sources:ro" ghcr.io/felipebz/zpa-atlas:0.1.0
+```
+
+Then search for `ut_runner.run`, or ask an agent who calls it.
+
+### Build from source
+
 Requires JDK 25. From the repository root:
 
 ```sh
 ./gradlew :atlas-cli:installDist
 export PATH="$PWD/atlas-cli/build/install/zpa-atlas/bin:$PATH"
-
-zpa-atlas index --sources path/to/sources --out atlas.db --compilation-schema HR
-zpa-atlas serve --db atlas.db --sources path/to/sources
 ```
-
-Open http://127.0.0.1:8080 and search by name, e.g. `pack.run_job`. Agents connect to the same server at
-http://127.0.0.1:8080/mcp. `zpa-atlas stats atlas.db` prints a summary of the index.
-
-To run it without a JDK, use the container image: see [Running in a container](docs/container.md).
 
 ## Documentation
 
@@ -75,8 +111,8 @@ To run it without a JDK, use the container image: see [Running in a container](d
 
 ## Status
 
-ZPA Atlas is in early development. The index schema and the API can change between versions, and a new version means
-re-indexing.
+ZPA Atlas is in early development. In 0.x, an index must be rebuilt with each new version, and the SQL of the index
+(its tables and columns) is not a stable contract: queries on it can break between versions.
 
 ## License
 

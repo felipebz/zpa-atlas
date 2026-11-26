@@ -8,7 +8,7 @@ command, so `docker run IMAGE index …` and `docker run IMAGE stats …` work, 
 | `/data`               | The index, `/data/atlas.db` by default. A volume, owned by the image's user.                    |
 | `/sources`            | The sources, mounted read-only.                                                                 |
 | `/opt/zpa-atlas/drivers` | The Oracle JDBC driver, for `index` with the dictionary. Not bundled.                        |
-| `/opt/zpa-atlas/readers` | Readers of other Forms export formats, for `index` and `serve`: see [Oracle Forms modules](forms.md#serving). |
+| `/opt/zpa-atlas/readers` | Readers of other Forms export formats, for `index` and `serve`: see [Oracle Forms modules](forms.md#serving). They are code `index` and `serve` load and run: mount the folder read-only, with only JARs you trust. |
 | User                  | `atlas`, UID 10001 and GID 10001.                                                               |
 | Port                  | 8080.                                                                                           |
 
@@ -50,13 +50,20 @@ decides who reaches it: publish the port on loopback only.
 
 ```sh
 docker run -d --name atlas --read-only --tmpfs /tmp:exec -p 127.0.0.1:8080:8080 \
-  -v "$PWD/data:/data" -v "$PWD/path/to/sources:/sources:ro" \
+  -v "$PWD/data:/data:ro" -v "$PWD/path/to/sources:/sources:ro" \
   ghcr.io/felipebz/zpa-atlas
 ```
 
-Open http://127.0.0.1:8080. `--read-only` keeps the image's files unchanged; `/data` stays writable as a volume.
-`/tmp` needs `exec`: the SQLite driver copies its native library to `/tmp` and loads it from there, and Docker mounts a
-tmpfs `noexec` unless told otherwise.
+`serve` only reads the index, so `/data` is mounted read-only (`:ro`), and `--read-only` keeps the image's files
+unchanged. `/tmp` needs `exec`: the SQLite driver copies its native library to `/tmp` and loads it from there, and
+Docker mounts a tmpfs `noexec` unless told otherwise. Check that it started, then open http://127.0.0.1:8080:
+
+```sh
+docker ps --filter name=atlas --format '{{.Status}}'
+curl -i http://127.0.0.1:8080/health
+```
+
+The status turns from `health: starting` to `healthy`, and `/health` answers `200` once the index opens.
 
 ## Serve several projects
 
@@ -79,7 +86,7 @@ for p in hr billing; do
     ghcr.io/felipebz/zpa-atlas index --project /atlas/projects/$p.yaml
 done
 docker run -d --name atlas --read-only --tmpfs /tmp:exec -p 127.0.0.1:8080:8080 --user "$(id -u):$(id -g)" \
-  -v "$PWD/projects:/atlas/projects:ro" -v "$PWD/src:/atlas/src:ro" -v "$PWD/data:/atlas/data" \
+  -v "$PWD/projects:/atlas/projects:ro" -v "$PWD/src:/atlas/src:ro" -v "$PWD/data:/atlas/data:ro" \
   -e ZPA_ATLAS_PROJECTS=/atlas/projects ghcr.io/felipebz/zpa-atlas
 ```
 
@@ -102,7 +109,7 @@ ZPA_ATLAS_OIDC_CLIENT_ID=atlas-web
 ZPA_ATLAS_OIDC_CLIENT_SECRET=...
 EOF
 docker run -d --name atlas --read-only --tmpfs /tmp:exec -p 127.0.0.1:8080:8080 --env-file atlas.env \
-  -v "$PWD/data:/data" -v "$PWD/path/to/sources:/sources:ro" \
+  -v "$PWD/data:/data:ro" -v "$PWD/path/to/sources:/sources:ro" \
   ghcr.io/felipebz/zpa-atlas
 ```
 
@@ -132,7 +139,7 @@ and the share, or set the heap, with `JAVA_OPTS`:
 
 ```sh
 docker run -d --name atlas -m 4g -e JAVA_OPTS="-XX:MaxRAMPercentage=75" -p 127.0.0.1:8080:8080 \
-  -v "$PWD/data:/data" -v "$PWD/path/to/sources:/sources:ro" ghcr.io/felipebz/zpa-atlas
+  -v "$PWD/data:/data:ro" -v "$PWD/path/to/sources:/sources:ro" ghcr.io/felipebz/zpa-atlas
 ```
 
 ## Health
@@ -147,7 +154,7 @@ Under a reverse proxy, at `/atlas/` (see [Serving under a base path](serving.md#
 
 ```sh
 docker run -d --name atlas -e ZPA_ATLAS_BASE_PATH=/atlas -e ZPA_ATLAS_MCP_ALLOWED_HOST=server.example.com \
-  -p 127.0.0.1:8080:8080 -v "$PWD/data:/data" -v "$PWD/path/to/sources:/sources:ro" ghcr.io/felipebz/zpa-atlas
+  -p 127.0.0.1:8080:8080 -v "$PWD/data:/data:ro" -v "$PWD/path/to/sources:/sources:ro" ghcr.io/felipebz/zpa-atlas
 curl -i http://127.0.0.1:8080/atlas/health
 ```
 
@@ -157,9 +164,9 @@ curl -i http://127.0.0.1:8080/health
 
 ## Published tags
 
-A `v1.2.3` tag publishes `1.2.3`, `1.2` and `latest`; a pre-release such as `v1.0.0-rc.1` publishes `1.0.0-rc.1` and
-leaves `latest` alone. A manual run of the workflow publishes the version it is given and moves `latest` to it, even
-when that version is older than the current one.
+A release, tagged `1.2.3` (no `v`), publishes `1.2.3`, `1.2` and `latest`. A manual run of the workflow publishes the
+version it is given and moves `latest` to it, even when that version is older than the current one; a pre-release
+version given that way, such as `1.0.0-rc.1`, leaves `latest` alone.
 
 Each commit on `main` whose build passes also publishes `edge`, the newest, and `sha-<commit>`. Use `edge` to try what
 is coming, a `sha-` tag to stay on one of those images for a while (only the 20 newest are kept), and a version for

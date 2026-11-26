@@ -1,12 +1,15 @@
 name: Image
 
 # The container image (Dockerfile, docs/container.md). Pull requests build it for both platforms without pushing.
-# Each push to main whose Build workflow passed pushes a snapshot to ghcr.io as edge and sha-<commit>; a v* tag, or a
-# manual run, pushes a release.
+# Each push to main whose Build workflow passed pushes a snapshot to ghcr.io as edge and sha-<commit>; a release tag
+# (1.2.3, no v, as Release Please makes it), or a manual run, pushes a release. Release Please creates its tag with the
+# workflow token, which starts no workflow, so the Release workflow runs this one by hand on the tag.
+# A pull request (where a new base image arrives) and a release scan the image before anything is pushed: the job fails
+# only on a critical vulnerability that has a fix.
 on:
   push:
     tags:
-      - 'v*'
+      - '[0-9]+.[0-9]+.[0-9]+'
   workflow_run:
     workflows:
       - Build
@@ -50,6 +53,25 @@ jobs:
           push: false
           build-args: |
             REVISION=${{ github.sha }}
+
+      # Built for this runner's platform into its Docker, and scanned before anything is pushed.
+      - name: Build for scanning
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: zpa-atlas:scan
+          build-args: |
+            REVISION=${{ github.sha }}
+
+      # The log lists the vulnerabilities that have a fix; only a critical one fails the job.
+      - name: Scan for vulnerabilities
+        uses: anchore/scan-action@11983a512817154c80a9db660c1a184be7513ed6 # v7.4.3
+        with:
+          image: zpa-atlas:scan
+          only-fixed: true
+          severity-cutoff: critical
+          output-format: table
 
   snapshot:
     name: Publish snapshot
@@ -98,7 +120,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # No VERSION: the image reports the version of gradle.properties, a -SNAPSHOT one, and zpa's latest snapshot.
+      # No VERSION: the image reports the version of gradle.properties, which on main is the last release's until the
+      # next release PR is merged.
       - name: Build and push for both platforms
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -159,7 +182,7 @@ jobs:
       - name: Require a version
         if: steps.meta.outputs.version == ''
         run: |
-          echo "No version: run on a v* tag, or give the version input." >&2
+          echo "No version: run on a release tag such as 1.2.3, or give the version input." >&2
           exit 1
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -169,6 +192,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Built for this runner's platform into its Docker, and scanned before anything is pushed.
+      - name: Build for scanning
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: zpa-atlas:scan
+          build-args: |
+            REVISION=${{ github.sha }}
+
+      # The log lists the vulnerabilities that have a fix; only a critical one fails the job.
+      - name: Scan for vulnerabilities
+        uses: anchore/scan-action@11983a512817154c80a9db660c1a184be7513ed6 # v7.4.3
+        with:
+          image: zpa-atlas:scan
+          only-fixed: true
+          severity-cutoff: critical
+          output-format: table
 
       - name: Build and push for both platforms
         id: build
