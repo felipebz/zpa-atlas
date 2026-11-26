@@ -68,7 +68,7 @@ class ModuleReadersTest {
             assertThat(incremental(sources, db, folder).second).containsExactly("forms:ACCOUNTS_01", "forms:ORDERS")
             // The same readers: nothing to walk.
             val (same, _) = incremental(sources, db, folder)
-            assertThat(same.line()).isEqualTo("Incremental run: walked 0 of 2 files (0 changed, 0 new, 0 affected), 0 removed")
+            assertThat(same.line()).isEqualTo("Incremental run: walked 0 of 2 files (0 changed, 0 new, 0 affected), 0 removed; the facts cache is kept as it was")
             // Another build of the reader, which names the module otherwise: its file is read again, the other is not.
             VersionedReader.dropsVersion = true
             jar("versioned.jar", VersionedReader::class, build = "2")

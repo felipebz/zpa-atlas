@@ -13,9 +13,12 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.FileTime
+import java.util.zip.GZIPOutputStream
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.copyToRecursively
 import kotlin.io.path.readText
@@ -130,6 +133,19 @@ class IncrementalIndexTest {
     }
 
     @Test
+    fun `a cache of an earlier format is a full run`() {
+        index(incremental, "--incremental")
+        // The header every format writes, then the rest as an earlier format wrote it: whole ints, not read.
+        DataOutputStream(GZIPOutputStream(Files.newOutputStream(temp.resolve("incremental.db.facts")))).use {
+            it.writeUTF("zpa-atlas facts cache")
+            it.writeInt(34)
+            repeat(64) { _ -> it.writeInt(-1) }
+        }
+        assertThat(bothRuns("earlier format")).startsWith("Full run: the facts cache cannot be used: its format is 34, not ")
+        assertThat(walkedIn(bothRuns("its own format"))).isEqualTo(0)
+    }
+
+    @Test
     fun `without the option no cache is written`() {
         index(full)
         assertThat(temp.resolve("full.db.facts")).doesNotExist()
@@ -188,5 +204,20 @@ class IncrementalIndexTest {
         bothRuns("first run")
         sources.resolve("f.fun").writeText(upperCaseLonger)
         assertThat(walkedIn(bothRuns("declaration added"))).isEqualTo(2)
+    }
+
+    @Test
+    fun `a run that would write the cache it read leaves it, and a removed file has it written`() {
+        ownSources("a.prc" to "create or replace procedure a is begin null; end;\n/\n", "b.prc" to "create or replace procedure b is begin null; end;\n/\n")
+        bothRuns("first run")
+        val cache = temp.resolve("incremental.db.facts")
+        val old = FileTime.fromMillis(0)
+        Files.setLastModifiedTime(cache, old)
+        assertThat(bothRuns("no change")).endsWith("0 removed; the facts cache is kept as it was")
+        assertThat(Files.getLastModifiedTime(cache)).isEqualTo(old)
+        Files.delete(sources.resolve("b.prc"))
+        assertThat(bothRuns("file removed")).startsWith("Incremental run: walked 0 of 1 files (0 changed, 0 new, 0 affected), 1 removed").doesNotContain("kept")
+        assertThat(Files.getLastModifiedTime(cache)).isNotEqualTo(old)
+        assertThat(bothRuns("no change again")).endsWith("the facts cache is kept as it was")
     }
 }

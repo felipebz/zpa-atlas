@@ -33,7 +33,9 @@ data class IncrementalReport(
     val everything: String? = null,
     val touched: List<String> = emptyList(),
     /** The Forms modules walked again because the reader of their file is not the one that read them for the cache. */
-    val reread: Int = 0
+    val reread: Int = 0,
+    /** Whether the cache the run read is what it would write: it is then not written again. */
+    val cacheKept: Boolean = false
 ) {
     fun line(): String = if (fullReason != null) "Full run: $fullReason; the facts cache is written for the next run" else buildString {
         append("Incremental run: walked $walked of $total files ($changed changed, $new new, $affected affected")
@@ -41,6 +43,7 @@ data class IncrementalReport(
         append("), $removed removed")
         if (everything != null) append("; every file is affected: $everything")
         else if (touched.isNotEmpty()) append("; affected through ${touched.joinToString(", ")}")
+        if (cacheKept) append("; the facts cache is kept as it was")
     }
 }
 
@@ -52,7 +55,8 @@ class PendingFactsCache internal constructor(internal val result: CompletableFut
 
 /**
  * An `index --incremental` run: it reads the facts cache beside the index, plans which files to walk with
- * [IncrementalRule], gives the cached facts of the others, and writes the cache for the next run.
+ * [IncrementalRule], gives the cached facts of the others, and writes the cache for the next run when it would differ
+ * from the one it read.
  */
 internal class IncrementalRun private constructor(
     private val cachePath: Path,
@@ -69,8 +73,11 @@ internal class IncrementalRun private constructor(
 ) {
     fun cachedFacts(path: String): FileFacts = cached.getValue(path)
 
-    /** Starts writing the cache of this run on another thread, [facts] being every file's, walked or not. */
-    fun save(facts: List<FileFacts>): CompletableFuture<Void> = CompletableFuture.runAsync {
+    /**
+     * Starts writing the cache of this run on another thread, [facts] being every file's, walked or not; null when the
+     * cache the run read is the one it would write ([IncrementalReport.cacheKept]).
+     */
+    fun save(facts: List<FileFacts>): CompletableFuture<Void>? = if (report.cacheKept) null else CompletableFuture.runAsync {
         val byPath = facts.associateBy { it.path }
         val files = current.sortedBy { it.path }.map { source ->
             CachedFile(source.path, source.sha256, declarations[source.path].orEmpty(), digests.getValue(source.path), source.reader, byPath.getValue(source.path),
@@ -170,6 +177,8 @@ internal class IncrementalRun private constructor(
             val sourceSynonyms = snapshot.sourceSynonyms.map { DictionarySynonym(it.owner.exact(), it.name.exact(), it.targetOwner.map { o -> o.exact() }.orElse(""), it.targetName.exact(), "") }
             val plan = IncrementalRule.plan(contents, current, declarations, digests, global, options.dictionary.synonyms + sourceSynonyms)
             val present = current.mapTo(HashSet()) { it.path }
+            val kept = plan.walk.isEmpty() && contents.inputs.toList() == runInputs.toList() && contents.global == global &&
+                keeps(contents.files, current, declarations, digests, withRelations)
             // A relation that is gone is touched by the rule, so the files that resolved it are walked again; one kept
             // would be a damaged cache.
             withRelations.entries.firstOrNull { (path, value) -> value.second.isNotEmpty() && path in present && path !in plan.walk }?.let { (_, value) ->
@@ -178,8 +187,31 @@ internal class IncrementalRun private constructor(
             return IncrementalRun(
                 cachePath, snapshot, runCatalog, runInputs, global, current, declarations, digests, cached, plan.walk,
                 IncrementalReport(current.size, plan.walk.size, plan.changed, plan.new, plan.affected, plan.removed, null, plan.everything, plan.touched,
-                    plan.reread)
+                    plan.reread, kept)
             )
+        }
+
+        /**
+         * Whether a run that walks no file would write [files] again as read: the same files in the same order, each with
+         * the same checksum, reader, declarations and catalog digest, and its dictionary relations found again as written.
+         */
+        private fun keeps(
+            files: List<CachedFile>, current: List<IncrementalRule.Current>, declarations: Map<String, List<CachedDeclaration>>, digests: Map<String, String>,
+            withRelations: Map<String, Pair<FileFacts, List<String>>>
+        ): Boolean {
+            val sorted = current.sortedBy { it.path }
+            return files.size == sorted.size && files.indices.all { i ->
+                val file = files[i]
+                val now = sorted[i]
+                val relations = withRelations.getValue(file.path).first.dictionaryRelations
+                file.path == now.path && file.sha256 == now.sha256 && file.reader == now.reader && file.catalogDigest == digests[now.path] &&
+                    file.declarations === declarations[now.path] && relations.size == file.relations.size &&
+                    relations.indices.all { r ->
+                        val reference = file.relations[r]
+                        relations[r].schema.originalSpelling == reference.schema && relations[r].name.originalSpelling == reference.name &&
+                            RelationResolver.dictionaryKey(relations[r]) == reference.key
+                    }
+            }
         }
 
         /** What the facts depend on besides the sources, by the name a full run's reason gives it. */
