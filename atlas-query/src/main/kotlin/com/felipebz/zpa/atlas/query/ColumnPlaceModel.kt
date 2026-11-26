@@ -79,7 +79,12 @@ data class ColumnPlace(
     /** In a Forms module, the code [line] is in and its line there ([CodeAt]); null elsewhere. */
     val code: CodeAt? = null,
     /** Likewise for [callLine]. */
-    val callCode: CodeAt? = null
+    val callCode: CodeAt? = null,
+    /**
+     * For a [Verdict.CALLER_DECIDES] place whose callers' arguments are not listed as places of their own, why
+     * ([FORMS_CODE]: the parameter is in Forms module code); null where the callers are followed.
+     */
+    val callersNotFollowed: String? = null
 )
 
 /**

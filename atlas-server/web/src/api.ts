@@ -506,6 +506,8 @@ export interface ColumnPlace {
   code?: CodeAt | null;
   /** Likewise for [callLine]. */
   callCode?: CodeAt | null;
+  /** For a CALLER_DECIDES place whose callers are not listed: why (FORMS_CODE, Forms module code); null where they are. */
+  callersNotFollowed?: "FORMS_CODE" | null;
 }
 
 /** A row's line of code: where, the columns it marks (`to` null: to the end of the line), and its indexed text and colors when the page asked. */

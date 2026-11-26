@@ -239,7 +239,8 @@ internal class PlaceReader(private val connection: Connection) {
             summary(12), rs.getString(17), summary(18), rs.getString(23), placeClass, rs.getString(25), length, unit, summary(28),
             rs.getString(33), int(34), rs.getString(35), rs.getString(36)?.split(',').orEmpty(), summary(37), summary(42),
             int(47), rs.getString(48), int(49), concatenated,
-            decided.verdict.name, decided.reason?.name, shown, shownUnit, unitSource, compiledIn, decided.room, kept = limit?.length, keptUnit = limit?.unit
+            decided.verdict.name, decided.reason?.name, shown, shownUnit, unitSource, compiledIn, decided.room, kept = limit?.length, keptUnit = limit?.unit,
+            callersNotFollowed = FORMS_CODE.takeIf { placeClass == "CALLER_DECIDES" && rs.getString(18)?.startsWith("forms:") == true }
         )
         return Row(rs.getLong(57), place, rs.getString(56)).also { placeIds[place] = it.id }
     }
@@ -305,3 +306,6 @@ internal class PlaceReader(private val connection: Connection) {
             SELECT ? UNION SELECT r.from_id FROM relation r JOIN viewed v ON r.to_id = v.id AND r.kind = 'VIEW_BASE')"""
     }
 }
+
+/** [ColumnPlace.callersNotFollowed] of a parameter of Forms module code, whose calls the index does not follow to their arguments. */
+const val FORMS_CODE = "FORMS_CODE"

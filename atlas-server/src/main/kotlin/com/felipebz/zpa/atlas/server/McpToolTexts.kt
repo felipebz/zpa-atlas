@@ -21,18 +21,17 @@ internal object McpToolTexts {
             "- find_column_places: every variable, parameter or field a column's value is read into, how each is " +
             "declared and whether it holds a size.\n" +
             "- find_usages: who uses one entity, following its spec and body, its members and the views built on " +
-            "it; group_usages counts them by routine, file or view. via keeps only the direct uses or only those " +
-            "through views.\n" +
+            "it; group_usages counts them by routine, file or view.\n" +
             "- find_occurrences, group_occurrences: questions across the code: every write in a package, calls by " +
             "name pattern, a CRUD matrix, rows by status or by value.\n" +
             "- get_values: the values a parameter is passed or a column is written with; then find_value_sites: " +
             "where one of them comes from.\n" +
             "- get_source: the text around a line. Sources are only on the server, not on the local disk.\n" +
-            "- find_impact: impact analysis, who calls the callers up to the entry points; nodes are numbered (n), " +
-            "keys=true gives full keys.\n" +
+            "- find_impact: impact analysis, who calls the callers up to the entry points.\n" +
             "- search_text: other text (XML tags, messages, comments, SQL in strings); pass the package or routine " +
             "the question names as container_name, or a file or folder as path, else it searches the whole index.\n" +
             "Usual order: a group_ tool for the summary, a find_ tool for the lines, get_source for the text.\n" +
+            "A row is at path and span: its line is span.startLine (a Forms use without code has none). " +
             "Null fields are left out, and a display equal to the key. An answer over " +
             "${McpAnswers.MAX_CHARS} characters is cut; cutForSize says how (rows kept: page on from nextAfter or " +
             "nextOffset; an entity's lower list limit; source lines shortened). A refused call has isError and the " +
@@ -108,25 +107,24 @@ internal object McpToolTexts {
     const val PLACES =
         "Where a column's value is read into in PL/SQL, for what a size change breaks: needs a COLUMN key. Each " +
             "row is a variable, parameter or field (or Forms item, parameter, global) the value lands in, with " +
-            "placeClass, how the target is declared, and verdict, that declaration against a size S (the column's " +
-            "unless size is given; a number's: digits before the point). Rows by verdict, file, line (pages: " +
-            "nextOffset); viaView: through a view column computed from it; counts: per verdict. " +
-            "placeClass, and the verdicts it gives: FIXED_SIZE (its own length or precision, or a bounded type: " +
-            "PLS_INTEGER): SMALLER, FITS, UNKNOWN, or OWN_SIZE without S; ANCHORED_ELSEWHERE (%TYPE of another column, " +
-            "typeSource): that column's size against S, FITS when it has none; NO_SIZE (NUMBER, CLOB, DATE): FITS; " +
-            "ANCHORED_TO_COLUMN (%TYPE, %ROWTYPE or a cursor record over this column): FOLLOWS; CALLER_DECIDES (an OUT " +
-            "or IN OUT parameter: each caller's argument is a row): CALLER_DECIDES; UNKNOWN (not known: reason): " +
-            "UNKNOWN. verdict: SMALLER (less than S), FITS (S or more, or the most SUBSTR keeps fits), UNKNOWN with " +
-            "verdictReason UNIT_MISMATCH (under 4 bytes per character of a CHAR column), OTHER_COLUMN_UNKNOWN, " +
-            "NO_LENGTH, OTHER_KIND (a number for text, or the reverse). source: SELECT_INTO, FETCH, RETURNING (bulk), " +
-            "ASSIGNMENT (:= r.f), OUT_ARGUMENT and IN_ARGUMENT (argumentOf, routine; callCount calls, one at callPath, " +
-            "callLine), RETURNED (a function's result; callCount), BLOCK_QUERY (a Forms item; no line). Each row: " +
-            "shownLine (the line to read), declaredType, length, unit (BYTE, CHAR, DIGITS: p-s, with scale), " +
-            "unitSource (WRITTEN; COMPILED: unitCompiledIn; OPTION), size and sizeUnit compared, functions read " +
-            "through, outer first (NVL another value, REPLACE another length, SUBSTR a part: kept in keptUnit), " +
-            "concatenated (one part of a ||; room: what the size leaves). A column of text also has optionUnit, the " +
-            "unit of a length written without one, and optionSized, the places sized so. Paths are on the server: read " +
-            "a row's line with get_source."
+            "placeClass, how the target is declared, and verdict, that declaration against a size S (the column's or " +
+            "size; a number's: digits before the point). Rows by verdict, file, line; viaView: through a view column " +
+            "computed from it; counts: per verdict. placeClass, and the verdicts it gives: FIXED_SIZE (own length or " +
+            "precision, or PLS_INTEGER): SMALLER, FITS, UNKNOWN, or OWN_SIZE without S; ANCHORED_ELSEWHERE (%TYPE of " +
+            "another column, typeSource): that column's size against S, FITS when it has none; NO_SIZE (NUMBER, CLOB, " +
+            "DATE): FITS; ANCHORED_TO_COLUMN (%TYPE, %ROWTYPE or a cursor record over this column): FOLLOWS; " +
+            "CALLER_DECIDES (an OUT or IN OUT parameter: each caller's argument is a row, but with callersNotFollowed " +
+            "FORMS_CODE, Forms module code whose calls are not followed: find_usages on its container lists them): " +
+            "CALLER_DECIDES; UNKNOWN (not known: reason): UNKNOWN. verdict: SMALLER (less than S), FITS (S or more, " +
+            "or the most SUBSTR keeps fits), UNKNOWN with verdictReason UNIT_MISMATCH (under 4 bytes per character of " +
+            "a CHAR column), OTHER_COLUMN_UNKNOWN, NO_LENGTH, OTHER_KIND (a number for text, or the reverse). source: " +
+            "SELECT_INTO, FETCH, RETURNING (bulk), ASSIGNMENT (:= r.f), OUT_ARGUMENT and IN_ARGUMENT (argumentOf, " +
+            "routine; callCount calls, one at callPath, callLine), RETURNED (a function's result; callCount), " +
+            "BLOCK_QUERY (a Forms item; no line). Each row: shownLine (the line to read), declaredType, length, unit " +
+            "(BYTE, CHAR, DIGITS: p-s, with scale), unitSource (WRITTEN; COMPILED: unitCompiledIn; OPTION), size and " +
+            "sizeUnit compared, functions, outer first (NVL another value, REPLACE another length, SUBSTR a part: " +
+            "kept in keptUnit), concatenated (one part of a ||; room: what the size leaves). A column of text also " +
+            "has optionUnit, the unit of a length written without one, and optionSized, the places sized so."
 
     const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column is in: needs the key " +
         "of the TABLE, VIEW or COLUMN. get_entity's referencedBy cuts this list; here it is whole, by table then name, " +
