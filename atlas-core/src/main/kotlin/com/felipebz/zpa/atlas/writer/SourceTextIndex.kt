@@ -138,7 +138,10 @@ class SourceTextIndex private constructor(val paths: List<String>, private val b
                                 statement.execute(SOURCE_LINE_DDL)
                                 SOURCE_LINE_SETTINGS.forEach(statement::execute)
                             }
-                            SourceLines.insertLines(connection, sorted.size) { sorted[it].second }
+                            RowWriter(connection, "atlas-text-index rows").use { writer ->
+                                SourceLines.insertLines(writer, sorted.size) { sorted[it].second }
+                                writer.finish()
+                            }
                             connection.commit()
                         }
                     } catch (e: Throwable) {

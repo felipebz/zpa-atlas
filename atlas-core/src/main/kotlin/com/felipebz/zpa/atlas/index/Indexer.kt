@@ -133,7 +133,8 @@ class Indexer internal constructor(
                     runInfo(options, read),
                     // The cache keeps the calls of modules as the walks wrote them: which modules the run has is checked on every run.
                     FormsReferences.resolveModuleCalls(facts), globalEntities, globalRelations, globalCoverage, texts::get, phase,
-                    dictionaryDeclaredTexts = dictionaryFacts.declaredTexts, keys = dictionaryFacts.keys, places = places, placesLeftOut = placesLeftOut
+                    dictionaryDeclaredTexts = dictionaryFacts.declaredTexts, keys = dictionaryFacts.keys, places = places, placesLeftOut = placesLeftOut,
+                    note = { phases?.notes?.add(it) }
                 )
             }
         } catch (e: Throwable) {

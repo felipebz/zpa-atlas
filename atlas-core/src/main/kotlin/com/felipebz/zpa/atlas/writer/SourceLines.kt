@@ -9,7 +9,6 @@ import com.felipebz.zpa.atlas.model.EntityKind
 import com.felipebz.zpa.atlas.model.FileFacts
 import com.felipebz.zpa.atlas.model.Role
 import com.felipebz.zpa.atlas.model.SourceSpan
-import java.sql.Connection
 
 /**
  * The `source_line` rows: each line of each file as decoded for indexing, split as the query side splits a file
@@ -26,7 +25,7 @@ import java.sql.Connection
  *   `DEFINITION` or `DECLARATION`) belongs to the enclosing package;
  * - a line shared by two subprograms, or a cursor declared on one line in a specification, goes to one entity only.
  */
-internal class SourceLines(private val connection: Connection) {
+internal class SourceLines(private val writer: RowWriter) {
     /**
      * Writes the lines of [sortedFiles]: the trigram index of [textIndex], built apart from the same texts, is copied,
      * and only the content rows, with their containers, are written here.
@@ -43,20 +42,23 @@ internal class SourceLines(private val connection: Connection) {
         val text = { file: Int -> texts(sortedFiles[file].path) }
         // ATTACH cannot be in a transaction, nor read a file another connection is still writing: the rows so far
         // are committed, the build waited for, and the rest goes in a new transaction (the file is moved only at the end).
-        connection.autoCommit = true
-        textIndex.await()
-        connection.prepareStatement("ATTACH DATABASE ? AS ${SourceTextIndex.SCHEMA}").use {
-            it.setString(1, textIndex.file.toString())
-            it.execute()
-        }
-        connection.autoCommit = false
-        connection.createStatement().use { statement ->
-            for (table in COPIED) {
-                statement.execute("DELETE FROM source_line_$table")
-                statement.execute("INSERT INTO source_line_$table SELECT * FROM ${SourceTextIndex.SCHEMA}.source_line_$table")
+        // The content rows are built while the index is copied.
+        writer.execute { connection ->
+            connection.autoCommit = true
+            textIndex.await()
+            connection.prepareStatement("ATTACH DATABASE ? AS ${SourceTextIndex.SCHEMA}").use {
+                it.setString(1, textIndex.file.toString())
+                it.execute()
+            }
+            connection.autoCommit = false
+            connection.createStatement().use { statement ->
+                for (table in COPIED) {
+                    statement.execute("DELETE FROM source_line_$table")
+                    statement.execute("INSERT INTO source_line_$table SELECT * FROM ${SourceTextIndex.SCHEMA}.source_line_$table")
+                }
             }
         }
-        insertLines(connection, sortedFiles.size, text, INSERT_CONTENT, entities)
+        insertLines(writer, sortedFiles.size, text, INSERT_CONTENT, entities)
     }
 
     /** The key of the innermost container of each line (index 0 is line 1), or null. */
@@ -91,8 +93,6 @@ internal class SourceLines(private val connection: Connection) {
     }
 
     companion object {
-        private const val BATCH = 20_000
-
         /** Every column of a line, through the FTS5 table, which indexes the text. */
         private const val INSERT = "INSERT INTO source_line(rowid, text, file_id, line, entity_id) VALUES (?,?,?,?,?)"
 
@@ -111,8 +111,8 @@ internal class SourceLines(private val connection: Connection) {
          * The lines of [fileCount] files through `source_line`, without their containers: what [SourceTextIndex]
          * builds. These were the rows of `source_line` before it was built apart, and the shadow tables stay theirs.
          */
-        fun insertLines(connection: Connection, fileCount: Int, text: (Int) -> String?) =
-            insertLines(connection, fileCount, text, INSERT) { _, _ -> { null } }
+        fun insertLines(writer: RowWriter, fileCount: Int, text: (Int) -> String?) =
+            insertLines(writer, fileCount, text, INSERT) { _, _ -> { null } }
 
         /**
          * Inserts with [sql] one row per line of each file of [text] (by file index, the file id less one): rowids
@@ -120,11 +120,10 @@ internal class SourceLines(private val connection: Connection) {
          * gives a file's container of each line.
          */
         private fun insertLines(
-            connection: Connection, fileCount: Int, text: (Int) -> String?, sql: String, entities: (Int, Int) -> (Int) -> Long?
+            writer: RowWriter, fileCount: Int, text: (Int) -> String?, sql: String, entities: (Int, Int) -> (Int) -> Long?
         ) {
-            connection.prepareStatement(sql).use { insert ->
+            writer.insert(sql).use { insert ->
                 var rowid = 0L
-                var pending = 0
                 for (index in 0 until fileCount) {
                     val lines = (text(index) ?: continue).lines()
                     val entity = entities(index, lines.size)
@@ -136,16 +135,11 @@ internal class SourceLines(private val connection: Connection) {
                         insert.setString(2, line)
                         insert.setLong(3, index + 1L)
                         insert.setInt(4, i + 1)
-                        val container = entity(i)
-                        if (container == null) insert.setNull(5, java.sql.Types.INTEGER) else insert.setLong(5, container)
-                        insert.addBatch()
-                        if (++pending >= BATCH) {
-                            insert.executeBatch()
-                            pending = 0
-                        }
+                        insert.setNullableLong(5, entity(i))
+                        insert.add()
+                        writer.flushIfFull()
                     }
                 }
-                if (pending > 0) insert.executeBatch()
             }
         }
     }

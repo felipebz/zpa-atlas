@@ -6,11 +6,9 @@
 package com.felipebz.zpa.atlas.writer
 
 import com.felipebz.zpa.atlas.model.*
-import java.sql.Connection
-import java.sql.PreparedStatement
 
 /** The rows that belong to the whole run: the run, the entities, the relations and the trigger events. */
-internal class GlobalRows(private val connection: Connection) {
+internal class GlobalRows(private val writer: RowWriter) {
     fun insertRun(run: RunInfo) {
         prepare("INSERT INTO run(id, schema_version, atlas_version, zpa_version, sources_root, source_encoding, metadata_origin, compilation_schema, schema_paths, database_version, database_version_origin, ccflags, nls_length_semantics, started_at, finished_at) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").use {
             it.setInt(1, AtlasWriter.SCHEMA_VERSION)
@@ -27,7 +25,7 @@ internal class GlobalRows(private val connection: Connection) {
             it.setString(12, run.nlsLengthSemantics)
             it.setString(13, run.startedAt)
             it.setString(14, run.finishedAt)
-            it.executeUpdate()
+            it.add()
         }
     }
 
@@ -40,7 +38,6 @@ internal class GlobalRows(private val connection: Connection) {
         val ids = HashMap<String, Long>(keys.size * 2)
         keys.forEachIndexed { index, key -> ids[key] = index + 1L }
         prepare("INSERT INTO entity(id, key, kind, schema_name, name, parent_id, display, external) VALUES (?,?,?,?,?,?,?,?)").use { insert ->
-            val batches = Batches(insert)
             for (key in keys) {
                 val entity = chosen.getValue(key)
                 insert.setLong(1, ids.getValue(key))
@@ -51,10 +48,9 @@ internal class GlobalRows(private val connection: Connection) {
                 insert.setNullableLong(6, entity.parentKey?.let { ids.getValue(it) })
                 insert.setString(7, entity.display)
                 insert.setInt(8, if (entity.external) 1 else 0)
-                batches.add(insert)
-                batches.flushIfFull()
+                insert.add()
+                writer.flushIfFull()
             }
-            batches.flush()
         }
         return ids
     }
@@ -63,32 +59,28 @@ internal class GlobalRows(private val connection: Connection) {
         val rows = facts.map { Triple(ids.getValue(it.fromKey), it.kind, ids.getValue(it.toKey)) }.distinct()
             .sortedWith(compareBy({ it.first }, { it.second }, { it.third }))
         prepare("INSERT INTO relation(from_id, kind, to_id) VALUES (?,?,?)").use { insert ->
-            val batches = Batches(insert)
             for ((from, kind, to) in rows) {
                 insert.setLong(1, from)
                 insert.setString(2, kind.name)
                 insert.setLong(3, to)
-                batches.add(insert)
-                batches.flushIfFull()
+                insert.add()
+                writer.flushIfFull()
             }
-            batches.flush()
         }
     }
 
     fun insertTriggerEvents(facts: List<TriggerEventFact>, ids: Map<String, Long>) {
         val rows = facts.distinct().sortedWith(compareBy({ ids.getValue(it.triggerKey) }, { it.event }, { it.timing }, { it.level }, { it.columnKey?.let(ids::getValue) ?: 0L }))
         prepare("INSERT INTO trigger_event(trigger_id, timing, level, event, column_id) VALUES (?,?,?,?,?)").use { insert ->
-            val batches = Batches(insert)
             for (row in rows) {
                 insert.setLong(1, ids.getValue(row.triggerKey))
                 insert.setString(2, row.timing.name)
                 insert.setNullableString(3, row.level?.name)
                 insert.setString(4, row.event)
                 insert.setNullableLong(5, row.columnKey?.let { ids.getValue(it) })
-                batches.add(insert)
-                batches.flushIfFull()
+                insert.add()
+                writer.flushIfFull()
             }
-            batches.flush()
         }
     }
 
@@ -100,45 +92,39 @@ internal class GlobalRows(private val connection: Connection) {
         // A column of a `CREATE TABLE` the run never mentioned has no entity: its datatype is left out.
         val byEntity = facts.filter { it.entityKey in ids }.groupBy { ids.getValue(it.entityKey) }.toSortedMap()
         prepare("INSERT INTO declared_text(entity_id, datatype, value, value_cut) VALUES (?,?,?,?)").use { insert ->
-            val batches = Batches(insert)
             for ((id, same) in byEntity) {
                 val valued = same.firstOrNull { it.value != null }
                 insert.setLong(1, id)
                 insert.setNullableString(2, same.firstNotNullOfOrNull { it.datatype })
                 insert.setNullableString(3, valued?.value)
                 insert.setInt(4, if (valued?.valueCut == true) 1 else 0)
-                batches.add(insert)
-                batches.flushIfFull()
+                insert.add()
+                writer.flushIfFull()
             }
-            batches.flush()
         }
     }
 
     /** The body globals whose uses may be incomplete: one row per entity, its reasons comma-separated in order. */
     fun insertUsesGaps(facts: List<UsesGapFact>, ids: Map<String, Long>) {
         prepare("INSERT INTO uses_gap(entity_id, reasons) VALUES (?,?)").use { insert ->
-            val batches = Batches(insert)
             for ((id, fact) in facts.associateBy { ids.getValue(it.entityKey) }.toSortedMap()) {
                 insert.setLong(1, id)
                 insert.setString(2, fact.reasons.joinToString(","))
-                batches.add(insert)
-                batches.flushIfFull()
+                insert.add()
+                writer.flushIfFull()
             }
-            batches.flush()
         }
     }
 
     /** The types whose listed attributes may not be all: one row per entity, its reasons comma-separated. */
     fun insertMembersGaps(facts: List<MembersGapFact>, ids: Map<String, Long>) {
         prepare("INSERT INTO members_gap(entity_id, reasons) VALUES (?,?)").use { insert ->
-            val batches = Batches(insert)
             for ((id, fact) in facts.associateBy { ids.getValue(it.entityKey) }.toSortedMap()) {
                 insert.setLong(1, id)
                 insert.setString(2, fact.reasons.joinToString(","))
-                batches.add(insert)
-                batches.flushIfFull()
+                insert.add()
+                writer.flushIfFull()
             }
-            batches.flush()
         }
     }
 
@@ -151,7 +137,6 @@ internal class GlobalRows(private val connection: Connection) {
         facts.forEachIndexed { index, key -> keyIds[key.owner to key.name] = index + 1L }
         prepare("""INSERT INTO dictionary_key(id, owner, name, kind, table_owner, table_name, relation_id, enabled, delete_rule,
                    referenced_owner, referenced_name, referenced_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""").use { insert ->
-            val batches = Batches(insert)
             facts.forEachIndexed { index, key ->
                 insert.setLong(1, index + 1L)
                 insert.setString(2, key.owner)
@@ -165,26 +150,23 @@ internal class GlobalRows(private val connection: Connection) {
                 insert.setNullableString(10, key.referencedOwner)
                 insert.setNullableString(11, key.referencedName)
                 insert.setNullableLong(12, key.referencedName?.let { keyIds[key.referencedOwner to it] })
-                batches.add(insert)
-                batches.flushIfFull()
+                insert.add()
+                writer.flushIfFull()
             }
-            batches.flush()
         }
         prepare("INSERT INTO dictionary_key_column(key_id, position, column_name, column_id) VALUES (?,?,?,?)").use { insert ->
-            val batches = Batches(insert)
             facts.forEachIndexed { index, key ->
                 key.columns.forEachIndexed { position, (name, columnKey) ->
                     insert.setLong(1, index + 1L)
                     insert.setInt(2, position + 1)
                     insert.setString(3, name)
                     insert.setNullableLong(4, columnKey?.let(ids::getValue))
-                    batches.add(insert)
-                    batches.flushIfFull()
+                    insert.add()
+                    writer.flushIfFull()
                 }
             }
-            batches.flush()
         }
     }
 
-    private fun prepare(sql: String): PreparedStatement = connection.prepareStatement(sql)
+    private fun prepare(sql: String): RowWriter.Insert = writer.insert(sql)
 }

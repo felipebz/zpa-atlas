@@ -61,7 +61,11 @@ class PhaseTimesTest {
             { assertThat(it).matches("""  the walk \(semantic analysis, one file per thread\) \d+ ms""") },
             { assertThat(it).matches("""  the extraction, after the walk \d+ ms""") }
         )
-        val slowest = walks.dropWhile { it != "Slowest files:" }.drop(2).dropLast(1)
+        val slowest = walks.dropWhile { it != "Slowest files:" }.drop(2).dropLast(2)
+        assertThat(walks[walks.size - 2]).matches(
+            "Index rows built on this thread while SQLite writes the earlier ones on its own: " +
+                listOf("entities and relations", "file rows", "source lines").joinToString("; ") { "$it: SQLite waited \\d+ ms for rows, the rows \\d+ ms for SQLite" }
+        )
         assertThat(walks.last()).matches("""Text index: built on its own thread in \d+ ms, from the end of the reading; the writer waited \d+ ms for it""")
         assertThat(slowest).hasSize(10).allMatch { Regex("""  +\d+ +\d+ +\d+ +\d+ +\d+  \S+""").matches(it) }
 

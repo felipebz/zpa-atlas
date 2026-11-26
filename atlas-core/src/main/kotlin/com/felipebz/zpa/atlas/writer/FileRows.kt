@@ -6,11 +6,9 @@
 package com.felipebz.zpa.atlas.writer
 
 import com.felipebz.zpa.atlas.model.*
-import java.sql.Connection
-import java.sql.PreparedStatement
 
 /** The rows of the files, in path order, then the coverage notes; the ids count across files. */
-internal class FileRows(private val connection: Connection) {
+internal class FileRows(private val writer: RowWriter) {
     /**
      * Writes [sortedFiles] (sorted by path) with the ids of [entityIds], then the run's and the files' coverage notes,
      * then the counts of [placesLeftOut] as notes after them all (so that the other notes keep their ids). [places] are
@@ -56,7 +54,7 @@ internal class FileRows(private val connection: Connection) {
             target_entity_id, query_allowed, insert_allowed, update_allowed, delete_allowed, where_clause, order_by_clause) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""")
         private val itemInsert = prepare("""INSERT INTO forms_item(entity_id, database, column_name, kind, insert_allowed, update_allowed, column_id, target_column_id)
             VALUES (?,?,?,?,?,?,?,?)""")
-        private val batches = Batches(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert,
+        private val inserts = listOf(fileInsert, unitInsert, statementInsert, occurrenceInsert, candidateInsert, argumentInsert, writtenValueInsert,
             coverageInsert, docInsert, placeInsert, formsInsert, blockInsert, itemInsert)
         private var placeId = 0L
         private var unitId = 0L
@@ -76,7 +74,7 @@ internal class FileRows(private val connection: Connection) {
             fileInsert.setString(7, file.parseStatus.name)
             fileInsert.setInt(8, file.recoveredRegions)
             fileInsert.setString(9, file.encoding)
-            batches.add(fileInsert)
+            fileInsert.add()
 
             val unitIds = writeUnits(fileId, file.units)
             val statementIds = writeStatements(fileId, file.statements, unitIds)
@@ -90,7 +88,7 @@ internal class FileRows(private val connection: Connection) {
                 writePlace(fileId, place, column, unitIds, statementIds)
             }
             // At a file boundary, so that the rows of one file go out together.
-            batches.flushIfFull()
+            writer.flushIfFull()
         }
 
         /** Writes the coverage [notes], each with the id of its file when it has a path. */
@@ -100,14 +98,13 @@ internal class FileRows(private val connection: Connection) {
                 coverageInsert.setNullableLong(2, path?.let { fileIds.getValue(it) })
                 coverageInsert.setString(3, note.kind)
                 coverageInsert.setString(4, note.message)
-                batches.add(coverageInsert)
+                coverageInsert.add()
             }
         }
 
-        /** Executes the pending rows and closes the inserts. */
+        /** Hands over the pending rows and closes the inserts after them. */
         fun finish() {
-            batches.flush()
-            batches.close()
+            inserts.forEach { it.close() }
         }
 
         /** Writes the [units] of the file [fileId]; returns their ids, by index. */
@@ -121,7 +118,7 @@ internal class FileRows(private val connection: Connection) {
                 unitInsert.setString(4, unit.kind.name)
                 unitInsert.setString(5, unit.name)
                 unitInsert.setSpan(6, unit.span)
-                batches.add(unitInsert)
+                unitInsert.add()
             }
             return unitIds
         }
@@ -138,7 +135,7 @@ internal class FileRows(private val connection: Connection) {
                 statementInsert.setString(5, statement.kind.name)
                 statementInsert.setSpan(6, statement.span)
                 statementInsert.setString(10, statement.normalizedHash)
-                batches.add(statementInsert)
+                statementInsert.add()
             }
             return statementIds
         }
@@ -162,11 +159,11 @@ internal class FileRows(private val connection: Connection) {
             occurrenceInsert.setNullableLong(17, nameSpan?.startCol?.toLong())
             occurrenceInsert.setNullableLong(18, nameSpan?.endLine?.toLong())
             occurrenceInsert.setNullableLong(19, nameSpan?.endCol?.toLong())
-            batches.add(occurrenceInsert)
+            occurrenceInsert.add()
             for (candidate in occurrence.candidateKeys.map { entityIds.getValue(it) }.distinct().sorted()) {
                 candidateInsert.setLong(1, occurrenceId)
                 candidateInsert.setLong(2, candidate)
-                batches.add(candidateInsert)
+                candidateInsert.add()
             }
             for (argument in occurrence.arguments) writeArgument(argument)
             for (written in occurrence.writtenValues) writeWrittenValue(written)
@@ -181,7 +178,7 @@ internal class FileRows(private val connection: Connection) {
             argumentInsert.setSpan(5, argument.span)
             argumentInsert.setString(9, argument.valueKind.name)
             argumentInsert.setNullableString(10, argument.value)
-            batches.add(argumentInsert)
+            argumentInsert.add()
         }
 
         /** Writes [written], a value the last occurrence written writes. */
@@ -191,7 +188,7 @@ internal class FileRows(private val connection: Connection) {
             writtenValueInsert.setString(3, written.valueKind.name)
             writtenValueInsert.setNullableString(4, written.value)
             writtenValueInsert.setSpan(5, written.span)
-            batches.add(writtenValueInsert)
+            writtenValueInsert.add()
         }
 
         /** Writes [use], a use Forms makes without code in the file [fileId]: no unit, no statement, no span. */
@@ -206,7 +203,7 @@ internal class FileRows(private val connection: Connection) {
             occurrenceInsert.setString(13, use.status.name)
             occurrenceInsert.setString(14, Origin.FORMS_IMPLICIT.name)
             occurrenceInsert.setNullableString(15, use.reason)
-            batches.add(occurrenceInsert)
+            occurrenceInsert.add()
         }
 
         /** Writes [formsObject] at [position] in the file [fileId], then its block or item. */
@@ -218,7 +215,7 @@ internal class FileRows(private val connection: Connection) {
             formsInsert.setNullableLong(4, formsObject.codeFirstLine?.toLong())
             formsInsert.setNullableLong(5, formsObject.codeLastLine?.toLong())
             formsInsert.setNullableString(6, formsObject.unitKind?.name)
-            batches.add(formsInsert)
+            formsInsert.add()
             formsObject.block?.let { writeBlock(entityId, it) }
             formsObject.item?.let { writeItem(entityId, it) }
         }
@@ -239,7 +236,7 @@ internal class FileRows(private val connection: Connection) {
             blockInsert.setInt(12, if (block.deleteAllowed) 1 else 0)
             blockInsert.setString(13, block.where)
             blockInsert.setString(14, block.orderBy)
-            batches.add(blockInsert)
+            blockInsert.add()
         }
 
         /** Writes [item], the item of the Forms object [entityId]. */
@@ -252,7 +249,7 @@ internal class FileRows(private val connection: Connection) {
             itemInsert.setInt(6, if (item.updateAllowed) 1 else 0)
             itemInsert.setNullableLong(7, item.columnKey?.let { entityIds.getValue(it) })
             itemInsert.setNullableLong(8, item.targetColumnKey?.let { entityIds.getValue(it) })
-            batches.add(itemInsert)
+            itemInsert.add()
         }
 
         /** Writes [doc], a doc comment of the file [fileId]. */
@@ -264,7 +261,7 @@ internal class FileRows(private val connection: Connection) {
             docInsert.setInt(5, doc.line)
             docInsert.setString(6, doc.text)
             docInsert.setInt(7, if (doc.textCut) 1 else 0)
-            batches.add(docInsert)
+            docInsert.add()
         }
 
         /** Writes [place] of the file [fileId], a place the value of the column [column] is read into. */
@@ -306,11 +303,11 @@ internal class FileRows(private val connection: Connection) {
             placeInsert.setNullableString(36, kept?.unit)
             placeInsert.setNullableLong(37, kept?.skipped?.toLong())
             placeInsert.setNullableString(38, kept?.skippedUnit)
-            batches.add(placeInsert)
+            placeInsert.add()
         }
     }
 
-    private fun prepare(sql: String): PreparedStatement = connection.prepareStatement(sql)
+    private fun prepare(sql: String): RowWriter.Insert = writer.insert(sql)
 
     /** A count of what reads a column's value into PL/SQL without being followed: `COLUMN_VALUE_NOT_FOLLOWED`, its shape first. */
     private fun leftOutNote(shape: String, count: Int): CoverageFact {

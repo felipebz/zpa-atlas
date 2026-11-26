@@ -17,9 +17,9 @@ import java.sql.Connection
 import java.sql.DriverManager
 
 /**
- * The only owner of the SQLite connection, the DDL and every INSERT. The database is written to a temporary file next
- * to the target and moved over it at the end, so a reader never sees a partial index. There are no migrations: a
- * schema change means re-indexing. Ids are assigned in a sorted order (entity key; file path, then source position),
+ * The only owner of the SQLite connection, the DDL and every INSERT, which a [RowWriter] executes on a thread of its
+ * own while the next rows are built. The database is written to a temporary file next to the target and moved over it
+ * at the end, so a reader never sees a partial index. There are no migrations: a schema change means re-indexing. Ids are assigned in a sorted order (entity key; file path, then source position),
  * never in thread-completion order, so two runs over the same input produce identical rows.
  */
 class AtlasWriter private constructor(private val connection: Connection, private val textIndex: SourceTextIndex) : AutoCloseable by connection {
@@ -29,6 +29,7 @@ class AtlasWriter private constructor(private val connection: Connection, privat
      * the decoded text of each file by path, for the `source_line` table. [phase] is told each step as it starts.
      * [dictionaryDeclaredTexts] are the datatypes of the dictionary columns, [keys] the dictionary keys, [places] the
      * places column values are read into, by file path, and [placesLeftOut] what is counted instead, by file path.
+     * [note] is told, at the end, how long the building and the writing of the rows waited for each other.
      */
     fun write(
         run: RunInfo, files: List<FileFacts>, globalEntities: List<EntityFact>, globalRelations: List<RelationFact>, globalCoverage: List<CoverageFact>,
@@ -37,26 +38,46 @@ class AtlasWriter private constructor(private val connection: Connection, privat
         dictionaryDeclaredTexts: List<DeclaredTextFact> = emptyList(),
         keys: List<KeyFact> = emptyList(),
         places: Map<String, List<ColumnPlaceFact>> = emptyMap(),
-        placesLeftOut: Map<String, Map<String, Int>> = emptyMap()
+        placesLeftOut: Map<String, Map<String, Int>> = emptyMap(),
+        note: (String) -> Unit = {}
     ) {
-        phase(PhaseTimes.WRITING_ENTITIES)
-        val globalRows = GlobalRows(connection)
-        globalRows.insertRun(run)
-        val sortedFiles = files.sortedBy { it.path }
-        val entityIds = globalRows.insertEntities(globalEntities + sortedFiles.flatMap { it.entities })
-        globalRows.insertRelations((globalRelations + sortedFiles.flatMap { it.relations }), entityIds)
-        globalRows.insertTriggerEvents(sortedFiles.flatMap { it.triggerEvents }, entityIds)
-        globalRows.insertDeclaredTexts(dictionaryDeclaredTexts + sortedFiles.flatMap { it.declaredTexts }, entityIds)
-        globalRows.insertUsesGaps(sortedFiles.flatMap { it.usesGaps }, entityIds)
-        globalRows.insertMembersGaps(sortedFiles.flatMap { it.membersGaps }, entityIds)
-        globalRows.insertKeys(keys, entityIds)
-        phase(PhaseTimes.WRITING_FILES)
-        FileRows(connection).write(sortedFiles, entityIds, globalCoverage, places, placesLeftOut)
-        phase(PhaseTimes.WRITING_LINES)
-        val entities = globalEntities + sortedFiles.flatMap { it.entities }
-        val containerKeys = entities.filter { it.kind in SourceLines.CONTAINER_KINDS }.map { it.key }.toSet()
-        val subprogramKeys = entities.filter { it.kind == EntityKind.PROCEDURE || it.kind == EntityKind.FUNCTION }.map { it.key }.toSet()
-        SourceLines(connection).write(sortedFiles, entityIds, containerKeys, subprogramKeys, texts, textIndex)
+        // The rows are built on this thread and written on the writer's, which has the connection until it finishes. A
+        // step ends once its rows are written, so that each phase counts its own.
+RowWriter(connection, "atlas-index rows").use { writer ->
+            val waits = ArrayList<String>()
+            var idle = 0L
+            var waited = 0L
+            fun waited(step: String) {
+                waits += "$step: SQLite waited ${writer.idleMillis - idle} ms for rows, the rows ${writer.waitedMillis - waited} ms for SQLite"
+                idle = writer.idleMillis
+                waited = writer.waitedMillis
+            }
+            phase(PhaseTimes.WRITING_ENTITIES)
+            val globalRows = GlobalRows(writer)
+            globalRows.insertRun(run)
+            val sortedFiles = files.sortedBy { it.path }
+            val entityIds = globalRows.insertEntities(globalEntities + sortedFiles.flatMap { it.entities })
+            globalRows.insertRelations((globalRelations + sortedFiles.flatMap { it.relations }), entityIds)
+            globalRows.insertTriggerEvents(sortedFiles.flatMap { it.triggerEvents }, entityIds)
+            globalRows.insertDeclaredTexts(dictionaryDeclaredTexts + sortedFiles.flatMap { it.declaredTexts }, entityIds)
+            globalRows.insertUsesGaps(sortedFiles.flatMap { it.usesGaps }, entityIds)
+            globalRows.insertMembersGaps(sortedFiles.flatMap { it.membersGaps }, entityIds)
+            globalRows.insertKeys(keys, entityIds)
+            writer.drain()
+            waited("entities and relations")
+            phase(PhaseTimes.WRITING_FILES)
+            FileRows(writer).write(sortedFiles, entityIds, globalCoverage, places, placesLeftOut)
+            writer.drain()
+            waited("file rows")
+            phase(PhaseTimes.WRITING_LINES)
+            val entities = globalEntities + sortedFiles.flatMap { it.entities }
+            val containerKeys = entities.filter { it.kind in SourceLines.CONTAINER_KINDS }.map { it.key }.toSet()
+            val subprogramKeys = entities.filter { it.kind == EntityKind.PROCEDURE || it.kind == EntityKind.FUNCTION }.map { it.key }.toSet()
+            SourceLines(writer).write(sortedFiles, entityIds, containerKeys, subprogramKeys, texts, textIndex)
+            writer.finish()
+            waited("source lines")
+            note("Index rows built on this thread while SQLite writes the earlier ones on its own: ${waits.joinToString("; ")}")
+        }
     }
 
     companion object {
