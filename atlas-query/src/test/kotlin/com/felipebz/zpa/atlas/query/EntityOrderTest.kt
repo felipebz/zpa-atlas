@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.query
 
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
+import com.felipebz.zpa.atlas.writer.AtlasWriter
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import java.nio.file.Files
 import java.nio.file.Path
+import java.sql.DriverManager
 
 /**
  * The order of search hits and of an entity's children: names compared ignoring case, so `_` sorts before the letters
@@ -91,6 +93,25 @@ class EntityOrderTest {
     @Test
     fun `the exact name comes first, even external`() {
         assertThat(search("get_sum")).containsExactly("~.EXT_PKG.GET_SUM (external)", "HR.PKG_ORDERS.GET_SUM_ALL()")
+    }
+
+    @Test
+    fun `under a dotted name too, the entity named exactly comes first, even external`() {
+        // A table of the sources with a column of its own and one only named elsewhere (a candidate of an unqualified name).
+        val db = temp.resolve("ledger.db")
+        DriverManager.getConnection("jdbc:sqlite:$db").use { connection ->
+            connection.createStatement().use { s ->
+                (AtlasWriter.tableDdl() + AtlasWriter.indexDdl()).forEach { s.execute(it) }
+                s.execute("INSERT INTO run VALUES (1, ${AtlasWriter.SCHEMA_VERSION}, 'a', 'z', '.', 'UTF-8', NULL, 'HR', NULL, NULL, NULL, NULL, 'BYTE', 't0', 't1')")
+                s.execute("INSERT INTO entity VALUES (1, 'db:HR.LEDGER', 'TABLE', 'HR', 'LEDGER', NULL, 'HR.LEDGER', 0)")
+                s.execute("INSERT INTO entity VALUES (2, 'db:HR.LEDGER.AMOUNT_DUE', 'COLUMN', 'HR', 'AMOUNT_DUE', 1, 'HR.LEDGER.AMOUNT_DUE', 0)")
+                s.execute("INSERT INTO entity VALUES (3, 'db:HR.LEDGER.AMOUNT', 'COLUMN', 'HR', 'AMOUNT', 1, 'HR.LEDGER.AMOUNT', 1)")
+            }
+        }
+        val ledger = AtlasIndex(db, null)
+        for (name in listOf("ledger.amount", "hr.ledger.amount")) {
+            assertThat(ledger.searchEntities(name).result.map { it.key }).describedAs(name).containsExactly("db:HR.LEDGER.AMOUNT", "db:HR.LEDGER.AMOUNT_DUE")
+        }
     }
 
     @Test

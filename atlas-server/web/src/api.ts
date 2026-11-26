@@ -561,9 +561,12 @@ export interface PlaceGroupsPage {
   totalRoutines: number;
   /** The places where the value is one part of a concatenation, under the words and the source filters. */
   concatenatedCount: number;
-  /** The unit a size written without one counts in by default, and how many places (under all filters but the verdict one) took it. */
-  optionUnit: "BYTE" | "CHAR";
-  optionSized: number;
+  /**
+   * The unit a size written without one counts in by default, and how many places (under all filters but the verdict one)
+   * took it; both null for a column whose type does not hold text (a number, a date).
+   */
+  optionUnit: "BYTE" | "CHAR" | null;
+  optionSized: number | null;
   offset: number;
   groups: PlaceGroup[];
   nextOffset: number | null;

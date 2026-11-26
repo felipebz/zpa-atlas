@@ -427,7 +427,11 @@ internal class AtlasMcpTools(
         })))
     }
 
-    /** Runs [body] off the request thread; a refused request is an error result the agent can act on, not a protocol error. */
+    /**
+     * Runs [body] off the request thread; a refused request is an error result the agent can act on, not a protocol
+     * error: `isError`, and the JSON `{"error": message}` ([ApiError], as `/api` writes its errors), whatever refused
+     * it.
+     */
     internal suspend fun call(body: () -> JsonElement): CallToolResult = withContext(io) {
         try {
             CallToolResult(content = listOf(TextContent(ToolJson.encodeToString(JsonElement.serializer(), body()))))
@@ -442,7 +446,8 @@ internal class AtlasMcpTools(
         }
     }
 
-    private fun refusal(message: String) = CallToolResult(content = listOf(TextContent(message)), isError = true)
+    private fun refusal(message: String) =
+        CallToolResult(content = listOf(TextContent(ToolJson.encodeToString(ApiError.serializer(), ApiError(message)))), isError = true)
 
     companion object {
         /** The arguments of find_occurrences and group_occurrences that narrow the occurrences. */

@@ -168,7 +168,8 @@ data class PlaceGroup(
  * one, the [verdicts] listed, [places] and [routines] listed, [totalPlaces] and [totalRoutines] under every filter but the
  * verdict one, [concatenatedCount] the places where the value is one part of a concatenation under the text and source
  * filters, [optionUnit] the unit a length written without one counts in when the dictionary does not tell it, and
- * [optionSized] how many of the places under every filter but the verdict one count so.
+ * [optionSized] how many of the places under every filter but the verdict one count so: both null for a column whose
+ * type does not hold text ([PlaceVerdicts.holdsText]).
  */
 @Serializable
 data class PlaceGroupsPage(
@@ -182,8 +183,8 @@ data class PlaceGroupsPage(
     val totalPlaces: Int,
     val totalRoutines: Int,
     val concatenatedCount: Int,
-    val optionUnit: String,
-    val optionSized: Int,
+    val optionUnit: String?,
+    val optionSized: Int?,
     val offset: Int,
     val groups: List<PlaceGroup>,
     val nextOffset: Int?,
@@ -204,8 +205,8 @@ data class ColumnPlacePage(
     val verdicts: List<String>,
     val total: Int,
     val concatenatedCount: Int,
-    val optionUnit: String,
-    val optionSized: Int,
+    val optionUnit: String?,
+    val optionSized: Int?,
     val offset: Int,
     val rows: List<ColumnPlace>,
     val nextOffset: Int?

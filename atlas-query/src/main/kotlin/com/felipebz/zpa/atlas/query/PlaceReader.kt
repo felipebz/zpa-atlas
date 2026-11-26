@@ -171,7 +171,7 @@ internal class PlaceReader(private val connection: Connection) {
      */
     private class Read(
         val column: ColumnSize, val size: Int?, val counts: List<VerdictCount>, val verdicts: List<String>, val filtered: List<Row>,
-        val listed: List<Row>, val concatenatedCount: Int, val optionUnit: String, val optionSized: Int
+        val listed: List<Row>, val concatenatedCount: Int, val optionUnit: String?, val optionSized: Int?
     )
 
     private fun read(key: String, filter: PlaceFilter): Read? {
@@ -207,8 +207,10 @@ internal class PlaceReader(private val connection: Connection) {
         val listed = filter.listed
         return Read(
             column, size, named.map { VerdictCount(it.name, byVerdict[it.name] ?: 0) }, Verdict.entries.filter { it in listed }.map { it.name },
-            filtered, filtered.filter { Verdict.valueOf(it.place.verdict) in listed }, matching.count { it.place.concatenated }, optionUnit,
-            filtered.count { it.place.unitSource == "OPTION" }
+            filtered, filtered.filter { Verdict.valueOf(it.place.verdict) in listed }, matching.count { it.place.concatenated },
+            // How a length without a unit counts tells nothing of the places of a number, a date or a raw.
+            optionUnit.takeIf { PlaceVerdicts.holdsText(datatype) != false },
+            filtered.count { it.place.unitSource == "OPTION" }.takeIf { PlaceVerdicts.holdsText(datatype) != false }
         )
     }
 

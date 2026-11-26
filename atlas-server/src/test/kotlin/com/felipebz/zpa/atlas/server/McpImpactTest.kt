@@ -76,8 +76,8 @@ class McpImpactTest {
         assertThat(entry.size).isLessThan(keyed.size)
         val page = client.call("find_impact", args { put("key", impactLeaf); put("offset", 4); put("limit", 3) }).json().impactNodes()
         assertThat(page.map { it.number() }).containsExactly(5, 6, 7)
-        assertThat(client.call("find_impact", args { put("key", impactLeaf); put("stop", "SOMEWHERE") }).text()).isEqualTo("Unknown stop value: SOMEWHERE")
-        assertThat(client.call("find_impact", args { put("key", "db:NO.SUCH") }).text()).startsWith("Unknown entity: db:NO.SUCH.")
+        assertThat(client.call("find_impact", args { put("key", impactLeaf); put("stop", "SOMEWHERE") }).error()).isEqualTo("Unknown stop value: SOMEWHERE")
+        assertThat(client.call("find_impact", args { put("key", "db:NO.SUCH") }).error()).startsWith("Unknown entity: db:NO.SUCH.")
     }
 
     @Test
@@ -97,7 +97,7 @@ class McpImpactTest {
                 .jsonObject["result"]!!.jsonObject["nodes"]!!.jsonArray.map { it.jsonObject }
         )
         assertThat(off.map { it.field("stop") }.distinct()).containsExactly("TRIGGER")
-        assertThat(client.call("find_impact", args { put("key", key); put("follow_triggers", "yes") }).text()).isEqualTo("follow_triggers must be true or false")
+        assertThat(client.call("find_impact", args { put("key", key); put("follow_triggers", "yes") }).error()).isEqualTo("follow_triggers must be true or false")
     }
 
     @Test

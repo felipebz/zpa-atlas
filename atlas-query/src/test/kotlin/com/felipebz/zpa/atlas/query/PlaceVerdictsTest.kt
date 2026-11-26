@@ -106,6 +106,10 @@ class PlaceVerdictsTest {
         assertThat(joined.counts.map { "${it.name} ${it.count}" }).containsExactly("SMALLER 2", "CALLER_DECIDES 1", "UNKNOWN 0", "FITS 5", "FOLLOWS 1")
         assertThat(listOf(joined.optionSized, joined.concatenatedCount)).containsExactly(5, 1)
         assertThat(chars.columnPlaceGroups(column("CODE")).result!!.optionUnit).isEqualTo("CHAR")
+        // A number holds no text: how a length without a unit counts says nothing of its places, though some have one.
+        val amount = bytes.columnPlaceGroups(column("AMOUNT")).result!!
+        assertThat(listOf(amount.optionUnit, amount.optionSized)).containsOnlyNulls()
+        assertThat(bytes.columnPlaces(column("AMOUNT")).result!!.optionUnit).isNull()
     }
 
     @Test

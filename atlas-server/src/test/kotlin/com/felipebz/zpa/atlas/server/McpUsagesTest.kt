@@ -146,7 +146,7 @@ class McpUsagesTest {
         for (arguments in listOf(args {}, args { put("limit", 5) }, args { put("after", 10) }, args { put("candidates", false); put("inside", true) })) {
             val refused = client.call("find_occurrences", arguments)
             assertThat(refused.isError).describedAs(arguments.toString()).isTrue()
-            assertThat(refused.text()).startsWith("find_occurrences needs at least one filter: entity, entity_kinds, name,")
+            assertThat(refused.error()).startsWith("find_occurrences needs at least one filter: entity, entity_kinds, name,")
                 .contains("limit and after are not filters", "group_occurrences")
         }
         // One filter answers as before.

@@ -60,6 +60,14 @@ object PlaceVerdicts {
     private val NUMBER = Regex("""^\s*(NUMBER|NUMERIC|DECIMAL|DEC)\b""", RegexOption.IGNORE_CASE)
     private val NUMBER_SIZE = Regex("""\s*\(\s*(\d+|\*)\s*(?:,\s*(-?\d+)\s*)?\)""")
     private val INTEGER = Regex("""^\s*(INTEGER|INT|SMALLINT)\b""", RegexOption.IGNORE_CASE)
+    private val TEXT_LOB = Regex("""^\s*(NCLOB|CLOB|LONG\b(?!\s+RAW))""", RegexOption.IGNORE_CASE)
+
+    /** Whether a column of [datatype] holds text (a character type, `CLOB`, `LONG`); null when [datatype] is not known. */
+    fun holdsText(datatype: String?): Boolean? {
+        val text = datatype?.trim() ?: return null
+        CHARACTER.find(text)?.let { return !it.groupValues[1].equals("RAW", ignoreCase = true) }
+        return TEXT_LOB.containsMatchIn(text)
+    }
 
     /**
      * The size [datatype] writes, its unit [defaultUnit] (the index's `--nls-length-semantics`) when a character length

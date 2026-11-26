@@ -152,7 +152,7 @@ class McpProjectsTest {
     fun `nothing crosses over between projects`() = projects(hr, billing) { client ->
         val hrInBilling = client.call("get_entity", args { put("key", "db:HR.COMPANY") }.with("billing"))
         assertThat(hrInBilling.isError).isTrue()
-        assertThat(hrInBilling.text()).startsWith("Unknown entity: db:HR.COMPANY.")
+        assertThat(hrInBilling.error()).startsWith("Unknown entity: db:HR.COMPANY.")
         assertThat(client.call("get_entity", args { put("key", "db:BILLING.INVOICE") }.with("hr")).isError).isTrue()
         assertThat(client.call("search_entities", args { put("name", "close_invoice") }.with("hr")).text()).doesNotContain("CLOSE_INVOICE")
         assertThat(client.call("get_source", args { put("path", "invoices.sql"); put("line", 1) }.with("hr")).isError).isTrue()
@@ -164,16 +164,16 @@ class McpProjectsTest {
         projects(hr, billing, pending) { client ->
             val missing = client.call("get_entity", args { put("key", "db:HR.COMPANY") })
             assertThat(missing.isError).isTrue()
-            assertThat(missing.text()).isEqualTo(
+            assertThat(missing.error()).isEqualTo(
                 "Missing argument: project. This server holds several projects, separate codebases: billing, hr, pending. Call list_projects, or ask the user which one."
             )
-            assertThat(client.call("get_entity", args { put("key", "db:HR.COMPANY") }.with("payroll")).text())
+            assertThat(client.call("get_entity", args { put("key", "db:HR.COMPANY") }.with("payroll")).error())
                 .isEqualTo("Unknown project: payroll. The projects are: billing, hr, pending.")
-            assertThat(client.call("search_entities", args { put("name", "x") }.with("pending")).text())
+            assertThat(client.call("search_entities", args { put("name", "x") }.with("pending")).error())
                 .isEqualTo("The project pending is not indexed yet: its index ${temp.resolve("pending.db")} does not exist")
             // An unknown argument (here the old spelling of name) is refused before the project is read, and the
             // message lists project.
-            assertThat(client.call("search_entities", args { put("query", "x") }).text())
+            assertThat(client.call("search_entities", args { put("query", "x") }).error())
                 .isEqualTo("Unknown argument: query. search_entities takes: project, name, kind, include_external, limit")
         }
     }
@@ -204,7 +204,7 @@ class McpProjectsTest {
             assertThat(answer[1]["finishedAt"]!!.jsonPrimitive.content).isEqualTo("1970-01-01T00:00:01Z")
             assertThat(answer[1]["files"]!!.jsonPrimitive.content.toLong()).isEqualTo(Fixture.query(hrIndex, "SELECT count(*) FROM source_file").single().toLong())
             assertThat(answer[2].keys).containsExactly("name", "state")
-            assertThat(client.call("list_projects", args { put("project", "hr") }).text()).isEqualTo("Unknown argument: project. list_projects takes: ")
+            assertThat(client.call("list_projects", args { put("project", "hr") }).error()).isEqualTo("Unknown argument: project. list_projects takes: ")
             val instructions = client.serverInstructions!!
             assertThat(instructions).startsWith(
                 "This server holds several projects, separate codebases indexed apart: broken, hr, pending. Every tool takes project; " +
@@ -244,12 +244,12 @@ class McpProjectsTest {
         val notice = " This call read the default project, hr; pass project to read another."
         val unknown = client.call("get_entity", args { put("key", "db:BILLING.INVOICE") })
         assertThat(unknown.isError).isTrue()
-        assertThat(unknown.text()).isEqualTo("Unknown entity: db:BILLING.INVOICE. Entity keys come from search_entities or from earlier answers.$notice")
-        assertThat(client.call("find_occurrences").text()).startsWith("find_occurrences needs at least one filter").endsWith(notice)
-        assertThat(client.call("get_source", args { put("path", "nope.sql"); put("line", 1) }).text()).endsWith(notice)
-        assertThat(client.call("find_usages", args { put("key", "db:HR.COMPANY"); put("limit", 100) }).text()).isEqualTo("limit must be between 1 and 40.$notice")
+        assertThat(unknown.error()).isEqualTo("Unknown entity: db:BILLING.INVOICE. Entity keys come from search_entities or from earlier answers.$notice")
+        assertThat(client.call("find_occurrences").error()).startsWith("find_occurrences needs at least one filter").endsWith(notice)
+        assertThat(client.call("get_source", args { put("path", "nope.sql"); put("line", 1) }).error()).endsWith(notice)
+        assertThat(client.call("find_usages", args { put("key", "db:HR.COMPANY"); put("limit", 100) }).error()).isEqualTo("limit must be between 1 and 40.$notice")
         // Named, the same error is as without a default.
-        assertThat(client.call("get_entity", args { put("key", "db:BILLING.INVOICE") }.with("hr")).text())
+        assertThat(client.call("get_entity", args { put("key", "db:BILLING.INVOICE") }.with("hr")).error())
             .isEqualTo("Unknown entity: db:BILLING.INVOICE. Entity keys come from search_entities or from earlier answers.")
     }
 
@@ -257,7 +257,7 @@ class McpProjectsTest {
     fun `a default not indexed yet is refused as a call naming it is, saying it was the default`() {
         val pending = ServedProject("pending", temp.resolve("pending.db"), null)
         withDefault("pending", hr, pending) { client ->
-            assertThat(client.call("search_entities", args { put("name", "x") }).text()).isEqualTo(
+            assertThat(client.call("search_entities", args { put("name", "x") }).error()).isEqualTo(
                 "The project pending is not indexed yet: its index ${temp.resolve("pending.db")} does not exist. " +
                     "This call read the default project, pending; pass project to read another."
             )
@@ -296,7 +296,7 @@ class McpProjectsTest {
     @Test
     fun `without a default, titles change only the names in the instructions`() = projects(titledHr, billing) { client ->
         assertThat(client.serverInstructions).startsWith("This server holds several projects, separate codebases indexed apart: billing, hr (Human resources). Every tool")
-        assertThat(client.call("get_entity", args { put("key", "db:HR.COMPANY") }).text()).startsWith("Missing argument: project.")
+        assertThat(client.call("get_entity", args { put("key", "db:HR.COMPANY") }).error()).startsWith("Missing argument: project.")
     }
 
     @Test

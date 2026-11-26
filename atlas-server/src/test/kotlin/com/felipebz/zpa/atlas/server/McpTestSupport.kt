@@ -45,7 +45,10 @@ internal fun args(block: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit
 
 internal fun strings(vararg values: String) = JsonArray(values.map { JsonPrimitive(it) })
 
+/** The message of a refused call, whose body is `{"error": message}` and nothing else. */
 internal fun CallToolResult.error(): String {
     assertThat(isError).describedAs(text()).isTrue()
-    return text()
+    val body = Json.parseToJsonElement(text()).jsonObject
+    assertThat(body.keys).describedAs(text()).containsExactly("error")
+    return body.getValue("error").jsonPrimitive.content
 }

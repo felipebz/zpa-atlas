@@ -2,9 +2,6 @@ import {describe, expect, it, vi} from "vitest";
 import {lineHref} from "../src/html";
 import type {ColumnPlace, EntitySummary, PlaceGroupsPage} from "../src/api";
 import type {DetailLine} from "../src/places-view";
-import en from "../src/i18n/en";
-import pt from "../src/i18n/pt";
-import {sayIn} from "../src/i18n-format";
 import {
     callsText,
     compareNote,
@@ -22,11 +19,11 @@ import {
     parameterText,
     PLACE_SOURCES,
     placeDetail,
-    rowAt,
-    shortName,
     placesTotal,
     reasonText,
     roomText,
+    rowAt,
+    shortName,
     shownText,
     sizeShown,
     sizeText,
@@ -36,10 +33,13 @@ import {
     verdictButtons,
     verdictLabel,
     verdictReasonText,
-    verdictTitle,
     VERDICTS,
+    verdictTitle,
     viewOf
 } from "../src/places-view";
+import en from "../src/i18n/en";
+import pt from "../src/i18n/pt";
+import {sayIn} from "../src/i18n-format";
 
 const say = sayIn(en, "en");
 const sayPt = sayIn(pt, "pt");
@@ -225,6 +225,7 @@ describe("the section's lines", () => {
     expect(optionSizedText(say, { optionSized: 3, optionUnit: "BYTE" })).toBe("3 sizes have no unit written and count as BYTE, the index's default");
     expect(optionSizedText(sayPt, { optionSized: 1, optionUnit: "CHAR" })).toBe("1 tamanho sem unidade escrita conta como CHAR, o padrão do índice");
     expect(optionSizedText(say, { optionSized: 0, optionUnit: "BYTE" })).toBeNull();
+    expect(optionSizedText(say, { optionSized: null, optionUnit: null })).toBeNull();
   });
 
   it("counts the places and routines shown of those the filters leave", () => {

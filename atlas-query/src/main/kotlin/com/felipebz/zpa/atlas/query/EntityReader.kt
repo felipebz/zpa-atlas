@@ -14,21 +14,22 @@ internal class EntityReader(private val connection: Connection) {
 
     /** [AtlasIndex.searchEntities] after its checks: [text] trimmed, split into [segments]. */
     fun searchEntities(text: String, segments: List<String>, kind: String?, includeExternal: Boolean, limit: Int): List<SearchHit> {
-        fun search(joins: String, match: String, parameters: List<Any?>) = connection.query(
+        // The entities named as asked ([exact] equal to [exactValue]) come first, whatever else orders the hits.
+        fun search(joins: String, match: String, parameters: List<Any?>, exact: String, exactValue: String) = connection.query(
             """SELECT e.key, e.kind, e.display, e.external,
                       (SELECT count(*) FROM occurrence o WHERE o.entity_id = e.id AND o.roles NOT IN ('DEFINITION', 'DECLARATION')), e.name
                FROM entity e $joins
                WHERE $match ${if (kind != null) "AND e.kind = ?" else ""} ${if (includeExternal) "" else "AND e.external = 0"}
-               ORDER BY CASE WHEN e.name = ? COLLATE NOCASE THEN 0 ELSE 1 END, e.external, e.name COLLATE NOCASE, e.display COLLATE NOCASE, e.key
+               ORDER BY CASE WHEN $exact = ? COLLATE NOCASE THEN 0 ELSE 1 END, e.external, e.name COLLATE NOCASE, e.display COLLATE NOCASE, e.key
                LIMIT ?""",
-            parameters + listOfNotNull(kind, text, limit)
+            parameters + listOfNotNull(kind, exactValue, limit)
         ) { SearchHit(it.getString(1), it.getString(2), it.getString(3), it.getInt(4) == 1, it.getLong(5), it.getString(6)) }
 
         // A routine's own variables and constants are many and share names (`i`, `l_result`): a plain name finds them
         // only when the kind is asked for; a dotted name naming their routine finds them below.
         if (segments.size == 1) {
             val locals = if (kind == null) " AND e.kind NOT IN ('LOCAL_VARIABLE', 'LOCAL_CONSTANT')" else ""
-            return search("", "e.name LIKE ? ESCAPE '\\'$locals", listOf("${escapeLike(text)}%"))
+            return search("", "e.name LIKE ? ESCAPE '\\'$locals", listOf("${escapeLike(text)}%"), "e.name", text)
         }
         val structural = if (segments.size > OccurrenceQuerySql.MAX_SEGMENTS || segments.any { it.isEmpty() }) {
             emptyList()
@@ -37,9 +38,10 @@ internal class EntityReader(private val connection: Connection) {
             val (joins, match, parameters) = OccurrenceQuerySql.parentChain("e", segments) { column, segment, last ->
                 if (last) "$column LIKE ? ESCAPE '\\'" to listOf("${escapeLike(segment)}%") else "$column = ? COLLATE NOCASE" to listOf(segment)
             }
-            search(joins, match, parameters)
+            // The parents matched exactly: an entity named as the last part is the one the whole name names.
+            search(joins, match, parameters, "e.name", segments.last())
         }
-        return structural.ifEmpty { search("", "e.display LIKE ? ESCAPE '\\'", listOf("%${escapeLike(text)}%")) }
+        return structural.ifEmpty { search("", "e.display LIKE ? ESCAPE '\\'", listOf("%${escapeLike(text)}%"), "e.display", text) }
     }
 
     fun entity(key: String): EntityDetail? {

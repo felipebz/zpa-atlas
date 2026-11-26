@@ -234,7 +234,7 @@ class McpAnswersTest {
         assertThat(whole["wholeIndex"]!!.jsonPrimitive.content).isEqualTo("true")
         assertThat(whole["narrow"]!!.jsonPrimitive.content).contains("container_name", "path").doesNotContain("search_entities")
         assertThat(whole["total"]!!.jsonPrimitive.content).isEqualTo("4")
-        assertThat(client.call("search_text", args { put("text", "vT") }).text())
+        assertThat(client.call("search_text", args { put("text", "vT") }).error())
             .isEqualTo("The text must have at least 3 characters: the text index cannot find a shorter one")
     }
 

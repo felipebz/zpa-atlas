@@ -18,8 +18,8 @@ internal object McpToolTexts {
             "- search_entities: an entity's key from its name; dotted names work (pack.proc, tab.col).\n" +
             "- get_entity: kind, definitions, members or columns, declaration, docs, views; a routine's " +
             "spec and bodies; a column's datatype, NOT NULL, keys. find_referencing_keys: all foreign keys to them.\n" +
-            "- find_column_places: every variable, parameter or field a column's value is read into, and how " +
-            "each is declared.\n" +
+            "- find_column_places: every variable, parameter or field a column's value is read into, how each is " +
+            "declared and whether it holds a size.\n" +
             "- find_usages: who uses one entity, following its spec and body, its members and the views built on " +
             "it; group_usages counts them by routine, file or view. via keeps only the direct uses or only those " +
             "through views.\n" +
@@ -34,9 +34,9 @@ internal object McpToolTexts {
             "the question names as container_name, or a file or folder as path, else it searches the whole index.\n" +
             "Usual order: a group_ tool for the summary, a find_ tool for the lines, get_source for the text.\n" +
             "Null fields are left out, and a display equal to the key. An answer over " +
-            "${McpAnswers.MAX_CHARS} characters is cut, and cutForSize says how: the rows kept (page on from " +
-            "nextAfter or nextOffset), the lower list limit of an entity, or the source lines shortened. A usage " +
-            "tool's included lists what it followed."
+            "${McpAnswers.MAX_CHARS} characters is cut; cutForSize says how (rows kept: page on from nextAfter or " +
+            "nextOffset; an entity's lower list limit; source lines shortened). A refused call has isError and the " +
+            "JSON {\"error\": message}."
 
     /** How an unscoped text search is narrowed. */
     const val NARROW = "The whole index was searched: pass the package or routine name as container_name, or a " +
@@ -82,103 +82,102 @@ internal object McpToolTexts {
             "EXECUTE_TRIGGER, CALL_FORM, OPEN_FORM, NEW_FORM with a literal CALL the block, item, trigger or module. " +
             "Missing: NO_SUCH_* or MODULE_NOT_INDEXED."
 
-    const val SEARCH = "Finds the key of an entity by its name: tables, views, columns, packages, procedures, " +
-        "functions, parameters, types, object type attributes, package variables and constants (a body's own included), sequences, " +
-        "synonyms, triggers, Forms objects (modules, blocks, items, parameters, globals, triggers, program units). Exact name matches first. $KEYS"
+    const val SEARCH = "Finds entities by name, for the key the other tools need: needs name, a prefix (run_job) or a dotted " +
+        "name (pack.run_job, tab.col, schema.tab.col). The entities named exactly as asked come first (for a dotted name, " +
+        "those whose own name is its last part, under the parents it names), then those of the indexed sources before " +
+        "the others, by name. Each hit: key, kind, name, external (outside the indexed sources: dictionary only) and " +
+        "usages (its occurrences but definitions and declarations). It finds tables, views, columns, packages, " +
+        "procedures, functions, parameters, types, object type attributes, package variables and constants (a body's own " +
+        "included), sequences, synonyms, triggers and Forms objects (modules, blocks, items, parameters, globals, " +
+        "triggers, program units); a routine's own variables only with kind, or under their routine's dotted name. $KEYS"
 
-    const val ENTITY = "What one entity is: its kind, parent, definitions (file and line), overloads, children " +
-        "(members or columns, with their uses), relations, triggers and the views that read it. A routine spec's " +
-        "bodies (key and definitions, never cut), a body's spec. declared (entity, " +
-        "child): as written: type (a function's or cursor's return type); value, a default or " +
-        "initial value, valueCut if cut; valueFrom SPEC: a " +
-        "body's parameter takes its spec's default; specText: the spec's, where a " +
-        "body differs. documentation (entity, child): its doc comment, " +
-        "then the other half's (from SPEC or BODY) if it differs. " +
-        "usesIncomplete (entity, child): why uses may be more. membersIncomplete (object type): attributes may be more. keys (dictionary): a " +
-        "table's keys, or a column's; referencedBy: foreign keys to them, " +
-        "cut (find_referencing_keys gives all); referencedByIncomplete: there may be more. " +
-        "placesByClass (column): where its value lands alone, by class; " +
-        "concatenatedPlaces: where it is in a concatenation (find_column_places lists both); " +
-        "receives: columns read into this target. formsBlock: source, target, operations DONE (by Forms, " +
-        "no code), REPLACED (trigger), NOT_ALLOWED, NOT_FOLLOWED; formsItem: column, read, insertWrite, updateWrite; " +
-        "formsGlobal: the modules using it, writes, reads. " +
-        "$PATHS $KEYS"
+    const val ENTITY = "What one entity is: needs its key. Its kind, parent, definitions (file and line), overloads, children (members " +
+        "or columns, with their uses), relations, triggers and the views that read it. For a routine spec, its bodies " +
+        "(never cut); for a body, its spec. declared (entity, child): as written: type " +
+        "(a return type); value, a default or initial value, valueCut if cut; valueFrom SPEC: a " +
+        "body's parameter takes its spec's default; specText: the spec's, where a body differs. documentation (entity, " +
+        "child): its doc comment, then the other half's (from SPEC or BODY) if it differs. usesIncomplete (entity, " +
+        "child): why uses may be more. membersIncomplete (object type): attributes may be more. keys (dictionary): a " +
+        "table's keys, or a column's; referencedBy: foreign keys to them, cut (find_referencing_keys gives all); " +
+        "referencedByIncomplete: there may be more. placesByClass (column): where its value lands alone, by class; " +
+        "concatenatedPlaces: where it is in a concatenation (find_column_places lists both); receives: columns read " +
+        "into this target. formsBlock: source, target, operations DONE (by Forms, no code), REPLACED (trigger), " +
+        "NOT_ALLOWED, NOT_FOLLOWED; formsItem: column, read, insertWrite, updateWrite; formsGlobal: the modules using " +
+        "it, writes, reads. $PATHS $KEYS"
 
     const val PLACES =
-        "Every PL/SQL variable, parameter or field (or Forms item, parameter, global) a column's value is read into, " +
-            "each with its verdict against a size: size, the column's by default, in its unit (a number's digits before the point). " +
-            "verdict: SMALLER (its own size is less), FITS (as large or larger, no size: CLOB, NUMBER, DATE, or the most SUBSTR keeps fits), " +
-            "CALLER_DECIDES (an OUT or IN OUT parameter: each caller's argument decides, as a row), UNKNOWN (type not " +
-            "known: reason; or verdictReason UNIT_MISMATCH, under 4 bytes per character of a CHAR column; " +
-            "OTHER_COLUMN_UNKNOWN; NO_LENGTH; OTHER_KIND), FOLLOWS (%TYPE, %ROWTYPE or a cursor record over the column), " +
-            "OWN_SIZE (no size given, the column's not known). verdicts: to list (all but FOLLOWS by default); counts: " +
-            "under the other arguments. source: SELECT_INTO, FETCH, RETURNING (with bulk); ASSIGNMENT (target := r.f of a " +
-            "row record); OUT_ARGUMENT (a call's argument for an OUT parameter; argumentOf, routine); " +
-            "IN_ARGUMENT (a target in a routine, written from its IN parameter argumentOf; callCount calls pass it, one at " +
-            "callPath, callLine); RETURNED (a function's result holding the column; callCount calls); BLOCK_QUERY (the Forms " +
-            "item its block's query fills; no line). Rows " +
-            "by verdict, file, line; paged (nextOffset); view columns computed from it too (viaView). Each row: " +
-            "shownLine (the line to read: the call's for IN_ARGUMENT), declaredType, length, unit (BYTE, CHAR, DIGITS: p-s, with " +
-            "scale), unitSource (WRITTEN; COMPILED, see unitCompiledIn; OPTION: optionUnit), size and " +
-            "sizeUnit compared (the other column's for ANCHORED_ELSEWHERE, typeSource), functions read through, outer first " +
-            "(NVL may give another value, REPLACE another length, SUBSTR and SUBSTRB a part: kept in keptUnit, the most they " +
-            "keep), concatenated (one part of a || or CONCAT; room: " +
-            "what the size leaves). Lists where the value lands alone; concatenated true adds those (concatenatedCount). $PATHS"
+        "Where a column's value is read into in PL/SQL, for what a size change breaks: needs a COLUMN key. Each " +
+            "row is a variable, parameter or field (or Forms item, parameter, global) the value lands in, with " +
+            "placeClass, how the target is declared, and verdict, that declaration against a size S (the column's " +
+            "unless size is given; a number's: digits before the point). Rows by verdict, file, line (pages: " +
+            "nextOffset); viaView: through a view column computed from it; counts: per verdict. " +
+            "placeClass, and the verdicts it gives: FIXED_SIZE (its own length or precision, or a bounded type: " +
+            "PLS_INTEGER): SMALLER, FITS, UNKNOWN, or OWN_SIZE without S; ANCHORED_ELSEWHERE (%TYPE of another column, " +
+            "typeSource): that column's size against S, FITS when it has none; NO_SIZE (NUMBER, CLOB, DATE): FITS; " +
+            "ANCHORED_TO_COLUMN (%TYPE, %ROWTYPE or a cursor record over this column): FOLLOWS; CALLER_DECIDES (an OUT " +
+            "or IN OUT parameter: each caller's argument is a row): CALLER_DECIDES; UNKNOWN (not known: reason): " +
+            "UNKNOWN. verdict: SMALLER (less than S), FITS (S or more, or the most SUBSTR keeps fits), UNKNOWN with " +
+            "verdictReason UNIT_MISMATCH (under 4 bytes per character of a CHAR column), OTHER_COLUMN_UNKNOWN, " +
+            "NO_LENGTH, OTHER_KIND (a number for text, or the reverse). source: SELECT_INTO, FETCH, RETURNING (bulk), " +
+            "ASSIGNMENT (:= r.f), OUT_ARGUMENT and IN_ARGUMENT (argumentOf, routine; callCount calls, one at callPath, " +
+            "callLine), RETURNED (a function's result; callCount), BLOCK_QUERY (a Forms item; no line). Each row: " +
+            "shownLine (the line to read), declaredType, length, unit (BYTE, CHAR, DIGITS: p-s, with scale), " +
+            "unitSource (WRITTEN; COMPILED: unitCompiledIn; OPTION), size and sizeUnit compared, functions read " +
+            "through, outer first (NVL another value, REPLACE another length, SUBSTR a part: kept in keptUnit), " +
+            "concatenated (one part of a ||; room: what the size leaves). A column of text also has optionUnit, the " +
+            "unit of a length written without one, and optionSized, the places sized so. Paths are on the server: read " +
+            "a row's line with get_source."
 
-    const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column " +
-        "is in (referencedBy of get_entity, which cuts it), by table then name, a page at a time: pass the answer's " +
-        "nextOffset as offset; nextOffset is absent on the last page. Each row: owner, name, table, relation (its " +
-        "entity, absent when the index has none), enabled, deleteRule, references (the referenced key, OWNER.NAME) " +
-        "and columns in key order, each with the referenced column (references) at the same position: for a " +
-        "column, the row's column whose references is that column is the one that must follow its type and size. " +
-        "total counts them all; incomplete (TABLES_NOT_VISIBLE): there may be more, the loading user could not see " +
-        "every table's constraints. $KEYS"
+    const val REFERENCING = "Every foreign key that references the keys of a table or view, or those a column is in: needs the key " +
+        "of the TABLE, VIEW or COLUMN. get_entity's referencedBy cuts this list; here it is whole, by table then name, " +
+        "a page at a time (nextOffset, absent on the last page). Each row: owner, name, table, relation (its entity, " +
+        "absent when the index has none), enabled, deleteRule, references (the referenced key, OWNER.NAME) and columns " +
+        "in key order, each with the referenced column (references) at the same position: for a column, the row's " +
+        "column whose references is that column is the one that must follow its type and size. total counts them " +
+        "all; incomplete (TABLES_NOT_VISIBLE): there may be more, the loading user could not see every table's " +
+        "constraints. $KEYS"
 
-    const val FIND = "Where entities are defined, called, read or written across the code (occurrences), with " +
-        "filters combined with AND (at least one; for the whole index, use group_occurrences), and total and " +
-        "facets counted over every match. Pages: pass " +
-        "the answer's nextAfter as after; nextAfter is absent on the last page. Each row has its status and " +
-        "reason; facets.byStatus counts the statuses of every match. A call's arguments name their parameter " +
-        "(P_A); its key is the row's entity key, a dot and that name. $IMPLICIT_USES $FORMS_NAMES $PATHS $STATUSES $ROLES $NOT_ANSWERED"
+    const val FIND = "Occurrences across the code, where entities are defined, called, read or written, matching filters " +
+        "combined with AND: needs at least one filter; for the whole index, use group_occurrences. Rows in id order, " +
+        "a page at a time (nextAfter, absent on the last page); total and facets count every match, facets.byStatus " +
+        "their statuses. Each row has its status and reason. A call's arguments name their parameter (P_A); its key " +
+        "is the row's entity key, a dot and that name. $IMPLICIT_USES $FORMS_NAMES $PATHS $STATUSES $ROLES $NOT_ANSWERED"
 
-    const val USAGES = "Who calls, reads or writes one entity, for impact analysis: use it instead of " +
-        "find_occurrences for one entity, following its spec or body and the views built on it. For a table, " +
-        "CHILDREN with VIEWS also follows the view columns computed from its columns. Rows as in find_occurrences, " +
-        "in source order, definitions and declarations left out unless roles asks for them; viaView is true on a row " +
-        "reached through a view (a view column computed from the entity, or a view reading it), viaCandidate on an " +
-        "AMBIGUOUS row where the entity is one of the candidates. One hop only: for the callers of the callers, up to " +
-        "the entry points, use find_impact. A package body's own variable or constant is used only inside its " +
-        "body. usesIncomplete: entities in scope with uses beyond the rows (key, reasons). Pages as in " +
-        "find_occurrences. $IMPLICIT_USES $FORMS_NAMES $PATHS $STATUSES $NOT_ANSWERED"
+    const val USAGES = "Who calls, reads or writes one entity, for impact analysis: needs its key. It follows the entity's spec " +
+        "or body, its contents and the views built on it (include; by kind by default), so use it rather than " +
+        "find_occurrences for one entity. One hop only: for the callers of the callers, up to the entry points, use " +
+        "find_impact. Rows as in find_occurrences, in source order, a page at a time (nextAfter); definitions and " +
+        "declarations left out unless roles asks for them. viaView is true on a row reached through a view (a view " +
+        "column computed from the entity, or a view reading it), viaCandidate on an AMBIGUOUS row where the entity is " +
+        "one of the candidates. For a table, CHILDREN with VIEWS also follows the view columns computed from its " +
+        "columns. A package body's own variable or constant is used only inside its body. usesIncomplete: entities in " +
+        "scope with uses beyond the rows (key, reasons); included: what was followed. $IMPLICIT_USES $FORMS_NAMES " +
+        "$PATHS $STATUSES $NOT_ANSWERED"
 
-    const val IMPACT = "Impact analysis: who calls the callers of an entity, transitively, up to the entry " +
-        "points (code nothing in the index calls, run from Forms, jobs or other systems). The first hop is who uses " +
-        "the entity, as find_usages; then the walk follows the uses that run each node: calls of a routine or type, " +
-        "SQL on a view, reading a cursor, and for a DML trigger the INSERT, UPDATE, DELETE or MERGE that fire it (its " +
-        "table, through a synonym or a one-base view; UPDATE OF by the SET columns; via.fires names the events; " +
-        "for a trigger asked for, they are the first hop). " +
-        "A node is a routine (spec and body as one), view, trigger, type, package, Forms block or item (via.origin " +
-        "FORMS_IMPLICIT, no line) " +
-        "or, for script code, the file. A view reached from a column is followed as a whole. Each node has n (its " +
-        "number in the whole graph, the same on every page), name (the display without the parameter list, @BODY " +
-        "kept for a private routine; key too, only when another node has the same name, as overloads do), its depth " +
-        "(the shortest path), via (one use on that path: uses, the n of the node it uses, or 0 on the first hop, with " +
-        "usesName when that hop matched another entity than the one asked for; file and line), certain (some path of RESOLVED " +
-        "uses only) and stop: FOLLOWED (code outside its own cycle uses it), ENTRY_POINT (nothing in the index calls it but " +
-        "itself or the routines it calls back, so only outside code can; for a trigger, nothing writes its table), " +
-        "TRIGGER (a system trigger, or follow_triggers=false; trigger gives table and events), PACKAGE_LEVEL (package initialization or " +
+    const val IMPACT = "Impact analysis: who calls the callers of an entity, transitively, up to the entry points (code " +
+        "nothing in the index calls, run from Forms, jobs or other systems): needs its key. The first hop is who uses " +
+        "the entity, as find_usages; then the walk follows the uses that run each node: calls of a routine or type, SQL " +
+        "on a view, reading a cursor, and for a DML trigger the INSERT, UPDATE, DELETE or MERGE that fire it (its " +
+        "table, through a synonym or a one-base view; UPDATE OF by the SET columns; via.fires names the events; for a " +
+        "trigger asked for, they are the first hop). A node is a routine (spec and body as one), view, trigger, type, " +
+        "package, Forms block or item (via.origin FORMS_IMPLICIT, no line) or, for script code, the file. A view " +
+        "reached from a column is followed as a whole. Each node has n (its number in the whole graph, the same on " +
+        "every page), name (the display without the parameter list, @BODY kept for a private routine; key too, only " +
+        "when another node has the same name, as overloads do), its depth (the shortest path), via (one use on that " +
+        "path: uses, the n of the node it uses, or 0 on the first hop, with usesName when that hop matched another " +
+        "entity than the one asked for; file and line), certain (some path of RESOLVED uses only) and stop: FOLLOWED " +
+        "(code outside its own cycle uses it), ENTRY_POINT (nothing in the index calls it but itself or the routines " +
+        "it calls back, so only outside code can; for a trigger, nothing writes its table), TRIGGER (a system trigger, " +
+        "or follow_triggers=false; trigger gives table and events), PACKAGE_LEVEL (package initialization or " +
         "declarations, not followed), DEPTH_LIMIT, NO_CONTAINER (a script file). levels counts nodes per depth and " +
-        "stops per reason; stop=ENTRY_POINT lists only the entry points. Pages: pass nextOffset as offset. keys=true " +
-        "gives every node's full key and via.uses as a key: use it with stop or offset to get the keys of the " +
-        "nodes another tool will be called on. $PATHS"
+        "stops per reason. A page at a time (nextOffset). $PATHS"
 
-    const val GROUP_USAGES = "Counts who uses one entity, by routine, file or view: the rows find_usages lists for " +
-        "the same arguments, grouped by one to three dimensions as in group_occurrences; ENTITY is the entity a " +
-        "row matched, so on a row " +
-        "through a view it names the view or view column. Example, who uses a table through views, by view and " +
-        "routine, in one call: key the table, include [VIEWS], via THROUGH_VIEWS, group_by ENTITY, CONTAINER. " +
-        "For a table, CHILDREN with VIEWS also follows the view columns computed from its columns. include " +
-        "defaults by kind as in find_usages; the answer's included lists what was followed."
+    const val GROUP_USAGES = "Counts who uses one entity, by routine, file or view: needs key and group_by (one to three " +
+        "dimensions, as in group_occurrences). The rows find_usages lists for the same arguments, grouped; ENTITY is " +
+        "the entity a row matched, so on a row through a view it names the view or view column. Example, who uses a " +
+        "table through views, by view and routine, in one call: key the table, include [VIEWS], via THROUGH_VIEWS, " +
+        "group_by ENTITY, CONTAINER. For a table, CHILDREN with VIEWS also follows the view columns computed from its " +
+        "columns. include defaults by kind as in find_usages; the answer's included lists what was followed."
 
     private const val VALUE_WHY =
         "Use it, not the value_kind and value filters of find_occurrences, for one parameter or column: those " +
@@ -196,42 +195,39 @@ internal object McpToolTexts {
             "... set c = default), so the column's default applies. An argument left out of a call is not indexed, " +
             "so a parameter's default is not counted."
 
-    const val VALUES = "The values passed to a PARAMETER or written to a COLUMN, grouped by valueKind and " +
-        "value, most frequent first, each with its count; totalGroups counts every group. $VALUE_WHY " +
-        "$VALUE_KIND_NOTES Then find_value_sites, with a group's valueKind and value, lists where it comes from. " +
-        "Any other kind of entity is an error."
+    const val VALUES = "The values passed to a PARAMETER or written to a COLUMN: needs its key. Groups by valueKind and value, " +
+        "most frequent first, each with its count; totalGroups counts every group. $VALUE_WHY $VALUE_KIND_NOTES Then " +
+        "find_value_sites, with a group's valueKind and value, lists where it comes from. Any other kind of entity is " +
+        "refused."
 
-    const val VALUE_SITES = "Where a PARAMETER is passed or a COLUMN is written with one value: the calls or " +
-        "writes, for the valueKind and value of one get_values group. value is required for STRING, NUMBER, " +
-        "BOOLEAN and NAME and matched " +
-        "exactly as get_values gives it (S, not 'S'); for BIND, EXPRESSION, NULL and DEFAULT it is ignored and " +
-        "every row of the kind matches. $VALUE_WHY Rows as in find_usages, in source order. On a parameter's " +
-        "row, arguments keeps only the argument bound to that parameter (or to its spec or body twin): the " +
-        "call's other arguments are left out. A column's row is whole, with the values written. Pages as in " +
-        "find_occurrences. Any other kind of entity is an error. $PATHS"
+    const val VALUE_SITES = "Where a PARAMETER is passed or a COLUMN is written with one value: needs key and value_kind (and " +
+        "value for STRING, NUMBER, BOOLEAN and NAME), from one get_values group; for BIND, EXPRESSION, NULL and " +
+        "DEFAULT every row of the kind matches. $VALUE_WHY Rows as in find_usages, in source order, a page at a time " +
+        "(nextAfter). On a parameter's row, arguments keeps only the argument bound to that parameter (or to its spec " +
+        "or body twin): the call's other arguments are left out. A column's row is whole, with the values written. " +
+        "Any other kind of entity is refused. $PATHS"
 
-    const val GROUP = "Counts occurrences across the code, by routine, entity, role, file, status or value, with " +
-        "one to three dimensions and the same filters as find_occurrences. A CRUD matrix of a package: " +
-        "container_name or container the package, roles " +
-        "SQL_SELECT, SQL_INSERT, SQL_UPDATE, SQL_DELETE, group_by CONTAINER, ENTITY, ROLE. ROLE counts an " +
-        "occurrence once per role. A group value without entity is an occurrence tied to no entity; add STATUS " +
-        "to group_by to tell proven occurrences from the others. To follow an entity's spec or body, contents or " +
-        "views, use group_usages. Without any filter it counts the whole index, and the answer has wholeIndex. $STATUSES $NOT_ANSWERED"
+    const val GROUP = "Counts occurrences across the code, by routine, entity, role, file, status or value: needs group_by " +
+        "(one to three dimensions); takes the filters of find_occurrences, and without any it counts the whole index " +
+        "(the answer has wholeIndex). A CRUD matrix of a package: container_name or container the package, roles " +
+        "SQL_SELECT, SQL_INSERT, SQL_UPDATE, SQL_DELETE, group_by CONTAINER, ENTITY, ROLE. ROLE counts an occurrence " +
+        "once per role. A group value without entity is an occurrence tied to no entity; add STATUS to group_by to " +
+        "tell proven occurrences from the others. To follow an entity's spec or body, contents or views, use " +
+        "group_usages. $STATUSES $NOT_ANSWERED"
 
-    const val TEXT = "Lines of the indexed sources that contain a piece of text, compared without case: for text " +
-        "that is not an entity or a value, such as an XML tag ('<vFixTag>' or XMLElement(\"vFixTag\")), a message, " +
-        "a comment or SQL inside a string. Scope it in the same call: when the question names a package or " +
-        "routine, pass that name as container_name (pack or pack.proc, as written); a file or folder, as path. " +
-        "Search the whole index only when the question names no unit. Then call get_source on a row's path and line to read around " +
-        "it. The text is literal, * included, and has at least 3 characters; each line is searched alone, so a text " +
-        "across a line break is never found. Whole files are searched as indexed: comments, strings and inactive " +
-        "conditional compilation branches included. path, container (a key) and container_name narrow the search, " +
-        "combined with AND, a container with its contents; without them the whole index is searched, and the " +
-        "answer has wholeIndex and narrow. Each row has path, line, text, and entity: the innermost package, " +
-        "routine, trigger, view, type or cursor the line is in, when known. Rows come in file and line order; total counts every line found; pages: " +
-        "pass nextAfter as after. stale is true when the file changed since indexing. $PATHS"
+    const val TEXT = "Lines of the indexed sources that contain a piece of text, without case: needs text. For text that is " +
+        "not an entity or a value: an XML tag ('<vFixTag>' or XMLElement(\"vFixTag\")), a message, a comment, SQL inside " +
+        "a string. Scope it in the same call: the package or routine the question names as container_name (pack or " +
+        "pack.proc, as written), a file or folder as path; search the whole index only when the question names no " +
+        "unit (the answer then has wholeIndex and narrow). Then call get_source on a row's path and line to read " +
+        "around it. Each line is searched alone, so a text across a line break is never found; whole files are " +
+        "searched as indexed, comments, strings and inactive conditional compilation branches included. The filters " +
+        "combine with AND, a container with its contents. Each row: path, line, text, and entity, the innermost " +
+        "package, routine, trigger, view, type or cursor the line is in, when known; stale is true when the file " +
+        "changed since indexing. Rows in file and line order, a page at a time (nextAfter); total counts every line " +
+        "found. $PATHS"
 
-    const val SOURCE = "The source text of an indexed file around a line, as the index read it; stale is true " +
-        "when the file changed since it was indexed. The files are on the server, not on the local disk: path is " +
-        "relative to the server's sources folder, as the other tools give it."
+    const val SOURCE = "The text of an indexed file around a line: needs path and line, as another answer gives them. The files " +
+        "are on the server, not on the local disk: path is relative to the server's sources folder. Each line as the " +
+        "index read it; stale is true when the file changed since it was indexed."
 }

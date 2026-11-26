@@ -7,8 +7,11 @@ package com.felipebz.zpa.atlas.server
 
 import com.felipebz.zpa.atlas.model.EntityKind
 import com.felipebz.zpa.atlas.model.Origin
+import com.felipebz.zpa.atlas.model.PlaceClass
 import com.felipebz.zpa.atlas.model.UnitKind
 import com.felipebz.zpa.atlas.query.AtlasIndex
+import com.felipebz.zpa.atlas.query.Verdict
+import com.felipebz.zpa.atlas.query.VerdictReason
 import kotlinx.serialization.json.*
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -61,6 +64,22 @@ class McpToolsTest {
     }
 
     @Test
+    fun `each description names what the tool needs within what a client that cuts at 768 bytes shows`() = mcp { client ->
+        for (tool in client.listTools().tools) {
+            val shown = String(tool.description!!.toByteArray().copyOf(minOf(768, tool.description!!.toByteArray().size)))
+            val required = tool.inputSchema.required.orEmpty()
+            if (required.isEmpty()) assertThat(shown).describedAs(tool.name).contains("needs at least one filter")
+            else assertThat(shown).describedAs(tool.name).contains("needs").contains(required)
+        }
+    }
+
+    @Test
+    fun `find_column_places describes every place class, verdict and reason`() = mcp { client ->
+        val description = client.listTools().tools.single { it.name == "find_column_places" }.description!!
+        assertThat(description).contains(PlaceClass.entries.map { it.name } + Verdict.entries.map { it.name } + VerdictReason.entries.map { it.name })
+    }
+
+    @Test
     fun `the instructions and the tools that give paths say the sources are read on the server with get_source`() = mcp { client ->
         assertThat(client.serverInstructions!!).contains("get_source", "only on the server", "not on the local disk")
         val tools = client.listTools().tools.associateBy { it.name }
@@ -79,12 +98,12 @@ class McpToolsTest {
             val result = client.call(name, args { put("rolez", strings("WRITE")) })
             assertThat(result.isError).describedAs(name).isTrue()
             val takes = tools.getValue(name).inputSchema.properties!!.keys.joinToString(", ")
-            assertThat(result.text()).isEqualTo("Unknown argument: rolez. $name takes: $takes").contains(accepted)
+            assertThat(result.error()).isEqualTo("Unknown argument: rolez. $name takes: $takes").contains(accepted)
         }
         // The /api spelling of a filter is not the tool's: it is refused, not ignored.
         val camel = client.call("find_occurrences", args { put("entityKinds", strings("TABLE")) })
         assertThat(camel.isError).isTrue()
-        assertThat(camel.text()).startsWith("Unknown argument: entityKinds. find_occurrences takes: entity, inside, entity_kinds,")
+        assertThat(camel.error()).startsWith("Unknown argument: entityKinds. find_occurrences takes: entity, inside, entity_kinds,")
     }
 
     @Test
@@ -104,7 +123,7 @@ class McpToolsTest {
     fun `a query past its time limit is an error result`() = mcp(AtlasIndex(database, null, queryTimeout = Duration.ZERO)) { client ->
         val result = client.call("group_occurrences", args { put("group_by", strings("ENTITY")) })
         assertThat(result.isError).isTrue()
-        assertThat(result.text()).contains("narrow the filters")
+        assertThat(result.error()).contains("narrow the filters")
     }
 
     @Test
@@ -115,7 +134,7 @@ class McpToolsTest {
         mcp(AtlasIndex(other, null)) { client ->
             val result = client.call("search_entities", args { put("name", "run_job") })
             assertThat(result.isError).isTrue()
-            assertThat(result.text()).contains("schema version 2", "Re-run `zpa-atlas index`")
+            assertThat(result.error()).contains("schema version 2", "Re-run `zpa-atlas index`")
         }
     }
 }

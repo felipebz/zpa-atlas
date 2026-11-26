@@ -1,7 +1,18 @@
 // A column's places (where PL/SQL reads its value into a target) in words, without the DOM. Each function that says
 // something takes the translator ([Say]) so that it reads the same from the page and from a test.
 
-import type {CodeAt, ColumnPlace, Count, EntitySummary, PlaceGroup, PlaceGroupsPage, PlaceSource, SizeUnit, Verdict, VerdictCount} from "./api";
+import type {
+    CodeAt,
+    ColumnPlace,
+    Count,
+    EntitySummary,
+    PlaceGroup,
+    PlaceGroupsPage,
+    PlaceSource,
+    SizeUnit,
+    Verdict,
+    VerdictCount
+} from "./api";
 import {codeUnitName} from "./forms-view";
 import type {Params, Say} from "./i18n-format";
 
@@ -126,9 +137,11 @@ export function compareNote(say: Say, page: Pick<PlaceGroupsPage, "column" | "si
   return { text: say(page.column.length === null ? "places.compare.unknown" : "places.compare.today"), back: null };
 }
 
-/** How many sizes took the index's default unit for want of a written one; null when none did. */
+/** How many sizes took the index's default unit for want of a written one; null when none did, or the column holds no text. */
 export function optionSizedText(say: Say, page: Pick<PlaceGroupsPage, "optionSized" | "optionUnit">): string | null {
-  return page.optionSized > 0 ? say("places.optionSized", { count: page.optionSized, unit: page.optionUnit }) : null;
+  return page.optionSized !== null && page.optionSized > 0 && page.optionUnit !== null
+    ? say("places.optionSized", { count: page.optionSized, unit: page.optionUnit })
+    : null;
 }
 
 /** How many places and routines the list shows of those the filters but the verdicts leave: `3 of 8 places, in 2 of 5 routines`. */
