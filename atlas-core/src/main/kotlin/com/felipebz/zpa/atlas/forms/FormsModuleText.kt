@@ -13,7 +13,10 @@ package com.felipebz.zpa.atlas.forms
  * - a trigger: `BEGIN -- path`, its text unchanged, `END;` (a trigger's text is the inside of a block);
  * - a calculated item's formula ([FormsTrigger.isFormula]), an expression: `BEGIN -- path`, `:BLOCK.ITEM :=`, the
  *   expression unchanged, `;`, `END;`;
- * - a program unit: `-- path`, then its text;
+ * - a program unit: `-- path`, then its text; one whose code declares no procedure, function or package (a unit
+ *   switched off with `NULL;`, its old text in a comment) as a trigger, a block, so that the parser does not take it
+ *   for a statement of a script and recover past it into the units that follow. A unit that is only comments stays
+ *   as it is: as a block it would hold no statement;
  * - a record group query: `-- path`, the query, `;`.
  *
  * Each unit's own text, as the module file has it and the Form Builder numbers it from 1, is the lines [Unit.codeFirstLine]
@@ -75,7 +78,7 @@ private class ModuleTextBuilder {
     /** Appends [code], at [path] and with the text [body], with its header; returns the first and last lines of its own text. */
     fun appendCode(code: FormsCode, path: String, body: String): Pair<Int, Int> = when (code) {
         is FormsTrigger -> if (code.isFormula) appendFormula(code, path, body) else appendTrigger(path, body)
-        is FormsProgramUnit -> appendHeaded(path, body)
+        is FormsProgramUnit -> if (code.kind == FormsProgramUnitKind.UNKNOWN && code.hasCode) appendTrigger(path, body) else appendHeaded(path, body)
         is FormsRecordGroup -> appendHeaded(path, body).also { append(";\n") }
     }
 

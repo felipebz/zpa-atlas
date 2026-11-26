@@ -137,6 +137,9 @@ data class FormsTrigger(val level: FormsTriggerLevel, val owner: List<String>, o
 data class FormsProgramUnit(override val name: FormsValue, val text: FormsValue) : FormsCode {
     /** What the text declares, read from its first words. */
     val kind: FormsProgramUnitKind get() = FormsProgramUnitKind.of(text.value)
+
+    /** Whether the text has code past its blanks and comments; a unit that is only comments has none. */
+    val hasCode: Boolean get() = UnitTextWords(text.value).hasMore()
 }
 
 /** A record group built from a query. */
@@ -185,6 +188,12 @@ private class UnitTextWords(private val text: String) {
         val start = at
         while (at < text.length && (text[at].isLetterOrDigit() || text[at] == '_')) at++
         return text.substring(start, at).uppercase()
+    }
+
+    /** Whether anything but blanks and comments follows. */
+    fun hasMore(): Boolean {
+        skip()
+        return at < text.length
     }
 
     /** Moves past the blanks and comments that follow. */
