@@ -208,7 +208,7 @@ class FormsPagesTest {
     fun `an item and a parameter declare their data type as their places read it, a global nothing`() {
         fun declared(key: String) = shop.entity(key).result!!.declared?.type
         assertThat(listOf("CTRL/SHORT_STATUS", "CTRL/WIDE_STATUS", "CTRL/COUNT_ID", "CTRL/BARE_STATUS", "CTRL/STATUS_LIST", "CTRL/STATUS_IMAGE", "PARAMETER/P_STATUS")
-            .map { declared("forms:SHOP_DESK/$it") }).containsExactly("CHAR 5", "CHAR 10 CHAR", "NUMBER", "CHAR 8", null, null, "CHAR")
+            .map { declared("forms:SHOP_DESK/$it") }).containsExactly("CHAR 5", "CHAR 10 CHAR", "NUMBER", "CHAR 8", "CHAR 10", null, "CHAR")
         assertThat(shop.entity("forms::GLOBAL.LAST_STATUS").result!!.declared).isNull()
     }
 

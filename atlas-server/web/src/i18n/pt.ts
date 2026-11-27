@@ -409,7 +409,6 @@ export default {
   "places.reason.CURSOR_VARIABLE": "uma variável de cursor: a sua linha não é conhecida",
   "places.reason.FIELD_UNDECIDED": "não foi possível dizer qual campo do elemento é o destino",
   "places.reason.SIZE_NOT_A_LITERAL": "o tamanho não é escrito como um número",
-  "places.reason.ITEM_HOLDS_ELEMENT": "o item guarda um dos seus elementos, não um valor com tamanho",
   "places.reason.ITEM_HOLDS_IMAGE": "o item guarda uma imagem",
   "places.reason.ITEM_HOLDS_NO_VALUE": "o item não guarda valor",
   "places.reason.DATA_TYPE_UNKNOWN": "o seu tipo de dados do Forms não é conhecido",

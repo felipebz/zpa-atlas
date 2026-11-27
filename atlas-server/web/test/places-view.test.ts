@@ -352,7 +352,7 @@ describe("reasons and calls", () => {
   });
 
   it("says every Forms reason in both languages, none as its code", () => {
-    const reasons = ["ITEM_HOLDS_ELEMENT", "ITEM_HOLDS_NO_VALUE", "DATA_TYPE_UNKNOWN", "PARAMETER_LENGTH_NOT_GIVEN", "GLOBAL_LENGTH_NOT_GIVEN",
+    const reasons = ["ITEM_HOLDS_NO_VALUE", "DATA_TYPE_UNKNOWN", "PARAMETER_LENGTH_NOT_GIVEN", "GLOBAL_LENGTH_NOT_GIVEN",
       "AMBIGUOUS", "NO_SUCH_ITEM", "NO_SUCH_BLOCK", "NO_SUCH_PARAMETER"];
     for (const s of [say, sayPt]) for (const reason of reasons) expect(reasonText(s, reason)).not.toBe(reason);
     expect(reasonText(say, "GLOBAL_LENGTH_NOT_GIVEN")).toBe("a Forms global holds text of no declared length");

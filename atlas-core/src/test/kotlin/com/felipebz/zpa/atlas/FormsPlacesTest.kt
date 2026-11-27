@@ -105,11 +105,11 @@ class FormsPlacesTest {
             "FETCH :ctrl.short_status forms:SHOP_DESK/CTRL/SHORT_STATUS FIXED_SIZE CHAR 5 BYTE OPTION -",
             "ASSIGNMENT :ctrl.short_status forms:SHOP_DESK/CTRL/SHORT_STATUS FIXED_SIZE CHAR 5 BYTE OPTION -",
             "ASSIGNMENT :ctrl.short_status forms:SHOP_DESK/CTRL/SHORT_STATUS FIXED_SIZE CHAR 5 BYTE OPTION - via NVL",
-            // The Forms default length; a length in characters; a Number item; a list item; a Char item with no data type written.
+            // The Forms default length; a length in characters; a Number item; a list item, its maximum length; a Char item with no data type written.
             "SELECT_INTO :ctrl.default_status forms:SHOP_DESK/CTRL/DEFAULT_STATUS FIXED_SIZE CHAR 30 BYTE OPTION -",
             "SELECT_INTO :ctrl.wide_status forms:SHOP_DESK/CTRL/WIDE_STATUS FIXED_SIZE CHAR 10 CHAR WRITTEN -",
             "SELECT_INTO :ctrl.count_id forms:SHOP_DESK/CTRL/COUNT_ID NO_SIZE NUMBER - -",
-            "SELECT_INTO :ctrl.status_list forms:SHOP_DESK/CTRL/STATUS_LIST UNKNOWN - - ITEM_HOLDS_ELEMENT",
+            "SELECT_INTO :ctrl.status_list forms:SHOP_DESK/CTRL/STATUS_LIST FIXED_SIZE CHAR 10 BYTE OPTION -",
             "SELECT_INTO :ctrl.bare_status forms:SHOP_DESK/CTRL/BARE_STATUS FIXED_SIZE CHAR 8 BYTE OPTION -",
             // The argument for READ_STATUS's OUT parameter, which selects the column into it.
             "OUT_ARGUMENT :ctrl.short_status forms:SHOP_DESK/CTRL/SHORT_STATUS FIXED_SIZE CHAR 5 BYTE OPTION -",
@@ -262,9 +262,8 @@ class FormsPlacesTest {
         /** The Doag places in its modules, by source, class, reason and target kind, with their counts. */
         val DOAG_PLACES = arrayOf(
             "ASSIGNMENT FIXED_SIZE - LOCAL_VARIABLE 22",
-            "BLOCK_QUERY FIXED_SIZE - FORMS_ITEM 46",
+            "BLOCK_QUERY FIXED_SIZE - FORMS_ITEM 47",
             "BLOCK_QUERY NO_SIZE - FORMS_ITEM 35",
-            "BLOCK_QUERY UNKNOWN ITEM_HOLDS_ELEMENT FORMS_ITEM 1",
             "SELECT_INTO FIXED_SIZE - FORMS_ITEM 4"
         )
 

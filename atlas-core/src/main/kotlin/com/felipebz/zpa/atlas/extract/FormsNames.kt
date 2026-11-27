@@ -7,14 +7,7 @@ package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
-import com.felipebz.zpa.atlas.forms.FormsBuiltins
-import com.felipebz.zpa.atlas.forms.FormsItem
-import com.felipebz.zpa.atlas.forms.FormsItemDataType
-import com.felipebz.zpa.atlas.forms.FormsItemKind
-import com.felipebz.zpa.atlas.forms.FormsLayout
-import com.felipebz.zpa.atlas.forms.FormsLengthSemantics
-import com.felipebz.zpa.atlas.forms.FormsProgramUnitKind
-import com.felipebz.zpa.atlas.forms.FormsTriggerLevel
+import com.felipebz.zpa.atlas.forms.*
 import com.felipebz.zpa.atlas.model.*
 
 /** The key prefix of the entities of Forms modules: `forms:` and a path in the module (`forms:ORDERS/ORDERS/WHEN-NEW-RECORD-INSTANCE`). */
@@ -60,11 +53,11 @@ internal class FormsEntities(private val layout: FormsLayout) {
 
     /**
      * What each item and parameter holds, as the type of a declaration, for the places column values are read into:
-     * a text or display item of a character data type holds its maximum length, in its unit (the compile-time
-     * `NLS_LENGTH_SEMANTICS` when the item leaves it: what Forms does with `Null`); one of another data type has no
-     * size; a list item, check box or radio group holds one of its elements, not a value of a length
-     * (`ITEM_HOLDS_ELEMENT`); an image holds an image (`ITEM_HOLDS_IMAGE`); any other item holds no value
-     * (`ITEM_HOLDS_NO_VALUE`). A character parameter whose length the file does not give is
+     * a text item, display item, list item, check box or radio group holds a value of its data type, a character one
+     * up to its maximum length, in its unit (the compile-time `NLS_LENGTH_SEMANTICS` when the item leaves it: what
+     * Forms does with `Null`); one of another data type has no size. A list item, check box or radio group must also
+     * hold one of its elements' values (or the value it maps others to), which its size does not tell. An image holds
+     * an image (`ITEM_HOLDS_IMAGE`); a button or any other item holds no value (`ITEM_HOLDS_NO_VALUE`). A character parameter whose length the file does not give is
      * `PARAMETER_LENGTH_NOT_GIVEN`; a data type the reader did not know `DATA_TYPE_UNKNOWN`.
      */
     val shapes = ArrayList<DeclaredShapeFact>()
@@ -86,7 +79,7 @@ internal class FormsEntities(private val layout: FormsLayout) {
                 owners.putIfAbsent(listOf(block.name.value, item.name.value), itemKey)
                 objects += FormsObjectFact(itemKey)
                 shapes += DeclaredShapeFact(itemKey, itemShape(item))
-                if (item.kind == FormsItemKind.TEXT_ITEM || item.kind == FormsItemKind.DISPLAY_ITEM) {
+                if (item.kind in VALUE_ITEMS) {
                     declaredType(item.dataType, item.maximumLength, item.lengthSemantics)?.let { declaredTexts += DeclaredTextFact(itemKey, it, null, false) }
                 }
                 itemKey
@@ -165,9 +158,13 @@ internal class FormsEntities(private val layout: FormsLayout) {
     }
 
     private companion object {
+        /** The kinds of item that hold a value of their data type and maximum length. */
+        private val VALUE_ITEMS = setOf(
+            FormsItemKind.TEXT_ITEM, FormsItemKind.DISPLAY_ITEM, FormsItemKind.LIST_ITEM, FormsItemKind.CHECK_BOX, FormsItemKind.RADIO_GROUP
+        )
+
         fun itemShape(item: FormsItem): TypeShape = when (item.kind) {
-            FormsItemKind.TEXT_ITEM, FormsItemKind.DISPLAY_ITEM -> valueShape(item.dataType, item.maximumLength, item.lengthSemantics)
-            FormsItemKind.LIST_ITEM, FormsItemKind.CHECK_BOX, FormsItemKind.RADIO_GROUP -> TypeShape.Unknown("ITEM_HOLDS_ELEMENT")
+            in VALUE_ITEMS -> valueShape(item.dataType, item.maximumLength, item.lengthSemantics)
             FormsItemKind.IMAGE -> TypeShape.Unknown("ITEM_HOLDS_IMAGE")
             else -> TypeShape.Unknown("ITEM_HOLDS_NO_VALUE")
         }

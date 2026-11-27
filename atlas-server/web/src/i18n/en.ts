@@ -401,7 +401,6 @@ export default {
   "places.reason.CURSOR_VARIABLE": "a cursor variable: its row is not known",
   "places.reason.FIELD_UNDECIDED": "which field of the element is the target could not be told",
   "places.reason.SIZE_NOT_A_LITERAL": "the size is not written as a number",
-  "places.reason.ITEM_HOLDS_ELEMENT": "the item holds one of its elements, not a value of some length",
   "places.reason.ITEM_HOLDS_IMAGE": "the item holds an image",
   "places.reason.ITEM_HOLDS_NO_VALUE": "the item holds no value",
   "places.reason.DATA_TYPE_UNKNOWN": "its Forms data type is not known",
