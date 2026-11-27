@@ -195,7 +195,7 @@ jobs:
     # The same database, utPLSQL install and indexing as the Runbook workflow, on the release commit.
     services:
       oracle:
-        image: gvenzl/oracle-free:23.26.3-slim-faststart
+        image: gvenzl/oracle-free:23.26.4-slim-faststart@sha256:cebd977833411a42170777d8e9ccf616a028a2bb137ae96498354ab6c7510268
         env:
           ORACLE_PASSWORD: oracle
         ports:
