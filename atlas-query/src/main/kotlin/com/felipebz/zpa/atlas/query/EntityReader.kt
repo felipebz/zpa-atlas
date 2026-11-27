@@ -305,10 +305,23 @@ internal class EntityReader(private val connection: Connection) {
             ))
         }
         val columns = keyColumns(rows.flatMap { listOf(it.first, it.second) }.toSet())
+        val types = columnTypes(rows.flatMap { columns[it.first].orEmpty() }.mapNotNull { it.column?.key }.toSet())
         return total to rows.map { (id, referenced, key) ->
             val targets = columns[referenced].orEmpty()
-            key.copy(columns = columns[id].orEmpty().mapIndexed { i, c -> ReferencingColumn(c.name, c.column, targets.getOrNull(i)?.name) })
+            key.copy(columns = columns[id].orEmpty().mapIndexed { i, c -> ReferencingColumn(c.name, c.column, targets.getOrNull(i)?.name, c.column?.let { types[it.key] }) })
         }
+    }
+
+    /** The types of the columns [keys], as [PlaceReader] gives a column's: the declared datatype read with the run's default unit. */
+    private fun columnTypes(keys: Set<String>): Map<String, ColumnSize> {
+        if (keys.isEmpty()) return emptyMap()
+        val unit = connection.query("SELECT nls_length_semantics FROM run", emptyList()) { it.getString(1) }.single()
+        return connection.query(
+            "SELECT e.key, d.datatype FROM entity e JOIN declared_text d ON d.entity_id = e.id WHERE e.key IN (${OccurrenceQuerySql.marks(keys.size)}) AND d.datatype IS NOT NULL",
+            keys.toList()
+        ) { it.getString(1) to it.getString(2) }.mapNotNull { (key, datatype) ->
+            PlaceVerdicts.size(datatype, unit)?.let { key to ColumnSize(it.datatype, it.length, it.unit, it.scale) }
+        }.toMap()
     }
 
     /**

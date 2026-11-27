@@ -83,6 +83,27 @@ class PlaceVerdictsTest {
     }
 
     @Test
+    fun `each place that compares with a size fits up to the largest one, where its verdict changes, and the page counts them`() {
+        for (key in listOf(column("CODE"), column("NOTE"), column("AMOUNT"))) {
+            val page = bytes.columnPlaces(key, PlaceFilter(null, Verdict.entries.toSet())).result!!
+            for (place in rows(bytes, key, null)) {
+                val at = { s: Int -> rows(bytes, key, s).single { it.targetWritten == place.targetWritten && it.field == place.field }.verdict }
+                val upTo = place.fitsUpTo
+                if (upTo == null) assertThat(listOf(at(1), at(1_000))).describedAs(place.targetWritten).containsOnly(at(1))
+                else {
+                    assertThat(at(upTo)).describedAs(place.targetWritten).isEqualTo("FITS")
+                    assertThat(at(upTo + 1)).describedAs(place.targetWritten).isIn("SMALLER", "UNKNOWN")
+                }
+            }
+            assertThat(page.fitsUpTo.map { it.size }).isSorted()
+            assertThat(page.fitsUpTo.sumOf { it.count }).isEqualTo(page.rows.count { it.fitsUpTo != null })
+        }
+        assertThat(rows(bytes, column("CODE"), null).associate { it.targetWritten to it.fitsUpTo })
+            .containsEntry("c1", 5).containsEntry("c2", 10).containsEntry("c4", 30).containsEntry("c5", null).containsEntry("c7", null).containsEntry("p_out", null)
+        assertThat(rows(bytes, column("AMOUNT"), null).associate { it.targetWritten to it.fitsUpTo }).containsEntry("a1", 4).containsEntry("a2", 8)
+    }
+
+    @Test
     fun `a length without a unit counts in characters when the index says so`() {
         assertThat(verdicts(chars, column("CODE"))).containsExactly(
             "c1 SMALLER", "c2 FITS", "c3 FITS", "c4 FITS room 20", "c5 FOLLOWS", "c6 FITS", "c7 FITS", "r.code SMALLER", "p_out CALLER_DECIDES")

@@ -200,6 +200,10 @@ class EntityPageTest {
         assertThat(first.rows.map { it.name } to first.nextOffset).isEqualTo(listOf("FK_PAYMENTS_ORDER", "FK_KY_LINES_CODE") to 2)
         val last = index.referencingKeys("db:HR.KY_ORDERS", 2, 2).result!!
         assertThat(listOf(last.total, last.rows.size, last.nextOffset)).containsExactly(3, 1, null)
+        // Each child column with its type, as a column's places give it: what must grow with the parent.
+        assertThat(index.referencingKeys("db:HR.KY_ORDERS").result!!.rows.flatMap { key -> key.columns.map { "${key.name}.${it.name} ${it.type}" } })
+            .contains("FK_KY_LINES_ORDER.LINE_NO ${index.entity("db:HR.KY_LINES.LINE_NO").result!!.declared?.type?.let { PlaceVerdicts.size(it, "BYTE") }?.let { ColumnSize(it.datatype, it.length, it.unit, it.scale) }}")
+            .allMatch { !it.endsWith(" null") || it.startsWith("FK_PAYMENTS") }
         // A referenced table the dictionary did not read: the key and its columns by name.
         val currency = index.entity("db:HR.KY_LINES.CURRENCY").result!!
         assertThat(currency.keys.map(::text)).containsExactly(

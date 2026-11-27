@@ -51,9 +51,12 @@ data class ReferencingKey(
     val references: String
 )
 
-/** A column of a referencing foreign key: its [name], its entity, and the column it [references] (by name), at the same position of the referenced key. */
+/**
+ * A column of a referencing foreign key: its [name], its entity, the column it [references] (by name), at the same
+ * position of the referenced key, and its [type] as the index knows it (null when it does not).
+ */
 @Serializable
-data class ReferencingColumn(val name: String, val column: EntitySummary?, val references: String?)
+data class ReferencingColumn(val name: String, val column: EntitySummary?, val references: String?, val type: ColumnSize? = null)
 
 /**
  * A page of the foreign keys referencing the keys of a relation or a column ([EntityDetail.referencedBy]), by table

@@ -81,6 +81,12 @@ data class ColumnPlace(
     /** Likewise for [callLine]. */
     val callCode: CodeAt? = null,
     /**
+     * The largest size `S`, in the column's unit, at which the place fits ([PlaceVerdicts.fitsUpTo]): `FITS` up to it,
+     * and above it `SMALLER` (or `UNKNOWN`, `UNIT_MISMATCH`, for a target counting bytes against a column counting
+     * characters, below its own length). Null when the verdict does not depend on `S`.
+     */
+    val fitsUpTo: Int? = null,
+    /**
      * For a [Verdict.CALLER_DECIDES] place whose callers' arguments are not listed as places of their own, why
      * ([FORMS_CODE]: the parameter is in Forms module code); null where the callers are followed.
      */
@@ -118,6 +124,10 @@ data class ColumnSize(val datatype: String?, val length: Int?, val unit: String?
 
 @Serializable
 data class VerdictCount(val name: String, val count: Int)
+
+/** How many places fit up to [size] and no further ([ColumnPlace.fitsUpTo]). */
+@Serializable
+data class SizeCount(val size: Int, val count: Int)
 
 /**
  * Which places of a column to list: compared with [size] (the column's when null), those of [verdicts] (all but
@@ -190,6 +200,8 @@ data class PlaceGroupsPage(
     val concatenatedCount: Int,
     val optionUnit: String?,
     val optionSized: Int?,
+    /** The places by the size they fit up to ([ColumnPlace.fitsUpTo]), smallest first, under every filter but the verdict one. */
+    val fitsUpTo: List<SizeCount>,
     val offset: Int,
     val groups: List<PlaceGroup>,
     val nextOffset: Int?,
@@ -212,6 +224,8 @@ data class ColumnPlacePage(
     val concatenatedCount: Int,
     val optionUnit: String?,
     val optionSized: Int?,
+    /** The places by the size they fit up to ([ColumnPlace.fitsUpTo]), smallest first, under every filter but the verdict one. */
+    val fitsUpTo: List<SizeCount>,
     val offset: Int,
     val rows: List<ColumnPlace>,
     val nextOffset: Int?

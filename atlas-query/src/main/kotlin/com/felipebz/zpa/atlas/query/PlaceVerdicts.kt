@@ -115,6 +115,26 @@ object PlaceVerdicts {
     }
 
     /**
+     * The largest size `S` at which a place still fits, from [verdictAt], its verdict against each `S`: null when it fits
+     * whatever `S` (no size of its own, or all that `SUBSTR` keeps fits), when it fits at none, or when its verdict
+     * does not come from a comparison with `S` (it follows the column, its callers decide, or it is not known). The
+     * verdict fits up to that size and never above it, so the largest is found by halving.
+     */
+    fun fitsUpTo(verdictAt: (Int) -> Verdict): Int? {
+        if (verdictAt(1) != Verdict.FITS || verdictAt(LARGEST) == Verdict.FITS) return null
+        var fits = 1
+        var not = LARGEST
+        while (not - fits > 1) {
+            val middle = fits + (not - fits) / 2
+            if (verdictAt(middle) == Verdict.FITS) fits = middle else not = middle
+        }
+        return fits
+    }
+
+    /** A size past any column's: a place that fits it fits every size. */
+    private const val LARGEST = 1 shl 30
+
+    /**
      * The verdict of a place of [placeClass] against [against]: [ownLength] and [ownUnit] the target's own size for
      * `FIXED_SIZE`, [other] the size of the column an `ANCHORED_ELSEWHERE` target is anchored to (null when not known).
      * The room is told for a [concatenated] place. Through `SUBSTR` ([Against.limit], [PlaceVerdicts.limit]), the target

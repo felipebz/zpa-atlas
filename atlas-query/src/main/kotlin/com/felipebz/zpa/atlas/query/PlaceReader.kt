@@ -53,7 +53,7 @@ internal class PlaceReader(private val connection: Connection) {
         val next = (offset + page.size).takeIf { it < ordered.size }
         return PlaceGroupsPage(
             read.column, read.size, filter.size != null, read.counts, read.verdicts, read.listed.size, groups.size, read.filtered.size,
-            read.filtered.mapTo(HashSet()) { it.groupKey }.size, read.concatenatedCount, read.optionUnit, read.optionSized, offset, page, next,
+            read.filtered.mapTo(HashSet()) { it.groupKey }.size, read.concatenatedCount, read.optionUnit, read.optionSized, read.fitsUpTo, offset, page, next,
             (ordered.size - offset - page.size).coerceAtLeast(0)
         )
     }
@@ -66,7 +66,7 @@ internal class PlaceReader(private val connection: Connection) {
         val shown = shown(rows)
         val page = rows.map { located(it, shown[it]) }
         return ColumnPlacePage(read.column, read.size, filter.size != null, read.counts, read.verdicts, sorted.size, read.concatenatedCount,
-            read.optionUnit, read.optionSized, offset, page, (offset + page.size).takeIf { it < sorted.size })
+            read.optionUnit, read.optionSized, read.fitsUpTo, offset, page, (offset + page.size).takeIf { it < sorted.size })
     }
 
     /** [place] with the line it [shows], and in a Forms module the code its lines are in. */
@@ -171,7 +171,7 @@ internal class PlaceReader(private val connection: Connection) {
      */
     private class Read(
         val column: ColumnSize, val size: Int?, val counts: List<VerdictCount>, val verdicts: List<String>, val filtered: List<Row>,
-        val listed: List<Row>, val concatenatedCount: Int, val optionUnit: String?, val optionSized: Int?
+        val listed: List<Row>, val concatenatedCount: Int, val optionUnit: String?, val optionSized: Int?, val fitsUpTo: List<SizeCount>
     )
 
     private fun read(key: String, filter: PlaceFilter): Read? {
@@ -210,7 +210,8 @@ internal class PlaceReader(private val connection: Connection) {
             filtered, filtered.filter { Verdict.valueOf(it.place.verdict) in listed }, matching.count { it.place.concatenated },
             // How a length without a unit counts tells nothing of the places of a number, a date or a raw.
             optionUnit.takeIf { PlaceVerdicts.holdsText(datatype) != false },
-            filtered.count { it.place.unitSource == "OPTION" }.takeIf { PlaceVerdicts.holdsText(datatype) != false }
+            filtered.count { it.place.unitSource == "OPTION" }.takeIf { PlaceVerdicts.holdsText(datatype) != false },
+            filtered.mapNotNull { it.place.fitsUpTo }.groupingBy { it }.eachCount().toSortedMap().map { (s, n) -> SizeCount(s, n) }
         )
     }
 
@@ -227,6 +228,10 @@ internal class PlaceReader(private val connection: Connection) {
         val kept = Kept(int(58), rs.getString(59), int(60), rs.getString(61)).takeIf { it.length != null || it.skipped != null }
         val limit = PlaceVerdicts.limit(kept, size, column.unit).takeIf { placeClass == "FIXED_SIZE" || placeClass == "ANCHORED_ELSEWHERE" }
         val decided = PlaceVerdicts.decide(placeClass, length, unit, other, Against(size, column.unit, limit), concatenated)
+        val fitsUpTo = PlaceVerdicts.fitsUpTo { s ->
+            val keptAt = PlaceVerdicts.limit(kept, s, column.unit).takeIf { placeClass == "FIXED_SIZE" || placeClass == "ANCHORED_ELSEWHERE" }
+            PlaceVerdicts.decide(placeClass, length, unit, other, Against(s, column.unit, keptAt), concatenated).verdict
+        }
         val (shown, shownUnit, unitSource) = when {
             placeClass == "FIXED_SIZE" -> Triple(length, unit, rs.getString(51))
             other?.length != null -> Triple(other.length, other.unit,
@@ -240,6 +245,7 @@ internal class PlaceReader(private val connection: Connection) {
             rs.getString(33), int(34), rs.getString(35), rs.getString(36)?.split(',').orEmpty(), summary(37), summary(42),
             int(47), rs.getString(48), int(49), concatenated,
             decided.verdict.name, decided.reason?.name, shown, shownUnit, unitSource, compiledIn, decided.room, kept = limit?.length, keptUnit = limit?.unit,
+            fitsUpTo = fitsUpTo,
             callersNotFollowed = FORMS_CODE.takeIf { placeClass == "CALLER_DECIDES" && rs.getString(18)?.startsWith("forms:") == true }
         )
         return Row(rs.getLong(57), place, rs.getString(56)).also { placeIds[place] = it.id }
