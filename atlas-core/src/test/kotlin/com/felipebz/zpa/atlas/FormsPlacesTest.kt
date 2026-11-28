@@ -8,15 +8,11 @@ package com.felipebz.zpa.atlas
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.io.path.copyTo
 import kotlin.io.path.createDirectories
-import kotlin.io.path.isDirectory
-import kotlin.io.path.listDirectoryEntries
 
 /**
  * The Forms items, parameters and globals a column's value is read into, on the invented module `SHOP_DESK`
@@ -240,15 +236,12 @@ class FormsPlacesTest {
     }
 
     /**
-     * The places of the Doag corpus (`-PdoagForms=<folder with frm2xml/>`), by source, class, reason and what the target
+     * The places of the Doag corpus ([DoagCorpus]), by source, class, reason and what the target
      * is: its items read the columns of the tables their blocks query, and its code reads columns into items.
      */
     @Test
     fun `the Doag modules give the places of their items`() {
-        val folder = System.getProperty("doagForms")?.let { Path.of(it).resolve("frm2xml") }
-        assumeTrue(folder != null && folder.isDirectory(), "-PdoagForms not given")
-        val root = temp.resolve("doag").createDirectories()
-        for (file in folder!!.listDirectoryEntries("*_fmb.xml")) file.copyTo(root.resolve(file.fileName.toString()))
+        val root = DoagCorpus.frm2xml(temp.resolve("doag"))
         val doag = temp.resolve("doag.db")
         Indexer().index(IndexOptions(root, doag, compilationSchema = "DEMO", threads = 2))
         assertThat(Fixture.query(doag, """
@@ -261,10 +254,15 @@ class FormsPlacesTest {
     private companion object {
         /** The Doag places in its modules, by source, class, reason and target kind, with their counts. */
         val DOAG_PLACES = arrayOf(
-            "ASSIGNMENT FIXED_SIZE - LOCAL_VARIABLE 22",
+            "ASSIGNMENT FIXED_SIZE - LOCAL_VARIABLE 28",
+            "ASSIGNMENT FIXED_SIZE - PACKAGE_VARIABLE 6",
             "BLOCK_QUERY FIXED_SIZE - FORMS_ITEM 47",
             "BLOCK_QUERY NO_SIZE - FORMS_ITEM 35",
-            "SELECT_INTO FIXED_SIZE - FORMS_ITEM 4"
+            "SELECT_INTO ANCHORED_ELSEWHERE - LOCAL_VARIABLE 2",
+            "SELECT_INTO ANCHORED_TO_COLUMN - LOCAL_VARIABLE 2",
+            "SELECT_INTO FIXED_SIZE - FORMS_ITEM 4",
+            "SELECT_INTO FIXED_SIZE - LOCAL_VARIABLE 1",
+            "SELECT_INTO FIXED_SIZE - PACKAGE_VARIABLE 1"
         )
 
         /** The database's package `PKS` of `forms/pack_desk.sql`, of the module package's name. */

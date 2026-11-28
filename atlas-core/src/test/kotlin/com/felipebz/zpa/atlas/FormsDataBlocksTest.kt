@@ -8,15 +8,11 @@ package com.felipebz.zpa.atlas
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.io.path.copyTo
 import kotlin.io.path.createDirectories
-import kotlin.io.path.isDirectory
-import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.writeText
 
 /**
@@ -231,15 +227,12 @@ class FormsDataBlocksTest {
     }
 
     /**
-     * The whole Doag corpus of `frmf2xml` exports, when the build is given it (`-PdoagForms=<folder with frm2xml/>`):
+     * The whole Doag corpus of `frmf2xml` exports ([DoagCorpus]):
      * its blocks on a table, what they do, and their items on a column.
      */
     @Test
     fun `the Doag modules give the uses Forms makes of their tables`() {
-        val folder = System.getProperty("doagForms")?.let { Path.of(it).resolve("frm2xml") }
-        assumeTrue(folder != null && folder.isDirectory(), "-PdoagForms not given")
-        val root = temp.resolve("doag").createDirectories()
-        for (file in folder!!.listDirectoryEntries("*_fmb.xml")) file.copyTo(root.resolve(file.fileName.toString()))
+        val root = DoagCorpus.frm2xml(temp.resolve("doag"))
         val doag = temp.resolve("doag.db")
         Indexer().index(IndexOptions(root, doag, compilationSchema = "DEMO", threads = 2))
         fun count(sql: String) = Fixture.query(doag, sql).single().toInt()

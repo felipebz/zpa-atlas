@@ -8,15 +8,11 @@ package com.felipebz.zpa.atlas
 import com.felipebz.zpa.atlas.index.IndexOptions
 import com.felipebz.zpa.atlas.index.Indexer
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.io.path.copyTo
 import kotlin.io.path.createDirectories
-import kotlin.io.path.isDirectory
-import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.writeText
 
 /**
@@ -199,15 +195,12 @@ class FormsNamesTest {
     }
 
     /**
-     * The whole Doag corpus of `frmf2xml` exports, when the build is given it (`-PdoagForms=<folder with frm2xml/>`): its
+     * The whole Doag corpus of `frmf2xml` exports ([DoagCorpus]): its
      * uses of Forms names by the kind of their entity (`-` for none), status, reason and roles.
      */
     @Test
     fun `the Doag modules give their uses of Forms names`() {
-        val folder = System.getProperty("doagForms")?.let { Path.of(it).resolve("frm2xml") }
-        assumeTrue(folder != null && folder.isDirectory(), "-PdoagForms not given")
-        val root = temp.resolve("doag").createDirectories()
-        for (file in folder!!.listDirectoryEntries("*_fmb.xml")) file.copyTo(root.resolve(file.fileName.toString()))
+        val root = DoagCorpus.frm2xml(temp.resolve("doag"))
         val doag = temp.resolve("doag.db")
         Indexer().index(IndexOptions(root, doag, compilationSchema = "DEMO", threads = 2))
         assertThat(Fixture.query(doag, "SELECT count(*) FROM entity WHERE kind = 'FORMS_PARAMETER'")).containsExactly("83")
@@ -248,15 +241,15 @@ class FormsNamesTest {
             "- AMBIGUOUS TRIGGER_DEPENDS_ON_FOCUS CALL 2",
             "- UNRESOLVED MODULE_NOT_INDEXED CALL 3",
             "- UNRESOLVED NO_SUCH_ITEM CALL 2",
-            "FORMS_BLOCK RESOLVED - CALL 36",
+            "FORMS_BLOCK RESOLVED - CALL 38",
             "FORMS_GLOBAL RESOLVED - READ 85",
             "FORMS_GLOBAL RESOLVED - WRITE 36",
-            "FORMS_ITEM RESOLVED - CALL 73",
-            "FORMS_ITEM RESOLVED - READ 486",
-            "FORMS_ITEM RESOLVED - WRITE 376",
+            "FORMS_ITEM RESOLVED - CALL 80",
+            "FORMS_ITEM RESOLVED - READ 526",
+            "FORMS_ITEM RESOLVED - WRITE 397",
             "FORMS_MODULE RESOLVED - CALL 11",
             "FORMS_PARAMETER RESOLVED - READ 708",
-            "FORMS_PARAMETER RESOLVED - WRITE 94",
+            "FORMS_PARAMETER RESOLVED - WRITE 97",
             "FORMS_TRIGGER RESOLVED - CALL 1",
             "FORMS_TRIGGER UNVERIFIED TRIGGER_NEEDS_FOCUS CALL 1"
         )
