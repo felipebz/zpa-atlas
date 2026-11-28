@@ -26,6 +26,8 @@ internal class FileState(strings: FactStrings = FactStrings()) {
      */
     private class Interned(private val strings: FactStrings) : ArrayList<OccurrenceFact>() {
         override fun add(element: OccurrenceFact): Boolean = super.add(strings.occurrence(element))
+
+        override fun set(index: Int, element: OccurrenceFact): OccurrenceFact = super.set(index, strings.occurrence(element))
     }
 
     val units = ArrayList<UnitFact>()
@@ -124,6 +126,17 @@ internal class FileState(strings: FactStrings = FactStrings()) {
 
     /** What reads a column's value into PL/SQL without being followed, by shape ([IntoClauses]): counted. */
     val placesLeftOut = sortedMapOf<String, Int>()
+
+    /**
+     * The name each `NAME` value written to a column or passed to a call is, its parentheses unwrapped, by the value's
+     * span, in the code of the file (not in a dynamic text): what it names is asked once the file is walked ([ValueNames]).
+     */
+    val valueNames = HashMap<SourceSpan, AstNode>()
+
+    /** Notes the name [expression] is when its [value] is a `NAME`, in the code of the file. */
+    fun nameValue(expression: AstNode, value: ExpressionValue, context: Context) {
+        if (value.kind == ValueKind.NAME && context.dynamic == null) valueNames[spanOf(expression)] = ExpressionValues.nameNode(expression)
+    }
 
     fun leftOut(shape: String, count: Int = 1) {
         if (count > 0) placesLeftOut.merge(shape, count, Int::plus)

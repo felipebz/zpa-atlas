@@ -282,6 +282,9 @@ export default {
   "values.kind.BIND": "a bind variable",
   "values.kind.EXPRESSION": "an expression",
   "values.showAll": "show all ({count})",
+  "values.names": "names {entity}",
+  "values.column": "column {column}",
+  "values.columnUnknown": "column not known ({reason})",
 
   "places.title": "Read into",
   "places.line": "The PL/SQL variables, parameters and fields, and the Forms items, parameters and globals, that receive the column's value, compared with its size.",

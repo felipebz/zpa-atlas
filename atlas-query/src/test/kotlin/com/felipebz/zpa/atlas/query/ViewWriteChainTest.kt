@@ -47,7 +47,7 @@ class ViewWriteChainTest {
                 // One write per column, its value the column's key.
                 listOf(2, 4, 14, 6, 9, 11).forEachIndexed { i, entity ->
                     s.execute("INSERT INTO occurrence VALUES (${i + 1}, 1, 1, NULL, NULL, ${i + 1}, 0, ${i + 1}, 1, 'w', $entity, 'WRITE', 'RESOLVED', 'STATIC', NULL, NULL, NULL, NULL, NULL)")
-                    s.execute("INSERT INTO written_value VALUES (${i + 1}, 1, 'STRING', (SELECT key FROM entity WHERE id = $entity), ${i + 1}, 0, ${i + 1}, 1)")
+                    s.execute("INSERT INTO written_value VALUES (${i + 1}, 1, 'STRING', (SELECT key FROM entity WHERE id = $entity), ${i + 1}, 0, ${i + 1}, 1, NULL, NULL, NULL, NULL)")
                 }
             }
         }

@@ -22,7 +22,10 @@ class ValuesTest {
     fun `the values passed to a parameter are grouped by kind and value, and a body parameter shows its spec's`() {
         val groups = index.values(pCode).result!!
         assertThat(groups.first()).isEqualTo(ValueGroup("NUMBER", "1", 10))
-        assertThat(groups).contains(ValueGroup("NUMBER", "1.5", 2), ValueGroup("NAME", "R.CODE", 1), ValueGroup("BIND", null, 1), ValueGroup("EXPRESSION", null, 2))
+        assertThat(groups).contains(ValueGroup("NUMBER", "1.5", 2), ValueGroup("BIND", null, 1), ValueGroup("EXPRESSION", null, 2))
+        // A field of a record of a record type: the record and the field, and no column.
+        val field = groups.single { it.value == "R.CODE" }
+        assertThat("${field.count} ${field.entity?.key} ${field.field} ${field.column}").isEqualTo("1 db:HR.PACK_ARGS.CALLER(P_IN IN NUMBER)@BODY.R CODE null")
         assertThat(index.values(pCode.replace(").P_CODE", ")@BODY.P_CODE")).result).isEqualTo(groups)
         assertThat(index.values("db:NO.SUCH").result).isNull()
     }

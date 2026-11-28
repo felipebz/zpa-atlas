@@ -39,6 +39,7 @@ internal class RemoteNames(private val state: FileState, private val scopes: Sql
             val named = children.size >= 3 && children[1].tokenValue == "=>"
             val expression = if (named) children.last() else argument
             val value = ExpressionValues.of(expression, context::hasHoles)
+            state.nameValue(expression, value, context)
             CallArgumentFact(index + 1, if (named) normalizeIdentifier(children[0].tokenOriginalValue) else null, null, spanOf(expression), value.kind, value.value)
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), key,

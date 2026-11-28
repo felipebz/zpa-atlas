@@ -307,7 +307,8 @@ internal class AtlasMcpTools(
         val after = args.long("after")
         val limit = args.int("limit", 1..McpLimits.FIND_MAX) ?: McpLimits.FIND_DEFAULT
         val entity = requireValueEntity(key, "find_value_sites")
-        val answer = index.valueSites(key, valueKind, value, after, limit)
+        val name = NameGroup(args.string("entity"), args.string("field"), args.string("column"), args.string("column_reason"))
+        val answer = index.valueSites(key, valueKind, value, after, limit, name)
         val page = answer.result ?: throw unknownEntity(key)
         // A call's other arguments say nothing about this parameter, and with long signatures they are most of a row.
         val kept = if (entity.kind != "PARAMETER") answer else boundKeys(entity).let { keys ->

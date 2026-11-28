@@ -28,7 +28,8 @@ class AtlasWriter private constructor(private val connection: Connection, privat
      * Writes every row; the caller ([writeAtomically]) owns the transaction, the indexes and the commit. [texts] gives
      * the decoded text of each file by path, for the `source_line` table. [phase] is told each step as it starts.
      * [dictionaryDeclaredTexts] are the datatypes of the dictionary columns, [keys] the dictionary keys, [places] the
-     * places column values are read into, by file path, and [placesLeftOut] what is counted instead, by file path.
+     * places column values are read into, by file path, [placesLeftOut] what is counted instead, by file path, and
+     * [valueFields] the record fields values name, with the columns of row records' fields, by file path and value span.
      * [note] is told, at the end, how long the building and the writing of the rows waited for each other.
      */
     fun write(
@@ -39,6 +40,7 @@ class AtlasWriter private constructor(private val connection: Connection, privat
         keys: List<KeyFact> = emptyList(),
         places: Map<String, List<ColumnPlaceFact>> = emptyMap(),
         placesLeftOut: Map<String, Map<String, Int>> = emptyMap(),
+        valueFields: Map<String, Map<SourceSpan, ValueField>> = emptyMap(),
         note: (String) -> Unit = {}
     ) {
         // The rows are built on this thread and written on the writer's, which has the connection until it finishes. A
@@ -66,7 +68,7 @@ RowWriter(connection, "atlas-index rows").use { writer ->
             writer.drain()
             waited("entities and relations")
             phase(PhaseTimes.WRITING_FILES)
-            FileRows(writer).write(sortedFiles, entityIds, globalCoverage, places, placesLeftOut)
+            FileRows(writer).write(sortedFiles, entityIds, globalCoverage, places, placesLeftOut, valueFields)
             writer.drain()
             waited("file rows")
             phase(PhaseTimes.WRITING_LINES)
@@ -81,7 +83,7 @@ RowWriter(connection, "atlas-index rows").use { writer ->
     }
 
     companion object {
-        const val SCHEMA_VERSION = 34
+        const val SCHEMA_VERSION = 35
 
         /**
          * Writes the index to a temporary file beside [target] and moves it over [target] when everything succeeded.

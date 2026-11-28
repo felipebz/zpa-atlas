@@ -24,12 +24,32 @@ data class CallArgument(
     /** `STRING`, `NUMBER`, `NULL`, `BOOLEAN`, `NAME`, `BIND` or `EXPRESSION`. */
     val valueKind: String,
     /** The literal's value, or the name or bind as written; null for `NULL` and `EXPRESSION`. */
-    val value: String?
+    val value: String?,
+    /** For a `NAME`: the entity it names (for a record's field, the record), when the index knows it. */
+    val entity: EntitySummary? = null,
+    /** For a `NAME` that is a record's field: the field, as written after the record. */
+    val field: String? = null,
+    /** For a row record's field (a cursor `FOR` loop record, a `%ROWTYPE` variable, a cursor's row): the column it stands for. */
+    val column: EntitySummary? = null,
+    /** For a row record's field whose [column] is not known: why. */
+    val columnReason: String? = null
 )
 
-/** The arguments bound to a parameter that pass the same value: [value] null for `NULL`, `BIND` and `EXPRESSION`. */
+/**
+ * The arguments bound to a parameter, or the values written to a column, that pass the same value: [value] null for
+ * `NULL`, `BIND` and `EXPRESSION`; a `NAME` by what it names ([entity], [field], [column]) when the index knows it, else
+ * by the name as written.
+ */
 @Serializable
-data class ValueGroup(val valueKind: String, val value: String?, val count: Long)
+data class ValueGroup(
+    val valueKind: String,
+    val value: String?,
+    val count: Long,
+    val entity: EntitySummary? = null,
+    val field: String? = null,
+    val column: EntitySummary? = null,
+    val columnReason: String? = null
+)
 
 /**
  * One occurrence of a listing. A use Forms makes without code ([origin] `FORMS_IMPLICIT`: a data block's query, insert,
@@ -63,9 +83,23 @@ data class OccurrenceRow(
     val code: CodeAt? = null
 )
 
-/** The value a column write writes in [row] of its statement; [value] as for [CallArgument.value]. */
+/**
+ * What a [ValueGroup] names, as its fields give it: the keys of its [entity] and [column], its [field] and its
+ * [columnReason]; each null where the group has none.
+ */
+data class NameGroup(val entity: String? = null, val field: String? = null, val column: String? = null, val columnReason: String? = null)
+
+/** The value a column write writes in [row] of its statement; [value], [entity], [field], [column] and [columnReason] as for [CallArgument]. */
 @Serializable
-data class WrittenValue(val row: Int, val valueKind: String, val value: String?)
+data class WrittenValue(
+    val row: Int,
+    val valueKind: String,
+    val value: String?,
+    val entity: EntitySummary? = null,
+    val field: String? = null,
+    val column: EntitySummary? = null,
+    val columnReason: String? = null
+)
 
 /**
  * Counts over a set of occurrences: roles split (an occurrence counts once under each of its roles). [byOrigin],

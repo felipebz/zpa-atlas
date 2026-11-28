@@ -109,18 +109,34 @@ internal class UsageReader(private val connection: Connection) {
 
     fun values(key: String): List<ValueGroup>? {
         val source = valueSource(key) ?: return null
+        val summaries = HashMap<Long, EntitySummary>()
+        fun entityOf(id: Long?): EntitySummary? = id?.let { summaries.getOrPut(it) { summary(connection, it) } }
         return connection.query(
-            """SELECT value_kind, CASE WHEN value_kind IN ('BIND', 'EXPRESSION') THEN NULL ELSE value END AS shown, count(*) AS n
-               FROM (${source.sql}) GROUP BY value_kind, shown ORDER BY n DESC, value_kind, shown""", source.parameters
-        ) { ValueGroup(it.getString(1), it.getString(2), it.getLong(3)) }
+            """SELECT value_kind, CASE WHEN value_kind IN ('BIND', 'EXPRESSION') THEN NULL ELSE value END AS shown, count(*) AS n,
+                      entity_id, field, column_id, column_reason
+               FROM (${source.sql}) GROUP BY value_kind, shown, entity_id, field, column_id, column_reason
+               ORDER BY n DESC, value_kind, shown, entity_id, field, column_id, column_reason""", source.parameters
+        ) { ValueGroup(it.getString(1), it.getString(2), it.getLong(3), entityOf(longOrNull(it, 4)), it.getString(5), entityOf(longOrNull(it, 6)), it.getString(7)) }
     }
 
-    /** [AtlasIndex.valueSites] after its checks: with [anyValue], every value of [valueKind] matches. */
-    fun valueSites(key: String, valueKind: String, value: String?, anyValue: Boolean, after: Long?, limit: Int): OccurrencePage? {
+    /**
+     * The values [AtlasIndex.valueSites] lists: of [valueKind] and [value], every value of the kind with [anyValue], that
+     * name what [name] names and nothing else.
+     */
+    class ValueMatch(val valueKind: String, val value: String?, val anyValue: Boolean, val name: NameGroup)
+
+    /** [AtlasIndex.valueSites] after its checks. */
+    fun valueSites(key: String, match: ValueMatch, after: Long?, limit: Int): OccurrencePage? {
         val source = valueSource(key) ?: return null
         val hits = connection.query(
             """SELECT DISTINCT o.id, o.entity_id, o.roles, o.status FROM (${source.sql}) v JOIN occurrence o ON o.id = v.occurrence_id
-               WHERE v.value_kind = ? AND (? OR v.value = ?) ORDER BY o.id""", source.parameters + listOf(valueKind, anyValue, value)
+               WHERE v.value_kind = ? AND (? OR v.value = ?)
+                 AND CASE WHEN ? IS NULL THEN v.entity_id IS NULL ELSE v.entity_id IS (SELECT id FROM entity WHERE key = ?) END
+                 AND v.field IS ?
+                 AND CASE WHEN ? IS NULL THEN v.column_id IS NULL ELSE v.column_id IS (SELECT id FROM entity WHERE key = ?) END
+                 AND v.column_reason IS ?
+               ORDER BY o.id""", source.parameters + listOf(match.valueKind, match.anyValue, match.value) +
+                with(match.name) { listOf(entity, entity, field, column, column, columnReason) }
         ) { Hit(it.getLong(1), it.getLong(2), false, false, roles(it.getString(3)), it.getString(4)) }
         val remaining = hits.filter { after == null || it.id > after }
         val page = remaining.take(limit)
@@ -140,6 +156,8 @@ internal class UsageReader(private val connection: Connection) {
          *   chain, whatever INSTEAD OF triggers the views below its target have; it never runs one.
          * - [OTHER]: a write that is no INSERT or UPDATE (an assignment) stops at a view with any INSTEAD OF trigger.
          */
+        private const val VALUE_COLUMNS = "occurrence_id, value_kind, value, entity_id, field, column_id, column_reason"
+
         internal enum class ViewWrite(val event: String?) { INSERT("INSERT"), UPDATE("UPDATE"), DELETE("DELETE"), MERGE(null), OTHER(null) }
 
         /**
@@ -174,7 +192,7 @@ internal class UsageReader(private val connection: Connection) {
               AND instr(',' || t.roles || ',', ',SQL_' || e.event || ',') > 0)"""
     }
 
-    /** The rows `(occurrence_id, value_kind, value)` of the values [values] reads for an entity. */
+    /** The rows `(occurrence_id, value_kind, value, entity_id, field, column_id, column_reason)` of the values [values] reads for an entity. */
     private class ValueSource(val sql: String, val parameters: List<Any?>)
 
     /** The values of the entity [key] by its kind; null when there is no such entity. */
@@ -188,7 +206,7 @@ internal class UsageReader(private val connection: Connection) {
                        WHERE p.id = ?""", listOf(id)
                 ) { it.getLong(1) }
                 val ids = listOf(id) + twins
-                ValueSource("SELECT occurrence_id, value_kind, value FROM call_argument WHERE parameter_entity_id IN (${ids.joinToString(",") { "?" }})", ids)
+                ValueSource("SELECT $VALUE_COLUMNS FROM call_argument WHERE parameter_entity_id IN (${ids.joinToString(",") { "?" }})", ids)
             }
             // The column's own writes, and the writes to every view column that reaches it by the kind of write
             // ([ViewWrite]): a MERGE column through every view, an INSERT column through the views that let an INSERT
@@ -199,7 +217,7 @@ internal class UsageReader(private val connection: Connection) {
                      reach_update(id, base) AS (SELECT ?1, ?1 UNION ${writtenThroughViews("reach_update", ViewWrite.UPDATE)}),
                      reach_merge(id, base) AS (SELECT ?1, ?1 UNION ${writtenThroughViews("reach_merge", ViewWrite.MERGE)}),
                      reach_other(id, base) AS (SELECT ?1, ?1 UNION ${writtenThroughViews("reach_other", ViewWrite.OTHER)})
-                   SELECT w.occurrence_id, w.value_kind, w.value FROM written_value w JOIN occurrence o ON o.id = w.occurrence_id
+                   SELECT w.occurrence_id, w.value_kind, w.value, w.entity_id, w.field, w.column_id, w.column_reason FROM written_value w JOIN occurrence o ON o.id = w.occurrence_id
                    WHERE o.entity_id = ?1
                       OR (CASE WHEN EXISTS (SELECT 1 FROM sql_statement s WHERE s.id = o.statement_id AND s.kind = 'MERGE')
                                  THEN o.entity_id IN (SELECT id FROM reach_merge)
@@ -208,7 +226,7 @@ internal class UsageReader(private val connection: Connection) {
                                ELSE o.entity_id IN (SELECT id FROM reach_other) END
                           AND NOT ${refusedMerge("o")})""", listOf(id)
             )
-            else -> ValueSource("SELECT occurrence_id, value_kind, value FROM call_argument WHERE 0", emptyList())
+            else -> ValueSource("SELECT $VALUE_COLUMNS FROM call_argument WHERE 0", emptyList())
         }
     }
 }

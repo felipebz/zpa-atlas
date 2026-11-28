@@ -237,6 +237,14 @@ data class ColumnPlaceFact(
 )
 
 /**
+ * The field of a record a value names ([ValueName.field]), decided after the scan: kept when what the code names holds a
+ * record (a variable, constant, parameter, field or attribute, or a record without an entity), not after a package's
+ * name. For a row record's field, the column it stands for ([columnKey]), decided as `target := r.f` decides it, or why
+ * it is not known ([reason]).
+ */
+data class ValueField(val field: String?, val columnKey: String? = null, val reason: String? = null)
+
+/**
  * A PL/SQL unit as `ALL_PLSQL_OBJECT_SETTINGS` names it: its [owner], [name] and [type] (`PACKAGE`, `PACKAGE BODY`,
  * `PROCEDURE`, `FUNCTION`, `TRIGGER`, `TYPE`, `TYPE BODY`).
  */

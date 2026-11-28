@@ -12,14 +12,16 @@ internal class FileRows(private val writer: RowWriter) {
     /**
      * Writes [sortedFiles] (sorted by path) with the ids of [entityIds], then the run's and the files' coverage notes,
      * then the counts of [placesLeftOut] as notes after them all (so that the other notes keep their ids). [places] are
-     * the places column values are read into, by file path.
+     * the places column values are read into, by file path, and [valueFields] the record fields values name, with the
+     * columns of row records' fields, by file path and value span.
      */
     fun write(
         sortedFiles: List<FileFacts>, entityIds: Map<String, Long>, globalCoverage: List<CoverageFact>,
-        places: Map<String, List<ColumnPlaceFact>> = emptyMap(), placesLeftOut: Map<String, Map<String, Int>> = emptyMap()
+        places: Map<String, List<ColumnPlaceFact>> = emptyMap(), placesLeftOut: Map<String, Map<String, Int>> = emptyMap(),
+        valueFields: Map<String, Map<SourceSpan, ValueField>> = emptyMap()
     ) {
         val rows = Rows(entityIds)
-        for ((index, file) in sortedFiles.withIndex()) rows.writeFile(index + 1L, file, places[file.path].orEmpty())
+        for ((index, file) in sortedFiles.withIndex()) rows.writeFile(index + 1L, file, places[file.path].orEmpty(), valueFields[file.path].orEmpty())
         rows.writeNotes(notesOf(sortedFiles, globalCoverage, placesLeftOut))
         rows.finish()
     }
@@ -40,8 +42,12 @@ internal class FileRows(private val writer: RowWriter) {
         private val statementInsert = prepare("INSERT INTO sql_statement(id, file_id, unit_id, container_entity_id, kind, start_line, start_col, end_line, end_col, normalized_hash) VALUES (?,?,?,?,?,?,?,?,?,?)")
         private val occurrenceInsert = prepare("INSERT INTO occurrence(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line, end_col, written, entity_id, roles, status, origin, reason, name_start_line, name_start_col, name_end_line, name_end_col) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
         private val candidateInsert = prepare("INSERT INTO occurrence_candidate(occurrence_id, entity_id) VALUES (?,?)")
-        private val writtenValueInsert = prepare("INSERT INTO written_value(occurrence_id, row_number, value_kind, value, start_line, start_col, end_line, end_col) VALUES (?,?,?,?,?,?,?,?)")
-        private val argumentInsert = prepare("INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col, value_kind, value) VALUES (?,?,?,?,?,?,?,?,?,?)")
+        private val writtenValueInsert = prepare(
+            "INSERT INTO written_value(occurrence_id, row_number, value_kind, value, start_line, start_col, end_line, end_col, entity_id, field, column_id, column_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+        )
+        private val argumentInsert = prepare(
+            "INSERT INTO call_argument(occurrence_id, ordinal, label, parameter_entity_id, start_line, start_col, end_line, end_col, value_kind, value, entity_id, field, column_id, column_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        )
         private val coverageInsert = prepare("INSERT INTO coverage_note(id, file_id, kind, message) VALUES (?,?,?,?)")
         private val docInsert = prepare("INSERT INTO doc_comment(entity_id, file_id, in_body, shape, start_line, text, text_cut) VALUES (?,?,?,?,?,?,?)")
         private val placeInsert = prepare("""INSERT INTO column_place(id, file_id, unit_id, container_entity_id, statement_id, start_line, start_col, end_line,
@@ -62,8 +68,11 @@ internal class FileRows(private val writer: RowWriter) {
         private var occurrenceId = 0L
         private var coverageId = 0L
 
-        /** Writes [file] as [fileId], then its units, statements, occurrences, Forms rows, doc comments and [places]. */
-        fun writeFile(fileId: Long, file: FileFacts, places: List<ColumnPlaceFact>) {
+        /**
+         * Writes [file] as [fileId], then its units, statements, occurrences (the record fields their values name as
+         * [valueFields] decides them), Forms rows, doc comments and [places].
+         */
+        fun writeFile(fileId: Long, file: FileFacts, places: List<ColumnPlaceFact>, valueFields: Map<SourceSpan, ValueField>) {
             fileIds[file.path] = fileId
             fileInsert.setLong(1, fileId)
             fileInsert.setString(2, file.path)
@@ -78,7 +87,7 @@ internal class FileRows(private val writer: RowWriter) {
 
             val unitIds = writeUnits(fileId, file.units)
             val statementIds = writeStatements(fileId, file.statements, unitIds)
-            for (occurrence in file.occurrences.sortedWith(OCCURRENCE_ORDER)) writeOccurrence(fileId, occurrence, unitIds, statementIds)
+            for (occurrence in file.occurrences.sortedWith(OCCURRENCE_ORDER)) writeOccurrence(fileId, occurrence, unitIds, statementIds, valueFields)
             for (use in file.formsUses) writeFormsUse(fileId, use)
             for ((position, formsObject) in file.formsObjects.withIndex()) writeFormsObject(fileId, position, formsObject)
             for (doc in file.docComments.sortedWith(compareBy({ it.line }, { it.entityKey }))) writeDoc(fileId, doc)
@@ -141,7 +150,9 @@ internal class FileRows(private val writer: RowWriter) {
         }
 
         /** Writes [occurrence] of the file [fileId], then its candidates, arguments and written values. */
-        private fun writeOccurrence(fileId: Long, occurrence: OccurrenceFact, unitIds: LongArray, statementIds: Map<Int, Long>) {
+        private fun writeOccurrence(
+            fileId: Long, occurrence: OccurrenceFact, unitIds: LongArray, statementIds: Map<Int, Long>, valueFields: Map<SourceSpan, ValueField>
+        ) {
             occurrenceInsert.setLong(1, ++occurrenceId)
             occurrenceInsert.setLong(2, fileId)
             occurrenceInsert.setLong(3, unitIds[occurrence.unitIndex])
@@ -165,12 +176,12 @@ internal class FileRows(private val writer: RowWriter) {
                 candidateInsert.setLong(2, candidate)
                 candidateInsert.add()
             }
-            for (argument in occurrence.arguments) writeArgument(argument)
-            for (written in occurrence.writtenValues) writeWrittenValue(written)
+            for (argument in occurrence.arguments) writeArgument(argument, valueFields[argument.span])
+            for (written in occurrence.writtenValues) writeWrittenValue(written, valueFields[written.span])
         }
 
         /** Writes [argument] of the last occurrence written. */
-        private fun writeArgument(argument: CallArgumentFact) {
+        private fun writeArgument(argument: CallArgumentFact, field: ValueField?) {
             argumentInsert.setLong(1, occurrenceId)
             argumentInsert.setInt(2, argument.ordinal)
             argumentInsert.setNullableString(3, argument.label)
@@ -178,17 +189,31 @@ internal class FileRows(private val writer: RowWriter) {
             argumentInsert.setSpan(5, argument.span)
             argumentInsert.setString(9, argument.valueKind.name)
             argumentInsert.setNullableString(10, argument.value)
+            writeName(argumentInsert, 11, argument.name, field)
             argumentInsert.add()
         }
 
         /** Writes [written], a value the last occurrence written writes. */
-        private fun writeWrittenValue(written: WrittenValueFact) {
+        private fun writeWrittenValue(written: WrittenValueFact, field: ValueField?) {
             writtenValueInsert.setLong(1, occurrenceId)
             writtenValueInsert.setInt(2, written.row)
             writtenValueInsert.setString(3, written.valueKind.name)
             writtenValueInsert.setNullableString(4, written.value)
             writtenValueInsert.setSpan(5, written.span)
+            writeName(writtenValueInsert, 9, written.name, field)
             writtenValueInsert.add()
+        }
+
+        /**
+         * Sets, from [first] on, what the value names ([name]) and its record [field] as decided, with the column of a row
+         * record's field. A column the run has no entity for is not known, and says so.
+         */
+        private fun writeName(insert: RowWriter.Insert, first: Int, name: ValueName?, field: ValueField?) {
+            insert.setNullableLong(first, name?.entityKey?.let { entityIds[it] })
+            insert.setNullableString(first + 1, field?.field)
+            val columnId = field?.columnKey?.let { entityIds[it] }
+            insert.setNullableLong(first + 2, columnId)
+            insert.setNullableString(first + 3, field?.reason ?: COLUMN_NOT_INDEXED.takeIf { field?.columnKey != null && columnId == null })
         }
 
         /** Writes [use], a use Forms makes without code in the file [fileId]: no unit, no statement, no span. */
@@ -338,6 +363,8 @@ internal class FileRows(private val writer: RowWriter) {
 
     companion object {
         const val COLUMN_VALUE_NOT_FOLLOWED = "COLUMN_VALUE_NOT_FOLLOWED"
+
+        private const val COLUMN_NOT_INDEXED = "COLUMN_NOT_INDEXED"
 
         private val LEFT_OUT = mapOf(
             "EXPRESSION" to "select item(s) that are an expression of one column, read into a PL/SQL target: not followed",

@@ -121,7 +121,7 @@ class Indexer internal constructor(
         globalCoverage += CoverageFact("CALL_SCOPE_LEGACY",
             "Calls named like a local value, type or nested subprogram are recognized through the legacy symbol table, a heuristic rather than proof of lexical scope")
         val dictionaryFacts = DictionaryFacts.merge(options.dictionary, walked.snapshot, facts, globalEntities, globalRelations, globalCoverage)
-        val (places, placesLeftOut) = ColumnPlaces.of(facts, globalEntities, dictionaryFacts.resolved, options.dictionary, options.nlsLengthSemantics)
+        val (places, placesLeftOut, valueFields) = ColumnPlaces.of(facts, globalEntities, dictionaryFacts.resolved, options.dictionary, options.nlsLengthSemantics)
 
         val texts = sources.associate { it.relativePath to it.text }
         val phase: (String) -> Unit = { phases?.start(it) }
@@ -133,7 +133,7 @@ class Indexer internal constructor(
                     runInfo(options, read),
                     // The cache keeps the calls of modules as the walks wrote them: which modules the run has is checked on every run.
                     FormsReferences.resolveModuleCalls(facts), globalEntities, globalRelations, globalCoverage, texts::get, phase,
-                    dictionaryDeclaredTexts = dictionaryFacts.declaredTexts, keys = dictionaryFacts.keys, places = places, placesLeftOut = placesLeftOut,
+                    dictionaryDeclaredTexts = dictionaryFacts.declaredTexts, keys = dictionaryFacts.keys, places = places, placesLeftOut = placesLeftOut, valueFields = valueFields,
                     note = { phases?.notes?.add(it) }
                 )
             }

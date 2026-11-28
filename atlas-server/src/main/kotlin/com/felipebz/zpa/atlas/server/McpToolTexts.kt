@@ -196,16 +196,27 @@ internal object McpToolTexts {
             "... set c = default), so the column's default applies. An argument left out of a call is not indexed, " +
             "so a parameter's default is not counted."
 
+    private const val VALUE_NAMES =
+        "A NAME is grouped by what it names too, when the index knows it: entity (a variable, constant, parameter, " +
+            "column, Forms item or global; for a field R.CODE the record, with field CODE); for a field of a row record " +
+            "(cursor FOR loop record, %ROWTYPE variable, cursor's row), column, the column it stands for, or " +
+            "columnReason, why not (ROWTYPE, CURSOR, REF_CURSOR, STAR, NO_COLUMN, COLUMN_UNRESOLVED, INLINE_VIEW, " +
+            "EXPRESSION_*, SEVERAL_COLUMNS, FUNCTION_RESULT, COLUMN_NOT_INDEXED, OTHER). Two variables V of two " +
+            "routines are two groups; a name the index does not resolve has only its value."
+
     const val VALUES = "The values passed to a PARAMETER or written to a COLUMN: needs its key. Groups by valueKind and value, " +
-        "most frequent first, each with its count; totalGroups counts every group. $VALUE_WHY $VALUE_KIND_NOTES Then " +
-        "find_value_sites, with a group's valueKind and value, lists where it comes from. Any other kind of entity is " +
-        "refused."
+        "most frequent first, each with its count; totalGroups counts every group. $VALUE_NAMES $VALUE_WHY " +
+        "$VALUE_KIND_NOTES Then find_value_sites, with a group's valueKind and value (and its entity and column keys), " +
+        "lists where it comes from. Any other kind of entity is refused."
 
     const val VALUE_SITES = "Where a PARAMETER is passed or a COLUMN is written with one value: needs key and value_kind (and " +
         "value for STRING, NUMBER, BOOLEAN and NAME), from one get_values group; for BIND, EXPRESSION, NULL and " +
-        "DEFAULT every row of the kind matches. $VALUE_WHY Rows as in find_usages, in source order, a page at a time " +
-        "(nextAfter). On a parameter's row, arguments keeps only the argument bound to that parameter (or to its spec " +
-        "or body twin): the call's other arguments are left out. A column's row is whole, with the values written. " +
+        "DEFAULT every row of the kind matches. For a NAME, also the group's entity and column keys, field and " +
+        "column_reason, each left out when the group has none: a group without entity lists only its own rows. " +
+        "$VALUE_WHY Rows as in find_usages, in source order, a page at a time (nextAfter). On a parameter's row, " +
+        "arguments keeps only the argument bound to that parameter (or to its spec or body twin): the call's other " +
+        "arguments are left out. A column's row is whole, with the values written. An argument or value that is a " +
+        "NAME carries entity, field, column and columnReason as get_values groups do. " +
         "Any other kind of entity is refused. $PATHS"
 
     const val GROUP = "Counts occurrences across the code, by routine, entity, role, file, status or value: needs group_by " +

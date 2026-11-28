@@ -38,6 +38,16 @@ private fun rolesCheck(): String {
     return "CHECK (replace($stripped,',','') = '')"
 }
 
+/**
+ * What a `NAME` value of `call_argument` or `written_value` names, when the index knows it: the entity the code reads
+ * there (for a record's field, the record), the field after it, and for a row record's field the column it stands for,
+ * or why that column is not known.
+ */
+private const val VALUE_NAME_COLUMNS = """entity_id INTEGER NULL REFERENCES entity(id),
+        field TEXT NULL,
+        column_id INTEGER NULL REFERENCES entity(id),
+        column_reason TEXT NULL"""
+
 /** The tables, with their inline constraints (`PRIMARY KEY`, `UNIQUE`), in creation order. */
 internal fun tableDdl(): List<String> = listOf(
     """
@@ -171,6 +181,7 @@ internal fun tableDdl(): List<String> = listOf(
         value_kind TEXT NOT NULL ${check<ValueKind>("value_kind")},
         -- The literal's value (a decoded string, a canonical number), the name or bind as written; null otherwise.
         value TEXT NULL,
+        $VALUE_NAME_COLUMNS,
         PRIMARY KEY (occurrence_id, ordinal)
     )
     """,
@@ -185,6 +196,7 @@ internal fun tableDdl(): List<String> = listOf(
         start_col INTEGER NOT NULL,
         end_line INTEGER NOT NULL,
         end_col INTEGER NOT NULL,
+        $VALUE_NAME_COLUMNS,
         PRIMARY KEY (occurrence_id, row_number)
     )
     """,

@@ -225,7 +225,8 @@ internal fun Route.indexApi(index: AtlasIndex, tabWidth: Int) {
     }
     get("/value-sites") {
         val answer = index.valueSites(call.required("key"), call.required("kind"), call.request.queryParameters["value"],
-            call.long("after"), call.int("limit") ?: 100)
+            call.long("after"), call.int("limit") ?: 100,
+            NameGroup(call.optional("entity"), call.optional("field"), call.optional("column"), call.optional("columnReason")))
         call.respondEntityAnswer(answer)
     }
     get("/places") {

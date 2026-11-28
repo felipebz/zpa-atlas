@@ -405,13 +405,32 @@ export interface CallArgument {
   valueKind: string;
   /** The literal's value, or the name or bind as written; null for `NULL` and `EXPRESSION`. */
   value: string | null;
+  /** For a `NAME`: the entity it names (for a record's field, the record), when the index knows it. */
+  entity: EntitySummary | null;
+  /** For a `NAME` that is a record's field: the field, as written after the record. */
+  field: string | null;
+  /** For a row record's field (a cursor `FOR` loop record, a `%ROWTYPE` variable, a cursor's row): the column it stands for. */
+  column: EntitySummary | null;
+  /** For a row record's field whose column is not known: why. */
+  columnReason: string | null;
 }
 
-/** The arguments bound to a parameter that pass the same value: [value] null for `NULL`, `BIND` and `EXPRESSION`. */
+/**
+ * The arguments bound to a parameter, or the values written to a column, that pass the same value: [value] null for
+ * `NULL`, `BIND` and `EXPRESSION`; a `NAME` by what it names when the index knows it, else by the name as written.
+ */
 export interface ValueGroup {
   valueKind: string;
   value: string | null;
   count: number;
+  /** For a `NAME`: the entity it names (for a record's field, the record), when the index knows it. */
+  entity: EntitySummary | null;
+  /** For a `NAME` that is a record's field: the field, as written after the record. */
+  field: string | null;
+  /** For a row record's field (a cursor `FOR` loop record, a `%ROWTYPE` variable, a cursor's row): the column it stands for. */
+  column: EntitySummary | null;
+  /** For a row record's field whose column is not known: why. */
+  columnReason: string | null;
 }
 
 /** How a place's target is declared, in the order the backend sorts places in. */
@@ -623,6 +642,14 @@ export interface WrittenValue {
   row: number;
   valueKind: string;
   value: string | null;
+  /** For a `NAME`: the entity it names (for a record's field, the record), when the index knows it. */
+  entity: EntitySummary | null;
+  /** For a `NAME` that is a record's field: the field, as written after the record. */
+  field: string | null;
+  /** For a row record's field (a cursor `FOR` loop record, a `%ROWTYPE` variable, a cursor's row): the column it stands for. */
+  column: EntitySummary | null;
+  /** For a row record's field whose column is not known: why. */
+  columnReason: string | null;
 }
 
 /** Counts over a set of occurrences, roles split; the occurrence query fills every list, "who uses" the first two. */

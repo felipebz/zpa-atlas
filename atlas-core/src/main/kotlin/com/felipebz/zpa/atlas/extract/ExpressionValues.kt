@@ -34,6 +34,9 @@ object ExpressionValues {
         }
     }
 
+    /** The node [expression] is once its parentheses are unwrapped: for a `NAME` value, the name the code reads. */
+    fun nameNode(expression: AstNode): AstNode = unwrapped(expression)
+
     private val EXPRESSION = ExpressionValue(ValueKind.EXPRESSION, null)
 
     private fun unwrapped(node: AstNode): AstNode {

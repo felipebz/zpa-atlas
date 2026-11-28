@@ -7,6 +7,7 @@ package com.felipebz.zpa.atlas.extract
 
 import com.felipebz.zpa.atlas.model.OccurrenceFact
 import com.felipebz.zpa.atlas.model.Role
+import com.felipebz.zpa.atlas.model.ValueName
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -30,7 +31,10 @@ class FactStrings {
         reason = ofNullable(fact.reason),
         candidateKeys = if (fact.candidateKeys.isEmpty()) fact.candidateKeys else fact.candidateKeys.map(::of),
         arguments = if (fact.arguments.isEmpty()) fact.arguments else fact.arguments.map {
-            it.copy(label = ofNullable(it.label), parameterKey = ofNullable(it.parameterKey), value = ofNullable(it.value))
-        }
+            it.copy(label = ofNullable(it.label), parameterKey = ofNullable(it.parameterKey), value = ofNullable(it.value), name = name(it.name))
+        },
+        writtenValues = if (fact.writtenValues.isEmpty()) fact.writtenValues else fact.writtenValues.map { it.copy(name = name(it.name)) }
     )
+
+    private fun name(name: ValueName?): ValueName? = name?.copy(entityKey = ofNullable(name.entityKey), field = ofNullable(name.field))
 }

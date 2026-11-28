@@ -250,22 +250,27 @@ class AtlasIndex(
     /**
      * The values an entity receives: for a `PARAMETER`, the arguments bound to it (and, for a parameter of a body
      * subprogram, to the same-named parameter of its specification, where calls bind); for a `COLUMN`, the values its
-     * writes write. Grouped by value kind and value, most frequent first; `BIND` and `EXPRESSION` are one group each.
-     * Empty for any other kind; null when there is no such entity.
+     * writes write. Grouped by value kind and value, most frequent first; `BIND` and `EXPRESSION` are one group each, and
+     * a `NAME` is grouped by what it names (the entity, the field, the column a row record's field stands for) as well as
+     * by the name as written. Empty for any other kind; null when there is no such entity.
      */
     fun values(key: String): Answer<List<ValueGroup>?> = read { connection, _ -> UsageReader(connection).values(key) }
 
     /**
      * The calls or writes that give [key] the value [value] (of [valueKind]; ignored for `NULL`, `BIND`, `EXPRESSION` and
-     * `DEFAULT`), as [values] groups them: a page of occurrences in source order, as "who uses" rows. Null when there is
-     * no such entity.
+     * `DEFAULT`), and what it names, [name], as [values] groups them: a page of occurrences in source order, as "who uses"
+     * rows. Only the values of that one group: a field of [name] left null is one the group does not have, so a name that
+     * names nothing lists none of the values of the same name that name something. Null when there is no such entity.
      */
-    fun valueSites(key: String, valueKind: String, value: String?, after: Long? = null, limit: Int = 100): Answer<OccurrencePage?> {
+    fun valueSites(
+        key: String, valueKind: String, value: String?, after: Long? = null, limit: Int = 100, name: NameGroup = NameGroup()
+    ): Answer<OccurrencePage?> {
         if (limit !in 1..500) throw InvalidQueryException("limit must be between 1 and 500")
         if (valueKind !in VALUE_KINDS) throw InvalidQueryException("Unknown value kind: $valueKind")
         val anyValue = valueKind in VALUES_UNSHOWN
         if (!anyValue && value == null) throw InvalidQueryException("Missing parameter: value")
-        return read { connection, _ -> UsageReader(connection).valueSites(key, valueKind, value, anyValue, after, limit) }
+        val match = UsageReader.ValueMatch(valueKind, value, anyValue, name)
+        return read { connection, _ -> UsageReader(connection).valueSites(key, match, after, limit) }
     }
 
     /**
@@ -386,7 +391,7 @@ class AtlasIndex(
         val DEFAULT_QUERY_TIMEOUT: Duration = Duration.ofSeconds(10)
 
         /** The index schema version this module reads; it must equal the writer's `SCHEMA_VERSION`. */
-        const val SCHEMA_VERSION = 34
+        const val SCHEMA_VERSION = 35
 
         /** How a place's value arrives ([ColumnPlace.source]), the values [PlaceFilter.source] takes. */
         val PLACE_SOURCES = listOf("SELECT_INTO", "FETCH", "RETURNING", "ASSIGNMENT", "IN_ARGUMENT", "OUT_ARGUMENT", "RETURNED", "BLOCK_QUERY")

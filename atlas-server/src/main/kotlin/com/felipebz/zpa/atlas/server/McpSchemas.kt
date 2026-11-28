@@ -132,6 +132,10 @@ internal class McpSchemas(private val codes: Codes) {
             "value", "The value of that group, exactly as get_values gives it: S, not 'S'. Required for STRING, " +
                 "NUMBER, BOOLEAN and NAME; ignored for the other kinds."
         )
+        string("entity", "The key of the group's entity; left out when the group has none.")
+        string("field", "The group's field; left out when the group has none.")
+        string("column", "The key of the group's column; left out when the group has none.")
+        string("column_reason", "The group's columnReason; left out when the group has none.")
         integer("after", null, null, AFTER_DESCRIPTION)
         integer("limit", 1..McpLimits.FIND_MAX, McpLimits.FIND_DEFAULT)
     }

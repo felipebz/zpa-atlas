@@ -104,7 +104,8 @@ describe("shownStatement", () => {
 
 describe("argumentChip", () => {
   const arg = (valueKind: string, value: string | null, label: string | null = null, parameter: EntitySummary | null = null): CallArgument =>
-    ({ ordinal: 1, label, parameter, span: { startLine: 1, startCol: 1, endLine: 1, endCol: 2 }, valueKind, value });
+    ({ ordinal: 1, label, parameter, span: { startLine: 1, startCol: 1, endLine: 1, endCol: 2 }, valueKind, value,
+      entity: null, field: null, column: null, columnReason: null });
 
   it("names the parameter by its label, else the bound parameter, else nothing", () => {
     expect(argumentChip(arg("NUMBER", "1", "P_ID")).name).toBe("P_ID");

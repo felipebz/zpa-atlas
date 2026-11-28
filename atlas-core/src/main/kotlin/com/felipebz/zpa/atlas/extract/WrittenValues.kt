@@ -87,6 +87,7 @@ internal object WrittenValues {
     fun facts(values: ColumnValues, position: Int, context: Context, state: FileState): List<WrittenValueFact> = when (values) {
         is ColumnValues.Rows -> values.of(position).mapIndexed { index, node ->
             val value = ExpressionValues.of(node, context::hasHoles)
+            state.nameValue(node, value, context)
             WrittenValueFact(index + 1, value.kind, value.value, spanOf(node))
         }
         is ColumnValues.None -> {

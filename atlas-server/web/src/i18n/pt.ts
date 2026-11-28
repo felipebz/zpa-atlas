@@ -282,6 +282,9 @@ export default {
   "values.kind.BIND": "uma variável de ligação",
   "values.kind.EXPRESSION": "uma expressão",
   "values.showAll": "mostrar todos ({count})",
+  "values.names": "nomeia {entity}",
+  "values.column": "coluna {column}",
+  "values.columnUnknown": "coluna não conhecida ({reason})",
 
   "places.title": "Lida em",
   "places.line": "As variáveis, parâmetros e campos PL/SQL, e os itens, parâmetros e globais do Forms, que recebem o valor da coluna, comparados com o tamanho dela.",

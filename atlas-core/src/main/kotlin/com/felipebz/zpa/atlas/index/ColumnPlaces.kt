@@ -21,13 +21,14 @@ import java.util.*
 internal object ColumnPlaces {
     /**
      * Where column values are read into PL/SQL, now that every target, type and cursor of every file is known: the places
-     * by file path, and what is not followed, by file path and shape. What only the following uses (the entity kinds,
-     * the declared shapes by key) is let go once it returns, before the index is written.
+     * by file path, what is not followed, by file path and shape, and the record fields values name, with the columns
+     * of row records' fields, by file path and value span. What only the following uses (the entity kinds, the
+     * declared shapes by key) is let go once it returns, before the index is written.
      */
     fun of(
         facts: List<FileFacts>, globalEntities: List<EntityFact>, resolved: Map<String, ProjectExternalRelation>, dictionary: AtlasDictionary,
         lengthSemantics: String
-    ): Pair<Map<String, List<ColumnPlaceFact>>, Map<String, Map<String, Int>>> {
+    ): Result {
         val kinds = HashMap<String, EntityKind>()
         for (entity in globalEntities) kinds.putIfAbsent(entity.key, entity.kind)
         for (file in facts) for (entity in file.entities) kinds.putIfAbsent(entity.key, entity.kind)
@@ -36,7 +37,10 @@ internal object ColumnPlaces {
         val direct = DirectPlaces(types, PlaceLengths(facts, types, dictionary.lengthSemantics, lengthSemantics))
         val places = HashMap<String, List<ColumnPlaceFact>>()
         val placesLeftOut = HashMap<String, Map<String, Int>>()
+        val valueFields = HashMap<String, Map<SourceSpan, ValueField>>()
         for (file in facts) {
+            val decided = valueFields(file, direct, kinds)
+            if (decided.isNotEmpty()) valueFields[file.path] = decided
             val (found, expressions) = direct.of(file)
             if (found.isNotEmpty()) places[file.path] = found
             val counts = TreeMap(file.placesLeftOut)
@@ -48,6 +52,36 @@ internal object ColumnPlaces {
         val (followed, followedLeftOut) = RoutineFlow(types, direct, facts, places).result()
         for ((path, found) in followed) places[path] = places[path].orEmpty() + found
         for ((path, counts) in followedLeftOut) placesLeftOut[path] = TreeMap(placesLeftOut[path].orEmpty()).apply { counts.forEach { (k, v) -> merge(k, v, Int::plus) } }
-        return places to placesLeftOut
+        return Result(places, placesLeftOut, valueFields)
     }
+
+    private fun valueFields(file: FileFacts, direct: DirectPlaces, kinds: Map<String, EntityKind>): Map<SourceSpan, ValueField> {
+        val decided = HashMap<SourceSpan, ValueField>()
+        fun decide(span: SourceSpan, name: ValueName?) {
+            val field = name?.field ?: return
+            val entity = name.entityKey
+            decided[span] = when {
+                entity != null && kinds[entity] !in RECORD_HOLDERS -> ValueField(null)
+                name.row != null -> direct.fieldColumn(name.row, field)
+                else -> ValueField(field)
+            }
+        }
+        for (occurrence in file.occurrences) {
+            for (argument in occurrence.arguments) decide(argument.span, argument.name)
+            for (written in occurrence.writtenValues) decide(written.span, written.name)
+        }
+        return decided
+    }
+
+    data class Result(
+        val places: Map<String, List<ColumnPlaceFact>>,
+        val placesLeftOut: Map<String, Map<String, Int>>,
+        val valueFields: Map<String, Map<SourceSpan, ValueField>>
+    )
+
+    /** The kinds of entity whose value may be a record whose field the code names. */
+    private val RECORD_HOLDERS = setOf(
+        EntityKind.LOCAL_VARIABLE, EntityKind.LOCAL_CONSTANT, EntityKind.PACKAGE_VARIABLE, EntityKind.PACKAGE_CONSTANT, EntityKind.PARAMETER,
+        EntityKind.RECORD_FIELD, EntityKind.ATTRIBUTE
+    )
 }

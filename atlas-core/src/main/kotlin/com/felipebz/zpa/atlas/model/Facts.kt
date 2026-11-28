@@ -96,7 +96,7 @@ data class OccurrenceFact(
 )
 
 /** The value a column write writes in row [row] of its statement, classified as call arguments are. */
-data class WrittenValueFact(val row: Int, val valueKind: ValueKind, val value: String?, val span: SourceSpan)
+data class WrittenValueFact(val row: Int, val valueKind: ValueKind, val value: String?, val span: SourceSpan, val name: ValueName? = null)
 
 /** One written actual of a call: its 1-based [ordinal], its label when named, and the formal it binds to when proven. */
 data class CallArgumentFact(
@@ -106,8 +106,18 @@ data class CallArgumentFact(
     val span: SourceSpan,
     /** What the argument passes, and its value for a literal, a name or a bind. */
     val valueKind: ValueKind,
-    val value: String?
+    val value: String?,
+    val name: ValueName? = null
 )
+
+/**
+ * What a `NAME` value names, when the index knows something of it: the entity the code reads there ([entityKey]: a
+ * variable, constant, parameter, column, Forms item or global; for a record's field `r.code`, the record), and for a
+ * field of a record the field ([field]: the segments after the entity's name, kept once every file is scanned only when
+ * the entity holds a record) and the record as a target ([row]), whose column, for a row record, is decided then, as
+ * `target := r.f` decides it.
+ */
+data class ValueName(val entityKey: String?, val field: String?, val row: IntoTarget?)
 
 data class CoverageFact(val kind: String, val message: String)
 

@@ -176,6 +176,19 @@ internal class DirectPlaces(private val types: PlaceTypes, private val lengths: 
         }
     }
 
+    /**
+     * The field [field] of the record [row], written or passed as a value, with the column it stands for, decided as
+     * [assignment] decides it: none when the record is no row record; else the column, or why it is not known
+     * ([PlaceTypes.notKnown], `SEVERAL_COLUMNS` for a cursor item of several columns, `FUNCTION_RESULT` for one that is
+     * a function's result).
+     */
+    fun fieldColumn(row: IntoTarget, field: String): ValueField {
+        val record = types.rowRecord(row) ?: return ValueField(field)
+        val column = types.field(record, null, field).first as? Node.Column
+            ?: return ValueField(field, reason = types.notKnown("", record, field) ?: FUNCTION_RESULT)
+        return if (column.parts.isEmpty()) ValueField(field, column.key) else ValueField(field, reason = SEVERAL_COLUMNS)
+    }
+
     /** The place of [column] in the item [item] of the file [path], which its block's query reads the column into: in no code. */
     private fun blockQuery(path: String, item: String, column: String): ColumnPlaceFact {
         val decision = types.classify(types.of(item), column, 0)
@@ -282,6 +295,9 @@ internal class DirectPlaces(private val types: PlaceTypes, private val lengths: 
 
     companion object {
         private const val STRONG = "STRONG"
+
+        private const val FUNCTION_RESULT = "FUNCTION_RESULT"
+        private const val SEVERAL_COLUMNS = "SEVERAL_COLUMNS"
 
         /** The prefix of the shape of an assignment of an expression of a row record's field, by the expression's shape. */
         private const val RECORD_ASSIGNMENT_EXPRESSION = "RECORD_ASSIGNMENT_EXPRESSION_"

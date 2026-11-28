@@ -34,8 +34,8 @@ import {
     listNameOptions,
     nameHtml,
     placeHtml,
-    roleLabel,
     relationLabel,
+    roleLabel,
     specBodyLinks,
     statusLabel,
     valueKindLabel
@@ -55,7 +55,7 @@ import {
 import {columnPlace, referencedColumn, referencingColumn, shownDeleteRule} from "./keys-view";
 import {showFormsTree} from "./forms";
 import type {DataSourceView} from "./forms-view";
-import {blockView, FORMS_TREE_KINDS, firstUnit, formsCrumbs, formsName, globalUseRows, itemView} from "./forms-view";
+import {blockView, firstUnit, FORMS_TREE_KINDS, formsCrumbs, formsName, globalUseRows, itemView} from "./forms-view";
 import {kindOrder} from "./kinds";
 import {
     codeBreaksHtml,
@@ -699,8 +699,17 @@ const VALUES_SHOWN = 20;
 function valueLabel(group: ValueGroup) {
   const literal = literalText(group.valueKind, group.value);
   if (literal !== null) return `<span class="mono">${esc(literal)}</span>`;
-  if (group.valueKind === "NAME") return `<span class="mono">${esc(group.value)}</span>`;
+  if (group.valueKind === "NAME") return `<span class="mono">${esc(group.value)}</span>${namedHtml(group)}`;
   return `<span class="muted">${esc(t("values.kind." + group.valueKind))}</span>`;
+}
+
+/** What a `NAME` group names, when the index knows it: the entity, and the column a row record's field stands for or why it is not known. */
+function namedHtml(group: ValueGroup) {
+  const parts: string[] = [];
+  if (group.entity) parts.push(fillHtml("values.names", { entity: entityLink(group.entity) }));
+  if (group.column) parts.push(fillHtml("values.column", { column: entityLink(group.column) }));
+  else if (group.columnReason) parts.push(esc(t("values.columnUnknown", { reason: group.columnReason })));
+  return parts.length === 0 ? "" : ` <span class="muted">${parts.join(" · ")}</span>`;
 }
 
 function valueRowsHtml(groups: ValueGroup[], from: number, to: number) {
@@ -754,7 +763,10 @@ async function loadValues(title: string) {
 
 /** One page of the calls or writes that give [group]'s value, appended to its "who uses" [block]. */
 async function loadValueSites(group: ValueGroup, block: UsesBlock, row: Element, after: string | null | undefined) {
-  const page = (await api<Answer<OccurrencePage>>("api/value-sites", { key, kind: group.valueKind, value: group.value, after, limit: 100 })).result;
+  const page = (await api<Answer<OccurrencePage>>("api/value-sites", {
+    key, kind: group.valueKind, value: group.value, entity: group.entity?.key, field: group.field, column: group.column?.key,
+    columnReason: group.columnReason, after, limit: 100
+  })).result;
   block.append(page.rows);
   const more = row.querySelector<HTMLButtonElement>("button.more")!;
   more.hidden = page.nextAfter === null;

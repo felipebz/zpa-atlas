@@ -130,7 +130,7 @@ class McpValuesTest {
         assertThat(client.call("find_value_sites", args { put("key", stActive); put("value_kind", "COLOR") }).error()).isEqualTo("Unknown value kind: COLOR")
         assertThat(client.call("find_value_sites", args { put("key", stActive); put("value_kind", "STRING") }).error()).isEqualTo("Missing argument: value")
         assertThat(client.call("find_value_sites", args { put("key", stActive); put("kind", "STRING") }).error())
-            .isEqualTo("Unknown argument: kind. find_value_sites takes: key, value_kind, value, after, limit")
+            .isEqualTo("Unknown argument: kind. find_value_sites takes: key, value_kind, value, entity, field, column, column_reason, after, limit")
         assertThat(client.call("get_values", args { put("key", stActive); put("limit", 1000) }).error()).isEqualTo("limit must be between 1 and ${McpLimits.VALUES_MAX}")
     }
 }

@@ -95,8 +95,8 @@ internal class DamagedCacheException(message: String, cause: Throwable? = null) 
  */
 internal object FactsCache {
     private const val MAGIC = "zpa-atlas facts cache"
-    internal const val FORMAT = 38
-    internal const val FORMAT_DIGEST = "0170e19d30767f2220626f4455c8cda53fbe657d69c28a7d069487972e5e399f"
+    internal const val FORMAT = 39
+    internal const val FORMAT_DIGEST = "4dd4576f59a07dc5a3bbdf0067e75ad67466a3e8c56c889d2cd5ba5e5f18b61a"
     private const val END = "end of the facts cache"
     private const val MAX_STRING_BYTES = 1 shl 26
     private const val BUFFER_BYTES = 1 shl 16
@@ -455,11 +455,18 @@ internal object FactsCache {
             strings(it.candidateKeys)
             list(it.arguments) { argument ->
                 int(argument.ordinal); nullable(argument.label); nullable(argument.parameterKey); span(argument.span)
-                string(argument.valueKind.name); nullable(argument.value)
+                string(argument.valueKind.name); nullable(argument.value); valueName(argument.name)
             }
             boolean(it.nameSpan != null)
             it.nameSpan?.let { span(it) }
-            list(it.writtenValues) { value -> int(value.row); string(value.valueKind.name); nullable(value.value); span(value.span) }
+            list(it.writtenValues) { value -> int(value.row); string(value.valueKind.name); nullable(value.value); span(value.span); valueName(value.name) }
+        }
+
+        private fun valueName(name: ValueName?) {
+            boolean(name != null)
+            if (name == null) return
+            nullable(name.entityKey); nullable(name.field)
+            boolean(name.row != null); name.row?.let { target(it) }
         }
     }
 
@@ -775,9 +782,11 @@ internal object FactsCache {
             origin = enumValueOf(string()),
             reason = nullable(),
             candidateKeys = strings(),
-            arguments = list { CallArgumentFact(int(), nullable(), nullable(), span(), enumValueOf(string()), nullable()) },
+            arguments = list { CallArgumentFact(int(), nullable(), nullable(), span(), enumValueOf(string()), nullable(), valueName()) },
             nameSpan = if (boolean()) span() else null,
-            writtenValues = list { WrittenValueFact(int(), enumValueOf(string()), nullable(), span()) }
+            writtenValues = list { WrittenValueFact(int(), enumValueOf(string()), nullable(), span(), valueName()) }
         )
+
+        private fun valueName(): ValueName? = if (boolean()) ValueName(nullable(), nullable(), if (boolean()) target() else null) else null
     }
 }

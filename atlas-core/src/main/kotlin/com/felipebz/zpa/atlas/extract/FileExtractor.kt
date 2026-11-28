@@ -183,6 +183,7 @@ class FileExtractor internal constructor(
         fields.record(shapes)
         for ((key, datatype) in returnTypes) declaredShapes += DeclaredShapeFact(key, shapes.datatype(datatype))
         intos = places.intos(shapes)
+        ValueNames(state, IntoTargets(state, plsql, context::nameBinding)).resolve(shapes)
         return build(ParseStatus.OK.takeIf { state.recoveredRegions == 0 } ?: ParseStatus.RECOVERED).also { result = it }
     }
 

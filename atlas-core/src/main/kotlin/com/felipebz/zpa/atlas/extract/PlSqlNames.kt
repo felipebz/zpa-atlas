@@ -154,6 +154,7 @@ internal class PlSqlNames(
         }
         val argumentFacts = arguments.mapIndexed { index, (label, expression, _) ->
             val value = ExpressionValues.of(expression, context::hasHoles)
+            state.nameValue(expression, value, context)
             CallArgumentFact(index + 1, label?.let { normalizeIdentifier(it) },
                 if (outcome.status == Status.RESOLVED) outcome.bindings[index + 1] else null, spanOf(expression), value.kind, value.value)
         }
@@ -291,6 +292,7 @@ internal class PlSqlNames(
         }
         val argumentFacts = arguments.mapIndexed { index, (label, expression) ->
             val value = ExpressionValues.of(expression, context::hasHoles)
+            state.nameValue(expression, value, context)
             CallArgumentFact(index + 1, label?.let { normalizeIdentifier(it) }, null, spanOf(expression), value.kind, value.value)
         }
         state.occurrences += OccurrenceFact(context.unitIndex, context.container, statementId, spanOf(callee), writtenText(callee), target.key,

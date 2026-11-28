@@ -31,17 +31,21 @@ internal fun rows(connection: Connection, page: List<Hit>, unitEntities: Boolean
         .groupBy({ it.first }, { it.second })
     val arguments = connection.query(
         """SELECT a.occurrence_id, a.ordinal, a.label, e.key, e.kind, e.display, e.external, a.start_line, a.start_col, a.end_line, a.end_col,
-                  a.value_kind, a.value, e.name
+                  a.value_kind, a.value, e.name, a.entity_id, a.field, a.column_id, a.column_reason
            FROM call_argument a LEFT JOIN entity e ON e.id = a.parameter_entity_id WHERE a.occurrence_id IN ($marks) ORDER BY a.occurrence_id, a.ordinal""",
         ids
     ) {
         it.getLong(1) to CallArgument(it.getInt(2), it.getString(3),
             it.getString(4)?.let { k -> EntitySummary(k, it.getString(5), it.getString(6), it.getInt(7) == 1, it.getString(14)) }, span(it, 8),
-            it.getString(12), it.getString(13))
+            it.getString(12), it.getString(13), entityOf(longOrNull(it, 15)), it.getString(16), entityOf(longOrNull(it, 17)), it.getString(18))
     }.groupBy({ it.first }, { it.second })
     val written = connection.query(
-        "SELECT occurrence_id, row_number, value_kind, value FROM written_value WHERE occurrence_id IN ($marks) ORDER BY occurrence_id, row_number", ids
-    ) { it.getLong(1) to WrittenValue(it.getInt(2), it.getString(3), it.getString(4)) }.groupBy({ it.first }, { it.second })
+        """SELECT occurrence_id, row_number, value_kind, value, entity_id, field, column_id, column_reason FROM written_value
+           WHERE occurrence_id IN ($marks) ORDER BY occurrence_id, row_number""", ids
+    ) {
+        it.getLong(1) to WrittenValue(it.getInt(2), it.getString(3), it.getString(4), entityOf(longOrNull(it, 5)), it.getString(6),
+            entityOf(longOrNull(it, 7)), it.getString(8))
+    }.groupBy({ it.first }, { it.second })
     val byId = page.associateBy { it.id }
     return connection.query(
         """SELECT o.id, f.path, o.start_line, o.start_col, o.end_line, o.end_col, o.written, o.roles, o.status, o.reason, o.origin,
@@ -69,6 +73,8 @@ internal fun summary(connection: Connection, id: Long): EntitySummary =
     connection.query("SELECT key, kind, display, external, name FROM entity WHERE id = ?", listOf(id), ::entitySummary).single()
 
 internal fun entitySummary(rs: ResultSet) = EntitySummary(rs.getString(1), rs.getString(2), rs.getString(3), rs.getInt(4) == 1, rs.getString(5))
+
+internal fun longOrNull(rs: ResultSet, column: Int): Long? = (rs.getObject(column) as Number?)?.toLong()
 
 internal fun span(rs: ResultSet, first: Int) = Span(rs.getInt(first), rs.getInt(first + 1), rs.getInt(first + 2), rs.getInt(first + 3))
 
