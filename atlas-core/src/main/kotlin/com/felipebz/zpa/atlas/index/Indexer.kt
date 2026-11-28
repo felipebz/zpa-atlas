@@ -33,9 +33,11 @@ import kotlin.io.path.invariantSeparatorsPathString
 class Indexer internal constructor(
     private val clock: () -> Instant,
     /** The visitors run for a file; tests add a failing one. */
-    private val visitors: (path: String, extractor: FileExtractor) -> List<PlSqlCheck>
+    private val visitors: (path: String, extractor: FileExtractor) -> List<PlSqlCheck>,
+    /** Where the lines that say where a run is go; none without it. */
+    private val progress: RunProgress? = null
 ) {
-    constructor(clock: () -> Instant = Instant::now) : this(clock, { _, extractor -> listOf(extractor) })
+    constructor(clock: () -> Instant = Instant::now, progress: RunProgress? = null) : this(clock, { _, extractor -> listOf(extractor) }, progress)
 
     /**
      * The sources of a run, read, with the build of their text index started: it needs only their texts, in path
@@ -69,8 +71,8 @@ class Indexer internal constructor(
         val startedAt = clock()
         val started = System.nanoTime()
         val root = sources.toAbsolutePath().normalize()
-        val discovered = SourceDiscovery.discover(root, extensions, encoding, readers, threads)
-        val textIndex = SourceTextIndex.start(output, discovered.sources.map { it.relativePath to it.text }, keepText)
+        val discovered = SourceDiscovery.discover(root, extensions, encoding, readers, threads, progress)
+        val textIndex = SourceTextIndex.start(output, discovered.sources.map { it.relativePath to it.text }, keepText, progress)
         return ReadSources(
             root, extensions, encoding, output.toAbsolutePath().normalize(), readers, discovered.sources, discovered.outsideRoot, discovered.notes, textIndex,
             startedAt, started
@@ -108,12 +110,13 @@ class Indexer internal constructor(
         val sources = read.sources
         val textIndex = read.textIndex
         val started = read.started
-        val walked = FileWalks(options, phases, visitors).walkSources(incremental, pending, inputs, sources)
+        val walked = FileWalks(options, phases, visitors, progress).walkSources(incremental, pending, inputs, sources)
         val (facts, run) = walked.facts to walked.run
         val failedFiles = walked.failedFiles
         val parsed = System.nanoTime()
 
         phases?.start(PhaseTimes.GLOBAL_FACTS)
+        progress?.start("global facts", "joining the facts of ${facts.size} files: the dictionary's, the column places")
         val globalEntities = walked.globalEntities
         val globalRelations = walked.globalRelations
         val globalCoverage = walked.globalCoverage
@@ -126,15 +129,19 @@ class Indexer internal constructor(
         val texts = sources.associate { it.relativePath to it.text }
         val phase: (String) -> Unit = { phases?.start(it) }
         // The cache is written while the index is: neither reads what the other writes.
-        val saving = run?.save(facts)
+        val saving = run?.save(facts)?.let { save ->
+            val step = progress?.beside("facts cache", "writing the facts of ${facts.size} files for the next run, beside the index")
+            save.whenComplete { _, failure -> step?.end(if (failure == null) "written" else "not written") }
+        }
         try {
-            AtlasWriter.writeAtomically(options.output, textIndex, phase) { writer ->
+            AtlasWriter.writeAtomically(options.output, textIndex, phase, progress) { writer ->
                 writer.write(
                     runInfo(options, read),
                     // The cache keeps the calls of modules as the walks wrote them: which modules the run has is checked on every run.
                     FormsReferences.resolveModuleCalls(facts), globalEntities, globalRelations, globalCoverage, texts::get, phase,
                     dictionaryDeclaredTexts = dictionaryFacts.declaredTexts, keys = dictionaryFacts.keys, places = places, placesLeftOut = placesLeftOut, valueFields = valueFields,
-                    note = { phases?.notes?.add(it) }
+                    note = { phases?.notes?.add(it) },
+                    progress = progress
                 )
             }
         } catch (e: Throwable) {
@@ -143,12 +150,14 @@ class Indexer internal constructor(
         }
         if (incremental) {
             phases?.start(PhaseTimes.KEEPING_TEXT)
+            progress?.start("keep", "keeping the text index for the next run")
             textIndex.keep()
         }
         phases?.notes?.add(
             if (textIndex.reused == true) "Text index: the kept one, checked on its own thread in ${textIndex.buildMillis} ms; the writer waited ${textIndex.waitedMillis} ms for it"
             else "Text index: built on its own thread in ${textIndex.buildMillis} ms, from the end of the reading; the writer waited ${textIndex.waitedMillis} ms for it"
         )
+        progress?.finish()
         if (saving != null) {
             phases?.start(PhaseTimes.WRITING_CACHE)
             try {
@@ -183,7 +192,7 @@ class Indexer internal constructor(
      * Starts reading the facts cache of the index [output] on its own thread, for [index] with `incremental`: started
      * before the dictionary is loaded, the reading overlaps that load.
      */
-    fun readFactsCache(output: Path): PendingFactsCache = IncrementalRun.readCache(output)
+    fun readFactsCache(output: Path): PendingFactsCache = IncrementalRun.readCache(output, progress)
 
     companion object {
         /** The version of `atlas` or `zpa` this build was made with. */

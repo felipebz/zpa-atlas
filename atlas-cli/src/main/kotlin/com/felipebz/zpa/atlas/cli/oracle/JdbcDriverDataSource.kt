@@ -55,9 +55,20 @@ object JdbcDrivers {
     }
 }
 
-/** A plain, non-pooled, non-transactional DataSource: every call opens a new connection in auto-commit mode. */
+/**
+ * A plain, non-pooled, non-transactional DataSource: every call opens a new connection in auto-commit mode, but the
+ * first one after [open], which gives the connection [open] opened.
+ */
 class JdbcDriverDataSource(private val driver: Driver, private val url: String, private val user: String, private val password: String) : DataSource {
-    override fun getConnection(): Connection = getConnection(user, password)
+    private var opened: Connection? = null
+
+    /** Opens a connection now, for the next [getConnection]: a wrong password or a host that does not answer fails here. */
+    @Synchronized
+    fun open() {
+        if (opened == null) opened = getConnection(user, password)
+    }
+
+    override fun getConnection(): Connection = synchronized(this) { opened?.also { opened = null } } ?: getConnection(user, password)
 
     override fun getConnection(username: String, password: String): Connection {
         val properties = Properties()

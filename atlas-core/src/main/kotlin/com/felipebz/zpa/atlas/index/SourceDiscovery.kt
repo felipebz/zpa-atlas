@@ -93,7 +93,7 @@ internal object SourceDiscovery {
      * file by path, and the files of one identity are read on one thread, in path order. Each thread holds the bytes of
      * one file at a time.
      */
-    fun discover(root: Path, extensions: List<String>, encoding: String, readers: FormsModuleReaders, threads: Int): Discovered {
+    fun discover(root: Path, extensions: List<String>, encoding: String, readers: FormsModuleReaders, threads: Int, progress: RunProgress? = null): Discovered {
         require(Files.isDirectory(root)) { "Sources folder does not exist or is not a directory: $root" }
         val realRoot = root.toRealPath()
         val outside = ArrayList<String>()
@@ -126,7 +126,8 @@ internal object SourceDiscovery {
             }
             identities.getOrPut(moduleName) { ModuleFiles(moduleName).also { toRead += it } }.files += ModuleFile(position, relative, path, real, reader)
         }
-        val outcomes = (read(toRead, threads) + noName).sortedBy { it.position }
+        val step = progress?.start("reading", "${toRead.size} files to read on ${threads.coerceIn(1, maxOf(toRead.size, 1))} threads", "files", toRead.size)
+        val outcomes = (read(toRead, threads, step) + noName).sortedBy { it.position }
         val notModules = outcomes.mapNotNull { it.notRead }
         val duplicates = outcomes.mapNotNull { it.duplicate }
         val notes = ArrayList<CoverageFact>()
@@ -135,7 +136,9 @@ internal object SourceDiscovery {
         if (duplicates.isNotEmpty()) {
             notes += CoverageFact("FORMS_MODULE_DUPLICATED", "${duplicates.size} module file(s) not indexed: a file of the same module, first by path, is: ${shown(duplicates)}")
         }
-        return Discovered(outcomes.mapNotNull { it.source }, outside.sorted(), notes)
+        val sources = outcomes.mapNotNull { it.source }
+        step?.end("${sources.size} sources read")
+        return Discovered(sources, outside.sorted(), notes)
     }
 
     /**
@@ -154,13 +157,13 @@ internal object SourceDiscovery {
     }
 
     /** What [toRead] gives, read on [threads] threads; the error of the first that fails, in their order, stops it. */
-    private fun read(toRead: List<ToRead>, threads: Int): List<Outcome> {
+    private fun read(toRead: List<ToRead>, threads: Int, step: RunProgress.Step?): List<Outcome> {
         val count = threads.coerceIn(1, maxOf(toRead.size, 1))
-        if (count == 1) return toRead.flatMap { it.read() }
+        if (count == 1) return toRead.flatMap { it.read().also { step?.advance() } }
         val executor = Executors.newFixedThreadPool(count)
         try {
             // Each task reads its file when it runs: the queue holds paths, never bytes.
-            val pending = toRead.map { executor.submit(Callable { it.read() }) }
+            val pending = toRead.map { executor.submit(Callable { it.read().also { step?.advance() } }) }
             return pending.flatMap { outcome ->
                 try {
                     outcome.get()

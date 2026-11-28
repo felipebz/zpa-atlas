@@ -27,7 +27,8 @@ import java.util.concurrent.Executors
 internal class FileWalks(
     private val options: IndexOptions,
     private val phases: PhaseTimes?,
-    private val visitors: (path: String, extractor: FileExtractor) -> List<PlSqlCheck>
+    private val visitors: (path: String, extractor: FileExtractor) -> List<PlSqlCheck>,
+    private val progress: RunProgress? = null
 ) {
     /**
      * What the walks leave for the rest of the run: every file's facts, in path order, how many files failed, the
@@ -59,6 +60,7 @@ internal class FileWalks(
 
         // The project is the database sources: a module's program units are its own, never names of the database.
         val database = sources.filter { it.forms == null }
+        progress?.start("preparation", "preparing the project of ${database.size} database sources")
         // One context for the run: the index is prepared with the files' schemas, and the scan keeps them.
         val extractor = ProjectDeclarationExtractor(
             PlSqlConfiguration(
@@ -85,6 +87,7 @@ internal class FileWalks(
         // The members of the object types, read before any type body is walked.
         val typeMembers = ObjectTypeMembers()
         phases?.start(PhaseTimes.TYPE_MEMBERS)
+        progress?.start("object types", "reading the members of the object types")
         for (source in database) {
             if (ObjectTypeMembers.MAY_SPECIFY_OBJECT.containsMatchIn(source.text)) {
                 scanner.scanFile(
@@ -96,6 +99,7 @@ internal class FileWalks(
         }
         val hashes = sources.associate { it.relativePath to it.sha256 }
         val run = if (!incremental) null else {
+            progress?.start("plan", "deciding which of the ${sources.size} files to walk again")
             val current = sources.map {
                 val reader =
                     if (it.forms == null) null else options.readers.fingerprint(it.absolute.fileName.toString())
@@ -106,8 +110,12 @@ internal class FileWalks(
         val toWalk = if (run == null) sources else sources.filter { it.relativePath in run.walk }
         phases?.start(PhaseTimes.FILE_WALKS)
         phases?.walkThreads = options.threads.coerceAtLeast(1)
+        val threads = options.threads.coerceAtLeast(1)
+        val step = progress?.start("walks", if (run == null) "walking ${toWalk.size} files on $threads threads"
+            else "walking ${toWalk.size} of ${sources.size} files on $threads threads; ${sources.size - toWalk.size} from the facts cache", "files", toWalk.size)
         val catalogHolder = CatalogHolder(options.fileSchemas)
-        val (walkedFacts, failedWalks) = walk(scanner, typeMembers, catalogHolder, toWalk)
+        val (walkedFacts, failedWalks) = walk(scanner, typeMembers, catalogHolder, toWalk, step)
+        step?.end("${toWalk.size} files walked" + if (failedWalks > 0) ", $failedWalks failed" else "")
         val facts = sources.map { walkedFacts[it.relativePath] ?: run!!.cachedFacts(it.relativePath) }
         val failedFiles = failedWalks +
             facts.count { it.path !in walkedFacts && it.coverage.any { coverage -> coverage.kind == EXTRACTION_FAILED } }
@@ -133,7 +141,7 @@ internal class FileWalks(
      * they end, not kept until the index is written.
      */
     private fun walk(
-        scanner: AstScanner, typeMembers: ObjectTypeMembers, catalogHolder: CatalogHolder, toWalk: List<Source>
+        scanner: AstScanner, typeMembers: ObjectTypeMembers, catalogHolder: CatalogHolder, toWalk: List<Source>, step: RunProgress.Step?
     ): Pair<Map<String, FileFacts>, Int> {
         val strings = FactStrings()
         val executor = Executors.newFixedThreadPool(options.threads.coerceAtLeast(1))
@@ -170,6 +178,8 @@ internal class FileWalks(
                         Result.success(facts)
                     } catch (e: Exception) {
                         Result.failure(e)
+                    } finally {
+                        step?.advance()
                     }
                 }
             }.map { it.get() }

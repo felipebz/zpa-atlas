@@ -9,10 +9,7 @@ import com.beust.jcommander.IDefaultProvider
 import com.beust.jcommander.JCommander
 import com.beust.jcommander.ParameterException
 import com.felipebz.zpa.api.project.ProjectSchemaPaths
-import com.felipebz.zpa.atlas.cli.oracle.KeptDictionary
-import com.felipebz.zpa.atlas.cli.oracle.LoadedMetadata
-import com.felipebz.zpa.atlas.cli.oracle.OracleMetadataLoader
-import com.felipebz.zpa.atlas.cli.oracle.OracleSettings
+import com.felipebz.zpa.atlas.cli.oracle.*
 import com.felipebz.zpa.atlas.dictionary.AtlasDictionary
 import com.felipebz.zpa.atlas.forms.FormsModuleReaders
 import com.felipebz.zpa.atlas.index.*
@@ -60,34 +57,53 @@ private fun index(args: IndexArguments, environment: (String) -> String?, given:
     }
     val (sources, encoding) = checked
     // The readers' JARs stay open for the whole run, and are closed when it ends.
-    moduleReaders().use { readers ->
-        val indexer = Indexer()
-        // Read while the dictionary loads: the cache does not need it until the plan.
-        val cache = if (args.incremental) indexer.readFactsCache(Path.of(args.out)) else null
-        val extensions = args.extensions.split(',').map { it.trim() }
-        // The sources first, so that the build of their text index overlaps the dictionary load too.
-        phases?.start(PhaseTimes.READING)
-        indexer.readSources(sources, extensions, encoding, Path.of(args.out), readers, keepText = args.incremental, threads = args.threads).use { read ->
-            return index(args, project, phases, indexer, cache, read, extensions, checked, readers)
+    RunProgress(System.err).use { progress ->
+        moduleReaders().use { readers ->
+            // Before the sources are read: what is wrong with the database fails the run at once.
+            val database = checked.settings?.let { settings ->
+                val step = progress.start("dictionary", "connecting to the database as ${settings.user}")
+                OracleMetadataLoader.connect(settings, applicationHome().resolve("drivers"), args.incremental).also { step.end("connected") }
+            }
+            val indexer = Indexer(progress = progress)
+            // Read while the dictionary loads: the cache does not need it until the plan.
+            val cache = if (args.incremental) indexer.readFactsCache(Path.of(args.out)) else null
+            val extensions = args.extensions.split(',').map { it.trim() }
+            // The sources first, so that the build of their text index overlaps the dictionary load too.
+            phases?.start(PhaseTimes.READING)
+            indexer.readSources(sources, extensions, encoding, Path.of(args.out), readers, keepText = args.incremental, threads = args.threads).use { read ->
+                return index(Run(args, project, phases, progress, indexer, cache, read, extensions, readers), checked, database)
+            }
         }
     }
 }
 
-private fun index(
-    args: IndexArguments, project: ProjectFile?, phases: PhaseTimes?, indexer: Indexer, cache: PendingFactsCache?, read: Indexer.ReadSources,
-    extensions: List<String>, checked: CheckedIndex, readers: FormsModuleReaders
-): Int {
+/** What [index] runs with, once the sources are read. */
+private data class Run(
+    val args: IndexArguments, val project: ProjectFile?, val phases: PhaseTimes?, val progress: RunProgress, val indexer: Indexer,
+    val cache: PendingFactsCache?, val read: Indexer.ReadSources, val extensions: List<String>, val readers: FormsModuleReaders
+)
+
+private fun index(run: Run, checked: CheckedIndex, database: OracleMetadataLoader.ConnectedDatabase?): Int {
+    val (args, project, phases, progress, indexer, cache, read, extensions, readers) = run
     val (sources, encoding, explicitVersion, flags, settings, compilationSchema, schemaPaths, lengthSemantics) = checked
     val oracle = settings?.let {
         phases?.start(PhaseTimes.DICTIONARY_NAMES)
+        val names = progress.start("dictionary", "finding the names the sources write")
         val writtenNames = SourceIdentifiers.scan(read, args.threads)
+        names.end("${writtenNames.size} names found")
         phases?.start(PhaseTimes.DICTIONARY_METADATA)
-        val drivers = applicationHome().resolve("drivers")
-        it to if (args.incremental) {
-            KeptDictionary.load(it, compilationSchema, drivers, writtenNames, Path.of(args.out)).also { outcome -> phases?.notes?.add(outcome.note) }.loaded
-        } else {
-            OracleMetadataLoader.load(it, compilationSchema, drivers, writtenNames)
+        val schemas = (it.schemas + it.relations.map { relation -> relation.first }).distinct()
+        val step = progress.start("dictionary", "loading the dictionary of ${schemas.joinToString()} as ${it.user}" +
+            if (args.incremental) ", or the kept one when the database did not change" else "")
+        val loaded = DictionaryLog.lines(step).use { _ ->
+            if (args.incremental) {
+                KeptDictionary.load(it, compilationSchema, database!!, writtenNames, Path.of(args.out)).also { outcome -> phases?.notes?.add(outcome.note) }.loaded
+            } else {
+                OracleMetadataLoader.load(it, compilationSchema, database!!, writtenNames)
+            }
         }
+        step.end("loaded")
+        it to loaded
     }
     val dictionary = oracle?.let { (oracleSettings, loaded) ->
         val schemas = oracleSettings.schemas.toSet() + oracleSettings.relations.map { relation -> relation.first }
@@ -96,6 +112,7 @@ private fun index(
     }
         ?: AtlasDictionary.NONE
     phases?.stop()
+    progress.finish()
     val (conditionalCompilation, databaseVersionOrigin) = conditionalCompilation(explicitVersion, flags, oracle)
     if (conditionalCompilation.isActive) System.err.println(ConditionalCompilationText.describe(conditionalCompilation, databaseVersionOrigin))
     val summary = indexer.index(

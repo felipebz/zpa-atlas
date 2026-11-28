@@ -18,7 +18,7 @@ class PhaseTimesTest {
     @TempDir
     lateinit var temp: Path
 
-    /** `index` of the fixture into [out], with [options]: its exit code and the lines it printed to stderr. */
+    /** `index` of the fixture into [out], with [options]: its exit code and the lines it printed to stderr after the lines of its steps. */
     private fun index(out: Path, vararg options: String): Pair<Int, List<String>> {
         val stderr = ByteArrayOutputStream()
         val original = System.err
@@ -26,7 +26,7 @@ class PhaseTimesTest {
         try {
             val code = zpaAtlas(arrayOf("index", "--sources", Fixture.sources.toString(), "--out", out.toString(), "--compilation-schema", "HR",
                 "--threads", "2", *options)) { null }
-            return code to stderr.toString(Charsets.UTF_8).lines().dropLastWhile { it.isEmpty() }
+            return code to stderr.toString(Charsets.UTF_8).lines().dropLastWhile { it.isEmpty() }.filterNot { it.startsWith("[") }
         } finally {
             System.setErr(original)
         }

@@ -109,8 +109,29 @@ object OracleMetadataLoader {
      * @param writtenNames the identifiers of the sources ([com.felipebz.zpa.atlas.index.SourceIdentifiers]): only the
      *   targets of synonyms named there are acquired (all of them would add seconds for thousands of public synonyms)
      */
-    fun load(settings: OracleSettings, compilationSchema: String?, driversDirectory: Path?, writtenNames: Set<String>): LoadedMetadata =
-        load(settings, compilationSchema, JdbcDriverDataSource(findDriver(settings, driversDirectory), settings.url, settings.user, settings.password), writtenNames)
+    fun load(settings: OracleSettings, compilationSchema: String?, database: ConnectedDatabase, writtenNames: Set<String>): LoadedMetadata =
+        load(settings, compilationSchema, database.dataSource, writtenNames)
+
+    /** The database of a run, connected before its sources are read ([connect]): its JDBC [driver], and the [dataSource] of its connections. */
+    class ConnectedDatabase(val driver: java.sql.Driver, val dataSource: JdbcDriverDataSource)
+
+    /**
+     * The database of [settings], connected now: its JDBC driver, found in [driversDirectory] or on the class path, and a
+     * connection opened, which the first use of the data source takes. So a missing driver, a wrong password or a host
+     * that does not answer fails before the sources are read, with the message the first use would give: of the
+     * schemas check, or with [incremental], of the check of the kept dictionary ([KeptDictionary]).
+     */
+    fun connect(settings: OracleSettings, driversDirectory: Path?, incremental: Boolean): ConnectedDatabase {
+        val driver = findDriver(settings, driversDirectory)
+        val dataSource = JdbcDriverDataSource(driver, settings.url, settings.user, settings.password)
+        try {
+            dataSource.open()
+        } catch (e: SQLException) {
+            val what = if (incremental) "Checking the Oracle dictionary" else "Checking the requested schemas"
+            throw CliExecutionException("$what failed${errorCode(e)}: ${redact(e.message, settings)}")
+        }
+        return ConnectedDatabase(driver, dataSource)
+    }
 
     /** [load] reading the database through [dataSource]: the settings' driver, or one that records or replays what it reads ([KeptDictionary]). */
     fun load(settings: OracleSettings, compilationSchema: String?, dataSource: DataSource, writtenNames: Set<String>): LoadedMetadata {
@@ -164,7 +185,7 @@ object OracleMetadataLoader {
     }
 
     /** The JDBC driver of the [settings]' URL, found in [driversDirectory] or on the class path. */
-    internal fun findDriver(settings: OracleSettings, driversDirectory: Path?): java.sql.Driver = try {
+    private fun findDriver(settings: OracleSettings, driversDirectory: Path?): java.sql.Driver = try {
         JdbcDrivers.find(settings.url, driversDirectory)
     } catch (e: JdbcDrivers.NoDriverException) {
         throw CliExecutionException(e.message!!)

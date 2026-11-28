@@ -6,6 +6,7 @@
 package com.felipebz.zpa.atlas.writer
 
 import com.felipebz.zpa.atlas.index.PhaseTimes
+import com.felipebz.zpa.atlas.index.RunProgress
 import com.felipebz.zpa.atlas.model.*
 import com.felipebz.zpa.atlas.writer.AtlasWriter.Companion.REPLACE_WAIT_MILLIS
 import java.nio.channels.FileChannel
@@ -30,7 +31,8 @@ class AtlasWriter private constructor(private val connection: Connection, privat
      * [dictionaryDeclaredTexts] are the datatypes of the dictionary columns, [keys] the dictionary keys, [places] the
      * places column values are read into, by file path, [placesLeftOut] what is counted instead, by file path, and
      * [valueFields] the record fields values name, with the columns of row records' fields, by file path and value span.
-     * [note] is told, at the end, how long the building and the writing of the rows waited for each other.
+     * [note] is told, at the end, how long the building and the writing of the rows waited for each other; [progress]
+     * each step as it starts, and how many files it has written.
      */
     fun write(
         run: RunInfo, files: List<FileFacts>, globalEntities: List<EntityFact>, globalRelations: List<RelationFact>, globalCoverage: List<CoverageFact>,
@@ -41,7 +43,8 @@ class AtlasWriter private constructor(private val connection: Connection, privat
         places: Map<String, List<ColumnPlaceFact>> = emptyMap(),
         placesLeftOut: Map<String, Map<String, Int>> = emptyMap(),
         valueFields: Map<String, Map<SourceSpan, ValueField>> = emptyMap(),
-        note: (String) -> Unit = {}
+        note: (String) -> Unit = {},
+        progress: RunProgress? = null
     ) {
         // The rows are built on this thread and written on the writer's, which has the connection until it finishes. A
         // step ends once its rows are written, so that each phase counts its own.
@@ -58,8 +61,11 @@ RowWriter(connection, "atlas-index rows").use { writer ->
             val globalRows = GlobalRows(writer)
             globalRows.insertRun(run)
             val sortedFiles = files.sortedBy { it.path }
-            val entityIds = globalRows.insertEntities(globalEntities + sortedFiles.flatMap { it.entities })
-            globalRows.insertRelations((globalRelations + sortedFiles.flatMap { it.relations }), entityIds)
+            val entities = globalEntities + sortedFiles.flatMap { it.entities }
+            val relations = globalRelations + sortedFiles.flatMap { it.relations }
+            progress?.start("write: entities", "writing ${entities.size} entities and ${relations.size} relations")
+            val entityIds = globalRows.insertEntities(entities)
+            globalRows.insertRelations(relations, entityIds)
             globalRows.insertTriggerEvents(sortedFiles.flatMap { it.triggerEvents }, entityIds)
             globalRows.insertDeclaredTexts(dictionaryDeclaredTexts + sortedFiles.flatMap { it.declaredTexts }, entityIds)
             globalRows.insertUsesGaps(sortedFiles.flatMap { it.usesGaps }, entityIds)
@@ -68,14 +74,15 @@ RowWriter(connection, "atlas-index rows").use { writer ->
             writer.drain()
             waited("entities and relations")
             phase(PhaseTimes.WRITING_FILES)
-            FileRows(writer).write(sortedFiles, entityIds, globalCoverage, places, placesLeftOut, valueFields)
+            val fileRows = progress?.start("write: file rows", "writing the rows of ${sortedFiles.size} files", "files", sortedFiles.size)
+            FileRows(writer).write(sortedFiles, entityIds, globalCoverage, places, placesLeftOut, valueFields) { fileRows?.advance() }
             writer.drain()
             waited("file rows")
             phase(PhaseTimes.WRITING_LINES)
-            val entities = globalEntities + sortedFiles.flatMap { it.entities }
+            val lines = progress?.start("write: lines", "writing the lines of ${sortedFiles.size} files, with the text index", "files", sortedFiles.size)
             val containerKeys = entities.filter { it.kind in SourceLines.CONTAINER_KINDS }.map { it.key }.toSet()
             val subprogramKeys = entities.filter { it.kind == EntityKind.PROCEDURE || it.kind == EntityKind.FUNCTION }.map { it.key }.toSet()
-            SourceLines(writer).write(sortedFiles, entityIds, containerKeys, subprogramKeys, texts, textIndex)
+            SourceLines(writer).write(sortedFiles, entityIds, containerKeys, subprogramKeys, texts, textIndex) { lines?.advance() }
             writer.finish()
             waited("source lines")
             note("Index rows built on this thread while SQLite writes the earlier ones on its own: ${waits.joinToString("; ")}")
@@ -87,11 +94,12 @@ RowWriter(connection, "atlas-index rows").use { writer ->
 
         /**
          * Writes the index to a temporary file beside [target] and moves it over [target] when everything succeeded.
-         * [phase] is told each step as it starts. [textIndex], started earlier for the same files, gives the text index
-         * of `source_line`, which is not built here.
+         * [phase] and [progress] are told each step as it starts. [textIndex], started earlier for the same files, gives
+         * the text index of `source_line`, which is not built here.
          */
-        fun writeAtomically(target: Path, textIndex: SourceTextIndex, phase: (String) -> Unit = {}, body: (AtlasWriter) -> Unit) {
+        fun writeAtomically(target: Path, textIndex: SourceTextIndex, phase: (String) -> Unit = {}, progress: RunProgress? = null, body: (AtlasWriter) -> Unit) {
             phase(PhaseTimes.WRITING_TABLES)
+            progress?.start("write: tables", "creating the tables of the index")
             val absolute = target.toAbsolutePath()
             require(!Files.isDirectory(absolute)) { "Cannot write the index to $absolute: it is a folder" }
             Files.createDirectories(absolute.parent)
@@ -109,8 +117,14 @@ RowWriter(connection, "atlas-index rows").use { writer ->
                     execute(connection, tableDdl())
                     body(AtlasWriter(connection, textIndex))
                     phase(PhaseTimes.WRITING_INDEXES)
-                    execute(connection, indexDdl())
+                    val indexes = indexDdl()
+                    val step = progress?.start("write: indexes", "creating ${indexes.size} indexes", "indexes", indexes.size)
+                    for (index in indexes) {
+                        execute(connection, listOf(index))
+                        step?.advance()
+                    }
                     phase(PhaseTimes.WRITING_COMMIT)
+                    progress?.start("write: commit", "committing, then moving the index into place")
                     connection.commit()
                 }
                 // The writes were not synced: the whole file is, once, before it replaces the index.

@@ -56,11 +56,10 @@ internal object KeptDictionary {
     class Outcome(val loaded: LoadedMetadata, val note: String)
 
     /** The dictionary of [settings], replayed from the file kept beside [index] when it may, else loaded and kept. */
-    fun load(settings: OracleSettings, compilationSchema: String?, driversDirectory: Path?, writtenNames: Set<String>, index: Path): Outcome {
-        val driver = OracleMetadataLoader.findDriver(settings, driversDirectory)
-        val live = JdbcDriverDataSource(driver, settings.url, settings.user, settings.password)
+    fun load(settings: OracleSettings, compilationSchema: String?, database: OracleMetadataLoader.ConnectedDatabase, writtenNames: Set<String>, index: Path): Outcome {
+        val live = database.dataSource
         val path = pathFor(index)
-        val inputs = inputs(settings, compilationSchema, driver)
+        val inputs = inputs(settings, compilationSchema, database.driver)
         val kept = read(path)
         val reason = when {
             kept == null -> if (Files.exists(path)) "the kept dictionary cannot be used" else "no kept dictionary yet"

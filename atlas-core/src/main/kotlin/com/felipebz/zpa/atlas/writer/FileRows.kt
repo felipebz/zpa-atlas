@@ -13,15 +13,19 @@ internal class FileRows(private val writer: RowWriter) {
      * Writes [sortedFiles] (sorted by path) with the ids of [entityIds], then the run's and the files' coverage notes,
      * then the counts of [placesLeftOut] as notes after them all (so that the other notes keep their ids). [places] are
      * the places column values are read into, by file path, and [valueFields] the record fields values name, with the
-     * columns of row records' fields, by file path and value span.
+     * columns of row records' fields, by file path and value span. [fileDone] is told when a file's rows are given.
      */
     fun write(
         sortedFiles: List<FileFacts>, entityIds: Map<String, Long>, globalCoverage: List<CoverageFact>,
         places: Map<String, List<ColumnPlaceFact>> = emptyMap(), placesLeftOut: Map<String, Map<String, Int>> = emptyMap(),
-        valueFields: Map<String, Map<SourceSpan, ValueField>> = emptyMap()
+        valueFields: Map<String, Map<SourceSpan, ValueField>> = emptyMap(),
+        fileDone: () -> Unit = {}
     ) {
         val rows = Rows(entityIds)
-        for ((index, file) in sortedFiles.withIndex()) rows.writeFile(index + 1L, file, places[file.path].orEmpty(), valueFields[file.path].orEmpty())
+        for ((index, file) in sortedFiles.withIndex()) {
+            rows.writeFile(index + 1L, file, places[file.path].orEmpty(), valueFields[file.path].orEmpty())
+            fileDone()
+        }
         rows.writeNotes(notesOf(sortedFiles, globalCoverage, placesLeftOut))
         rows.finish()
     }

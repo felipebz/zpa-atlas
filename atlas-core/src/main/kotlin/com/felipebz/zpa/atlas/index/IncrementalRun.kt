@@ -90,8 +90,15 @@ internal class IncrementalRun private constructor(
     class CacheRead(val contents: CacheContents?, val reason: String?, val millis: Long)
 
     companion object {
-        /** Starts reading the facts cache beside [index] on its own thread. */
-        fun readCache(index: Path): PendingFactsCache = PendingFactsCache(onItsOwnThread("facts cache") {
+        /** Starts reading the facts cache beside [index] on its own thread; [progress] is told when it starts and ends. */
+        fun readCache(index: Path, progress: RunProgress? = null): PendingFactsCache {
+            val step = progress?.beside("facts cache", "reading the facts cache of the last run, beside the next steps")
+            return PendingFactsCache(onItsOwnThread("facts cache") { readCache(index) }.whenComplete { read, _ ->
+                step?.end(if (read?.contents != null) "read" else "not used: ${read?.reason ?: "it cannot be read"}")
+            })
+        }
+
+        private fun readCache(index: Path): CacheRead {
             val started = System.nanoTime()
             val cachePath = FactsCache.pathFor(index.toAbsolutePath())
             val (contents, reason) = when {
@@ -102,8 +109,8 @@ internal class IncrementalRun private constructor(
                     null to "the facts cache cannot be used: ${e.message}"
                 }
             }
-            CacheRead(contents, reason, (System.nanoTime() - started) / 1_000_000)
-        })
+            return CacheRead(contents, reason, (System.nanoTime() - started) / 1_000_000)
+        }
 
         /** Starts computing what the facts depend on besides the sources, on its own thread: the dictionary's share is large. */
         fun inputs(options: IndexOptions, phases: PhaseTimes?): CompletableFuture<Map<String, String>> = onItsOwnThread("facts cache inputs") {

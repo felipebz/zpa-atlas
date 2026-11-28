@@ -32,7 +32,7 @@ internal class SourceLines(private val writer: RowWriter) {
      */
     fun write(
         sortedFiles: List<FileFacts>, entityIds: Map<String, Long>, containerKeys: Set<String>, subprogramKeys: Set<String>, texts: (String) -> String?,
-        textIndex: SourceTextIndex
+        textIndex: SourceTextIndex, fileDone: () -> Unit = {}
     ) {
         check(textIndex.paths == sortedFiles.map { it.path }) { "The text index was built for other files" }
         val entities = { file: Int, lineCount: Int ->
@@ -58,7 +58,7 @@ internal class SourceLines(private val writer: RowWriter) {
                 }
             }
         }
-        insertLines(writer, sortedFiles.size, text, INSERT_CONTENT, entities)
+        insertLines(writer, sortedFiles.size, text, INSERT_CONTENT, fileDone, entities)
     }
 
     /** The key of the innermost container of each line (index 0 is line 1), or null. */
@@ -111,20 +111,21 @@ internal class SourceLines(private val writer: RowWriter) {
          * The lines of [fileCount] files through `source_line`, without their containers: what [SourceTextIndex]
          * builds. These were the rows of `source_line` before it was built apart, and the shadow tables stay theirs.
          */
-        fun insertLines(writer: RowWriter, fileCount: Int, text: (Int) -> String?) =
-            insertLines(writer, fileCount, text, INSERT) { _, _ -> { null } }
+        fun insertLines(writer: RowWriter, fileCount: Int, fileDone: () -> Unit = {}, text: (Int) -> String?) =
+            insertLines(writer, fileCount, text, INSERT, fileDone) { _, _ -> { null } }
 
         /**
          * Inserts with [sql] one row per line of each file of [text] (by file index, the file id less one): rowids
          * count every line of the files in order, but a line shorter than three characters has no row. [entities]
-         * gives a file's container of each line.
+         * gives a file's container of each line; [fileDone] is told when a file's lines are given.
          */
         private fun insertLines(
-            writer: RowWriter, fileCount: Int, text: (Int) -> String?, sql: String, entities: (Int, Int) -> (Int) -> Long?
+            writer: RowWriter, fileCount: Int, text: (Int) -> String?, sql: String, fileDone: () -> Unit, entities: (Int, Int) -> (Int) -> Long?
         ) {
             writer.insert(sql).use { insert ->
                 var rowid = 0L
                 for (index in 0 until fileCount) {
+                    fileDone()
                     val lines = (text(index) ?: continue).lines()
                     val entity = entities(index, lines.size)
                     for ((i, line) in lines.withIndex()) {

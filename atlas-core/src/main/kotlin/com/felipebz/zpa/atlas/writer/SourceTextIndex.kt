@@ -5,6 +5,7 @@
 
 package com.felipebz.zpa.atlas.writer
 
+import com.felipebz.zpa.atlas.index.RunProgress
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.Files
@@ -114,11 +115,13 @@ class SourceTextIndex private constructor(val paths: List<String>, private val b
          * [target], the index file it is for. With [keep], the kept file of [target] is used instead when it was built
          * from the same texts, and the one built is kept for the next run ([keep]).
          */
-        fun start(target: Path, texts: List<Pair<String, String>>, keep: Boolean = false): SourceTextIndex {
+        fun start(target: Path, texts: List<Pair<String, String>>, keep: Boolean = false, progress: RunProgress? = null): SourceTextIndex {
             val absolute = target.toAbsolutePath()
             Files.createDirectories(absolute.parent)
             val sorted = texts.sortedBy { it.first }
             val kept = if (keep) keptFor(absolute) else null
+            val step = progress?.beside("text index", (if (keep) "checking the kept text index, else building it," else "building the text index") +
+                " of ${sorted.size} files, beside the next steps", "files", sorted.size)
             val build = CompletableFuture<Built>()
             val thread = Thread({
                 val started = System.nanoTime()
@@ -126,6 +129,7 @@ class SourceTextIndex private constructor(val paths: List<String>, private val b
                     val key = kept?.let { key(sorted) }
                     if (kept != null && matches(kept, key!!)) {
                         build.complete(Built(kept, (System.nanoTime() - started) / 1_000_000, true, key))
+                        step?.end("the kept one is used, checked")
                         return@Thread
                     }
                     val file = Files.createTempFile(absolute.parent, absolute.fileName.toString(), ".text.tmp")
@@ -139,7 +143,7 @@ class SourceTextIndex private constructor(val paths: List<String>, private val b
                                 SOURCE_LINE_SETTINGS.forEach(statement::execute)
                             }
                             RowWriter(connection, "atlas-text-index rows").use { writer ->
-                                SourceLines.insertLines(writer, sorted.size) { sorted[it].second }
+                                SourceLines.insertLines(writer, sorted.size, { step?.advance() }) { sorted[it].second }
                                 writer.finish()
                             }
                             connection.commit()
@@ -149,7 +153,9 @@ class SourceTextIndex private constructor(val paths: List<String>, private val b
                         throw e
                     }
                     build.complete(Built(file, (System.nanoTime() - started) / 1_000_000, false, key))
+                    step?.end("built")
                 } catch (e: Throwable) {
+                    step?.end("failed")
                     build.completeExceptionally(e)
                 }
             }, "atlas-text-index")
